@@ -762,7 +762,7 @@ def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
 optimized_attention = attention_pytorch
 optimized_attention_no_sage = attention_pytorch
 
-if model_management.sage_attention_enabled():
+if model_management.sage_attention_enabled() and SAGE_ATTENTION_IS_AVAILABLE:
     logger.debug("Using sage attention")
     optimized_attention = attention_sage
     optimized_attention_no_sage = attention_pytorch
