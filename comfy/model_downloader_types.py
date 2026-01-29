@@ -44,6 +44,42 @@ class UrlFile:
 
 
 @dataclasses.dataclass(frozen=True)
+class FsspecFile:
+    """
+    A file accessible via fsspec (s3://, gcs://, az://, etc.)
+
+    Attributes:
+        uri: The full fsspec URI (e.g., s3://bucket/path/file.safetensors)
+    """
+    _uri: str
+    _save_with_filename: Optional[str] = None
+    show_in_ui: Optional[bool] = True
+
+    def __str__(self):
+        return self.save_with_filename
+
+    @property
+    def uri(self) -> str:
+        return self._uri
+
+    @functools.cached_property
+    def parsed_url(self) -> URL:
+        return parse(self._uri)
+
+    @property
+    def save_with_filename(self) -> str:
+        return self._save_with_filename or self.filename
+
+    @property
+    def filename(self) -> str:
+        return PurePosixPath(self.parsed_url.pathname).name
+
+    @property
+    def alternate_filenames(self):
+        return ()
+
+
+@dataclasses.dataclass(frozen=True)
 class CivitFile:
     """
     A file on CivitAI
@@ -219,4 +255,4 @@ class CivitModelsGetResponse(TypedDict):
     modelVersions: List[CivitModelVersion]
 
 
-Downloadable = Union[CivitFile, HuggingFile, UrlFile]
+Downloadable = Union[CivitFile, HuggingFile, UrlFile, FsspecFile]

@@ -28,13 +28,68 @@ from .cmd.folder_paths import add_model_folder_path, supported_pt_extensions  # 
 from .component_model.deprecation import _deprecate_method
 from .component_model.files import canonicalize_path
 from .interruption import InterruptProcessingException
-from .model_downloader_types import CivitFile, HuggingFile, CivitModelsGetResponse, CivitFile_, Downloadable, UrlFile, DownloadableFileList
+from .model_downloader_types import CivitFile, HuggingFile, CivitModelsGetResponse, CivitFile_, Downloadable, UrlFile, FsspecFile, DownloadableFileList
 from .utils import ProgressBar, comfy_tqdm
 
 _session = Session()
 _hf_fs = HfFileSystem()
 
 logger = logging.getLogger(__name__)
+
+
+def is_hf_uri(path: str) -> bool:
+    """Check if a path is a Hugging Face URI (hf://)."""
+    return path.startswith("hf://")
+
+
+def is_uri(path: str) -> bool:
+    """Check if a path is a URI (has a scheme like https://, hf://, s3://, etc.)."""
+    return "://" in path and not path.startswith("://")
+
+
+def parse_hf_uri(uri: str) -> HuggingFile:
+    """
+    Parse an hf:// URI into a HuggingFile object.
+
+    Parses hf:// URIs in the format:
+    - hf://repo/file (repo_id=repo, filename=file)
+    - hf://org/repo/path/to/file (repo_id=org/repo, filename=path/to/file)
+    - hf://datasets/org/repo/path/to/file (for datasets)
+    - hf://spaces/org/repo/path/to/file (for spaces)
+    """
+    path_part = uri.replace("hf://", "")
+    parts = path_part.split("/")
+
+    # Check if it starts with a repo_type
+    if parts[0] in ("datasets", "spaces"):
+        repo_type = parts[0]
+        parts = parts[1:]  # Remove repo_type prefix
+    else:
+        repo_type = "model"
+
+    # Now parts is either [repo, file...] or [org, repo, file...]
+    # HuggingFace repo names can be "repo" or "org/repo"
+    # If there are only 2 parts, it's repo/file
+    # If there are more, check if the first part looks like an org
+    if len(parts) == 2:
+        # Simple case: repo/file
+        repo_id = parts[0]
+        filename = parts[1]
+    else:
+        # Could be org/repo/file... or repo/path/to/file
+        # HuggingFace orgs/users don't have file extensions, so if parts[1] has an extension, it's likely a file
+        # Otherwise, assume org/repo format
+        if "." in parts[1] and len(parts[1].split(".")[-1]) <= 10:
+            # parts[1] looks like a filename
+            repo_id = parts[0]
+            filename = "/".join(parts[1:])
+        else:
+            # Assume org/repo format
+            repo_id = f"{parts[0]}/{parts[1]}"
+            filename = "/".join(parts[2:])
+
+    return HuggingFile(repo_id=repo_id, filename=filename, repo_type=repo_type)
+
 
 
 def get_filename_list(folder_name: str) -> Sequence[str]:
@@ -76,6 +131,21 @@ def get_full_path(folder_name: str, filename: str) -> Optional[str]:
 
 
 def get_or_download(folder_name: str, filename: str, known_files: Optional[List[Downloadable] | KnownDownloadables] = None) -> Optional[str]:
+    # Handle URIs by transforming them into Downloadable objects
+    if is_uri(filename):
+        if is_hf_uri(filename):
+            # Transform hf:// URI into HuggingFile and use the standard download path
+            hf_file = parse_hf_uri(filename)
+            return get_or_download(folder_name, str(hf_file), known_files=[hf_file])
+        elif filename.startswith("http://") or filename.startswith("https://"):
+            # Transform http/https URIs into UrlFile and use the standard download path
+            url_file = UrlFile(filename)
+            return get_or_download(folder_name, str(url_file), known_files=[url_file])
+        else:
+            # For other URIs (s3://, etc.), transform into FsspecFile and use the standard download path
+            fsspec_file = FsspecFile(filename)
+            return get_or_download(folder_name, str(fsspec_file), known_files=[fsspec_file])
+
     if known_files is None:
         known_files = _get_known_models_for_folder_name(folder_name)
 
@@ -221,43 +291,62 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                     if not link_successful:
                         logger.error(f"Failed to link file with alternative download save name in a way that is compatible with Hugging Face caching {repr(known_file)}. If cache_hit={cache_hit} is True, the file was copied into the destination. exc_info={exc_info_link}")
                 else:
-                    url: Optional[str] = None
                     save_filename = known_file.save_with_filename or known_file.filename
+                    destination_with_filename = join(this_model_directory, save_filename)
+                    os.makedirs(os.path.dirname(destination_with_filename), exist_ok=True)
 
-                    if isinstance(known_file, CivitFile):
-                        model_info_res = _session.get(
-                            f"https://civitai.com/api/v1/models/{known_file.model_id}?modelVersionId={known_file.model_version_id}")
-                        model_info: CivitModelsGetResponse = model_info_res.json()
-
-                        civit_file: CivitFile_
-                        for civit_file in chain.from_iterable(version['files'] for version in model_info['modelVersions']):
-                            if canonicalize_path(civit_file['name']) == filename:
-                                url = civit_file['downloadUrl']
-                                break
-                    elif isinstance(known_file, UrlFile):
-                        url = known_file.url
-                    else:
-                        raise RuntimeError("Unknown file type")
-
-                    if url is None:
-                        logger.warning(f"Could not retrieve file {str(known_file)}")
-                    else:
-                        destination_with_filename = join(this_model_directory, save_filename)
-                        os.makedirs(os.path.dirname(destination_with_filename), exist_ok=True)
+                    if isinstance(known_file, FsspecFile):
+                        # Handle FsspecFile using fsspec
+                        import fsspec
                         try:
-
-                            with _session.get(url, stream=True, allow_redirects=True) as response:
-                                total_size = int(response.headers.get("content-length", 0))
-                                progress_bar = ProgressBar(total=total_size)
-                                with open(destination_with_filename, "wb") as file:
-                                    for chunk in response.iter_content(chunk_size=512 * 1024):
-                                        progress_bar.update(len(chunk))
-                                        file.write(chunk)
+                            with fsspec.open(known_file.uri, "rb") as src:
+                                with open(destination_with_filename, "wb") as dst:
+                                    chunk_size = 1024 * 1024  # 1MB
+                                    while True:
+                                        chunk = src.read(chunk_size)
+                                        if not chunk:
+                                            break
+                                        dst.write(chunk)
                         except InterruptProcessingException:
                             os.remove(destination_with_filename)
 
                         path = folder_paths.get_full_path(folder_name, filename)
                         assert path is not None
+                    else:
+                        # Handle URL-based downloads (CivitFile, UrlFile)
+                        url: Optional[str] = None
+
+                        if isinstance(known_file, CivitFile):
+                            model_info_res = _session.get(
+                                f"https://civitai.com/api/v1/models/{known_file.model_id}?modelVersionId={known_file.model_version_id}")
+                            model_info: CivitModelsGetResponse = model_info_res.json()
+
+                            civit_file: CivitFile_
+                            for civit_file in chain.from_iterable(version['files'] for version in model_info['modelVersions']):
+                                if canonicalize_path(civit_file['name']) == filename:
+                                    url = civit_file['downloadUrl']
+                                    break
+                        elif isinstance(known_file, UrlFile):
+                            url = known_file.url
+                        else:
+                            raise RuntimeError("Unknown file type")
+
+                        if url is None:
+                            logger.warning(f"Could not retrieve file {str(known_file)}")
+                        else:
+                            try:
+                                with _session.get(url, stream=True, allow_redirects=True) as response:
+                                    total_size = int(response.headers.get("content-length", 0))
+                                    progress_bar = ProgressBar(total=total_size)
+                                    with open(destination_with_filename, "wb") as file:
+                                        for chunk in response.iter_content(chunk_size=512 * 1024):
+                                            progress_bar.update(len(chunk))
+                                            file.write(chunk)
+                            except InterruptProcessingException:
+                                os.remove(destination_with_filename)
+
+                            path = folder_paths.get_full_path(folder_name, filename)
+                            assert path is not None
         except StopIteration:
             pass
         except GatedRepoError as exc_info:
