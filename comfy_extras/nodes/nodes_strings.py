@@ -64,4 +64,23 @@ class ToString(CustomNode):
         return str(value),
 
 
+class StringCombo(CustomNode):
+    """A simple node to set combo box inputs from a string value."""
+
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypes:
+        return {
+            "required": {
+                "value": (IO.STRING, {"default": ""})
+            }
+        }
+
+    RETURN_TYPES = (IO.ANY,)
+    CATEGORY = "strings"
+    FUNCTION = "execute"
+
+    def execute(self, value: str = "") -> ValidatedNodeResult:
+        return (value,)
+
+
 export_custom_nodes()
