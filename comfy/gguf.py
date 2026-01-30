@@ -38,8 +38,9 @@ REARRANGE_THRESHOLD = 512
 MAX_TENSOR_NAME_LENGTH = 127
 MAX_TENSOR_DIMS = 4
 TORCH_COMPATIBLE_QTYPES = (None, gguf.GGMLQuantizationType.F32, gguf.GGMLQuantizationType.F16)
-IMG_ARCH_LIST = {"flux", "sd1", "sdxl", "sd3", "aura", "hidream", "cosmos", "ltxv", "hyvid", "wan", "qwen_image"}
-TXT_ARCH_LIST = {"t5", "t5encoder", "llama", "qwen2vl"}
+IMG_ARCH_LIST = {"flux", "sd1", "sdxl", "sd3", "aura", "hidream", "cosmos", "ltxv", "hyvid", "wan", "lumina2", "qwen_image"}
+TXT_ARCH_LIST = {"t5", "t5encoder", "llama", "qwen2vl", "qwen3", "qwen3vl", "gemma3"}
+VIS_TYPE_LIST = {"clip-vision", "mmproj"}
 
 CLIP_VISION_SD_MAP = {
     "mm.": "visual.merger.mlp.",
@@ -193,8 +194,15 @@ class ModelSD1(ModelTemplate):
     ]
 
 
+class ModelLumina2(ModelTemplate):
+    arch = "lumina2"
+    keys_detect = [
+        ("cap_embedder.1.weight", "context_refiner.0.attention.qkv.weight")
+    ]
+
+
 # The architectures are checked in order and the first successful match terminates the search.
-arch_list = [ModelFlux, ModelSD3, ModelAura, ModelHiDream, CosmosPredict2, ModelLTXV, ModelHyVid, ModelWan, ModelSDXL, ModelSD1]
+arch_list = [ModelFlux, ModelSD3, ModelAura, ModelHiDream, CosmosPredict2, ModelLTXV, ModelHyVid, ModelWan, ModelSDXL, ModelSD1, ModelLumina2]
 
 
 def is_model_arch(model, state_dict):
@@ -462,6 +470,11 @@ def to_uint32(x):
     return (x[:, 0] | x[:, 1] << 8 | x[:, 2] << 16 | x[:, 3] << 24).unsqueeze(1)
 
 
+def to_uint16(x):
+    x = x.view(torch.uint8).to(torch.int32)
+    return (x[:, 0] | x[:, 1] << 8).unsqueeze(1)
+
+
 def split_block_dims(blocks, *args):
     n_max = blocks.shape[1]
     dims = list(args) + [n_max - sum(args)]
@@ -661,6 +674,56 @@ def dequantize_blocks_Q2_K(blocks, block_size, type_size, dtype=None):
     return qs.reshape((n_blocks, -1))
 
 
+# IQ quants
+KVALUES = torch.tensor([-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113], dtype=torch.int8)
+
+
+def dequantize_blocks_IQ4_NL(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    d, qs = split_block_dims(blocks, 2)
+    d = d.view(torch.float16).to(dtype)
+
+    qs = qs.reshape((n_blocks, -1, 1, block_size // 2)) >> torch.tensor([0, 4], device=d.device, dtype=torch.uint8).reshape((1, 1, 2, 1))
+    qs = (qs & 0x0F).reshape((n_blocks, -1, 1)).to(torch.int64)
+
+    kvalues = KVALUES.to(qs.device).expand(*qs.shape[:-1], 16)
+    qs = torch.gather(kvalues, dim=-1, index=qs).reshape((n_blocks, -1))
+    del kvalues  # should still be view, but just to be safe
+
+    return (d * qs)
+
+
+def dequantize_blocks_IQ4_XS(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+    d, scales_h, scales_l, qs = split_block_dims(blocks, 2, 2, QK_K // 64)
+    d = d.view(torch.float16).to(dtype)
+    scales_h = to_uint16(scales_h)
+
+    shift_a = torch.tensor([0, 4], device=d.device, dtype=torch.uint8).reshape((1, 1, 2))
+    shift_b = torch.tensor([2 * i for i in range(QK_K // 32)], device=d.device, dtype=torch.uint8).reshape((1, -1, 1))
+
+    scales_l = scales_l.reshape((n_blocks, -1, 1)) >> shift_a.reshape((1, 1, 2))
+    scales_h = scales_h.reshape((n_blocks, -1, 1)) >> shift_b.reshape((1, -1, 1))
+
+    scales_l = scales_l.reshape((n_blocks, -1)) & 0x0F
+    scales_h = scales_h.reshape((n_blocks, -1)).to(torch.uint8) & 0x03
+
+    scales = (scales_l | (scales_h << 4)).to(torch.int8) - 32
+    dl = (d * scales.to(dtype)).reshape((n_blocks, -1, 1))
+
+    qs = qs.reshape((n_blocks, -1, 1, 16)) >> shift_a.reshape((1, 1, 2, 1))
+    qs = qs.reshape((n_blocks, -1, 32, 1)) & 0x0F
+
+    kvalues = KVALUES.to(qs.device).expand(*qs.shape[:-1], 16)
+    qs = torch.gather(kvalues, dim=-1, index=qs.to(torch.int64)).reshape((n_blocks, -1, 32))
+    del kvalues  # see IQ4_NL
+    del shift_a
+    del shift_b
+
+    return (dl * qs).reshape((n_blocks, -1))
+
+
 dequantize_functions = {
     gguf.GGMLQuantizationType.BF16: dequantize_blocks_BF16,
     gguf.GGMLQuantizationType.Q8_0: dequantize_blocks_Q8_0,
@@ -673,6 +736,8 @@ dequantize_functions = {
     gguf.GGMLQuantizationType.Q4_K: dequantize_blocks_Q4_K,
     gguf.GGMLQuantizationType.Q3_K: dequantize_blocks_Q3_K,
     gguf.GGMLQuantizationType.Q2_K: dequantize_blocks_Q2_K,
+    gguf.GGMLQuantizationType.IQ4_NL: dequantize_blocks_IQ4_NL,
+    gguf.GGMLQuantizationType.IQ4_XS: dequantize_blocks_IQ4_XS,
 }
 
 
@@ -700,7 +765,7 @@ def get_field(reader, field_name, field_type):
             raise TypeError(f"Bad type for GGUF {field_name} key: expected string, got {field.types!r}")
         return str(field.parts[field.data[-1]], encoding="utf-8")
     elif field_type in [int, float, bool]:
-        return field_type(field.parts[field.data[-1]])
+        return field_type(field.parts[field.data[-1]].item())
     else:
         raise TypeError(f"Unknown field type {field_type}")
 
@@ -744,9 +809,10 @@ def gguf_sd_loader(path, handle_prefix="model.diffusion_model.", return_arch=Fal
     # detect and verify architecture
     compat = None
     arch_str = get_field(reader, "general.architecture", str)
-    if arch_str in [None, "pig"]:
+    type_str = get_field(reader, "general.type", str)
+    if arch_str in [None, "pig", "cow"]:
         if is_text_model:
-            raise ValueError(f"This text model is incompatible with llama.cpp!\nConsider using the safetensors version\n({path})")
+            raise ValueError(f"This gguf file is incompatible with llama.cpp!\nConsider using safetensors or a compatible gguf file\n({path})")
         compat = "sd.cpp" if arch_str is None else arch_str
         # import here to avoid changes to convert.py breaking regular models
         try:
@@ -754,9 +820,10 @@ def gguf_sd_loader(path, handle_prefix="model.diffusion_model.", return_arch=Fal
         except Exception as e:
             raise ValueError(f"This model is not currently supported - ({e})")
     elif arch_str not in TXT_ARCH_LIST and is_text_model:
-        logger.warning(f"Unexpected text model architecture type in GGUF file: {arch_str!r}")
+        if type_str not in VIS_TYPE_LIST:
+            raise ValueError(f"Unexpected text model architecture type in GGUF file: {arch_str!r}")
     elif arch_str not in IMG_ARCH_LIST and not is_text_model:
-        logger.warning(f"Unexpected architecture type in GGUF file: {arch_str!r}")
+        raise ValueError(f"Unexpected architecture type in GGUF file: {arch_str!r}")
 
     if compat:
         logger.warning(f"Warning: This gguf model file is loaded in compatibility mode '{compat}' [arch:{arch_str}]")
@@ -826,6 +893,9 @@ T5_SD_MAP = {
 LLAMA_SD_MAP = {
     "blk.": "model.layers.",
     "attn_norm": "input_layernorm",
+    "attn_q_norm.": "self_attn.q_norm.",
+    "attn_k_norm.": "self_attn.k_norm.",
+    "attn_v_norm.": "self_attn.v_norm.",
     "attn_q": "self_attn.q_proj",
     "attn_k": "self_attn.k_proj",
     "attn_v": "self_attn.v_proj",
@@ -859,6 +929,34 @@ def llama_permute(raw_sd, n_head, n_head_kv):
         if k.endswith(("k_proj.weight", "k_proj.bias")):
             v.data = permute(v.data, n_head_kv)
         sd[k] = v
+    return sd
+
+
+GEMMA3_SD_MAP = LLAMA_SD_MAP.copy()
+GEMMA3_SD_MAP.update({
+    "ffn_norm": "pre_feedforward_layernorm",
+    "post_ffw_norm": "post_feedforward_layernorm",
+    "post_attention_norm": "post_attention_layernorm",
+})
+
+
+def gemma3_norm_corrections(sd):
+    # Reverse change from Gemma3Model modify_tensors in llama.cpp convert script
+    norm_patterns = [
+        "input_layernorm.weight",
+        "post_attention_layernorm.weight",
+        "pre_feedforward_layernorm.weight",
+        "post_feedforward_layernorm.weight",
+        "self_attn.q_norm.weight",
+        "self_attn.k_norm.weight",
+        "model.norm.weight"
+    ]
+    for key in list(sd.keys()):
+        if any(p in key for p in norm_patterns):
+            if is_quantized(sd[key]):
+                sd[key] = dequantize_tensor(sd[key], dtype=torch.float32) - 1.0
+            else:
+                sd[key] = sd[key].float() - 1.0
     return sd
 
 
@@ -1032,6 +1130,45 @@ def gguf_tekken_tokenizer_loader(path, temb_shape):
     return torch.ByteTensor(list(json.dumps(data).encode('utf-8')))
 
 
+def gguf_gemma3_tokenizer_loader(path):
+    # TODO: merge into gguf_tokenizer_loader
+    logger.info("Attempting to recreate sentencepiece tokenizer from GGUF file metadata...")
+    spm = model.ModelProto()
+    reader = gguf.GGUFReader(path)
+
+    spm.normalizer_spec.name = "identity"
+    spm.normalizer_spec.add_dummy_prefix = False
+    spm.trainer_spec.model_type = 2
+    spm.trainer_spec.input_format = "tsv"
+    spm.trainer_spec.byte_fallback = True
+    spm.trainer_spec.max_sentence_length = 4192
+    spm.trainer_spec.bos_piece = "<bos>"
+
+    tokens = get_list_field(reader, "tokenizer.ggml.tokens", str)
+    scores = get_list_field(reader, "tokenizer.ggml.scores", float)
+    toktype = get_list_field(reader, "tokenizer.ggml.token_type", int)
+
+    if not tokens or not scores or not toktype:
+        raise ValueError("Missing tokenizer metadata")
+
+    for idx in range(len(tokens)):
+        piece = spm.SentencePiece()
+        piece.piece = tokens[idx]
+        if idx == 3:  # UNK position
+            piece.type = 2  # UNK Token
+            piece.score = 0.0  # UNK Score
+        else:
+            piece.type = toktype[idx]
+            piece.score = scores[idx]
+        spm.pieces.append(piece)
+
+    spm.trainer_spec.vocab_size = len(spm.pieces)
+    logger.info(f"Created tokenizer with vocab size of {len(spm.pieces)}")
+
+    del reader
+    return torch.ByteTensor(list(spm.SerializeToString()))
+
+
 def gguf_clip_loader(path):
     sd, arch = gguf_sd_loader(path, return_arch=True, is_text_model=True)
     if arch in {"t5", "t5encoder"}:
@@ -1043,17 +1180,23 @@ def gguf_clip_loader(path):
             logger.warning(f"Dequantizing {temb_key} to prevent runtime OOM.")
             sd[temb_key] = dequantize_tensor(sd[temb_key], dtype=torch.float16)
         sd = sd_map_replace(sd, T5_SD_MAP)
-    elif arch in {"llama", "qwen2vl"}:
+    elif arch in {"llama", "qwen2vl", "qwen3", "qwen3vl", "gemma3"}:
         # TODO: pass model_options["vocab_size"] to loader somehow
         temb_key = "token_embd.weight"
         if temb_key in sd and sd[temb_key].shape[0] >= (64 * 1024):
             if arch == "llama" and sd[temb_key].shape == (131072, 5120):
                 # non-standard Comfy-Org tokenizer
                 sd["tekken_model"] = gguf_tekken_tokenizer_loader(path, sd[temb_key].shape)
+            elif arch == "gemma3":
+                sd["spiece_model"] = gguf_gemma3_tokenizer_loader(path)
             # See note above for T5.
             logger.warning(f"Dequantizing {temb_key} to prevent runtime OOM.")
             sd[temb_key] = dequantize_tensor(sd[temb_key], dtype=torch.float16)
-        sd = sd_map_replace(sd, LLAMA_SD_MAP)
+        if arch == "gemma3":
+            sd = sd_map_replace(sd, GEMMA3_SD_MAP)
+            sd = gemma3_norm_corrections(sd)
+        else:
+            sd = sd_map_replace(sd, LLAMA_SD_MAP)
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)  # L3 / Mistral
         if arch == "qwen2vl":
