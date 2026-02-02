@@ -360,4 +360,5 @@ __all__ = [
 ]
 
 def enables_dynamic_vram():
-    return PerformanceFeature.DynamicVRAM in args.fast and not args.highvram and not args.gpu_only
+    config = _args()
+    return PerformanceFeature.DynamicVRAM in config.fast and not config.highvram and not config.gpu_only

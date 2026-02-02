@@ -169,6 +169,7 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
     load_device: torch.device
     offload_device: torch.device
     model: torch.nn.Module
+    ckpt_name: Optional[str]
 
     @property
     def current_device(self) -> torch.device: ...
@@ -221,9 +222,11 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
         load_device (torch.device): the device that this model's weights will be loaded onto for inference, typically the GPU
         offload_device (torch.device): the device that this model's weights will be offloaded onto when not being used for inference or when performing CPU offloading, typically the CPU
         model (torch.nn.Module): in principle this can be any callable, but it should be a torch model to work with the rest of the machinery
+        ckpt_name (Optional[str]): the name or path of the checkpoint file this model was loaded from
     :see: ModelManageable
     :see: PatchSupport
     """
+    ckpt_name: Optional[str] = None
 
     @abstractmethod
     def patch_model(self, device_to: torch.device | None = None, lowvram_model_memory: int = 0, load_weights: bool = True,

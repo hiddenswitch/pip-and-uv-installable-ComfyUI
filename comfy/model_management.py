@@ -36,9 +36,9 @@ import psutil
 import torch
 from opentelemetry.trace import get_current_span
 
-import comfy.memory_management
-import comfy.quant_ops
-import comfy.utils
+from . import memory_management
+from . import quant_ops
+from . import utils
 from . import interruption
 from .cli_args import args, PerformanceFeature
 from .component_model.deprecation import _deprecate_method
@@ -652,7 +652,7 @@ WINDOWS = any(platform.win32_ver())
 
 EXTRA_RESERVED_VRAM = 400 * 1024 * 1024
 if WINDOWS:
-    import comfy.windows
+    from . import windows
 
     EXTRA_RESERVED_VRAM = 600 * 1024 * 1024  # Windows is higher because of the shared vram issue
     if total_vram > (15 * 1024):  # more extra reserved vram on 16GB+ cards
@@ -660,7 +660,7 @@ if WINDOWS:
 
 
     def get_free_ram():
-        return comfy.windows.get_free_ram()
+        return windows.get_free_ram()
 else:
     def get_free_ram():
         return psutil.virtual_memory().available
@@ -972,7 +972,7 @@ def unet_initial_load_device(parameters, dtype):
 
     mem_dev = get_free_memory(torch_dev)
     mem_cpu = get_free_memory(cpu_dev)
-    if mem_dev > mem_cpu and model_size < mem_dev and comfy.memory_management.aimdo_allocator is None:
+    if mem_dev > mem_cpu and model_size < mem_dev and memory_management.aimdo_allocator is None:
         return torch_dev
     else:
         return cpu_dev
@@ -1296,7 +1296,7 @@ def reset_cast_buffers():
     for offload_stream in STREAM_CAST_BUFFERS:
         offload_stream.synchronize()
     STREAM_CAST_BUFFERS.clear()
-    if comfy.memory_management.aimdo_allocator is None:
+    if memory_management.aimdo_allocator is None:
         # Pytorch 2.7 and earlier crashes if you try and empty_cache when mempools exist
         torch.cuda.empty_cache()
 
@@ -1352,7 +1352,7 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None):
         if hasattr(wf_context, "as_context"):
             wf_context = wf_context.as_context(stream)
 
-    dest_views = comfy.memory_management.interpret_gathered_like(tensors, r)
+    dest_views = memory_management.interpret_gathered_like(tensors, r)
     with wf_context:
         for tensor in tensors:
             dest_view = dest_views.pop(0)
@@ -1368,7 +1368,7 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
         assert r is None
         assert stream is None
 
-        cast_geometry = comfy.memory_management.tensors_to_geometries([weight])
+        cast_geometry = memory_management.tensors_to_geometries([weight])
 
         if dtype is None:
             dtype = weight._model_dtype
@@ -1378,7 +1378,7 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
         signature = comfy_aimdo.model_vbar.vbar_fault(weight._v)
         if signature is not None:
             raw_tensor = comfy_aimdo.torch.aimdo_to_tensor(weight._v, device)
-            v_tensor = comfy.memory_management.interpret_gathered_like(cast_geometry, raw_tensor)[0]
+            v_tensor = memory_management.interpret_gathered_like(cast_geometry, raw_tensor)[0]
             if not comfy_aimdo.model_vbar.vbar_signature_compare(signature, weight._v_signature):
                 weight._v_signature = signature
                 # Send it over
@@ -1935,7 +1935,7 @@ def _soft_empty_cache(force=False):
     elif is_mlu():
         torch.mlu.empty_cache()  # pylint: disable=no-member
     elif torch.cuda.is_available():
-        if comfy.memory_management.aimdo_allocator is None:
+        if memory_management.aimdo_allocator is None:
             # Pytorch 2.7 and earlier crashes if you try and empty_cache when mempools exist
             torch.cuda.synchronize()
             torch.cuda.empty_cache()

@@ -174,7 +174,7 @@ async def test_validate_prompt_invalid_node(mock_nodes):
 
     result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert not result.valid
-    assert result.error["type"] == "invalid_prompt"
+    assert result.error["type"] == "missing_node_type"
     assert "NonExistentNode" in result.error["message"]
 
 

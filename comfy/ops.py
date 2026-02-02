@@ -24,10 +24,10 @@ import comfy_aimdo.torch
 import torch
 from torch import Tensor
 
-import comfy.memory_management
-import comfy.pinned_memory
-import comfy.utils
+from . import memory_management
 from . import model_management, rmsnorm
+from . import pinned_memory
+from . import utils
 from .cli_args import args, PerformanceFeature, enables_dynamic_vram
 from .execution_context import current_execution_context
 from .interruption import throw_exception_if_processing_interrupted
@@ -158,7 +158,7 @@ def cast_to_input(weight, input, non_blocking=False, copy=True):
 def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype):
     offload_stream = None
     xfer_dest = None
-    cast_geometry = comfy.memory_management.tensors_to_geometries([ s.weight, s.bias ])
+    cast_geometry = memory_management.tensors_to_geometries([ s.weight, s.bias ])
 
     signature = comfy_aimdo.model_vbar.vbar_fault(s._v)
     if signature is not None:
@@ -170,7 +170,7 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
 
         xfer_source = [ s.weight, s.bias ]
 
-        pin = comfy.pinned_memory.get_pin(s)
+        pin = pinned_memory.get_pin(s)
         if pin is not None:
             xfer_source = [ pin ]
 
@@ -180,42 +180,42 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
             if data.dtype != geometry.dtype:
                 cast_dest = xfer_dest
                 if cast_dest is None:
-                    cast_dest = torch.empty((comfy.memory_management.vram_aligned_size(cast_geometry),), dtype=torch.uint8, device=device)
+                    cast_dest = torch.empty((memory_management.vram_aligned_size(cast_geometry),), dtype=torch.uint8, device=device)
                 xfer_dest = None
                 break
 
-        dest_size = comfy.memory_management.vram_aligned_size(xfer_source)
-        offload_stream = comfy.model_management.get_offload_stream(device)
+        dest_size = memory_management.vram_aligned_size(xfer_source)
+        offload_stream = model_management.get_offload_stream(device)
         if xfer_dest is None and offload_stream is not None:
-                xfer_dest = comfy.model_management.get_cast_buffer(offload_stream, device, dest_size, s)
+                xfer_dest = model_management.get_cast_buffer(offload_stream, device, dest_size, s)
                 if xfer_dest is None:
-                    offload_stream = comfy.model_management.get_offload_stream(device)
-                    xfer_dest = comfy.model_management.get_cast_buffer(offload_stream, device, dest_size, s)
+                    offload_stream = model_management.get_offload_stream(device)
+                    xfer_dest = model_management.get_cast_buffer(offload_stream, device, dest_size, s)
         if xfer_dest is None:
             xfer_dest = torch.empty((dest_size,), dtype=torch.uint8, device=device)
             offload_stream = None
 
         if signature is None and pin is None:
-            comfy.pinned_memory.pin_memory(s)
-            pin = comfy.pinned_memory.get_pin(s)
+            pinned_memory.pin_memory(s)
+            pin = pinned_memory.get_pin(s)
         else:
             pin = None
 
         if pin is not None:
-            comfy.model_management.cast_to_gathered(xfer_source, pin)
+            model_management.cast_to_gathered(xfer_source, pin)
             xfer_source = [ pin ]
         #send it over
-        comfy.model_management.cast_to_gathered(xfer_source, xfer_dest, non_blocking=non_blocking, stream=offload_stream)
-        comfy.model_management.sync_stream(device, offload_stream)
+        model_management.cast_to_gathered(xfer_source, xfer_dest, non_blocking=non_blocking, stream=offload_stream)
+        model_management.sync_stream(device, offload_stream)
 
         if cast_dest is not None:
-            for pre_cast, post_cast in zip(comfy.memory_management.interpret_gathered_like([s.weight, s.bias ], xfer_dest),
-                                           comfy.memory_management.interpret_gathered_like(cast_geometry, cast_dest)):
-                if post_cast is not None:
-                    post_cast.copy_(pre_cast)
+            for src_tensor, dst_tensor in zip(memory_management.interpret_gathered_like([s.weight, s.bias ], xfer_dest),
+                                              memory_management.interpret_gathered_like(cast_geometry, cast_dest)):
+                if dst_tensor is not None:
+                    dst_tensor.copy_(src_tensor)
             xfer_dest = cast_dest
 
-    params = comfy.memory_management.interpret_gathered_like(cast_geometry, xfer_dest)
+    params = memory_management.interpret_gathered_like(cast_geometry, xfer_dest)
     weight = params[0]
     bias = params[1]
 
@@ -239,7 +239,7 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
             x = lowvram_fn(x)
             if (isinstance(orig, QuantizedTensor) and
                 (orig.dtype == dtype and len(fns) == 0 or update_weight)):
-                seed = comfy.utils.string_to_seed(s.seed_key)
+                seed = utils.string_to_seed(s.seed_key)
                 y = QuantizedTensor.from_float(x, s.layout_type, scale="recalculate", stochastic_rounding=seed)
                 if orig.dtype == dtype and len(fns) == 0:
                     #The layer actually wants our freshly saved QT
@@ -278,7 +278,7 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
         if device is None:
             device = input.device
 
-    non_blocking = comfy.model_management.device_supports_non_blocking(device)
+    non_blocking = model_management.device_supports_non_blocking(device)
 
     if hasattr(s, "_v"):
         return cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype)
@@ -293,13 +293,13 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
     weight = None
 
     if offload_stream is not None and not args.cuda_malloc:
-        cast_buffer_size = comfy.memory_management.vram_aligned_size([ s.weight, s.bias ])
-        cast_buffer = comfy.model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
+        cast_buffer_size = memory_management.vram_aligned_size([ s.weight, s.bias ])
+        cast_buffer = model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
         #The streams can be uneven in buffer capability and reject us. Retry to get the other stream
         if cast_buffer is None:
-            offload_stream = comfy.model_management.get_offload_stream(device)
+            offload_stream = model_management.get_offload_stream(device)
             cast_buffer = model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
-        params = comfy.memory_management.interpret_gathered_like([ s.weight, s.bias ], cast_buffer)
+        params = memory_management.interpret_gathered_like([ s.weight, s.bias ], cast_buffer)
         weight = params[0]
         bias = params[1]
 
@@ -412,7 +412,7 @@ class disable_weight_init:
     class Linear(torch.nn.Linear, CastWeightBiasOp):
 
         def __init__(self, in_features, out_features, bias=True, device=None, dtype=None):
-            if not comfy.model_management.WINDOWS or not enables_dynamic_vram():
+            if not model_management.WINDOWS or not enables_dynamic_vram():
                 super().__init__(in_features, out_features, bias, device, dtype)
                 return
 
@@ -433,7 +433,7 @@ class disable_weight_init:
         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
                                 strict, missing_keys, unexpected_keys, error_msgs):
 
-            if not comfy.model_management.WINDOWS or not enables_dynamic_vram():
+            if not model_management.WINDOWS or not enables_dynamic_vram():
                 return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                                      missing_keys, unexpected_keys, error_msgs)
             assign_to_params_buffers = local_metadata.get("assign_to_params_buffers", False)

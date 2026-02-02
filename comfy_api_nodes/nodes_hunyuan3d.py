@@ -22,7 +22,7 @@ from comfy_api_nodes.util import (
     validate_image_dimensions,
     validate_string,
 )
-from folder_paths import get_output_directory
+from comfy.cmd.folder_paths import get_output_directory
 
 
 def get_glb_obj_from_response(response_objs: list[ResultFile3D]) -> ResultFile3D:

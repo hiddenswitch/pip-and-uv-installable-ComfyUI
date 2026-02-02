@@ -270,7 +270,7 @@ class Configuration(dict):
         self.max_queue_size: int = 65536
         self.disable_requests_caching: bool = False
         self.force_channels_last: bool = False
-        self.force_hf_local_dir_mode = False
+        self.force_hf_local_dir_mode: bool = False
         self.preview_size: int = 512
         self.logging_level: str = "INFO"
         self.oneapi_device_selector: Optional[str] = None

@@ -532,6 +532,8 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
         return RecursiveExecutionTuple(ExecutionResult.SUCCESS, None, None)
 
     input_data_all = None
+    output_ui = []
+    has_subgraph = False
     try:
         if unique_id in pending_async_nodes:
             results = []

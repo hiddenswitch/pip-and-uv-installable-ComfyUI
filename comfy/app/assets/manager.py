@@ -176,7 +176,7 @@ def upload_asset_from_temp_path(
     """
     try:
         # NOTE: blake3 is not required right now, so this will fail if blake3 is not installed in local environment
-        import app.assets.hashing as hashing
+        from . import hashing
         digest = hashing.blake3_hash(temp_path)
     except Exception as e:
         raise RuntimeError(f"failed to hash uploaded file: {e}")

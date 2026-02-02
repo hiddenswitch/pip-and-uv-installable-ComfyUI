@@ -16,11 +16,11 @@ from .. import model_sampling
 from ..model_sampling import CONST
 
 
-import comfy.memory_management
+from .. import memory_management
 
 
 def trange(*args, **kwargs):
-    if comfy.memory_management.aimdo_allocator is None:
+    if memory_management.aimdo_allocator is None:
         return trange_(*args, **kwargs)
 
     pbar = trange_(*args, **kwargs, smoothing=1.0)

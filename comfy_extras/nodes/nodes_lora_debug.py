@@ -1,4 +1,4 @@
-import folder_paths
+from comfy.cmd import folder_paths
 import comfy.utils
 import comfy.sd
 

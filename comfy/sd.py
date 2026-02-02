@@ -122,14 +122,14 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
     """
     key_map = {}
     if model is not None:
-        key_map = comfy.lora.model_lora_keys_unet(model.model, key_map)
+        key_map = model_lora_keys_unet(model.model, key_map)
     if clip is not None:
-        key_map = comfy.lora.model_lora_keys_clip(clip.cond_stage_model, key_map)
+        key_map = model_lora_keys_clip(clip.cond_stage_model, key_map)
 
     logging.debug(f"[BypassLoRA] key_map has {len(key_map)} entries")
 
-    lora = comfy.lora_convert.convert_lora(lora)
-    loaded = comfy.lora.load_lora(lora, key_map)
+    lora = convert_lora(lora)
+    loaded = load_lora(lora, key_map)
 
     logging.debug(f"[BypassLoRA] loaded has {len(loaded)} entries")
 

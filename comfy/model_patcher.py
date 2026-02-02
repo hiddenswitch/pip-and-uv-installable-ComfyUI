@@ -50,6 +50,8 @@ from .quant_ops import QuantizedTensor
 
 logger = logging.getLogger(__name__)
 
+from . import memory_management
+from . import pinned_memory
 import comfy_aimdo.model_vbar
 
 
@@ -370,7 +372,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         return self._memory_measurements.model_loaded_weight_memory
 
     def get_free_memory(self, device):
-        return comfy.model_management.get_free_memory(device)
+        return model_management.get_free_memory(device)
 
     def clone(self) -> "ModelPatcher":
         n = self.__class__(self.model, self.load_device, self.offload_device, self.model_size(), weight_inplace_update=self.weight_inplace_update)
@@ -758,7 +760,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
         out_weight = lora.calculate_weight(self.patches[key], temp_weight, key)
         if set_func is None:
-            out_weight = stochastic_rounding(out_weight, weight.dtype, seed=comfy.utils.string_to_seed(key))
+            out_weight = stochastic_rounding(out_weight, weight.dtype, seed=utils.string_to_seed(key))
             if return_weight:
                 return out_weight
             elif inplace_update:
@@ -766,7 +768,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
             else:
                 utils.set_attr_param(self.model, key, out_weight)
         else:
-            return set_func(out_weight, inplace_update=inplace_update, seed=comfy.utils.string_to_seed(key), return_weight=return_weight)
+            return set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
 
     def pin_weight_to_device(self, key):
         if self.gguf.loaded_from_gguf and key not in self.patches:
@@ -1534,10 +1536,10 @@ class ModelPatcher(ModelManageable, PatchSupport):
                                            key, original_weights=original_weights)
         del original_weights[key]
         if set_func is None:
-            out_weight = stochastic_rounding(out_weight, weight.dtype, seed=comfy.utils.string_to_seed(key))
+            out_weight = stochastic_rounding(out_weight, weight.dtype, seed=utils.string_to_seed(key))
             utils.copy_to_param(self.model, key, out_weight)
         else:
-            set_func(out_weight, inplace_update=True, seed=comfy.utils.string_to_seed(key))
+            set_func(out_weight, inplace_update=True, seed=utils.string_to_seed(key))
         if self.hook_mode == EnumHookMode.MaxSpeed:
             # TODO: disable caching if not enough system RAM to do so
             target_device = self.offload_device
@@ -1595,14 +1597,14 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
 class ModelPatcherDynamic(ModelPatcher):
 
-    def __new__(cls, model=None, load_device=None, offload_device=None, size=0, weight_inplace_update=False):
-        if load_device is not None and comfy.model_management.is_device_cpu(load_device):
+    def __new__(cls, model=None, load_device=None, offload_device=None, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
+        if load_device is not None and model_management.is_device_cpu(load_device):
             # reroute to default MP for CPUs
-            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update)
+            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name)
         return super().__new__(cls)
 
-    def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False):
-        super().__init__(model, load_device, offload_device, size, weight_inplace_update)
+    def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
+        super().__init__(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name)
         # this is now way more dynamic and we dont support the same base model for both Dynamic
         # and non-dynamic patchers.
         if hasattr(self.model, "model_loaded_weight_memory"):
@@ -1636,7 +1638,7 @@ class ModelPatcherDynamic(ModelPatcher):
         # NOTE: on high condition / batch counts, estimate should have already vacated
         # all non-dynamic models so this is safe even if its not 100% true that this
         # would all be avaiable for inference use.
-        return comfy.model_management.get_total_memory(device) - self.model_size()
+        return model_management.get_total_memory(device) - self.model_size()
 
     # Pinning is deferred to ops time. Assert against this API to avoid pin leaks.
 
@@ -1712,8 +1714,8 @@ class ModelPatcherDynamic(ModelPatcher):
                     if not isinstance(weight, QuantizedTensor):
                         model_dtype = getattr(m, param_key + "_comfy_model_dtype", weight.dtype)
                         weight._model_dtype = model_dtype
-                        geometry = comfy.memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
-                    return comfy.memory_management.vram_aligned_size(geometry)
+                        geometry = memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
+                    return memory_management.vram_aligned_size(geometry)
 
                 if hasattr(m, "comfy_cast_weights"):
                     m.comfy_cast_weights = True
@@ -1737,7 +1739,7 @@ class ModelPatcherDynamic(ModelPatcher):
                         set_dirty(weight, dirty)
                         geometry = weight
                         model_dtype = getattr(m, param + "_comfy_model_dtype", weight.dtype)
-                        geometry = comfy.memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
+                        geometry = memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
                         weight_size = geometry.numel() * geometry.element_size()
                         if vbar is not None and not hasattr(weight, "_v"):
                             weight._v = vbar.alloc(weight_size)
@@ -1766,7 +1768,7 @@ class ModelPatcherDynamic(ModelPatcher):
         loading = self._load_list(prio_comfy_cast_weights=True)
         for x in loading:
             _, _, _, _, m, _ = x
-            ram_to_unload -= comfy.pinned_memory.unpin_memory(m)
+            ram_to_unload -= pinned_memory.unpin_memory(m)
             if ram_to_unload <= 0:
                 return
 
@@ -1807,7 +1809,7 @@ class ModelPatcherDynamic(ModelPatcher):
     def patch_cached_hook_weights(self, cached_weights: dict, key: str, memory_counter: MemoryCounter):
         assert False  # Should be unreachable - we dont ever cache in the new implementation
 
-    def patch_hook_weight_to_device(self, hooks: comfy.hooks.HookGroup, combined_patches: dict, key: str, original_weights: dict, memory_counter: MemoryCounter):
+    def patch_hook_weight_to_device(self, hooks: HookGroup, combined_patches: dict, key: str, original_weights: dict, memory_counter: MemoryCounter):
         if key not in combined_patches:
             return
 

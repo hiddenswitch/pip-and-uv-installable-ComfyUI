@@ -314,6 +314,8 @@ class BypassInjectionManager:
         """Get a submodule by dot-separated key."""
         parts = key.split(".")
         module = model
+        i = 0
+        part = ""
         try:
             for i, part in enumerate(parts):
                 if part.isdigit():
