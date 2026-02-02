@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from ..modules.diffusionmodules.model import ResnetBlock, VideoConv3d
 from .vae_refiner import RMS_norm
 from ...model_management import vae_device, vae_offload_device, load_models_gpu, vae_dtype
-from ...model_patcher import ModelPatcher
+from ...model_patcher import ModelPatcher, CoreModelPatcher
 
 
 class SRResidualCausalBlock3D(nn.Module):
@@ -113,10 +113,10 @@ class HunyuanVideo15SRModel():
         self.model_class = UPSAMPLERS.get(model_type)
         self.model = self.model_class(**config).eval()
 
-        self.patcher = ModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
 
     def load_sd(self, sd):
-        return self.model.load_state_dict(sd, strict=True)
+        return self.model.load_state_dict(sd, strict=True, assign=self.patcher.is_dynamic())
 
     def get_sd(self):
         return self.model.state_dict()

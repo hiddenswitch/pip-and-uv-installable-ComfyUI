@@ -358,3 +358,6 @@ __all__ = [
     "cli_args_configuration",
     "DEFAULT_VERSION_STRING"
 ]
+
+def enables_dynamic_vram():
+    return PerformanceFeature.DynamicVRAM in args.fast and not args.highvram and not args.gpu_only

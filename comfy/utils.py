@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
-import pickle
-
 import itertools
 import json
 import logging
 import math
+import mmap
 import os
+import pickle
 import random
 import struct
 import sys
@@ -34,7 +34,7 @@ import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from pickle import UnpicklingError, PickleError
-from typing import Optional, Any, Literal, Generator
+from typing import Optional, Any, Generator, Literal
 
 import numpy as np
 import safetensors.torch
@@ -47,7 +47,7 @@ from typing_extensions import TypedDict, NotRequired
 
 from comfy_execution.progress import get_progress_state
 from . import interruption, checkpoint_pickle
-from .cli_args import args
+from .cli_args import args, enables_dynamic_vram
 from .component_model import files
 from .component_model.deprecation import _deprecate_method
 from .component_model.executor_types import ExecutorToClientProgress, ProgressMessage
@@ -112,6 +112,51 @@ class FileMetadata(TypedDict):
     format: NotRequired[Literal["gguf"]]
 
 
+# Current as of safetensors 0.7.0
+_TYPES = {
+    "F64": torch.float64,
+    "F32": torch.float32,
+    "F16": torch.float16,
+    "BF16": torch.bfloat16,
+    "I64": torch.int64,
+    "I32": torch.int32,
+    "I16": torch.int16,
+    "I8": torch.int8,
+    "U8": torch.uint8,
+    "BOOL": torch.bool,
+    "F8_E4M3": torch.float8_e4m3fn,
+    "F8_E5M2": torch.float8_e5m2,
+    "C64": torch.complex64,
+
+    "U64": torch.uint64,
+    "U32": torch.uint32,
+    "U16": torch.uint16,
+}
+
+
+def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
+    f = open(ckpt, "rb")
+    mapping = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+    header_size = struct.unpack("<Q", mapping[:8])[0]
+    header = json.loads(mapping[8:8 + header_size].decode("utf-8"))
+
+    with warnings.catch_warnings():
+        # We are working with read-only RAM by design
+        warnings.filterwarnings("ignore", message="The given buffer is not writable")
+        data_area = torch.frombuffer(mapping, dtype=torch.uint8)[8 + header_size:]
+
+    sd = {}
+    for name, info in header.items():
+        if name == "__metadata__":
+            continue
+
+        start, end = info["data_offsets"]
+        sd[name] = data_area[start:end].view(_TYPES[info["dtype"]]).view(info["shape"])
+
+    return sd, header.get("__metadata__", {}),
+
+
 def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=False) -> dict[str, torch.Tensor] | tuple[dict[str, torch.Tensor], Optional[FileMetadata]]:
     if device is None:
         device = torch.device("cpu")
@@ -121,15 +166,20 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
     sd: dict[str, torch.Tensor] = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
         try:
-            with safetensors.safe_open(Path(ckpt).resolve(strict=True), framework="pt", device=device.type) as f:
-                sd = {}
-                for k in f.keys():
-                    tensor = f.get_tensor(k)
-                    if DISABLE_MMAP:  # TODO: Not sure if this is the best way to bypass the mmap issues
-                        tensor = tensor.to(device=device, copy=True)
-                    sd[k] = tensor
-                if return_metadata:
-                    metadata = f.metadata()
+            if enables_dynamic_vram():
+                sd, metadata = load_safetensors(ckpt)
+                if not return_metadata:
+                    metadata = None
+            else:
+                with safetensors.safe_open(Path(ckpt).resolve(strict=True), framework="pt", device=device.type) as f:
+                    sd = {}
+                    for k in f.keys():
+                        tensor = f.get_tensor(k)
+                        if DISABLE_MMAP:  # TODO: Not sure if this is the best way to bypass the mmap issues
+                            tensor = tensor.to(device=device, copy=True)
+                        sd[k] = tensor
+                    if return_metadata:
+                        metadata = f.metadata()
         except Exception as e:
             message = str(e)
             if "HeaderTooLarge" in message:
@@ -722,14 +772,14 @@ def flux_to_diffusers(mmdit_config, output_prefix=""):
             "ff_context.net.2.weight": "txt_mlp.2.weight",
             "ff_context.net.2.bias": "txt_mlp.2.bias",
             "ff.linear_in.weight": "img_mlp.0.weight",  # LyCoris LoKr
-                        "ff.linear_in.bias": "img_mlp.0.bias",
-                        "ff.linear_out.weight": "img_mlp.2.weight",
-                        "ff.linear_out.bias": "img_mlp.2.bias",
-                        "ff_context.linear_in.weight": "txt_mlp.0.weight",
-                        "ff_context.linear_in.bias": "txt_mlp.0.bias",
-                        "ff_context.linear_out.weight": "txt_mlp.2.weight",
-                        "ff_context.linear_out.bias": "txt_mlp.2.bias",
-                        "attn.norm_q.weight": "img_attn.norm.query_norm.scale",
+            "ff.linear_in.bias": "img_mlp.0.bias",
+            "ff.linear_out.weight": "img_mlp.2.weight",
+            "ff.linear_out.bias": "img_mlp.2.bias",
+            "ff_context.linear_in.weight": "txt_mlp.0.weight",
+            "ff_context.linear_in.bias": "txt_mlp.0.bias",
+            "ff_context.linear_out.weight": "txt_mlp.2.weight",
+            "ff_context.linear_out.bias": "txt_mlp.2.bias",
+            "attn.norm_q.weight": "img_attn.norm.query_norm.scale",
             "attn.norm_k.weight": "img_attn.norm.key_norm.scale",
             "attn.norm_added_q.weight": "txt_attn.norm.query_norm.scale",
             "attn.norm_added_k.weight": "txt_attn.norm.key_norm.scale",
@@ -757,9 +807,9 @@ def flux_to_diffusers(mmdit_config, output_prefix=""):
             "proj_out.bias": "linear2.bias",
             "attn.norm_q.weight": "norm.query_norm.scale",
             "attn.norm_k.weight": "norm.key_norm.scale",
-        "attn.to_qkv_mlp_proj.weight": "linear1.weight", # Flux 2
-                        "attn.to_out.weight": "linear2.weight", # Flux 2
-                    }
+            "attn.to_qkv_mlp_proj.weight": "linear1.weight",  # Flux 2
+            "attn.to_out.weight": "linear2.weight",  # Flux 2
+        }
 
         for k in block_map:
             key_map["{}.{}".format(prefix_from, k)] = "{}.{}".format(prefix_to, block_map[k])
@@ -796,6 +846,7 @@ def flux_to_diffusers(mmdit_config, output_prefix=""):
             key_map[k[1]] = "{}{}".format(output_prefix, k[0])
 
     return key_map
+
 
 def z_image_to_diffusers(mmdit_config, output_prefix=""):
     n_layers = mmdit_config.get("n_layers", 0)
@@ -929,8 +980,10 @@ def safetensors_header(safetensors_path, max_size=100 * 1024 * 1024):
             return None
         return f.read(length_of_header)
 
+
 # todo: wtf?
-ATTR_UNSET={}
+ATTR_UNSET = {}
+
 
 def set_attr(obj, attr, value):
     attrs = attr.split(".")
@@ -1060,7 +1113,7 @@ def bislerp(samples, width, height):
 
 
 def lanczos(samples, width, height):
-    #the below API is strict and expects grayscale to be squeezed
+    # the below API is strict and expects grayscale to be squeezed
     samples = samples.squeeze(1) if samples.shape[1] == 1 else samples.movedim(1, -1)
     images = [Image.fromarray(np.clip(255. * image.cpu().numpy(), 0, 255).astype(np.uint8)) for image in samples]
     images = [image.resize((width, height), resample=Image.Resampling.LANCZOS) for image in images]
@@ -1276,7 +1329,8 @@ class _DisabledProgressBar:
 
 # Throttle settings for progress bar updates to reduce WebSocket flooding
 PROGRESS_THROTTLE_MIN_INTERVAL = 0.1  # 100ms minimum between updates
-PROGRESS_THROTTLE_MIN_PERCENT = 0.5   # 0.5% minimum progress change
+PROGRESS_THROTTLE_MIN_PERCENT = 0.5  # 0.5% minimum progress change
+
 
 class ProgressBar:
     def __init__(self, total: float, node_id: Any = None):
@@ -1569,3 +1623,17 @@ def convert_old_quants(state_dict, model_prefix="", metadata={}):
         for k, v in layers.items():
             state_dict["{}.comfy_quant".format(k)] = torch.tensor(list(json.dumps(v).encode('utf-8')), dtype=torch.uint8)
     return state_dict, metadata
+
+
+def string_to_seed(data):
+    crc = 0xFFFFFFFF
+    for byte in data:
+        if isinstance(byte, str):
+            byte = ord(byte)
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xEDB88320
+            else:
+                crc >>= 1
+    return crc ^ 0xFFFFFFFF

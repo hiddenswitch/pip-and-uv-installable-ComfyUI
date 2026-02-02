@@ -20,6 +20,7 @@ import time
 import torch
 from opentelemetry.trace import get_current_span, StatusCode, Status
 from typing_extensions import NotRequired, TypedDict, NamedTuple
+from .. import memory_management
 
 from comfy_api.internal import _ComfyNodeInternal, _NodeOutputInternal, first_real_override, is_class, \
     make_locked_method_func
@@ -212,7 +213,7 @@ def get_input_data(inputs, class_def, unique_id, execution_list=None, dynprompt=
                 continue
             obj = cached.outputs[output_index]
             input_data_all[x] = obj
-        elif input_category is not None:
+        elif input_category is not None or (is_v3 and class_def.ACCEPT_ALL_INPUTS):
             input_data_all[x] = [input_data]
 
     # todo: this should be retrieved from the execution context
@@ -622,7 +623,18 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                 # TODO - How to handle this with async functions without contextvars (which requires Python 3.12)?
                 GraphBuilder.set_default_prefix(unique_id, call_index, 0)
 
-            output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, execution_list=execution_list, executed=executed, v3_data=v3_data)
+            #Do comfy_aimdo mempool chunking here on the per-node level. Multi-model workflows
+            #will cause all sorts of incompatible memory shapes to fragment the pytorch alloc
+            #that we just want to cull out each model run.
+            allocator = memory_management.aimdo_allocator
+            with nullcontext() if allocator is None else torch.cuda.use_mem_pool(torch.cuda.MemPool(allocator.allocator())):
+                try:
+                    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, execution_list=execution_list, executed=executed, v3_data=v3_data)
+                finally:
+                    if allocator is not None:
+                        model_management.reset_cast_buffers()
+                        torch.cuda.synchronize()
+
             if has_pending_tasks:
                 pending_async_nodes[unique_id] = output_data
                 unblock = execution_list.add_external_block(unique_id)
@@ -1213,22 +1225,34 @@ async def _validate_prompt(prompt_id: typing.Any, prompt: typing.Mapping[str, ty
     outputs = set()
     for x in prompt:
         if 'class_type' not in prompt[x]:
+            node_data = prompt[x]
+            node_title = node_data.get('_meta', {}).get('title')
             error = {
-                "type": "invalid_prompt",
-                "message": "Cannot execute because a node is missing the class_type property.",
+                "type": "missing_node_type",
+                "message": f"Node '{node_title or f'ID #{x}'}' has no class_type. The workflow may be corrupted or a custom node is missing.",
                 "details": f"Node ID '#{x}'",
-                "extra_info": {}
+                "extra_info": {
+                    "node_id": x,
+                    "class_type": None,
+                    "node_title": node_title
+                }
             }
             return ValidationTuple(False, error, [], {})
 
         class_type = prompt[x]['class_type']
         class_ = get_nodes().NODE_CLASS_MAPPINGS.get(class_type, None)
         if class_ is None:
+            node_data = prompt[x]
+            node_title = node_data.get('_meta', {}).get('title', class_type)
             error = {
-                "type": "invalid_prompt",
-                "message": f"Cannot execute because node {class_type} does not exist.",
+                "type": "missing_node_type",
+                "message": f"Node '{node_title}' not found. The custom node may not be installed.",
                 "details": f"Node ID '#{x}'",
-                "extra_info": {}
+                "extra_info": {
+                    "node_id": x,
+                    "class_type": class_type,
+                    "node_title": node_title
+                }
             }
             return ValidationTuple(False, error, [], {})
 

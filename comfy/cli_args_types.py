@@ -60,6 +60,7 @@ class PerformanceFeature(enum.Enum):
     Fp8MatrixMultiplication = "fp8_matrix_mult"
     CublasOps = "cublas_ops"
     AutoTune = "autotune"
+    DynamicVRAM = "dynamic_vram"
 
 
 class Configuration(dict):

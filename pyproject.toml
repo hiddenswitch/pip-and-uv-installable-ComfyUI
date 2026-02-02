@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.10.0"
+version = "0.11.1"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -22,6 +22,8 @@ dependencies = [
     "comfyui-workflow-templates>=0.8.4",
     "comfyui-embedded-docs>=0.4.0",
     "comfy_kitchen>=0.2.7",
+    "comfy-aimdo>=0.1.7",
+    "comfyui_manager==4.1b1",
     "torch",
     "torchvision",
     "torchaudio",
@@ -148,20 +150,6 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
-]
-
-comfyui-manager = [
-    "GitPython",
-    "PyGithub",
-    "matrix-client==0.4.0",
-    "rich",
-    "typing-extensions",
-    "toml",
-    "uv",
-    "chardet",
-    "pip",
-    # todo: bold move
-#    "comfyui_manager==4.0.3b7",
 ]
 
 [project.scripts]

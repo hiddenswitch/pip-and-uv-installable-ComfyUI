@@ -17,11 +17,11 @@ from . import diffusers_convert
 from . import gligen
 from . import model_detection
 from . import model_management
-from . import model_patcher
 from . import model_sampling
 from . import sd1_clip
 from . import sdxl_clip
 from . import utils
+from .clip_model import CLIPVision
 from .component_model.deprecation import _deprecate_method
 from .hooks import EnumHookMode
 from .ldm.ace.vae.music_dcae_pipeline import MusicDCAE
@@ -40,7 +40,7 @@ from .ldm.wan import vae2_2 as wan_vae2_2
 from .lora import load_lora, model_lora_keys_unet, model_lora_keys_clip
 from .lora_convert import convert_lora
 from .model_management import load_models_gpu, module_size
-from .model_patcher import ModelPatcher
+from .model_patcher import ModelPatcher, CoreModelPatcher
 from .pixel_space_convert import PixelspaceConversionVAE
 from .t2i_adapter import adapter
 from .taesd import taesd
@@ -72,6 +72,8 @@ from .text_encoders import anima
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
 from .latent_formats import HunyuanVideo15, HunyuanVideo
+from comfy.weight_adapter import WeightAdapterBase, BypassInjectionManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,105 @@ def load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_
     for x in loaded:
         if (x not in k) and (x not in k1):
             logger.warning(f"[{lora_name}] clip keys not loaded {x}".format(x))
+
+    return (new_modelpatcher, new_clip)
+
+
+def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip):
+    """
+    Load LoRA in bypass mode without modifying base model weights.
+
+    Instead of patching weights, this injects the LoRA computation into the
+    forward pass: output = base_forward(x) + lora_path(x)
+
+    Non-adapter patches (bias diff, weight diff, etc.) are applied as regular patches.
+
+    This is useful for training and when model weights are offloaded.
+    """
+    key_map = {}
+    if model is not None:
+        key_map = comfy.lora.model_lora_keys_unet(model.model, key_map)
+    if clip is not None:
+        key_map = comfy.lora.model_lora_keys_clip(clip.cond_stage_model, key_map)
+
+    logging.debug(f"[BypassLoRA] key_map has {len(key_map)} entries")
+
+    lora = comfy.lora_convert.convert_lora(lora)
+    loaded = comfy.lora.load_lora(lora, key_map)
+
+    logging.debug(f"[BypassLoRA] loaded has {len(loaded)} entries")
+
+    # Separate adapters (for bypass) from other patches (for regular patching)
+    bypass_patches = {}  # WeightAdapterBase instances -> bypass mode
+    regular_patches = {}  # diff, set, bias patches -> regular weight patching
+
+    for key, patch_data in loaded.items():
+        if isinstance(patch_data, WeightAdapterBase):
+            bypass_patches[key] = patch_data
+        else:
+            regular_patches[key] = patch_data
+
+    logging.debug(f"[BypassLoRA] {len(bypass_patches)} bypass adapters, {len(regular_patches)} regular patches")
+
+    k = set()
+    k1 = set()
+
+    if model is not None:
+        new_modelpatcher = model.clone()
+
+        # Apply regular patches (bias diff, weight diff, etc.) via normal patching
+        if regular_patches:
+            patched_keys = new_modelpatcher.add_patches(regular_patches, strength_model)
+            k.update(patched_keys)
+
+        # Apply adapter patches via bypass injection
+        manager = BypassInjectionManager()
+        model_sd_keys = set(new_modelpatcher.model.state_dict().keys())
+
+        for key, adapter in bypass_patches.items():
+            if key in model_sd_keys:
+                manager.add_adapter(key, adapter, strength=strength_model)
+                k.add(key)
+            else:
+                logging.warning(f"[BypassLoRA] Adapter key not in model state_dict: {key}")
+
+        injections = manager.create_injections(new_modelpatcher.model)
+
+        if manager.get_hook_count() > 0:
+            new_modelpatcher.set_injections("bypass_lora", injections)
+    else:
+        new_modelpatcher = None
+
+    if clip is not None:
+        new_clip = clip.clone()
+
+        # Apply regular patches to clip
+        if regular_patches:
+            patched_keys = new_clip.add_patches(regular_patches, strength_clip)
+            k1.update(patched_keys)
+
+        # Apply adapter patches via bypass injection
+        clip_manager = BypassInjectionManager()
+        clip_sd_keys = set(new_clip.cond_stage_model.state_dict().keys())
+
+        for key, adapter in bypass_patches.items():
+            if key in clip_sd_keys:
+                clip_manager.add_adapter(key, adapter, strength=strength_clip)
+                k1.add(key)
+
+        clip_injections = clip_manager.create_injections(new_clip.cond_stage_model)
+        if clip_manager.get_hook_count() > 0:
+            new_clip.patcher.set_injections("bypass_lora", clip_injections)
+    else:
+        new_clip = None
+
+    for x in loaded:
+        if (x not in k) and (x not in k1):
+            patch_data = loaded[x]
+            patch_type = type(patch_data).__name__
+            if isinstance(patch_data, tuple):
+                patch_type = f"tuple({patch_data[0]})"
+            logging.warning(f"NOT LOADED: {x} (type={patch_type})")
 
     return (new_modelpatcher, new_clip)
 
@@ -139,8 +240,10 @@ class CLIP:
                     self.cond_stage_model.to(offload_device)
                     logger.warning("Had to shift TE back.")
 
+        model_management.archive_model_dtypes(self.cond_stage_model)
+
         self.tokenizer: "sd1_clip.SD1Tokenizer" = tokenizer(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data)
-        self.patcher = model_patcher.ModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
+        self.patcher = CoreModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
         # Match torch.float32 hardcode upcast in TE implemention
         self.patcher.set_model_compute_dtype(torch.float32)
         self.patcher.hook_mode = EnumHookMode.MinVram
@@ -301,8 +404,18 @@ class CLIP:
 
     def load_sd(self, sd, full_model=False):
         if full_model:
-            return self.cond_stage_model.load_state_dict(sd, strict=False)
+            return self.cond_stage_model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
         else:
+            can_assign = self.patcher.is_dynamic()
+            self.cond_stage_model.can_assign_sd = can_assign
+
+            # The CLIP models are a pretty complex web of wrappers and its
+            # a bit of an API change to plumb this all the way through.
+            # So spray paint the model with this flag that the loading
+            # nn.Module can then inspect for itself.
+            for m in self.cond_stage_model.modules():
+                m.can_assign_sd = can_assign
+
             return self.cond_stage_model.load_sd(sd)
 
     def get_sd(self):
@@ -683,12 +796,7 @@ class VAE:
             self.first_stage_model = AutoencoderKL(**(config['params']))
         self.first_stage_model = self.first_stage_model.eval()
 
-        m, u = self.first_stage_model.load_state_dict(sd, strict=False)
-        if len(m) > 0:
-            logger.warning("Missing VAE keys {}".format(m))
-
-        if len(u) > 0:
-            logger.debug("Leftover VAE keys {}".format(u))
+        model_management.archive_model_dtypes(self.first_stage_model)
 
         if device is None:
             device = model_management.vae_device()
@@ -700,7 +808,18 @@ class VAE:
         self.first_stage_model.to(self.vae_dtype)
         self.output_device = model_management.intermediate_device()
 
-        self.patcher = model_patcher.ModelPatcher(self.first_stage_model, load_device=self.device, offload_device=offload_device)
+        mp = CoreModelPatcher
+        if self.disable_offload:
+            mp = ModelPatcher
+        self.patcher = mp(self.first_stage_model, load_device=self.device, offload_device=offload_device)
+
+        m, u = self.first_stage_model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
+        if len(m) > 0:
+            logging.warning("Missing VAE keys {}".format(m))
+
+        if len(u) > 0:
+            logging.debug("Leftover VAE keys {}".format(u))
+
         logger.debug("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
         # todo: why is this being called here? for what side effects exactly?
         self.model_size()
@@ -840,7 +959,7 @@ class VAE:
         try:
             memory_used = self.memory_used_decode(samples_in.shape, self.vae_dtype)
             model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
-            free_memory = model_management.get_free_memory(self.device)
+            free_memory = self.patcher.get_free_memory(self.device)
             batch_number = int(free_memory / memory_used)
             batch_number = max(1, batch_number)
 
@@ -917,7 +1036,7 @@ class VAE:
         try:
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
             model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
-            free_memory = model_management.get_free_memory(self.device)
+            free_memory = self.patcher.get_free_memory(self.device)
             batch_number = int(free_memory / max(1, memory_used))
             batch_number = max(1, batch_number)
             samples = None
@@ -1403,8 +1522,7 @@ def load_gligen(ckpt_path):
     model = gligen.load_gligen(data)
     if model_management.should_use_fp16():
         model = model.half()
-    return model_patcher.ModelPatcher(model, load_device=model_management.get_torch_device(), offload_device=model_management.unet_offload_device())
-
+    return CoreModelPatcher(model, load_device=model_management.get_torch_device(), offload_device=model_management.unet_offload_device())
 
 def model_detection_error_hint(path, state_dict):
     filename = os.path.basename(path)
@@ -1452,7 +1570,7 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     return out
 
 
-def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options=None, te_model_options=None, metadata: Optional[FileMetadata] = None, ckpt_path=""):
+def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options=None, te_model_options=None, metadata: Optional[FileMetadata] = None, ckpt_path="") -> tuple[CoreModelPatcher, Optional[CLIP], Optional[VAE], Optional[CLIPVision]]:
     if te_model_options is None:
         te_model_options = {}
     if model_options is None:
@@ -1461,7 +1579,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     clipvision = None
     vae = None
     model = None
-    _model_patcher = None
+    model_patcher = None
     inital_load_device = None
 
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)
@@ -1506,7 +1624,8 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     if output_model:
         inital_load_device = model_management.unet_initial_load_device(parameters, unet_dtype)
         model = model_config.get_model(sd, diffusion_model_prefix, device=inital_load_device)
-        model.load_model_weights(sd, diffusion_model_prefix)
+        model_patcher = CoreModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device())
+        model.load_model_weights(sd, diffusion_model_prefix, assign=model_patcher.is_dynamic())
 
     if output_vae:
         vae_sd = utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
@@ -1549,11 +1668,10 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         logger.debug("left over keys: {}".format(left_over))
 
     if output_model:
-        _model_patcher = model_patcher.ModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device(), ckpt_name=os.path.basename(ckpt_path))
         if inital_load_device != torch.device("cpu"):
-            model_management.load_models_gpu([_model_patcher], force_full_load=True)
+            model_management.load_models_gpu([model_patcher], force_full_load=True)
 
-    return (_model_patcher, clip, vae, clipvision)
+    return (model_patcher, clip, vae, clipvision)
 
 
 def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: Optional[str] = "", metadata: Optional[FileMetadata] = None):  # load unet in diffusers or regular format
@@ -1642,13 +1760,14 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
         model_config.optimizations["fp8"] = True
 
     model = model_config.get_model(new_sd, "")
-    model = model.to(offload_device)
-    model.load_model_weights(new_sd, "")
+    model_patcher = CoreModelPatcher(model, load_device=load_device, offload_device=offload_device, ckpt_name=os.path.basename(ckpt_path))
+    if not model_management.is_device_cpu(offload_device):
+        model.to(offload_device)
+    model.load_model_weights(new_sd, "", assign=model_patcher.is_dynamic())
     left_over = sd.keys()
     if len(left_over) > 0:
-        logger.info("left over keys in diffusion model: {}".format(left_over))
-    return model_patcher.ModelPatcher(model, load_device=load_device, offload_device=offload_device, ckpt_name=os.path.basename(ckpt_path))
-
+        logging.info("left over keys in diffusion model: {}".format(left_over))
+    return model_patcher
 
 def load_diffusion_model(unet_path, model_options=None):
     if model_options is None:
@@ -1684,9 +1803,9 @@ def save_checkpoint(output_path, model, clip=None, vae=None, clip_vision=None, m
     if metadata is None:
         metadata = {}
 
-    model_management.load_models_gpu(load_models, force_patch_weights=True)
+    model_management.load_models_gpu(load_models)
     clip_vision_sd = clip_vision.get_sd() if clip_vision is not None else None
-    sd = model.model.state_dict_for_saving(clip_sd, vae_sd, clip_vision_sd)
+    sd = model.state_dict_for_saving(clip_sd, vae_sd, clip_vision_sd)
     for k in extra_keys:
         sd[k] = extra_keys[k]
 

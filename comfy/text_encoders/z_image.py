@@ -10,7 +10,7 @@ class Qwen3Tokenizer(sd1_clip.SDTokenizer):
         if tokenizer_data is None:
             tokenizer_data = {}
         tokenizer_path = files.get_package_as_path("comfy.text_encoders.qwen25_tokenizer")
-        super().__init__(tokenizer_path, pad_with_end=False, embedding_size=2560, embedding_key='qwen3_4b', tokenizer_class=Qwen2Tokenizer, has_start_token=False, has_end_token=False, pad_to_max_length=False, max_length=99999999, min_length=1, pad_token=151643, tokenizer_data=tokenizer_data)
+        super().__init__(tokenizer_path, pad_with_end=False, embedding_directory=embedding_directory, embedding_size=2560, embedding_key='qwen3_4b', tokenizer_class=Qwen2Tokenizer, has_start_token=False, has_end_token=False, pad_to_max_length=False, max_length=99999999, min_length=1, pad_token=151643, tokenizer_data=tokenizer_data)
 
 
 class ZImageTokenizer(sd1_clip.SD1Tokenizer):

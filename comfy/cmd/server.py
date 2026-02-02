@@ -731,6 +731,7 @@ class PromptServer(ExecutorToClientProgress):
             info = {}
             info['input'] = obj_class.INPUT_TYPES()
             info['input_order'] = {key: list(value.keys()) for (key, value) in obj_class.INPUT_TYPES().items()}
+            info['is_input_list'] = getattr(obj_class, "INPUT_IS_LIST", False)
             _return_types = ["*" if isinstance(rt, list) and rt == [] else rt for rt in obj_class.RETURN_TYPES]
             info['output'] = _return_types
             info['output_is_list'] = obj_class.OUTPUT_IS_LIST if hasattr(obj_class, 'OUTPUT_IS_LIST') else [False] * len(_return_types)
@@ -755,6 +756,8 @@ class PromptServer(ExecutorToClientProgress):
                 info['deprecated'] = True
             if getattr(obj_class, "EXPERIMENTAL", False):
                 info['experimental'] = True
+            if getattr(obj_class, "DEV_ONLY", False):
+                info['dev_only'] = True
 
             if hasattr(obj_class, 'API_NODE'):
                 info['api_node'] = obj_class.API_NODE
