@@ -137,8 +137,16 @@ class DownloadableFileList(ComboOptions, list[str]):
     A list of downloadable files that can be validated differently than it will be serialized to JSON
     """
 
-    def __init__(self, existing_files: Iterable[str], downloadable_files: Iterable[Downloadable]=tuple()):
+    def __init__(
+        self,
+        existing_files: Iterable[str],
+        downloadable_files: Iterable[Downloadable] = tuple(),
+        folder_name: Optional[str] = None,
+    ):
         super().__init__()
+        self._folder_name = folder_name
+        self._manager_loaded = False
+        self._cached_validation_view: Optional[list[str]] = None
         # Convert to list to allow multiple iterations (needed when asdict() copies via generator)
         existing_files = list(existing_files)
         self._validation_view = set(existing_files)
@@ -157,7 +165,18 @@ class DownloadableFileList(ComboOptions, list[str]):
         self.extend(sorted(list(map(canonicalize_path, ui_view))))
 
     def view_for_validation(self) -> list[str]:
-        return sorted(list(frozenset(self._validation_view) | frozenset(self)))
+        if self._cached_validation_view is not None:
+            return self._cached_validation_view
+
+        # Lazy load manager models on first validation
+        if not self._manager_loaded and self._folder_name:
+            from .manager_model_cache import get_filenames_for_folder
+            manager_filenames = get_filenames_for_folder(self._folder_name)
+            self._validation_view.update(manager_filenames)
+            self._manager_loaded = True
+
+        self._cached_validation_view = sorted(list(frozenset(self._validation_view) | frozenset(self)))
+        return self._cached_validation_view
 
 
 class CivitStats(TypedDict):

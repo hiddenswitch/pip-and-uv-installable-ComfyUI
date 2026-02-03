@@ -309,6 +309,10 @@ def _create_parser(enable_custom_nodes_configuration=True) -> EnhancedConfigArgP
                 logger.error("Failed to load custom config plugin", exc_info=exc)
 
     parser.add_argument("--disable-requests-caching", action="store_true", help="Disable requests caching (useful for testing)")
+    parser.add_argument("--disable-manager-model-fallback", action="store_true", default=False,
+                        help="Disable fallback to comfyui_manager's model database when model not found")
+    parser.add_argument("--refresh-manager-models", action="store_true", default=False,
+                        help="Fetch latest model list from GitHub instead of using bundled data")
     return parser
 
 

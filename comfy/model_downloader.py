@@ -116,7 +116,7 @@ def get_filename_list_with_downloadable(folder_name: str, known_files: Optional[
         if not args.disable_known_models:
             downloadable_files = known_files
 
-        return DownloadableFileList(existing, downloadable_files)
+        return DownloadableFileList(existing, downloadable_files, folder_name=folder_name)
 
 
 def get_full_path_or_raise(folder_name: str, filename: str, known_files: Optional[List[Downloadable] | KnownDownloadables] = None) -> str:
@@ -172,6 +172,14 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                         or candidate_save_filename_match):
                     known_file = candidate
                     break
+            if known_file is None:
+                # Fallback to manager's model database
+                from .manager_model_cache import get_model_entry, entry_to_downloadable
+                entry = get_model_entry(folder_name, filename)
+                if entry:
+                    known_file = entry_to_downloadable(entry)
+                    logger.debug(f"Found {filename} in manager database: {entry.url}")
+
             if known_file is None:
                 logger.debug(f"get_or_download could not find {filename} in {folder_name}, known_files={known_files}")
                 return path

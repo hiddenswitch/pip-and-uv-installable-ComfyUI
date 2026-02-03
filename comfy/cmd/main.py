@@ -253,6 +253,10 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     init_manager(args)
     manager_prestartup()
 
+    # Initialize manager model cache for model fallback/validation
+    from ..manager_model_cache import init_manager_model_cache
+    init_manager_model_cache(refresh_from_github=args.refresh_manager_models)
+
     # configure extra model paths earlier
     try:
         extra_model_paths_config_path = os.path.join(os_getcwd, "extra_model_paths.yaml")

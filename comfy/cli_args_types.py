@@ -317,6 +317,8 @@ class Configuration(dict):
         self.block_runtime_package_installation: bool = False
         self.enable_eval: Optional[bool] = False
         self.enable_video_to_image_fallback: bool = False
+        self.disable_manager_model_fallback: bool = False
+        self.refresh_manager_models: bool = False
 
         for key, value in kwargs.items():
             self[key] = value
