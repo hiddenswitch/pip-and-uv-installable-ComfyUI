@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import itertools
-from comfy.ldm.modules.attention import optimized_attention
-import comfy.model_management
-from comfy.ldm.flux.layers import timestep_embedding
+from ..modules.attention import optimized_attention
+from ... import model_management
+from ..flux.layers import timestep_embedding
 
 def get_layer_class(operations, layer_name):
     if operations is not None and hasattr(operations, layer_name):
@@ -234,7 +234,7 @@ class AceStepDiTLayer(nn.Module):
         attention_mask=None,
         encoder_attention_mask=None
     ):
-        modulation = comfy.model_management.cast_to(self.scale_shift_table, dtype=temb.dtype, device=temb.device) + temb
+        modulation = model_management.cast_to(self.scale_shift_table, dtype=temb.dtype, device=temb.device) + temb
         shift_msa, scale_msa, gate_msa, c_shift_msa, c_scale_msa, c_gate_msa = modulation.chunk(6, dim=1)
 
         norm_hidden = self.self_attn_norm(hidden_states)
@@ -646,7 +646,7 @@ class AceStepDiTModel(nn.Module):
                 encoder_attention_mask=None
             )
 
-        shift, scale = (comfy.model_management.cast_to(self.scale_shift_table, dtype=temb.dtype, device=temb.device) + temb.unsqueeze(1)).chunk(2, dim=1)
+        shift, scale = (model_management.cast_to(self.scale_shift_table, dtype=temb.dtype, device=temb.device) + temb.unsqueeze(1)).chunk(2, dim=1)
         x = self.norm_out(x) * (1 + scale) + shift
 
         x = x.transpose(1, 2)
@@ -816,8 +816,8 @@ class ResidualFSQ(nn.Module):
         all_codes = []
         for i, layer in enumerate(self.layers):
             idx = indices[..., i].long()
-            codes = F.embedding(idx, comfy.model_management.cast_to(layer.implicit_codebook, device=idx.device, dtype=dtype))
-            all_codes.append(codes * comfy.model_management.cast_to(self.scales[i], device=idx.device, dtype=dtype))
+            codes = F.embedding(idx, model_management.cast_to(layer.implicit_codebook, device=idx.device, dtype=dtype))
+            all_codes.append(codes * model_management.cast_to(self.scales[i], device=idx.device, dtype=dtype))
 
         codes_summed = torch.stack(all_codes).sum(dim=0)
         return self.project_out(codes_summed)
@@ -935,7 +935,7 @@ class AudioTokenDetokenizer(nn.Module):
         B, T, D = x.shape
         x = self.embed_tokens(x)
         x = x.unsqueeze(2).repeat(1, 1, self.pool_window_size, 1)
-        x = x + comfy.model_management.cast_to(self.special_tokens.expand(B, T, -1, -1), device=x.device, dtype=x.dtype)
+        x = x + model_management.cast_to(self.special_tokens.expand(B, T, -1, -1), device=x.device, dtype=x.dtype)
         x = x.view(B * T, self.pool_window_size, D)
 
         cos, sin = self.rotary_emb(x, seq_len=self.pool_window_size)

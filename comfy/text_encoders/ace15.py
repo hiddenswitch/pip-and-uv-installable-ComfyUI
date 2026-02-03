@@ -1,9 +1,10 @@
 from .anima import Qwen3Tokenizer
-import comfy.text_encoders.llama
-from comfy import sd1_clip
+from . import llama
+from .. import sd1_clip
+from .. import model_management
+from .. import utils
 import torch
 import math
-import comfy.utils
 
 
 def sample_manual_loop_no_classes(
@@ -24,7 +25,7 @@ def sample_manual_loop_no_classes(
     device = model.execution_device
 
     if execution_dtype is None:
-        if comfy.model_management.should_use_bf16(device):
+        if model_management.should_use_bf16(device):
             execution_dtype = torch.bfloat16
         else:
             execution_dtype = torch.float32
@@ -43,7 +44,7 @@ def sample_manual_loop_no_classes(
     for x in range(model_config.num_hidden_layers):
         past_key_values.append((torch.empty([embeds.shape[0], model_config.num_key_value_heads, embeds.shape[1] + min_tokens, model_config.head_dim], device=device, dtype=execution_dtype), torch.empty([embeds.shape[0], model_config.num_key_value_heads, embeds.shape[1] + min_tokens, model_config.head_dim], device=device, dtype=execution_dtype), 0))
 
-    progress_bar = comfy.utils.ProgressBar(max_new_tokens)
+    progress_bar = utils.ProgressBar(max_new_tokens)
 
     for step in range(max_new_tokens):
         outputs = model.transformer(None, attention_mask, embeds=embeds.to(execution_dtype), num_tokens=num_tokens, intermediate_output=None, dtype=execution_dtype, embeds_info=embeds_info, past_key_values=past_key_values)
@@ -140,27 +141,35 @@ class ACE15Tokenizer(sd1_clip.SD1Tokenizer):
         lm_template = "<|im_start|>system\n# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n<|im_end|>\n<|im_start|>user\n# Caption\n{}\n{}\n<|im_end|>\n<|im_start|>assistant\n<think>\n{}\n</think>\n\n<|im_end|>\n"
 
         meta_cap = '- bpm: {}\n- timesignature: {}\n- keyscale: {}\n- duration: {}\n'.format(bpm, timesignature, keyscale, duration)
-        out["lm_prompt"] = self.qwen3_06b.tokenize_with_weights(lm_template.format(text, lyrics, meta_lm), disable_weights=True)
-        out["lm_prompt_negative"] = self.qwen3_06b.tokenize_with_weights(lm_template.format(text, lyrics, ""), disable_weights=True)
+        out["lm_prompt"] = self.sd_tokenizer.tokenize_with_weights(lm_template.format(text, lyrics, meta_lm), disable_weights=True)
+        out["lm_prompt_negative"] = self.sd_tokenizer.tokenize_with_weights(lm_template.format(text, lyrics, ""), disable_weights=True)
 
-        out["lyrics"] = self.qwen3_06b.tokenize_with_weights("# Languages\n{}\n\n# Lyric{}<|endoftext|><|endoftext|>".format(language, lyrics), return_word_ids, disable_weights=True, **kwargs)
-        out["qwen3_06b"] = self.qwen3_06b.tokenize_with_weights("# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n# Caption\n{}# Metas\n{}<|endoftext|>\n<|endoftext|>".format(text, meta_cap), return_word_ids, **kwargs)
+        out["lyrics"] = self.sd_tokenizer.tokenize_with_weights("# Languages\n{}\n\n# Lyric{}<|endoftext|><|endoftext|>".format(language, lyrics), return_word_ids, disable_weights=True, **kwargs)
+        out["qwen3_06b"] = self.sd_tokenizer.tokenize_with_weights("# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n# Caption\n{}# Metas\n{}<|endoftext|>\n<|endoftext|>".format(text, meta_cap), return_word_ids, **kwargs)
         out["lm_metadata"] = {"min_tokens": duration * 5, "seed": seed}
         return out
 
 
 class Qwen3_06BModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=comfy.text_encoders.llama.Qwen3_06B_ACE15, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options=None, textmodel_json_config=None):
+        if model_options is None:
+            model_options = {}
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=llama.Qwen3_06B_ACE15, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 class Qwen3_2B_ACE15(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options=None, textmodel_json_config=None):
+        if model_options is None:
+            model_options = {}
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         llama_quantization_metadata = model_options.get("llama_quantization_metadata", None)
         if llama_quantization_metadata is not None:
             model_options = model_options.copy()
             model_options["quantization_metadata"] = llama_quantization_metadata
 
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=comfy.text_encoders.llama.Qwen3_2B_ACE15_lm, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=llama.Qwen3_2B_ACE15_lm, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 class ACE15TEModel(torch.nn.Module):
     def __init__(self, device="cpu", dtype=None, dtype_llama=None, model_options={}):
@@ -205,7 +214,7 @@ class ACE15TEModel(torch.nn.Module):
     def memory_estimation_function(self, token_weight_pairs, device=None):
         lm_metadata = token_weight_pairs["lm_metadata"]
         constant = 0.4375
-        if comfy.model_management.should_use_bf16(device):
+        if model_management.should_use_bf16(device):
             constant *= 0.5
 
         token_weight_pairs = token_weight_pairs.get("lm_prompt", [])
