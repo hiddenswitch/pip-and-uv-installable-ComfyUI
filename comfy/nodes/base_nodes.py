@@ -1081,7 +1081,7 @@ class DualCLIPLoader:
     def INPUT_TYPES(s):
         return {"required": {"clip_name1": (get_filename_list_with_downloadable("text_encoders"),), "clip_name2": (
             get_filename_list_with_downloadable("text_encoders"),),
-                             "type": (["sdxl", "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image", "hunyuan_video_15", "kandinsky5", "kandinsky5_image", "ltxv", "newbie"],),
+                             "type": (["sdxl", "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image", "hunyuan_video_15", "kandinsky5", "kandinsky5_image", "ltxv", "newbie", "ace"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),

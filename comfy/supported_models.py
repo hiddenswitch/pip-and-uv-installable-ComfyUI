@@ -31,6 +31,7 @@ from .text_encoders import hunyuan_image
 from .text_encoders import kandinsky5
 from .text_encoders import z_image
 from .text_encoders import anima
+from .text_encoders import ace15
 
 
 class SD15(supported_models_base.BASE):
@@ -834,7 +835,7 @@ class Flux2(Flux):
         detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_4b.transformer.".format(pref))
         if len(detect) > 0:
             detect["model_type"] = "qwen3_4b"
-            return supported_models_base.ClipTarget(flux.KleinTokenizer,flux.klein_te(**detect))
+            return supported_models_base.ClipTarget(flux.KleinTokenizer, flux.klein_te(**detect))
 
         detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_8b.transformer.".format(pref))
         if len(detect) > 0:
@@ -848,6 +849,7 @@ class Flux2(Flux):
             return supported_models_base.ClipTarget(flux.Flux2Tokenizer, flux.flux2_te(**detect))
 
         return None
+
 
 class GenmoMochi(supported_models_base.BASE):
     unet_config = {
@@ -930,6 +932,7 @@ class LTXAV(LTXV):
     def get_model(self, state_dict, prefix="", device=None):
         out = model_base.LTXAV(self, device=device)
         return out
+
 
 class HunyuanVideo(supported_models_base.BASE):
     unet_config = {
@@ -1113,6 +1116,7 @@ class Anima(supported_models_base.BASE):
         pref = self.text_encoder_key_prefix[0]
         detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_06b.transformer.".format(pref))
         return supported_models_base.ClipTarget(anima.AnimaTokenizer, anima.te(**detect))
+
 
 class CosmosI2VPredict2(CosmosT2IPredict2):
     unet_config = {
@@ -1708,6 +1712,38 @@ class Kandinsky5Image(Kandinsky5):
         return supported_models_base.ClipTarget(kandinsky5.Kandinsky5TokenizerImage, kandinsky5.te(**hunyuan_detect))
 
 
-models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, LTXAV, HunyuanVideo15_SR_Distilled, HunyuanVideo15, HunyuanImage21Refiner, HunyuanImage21, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, CosmosT2IPredict2, CosmosI2VPredict2, ZImage, Lumina2, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate, Hunyuan3Dv2mini, Hunyuan3Dv2, Hunyuan3Dv2_1, HiDream, Chroma, ChromaRadiance, ACEStep, Omnigen2, QwenImage, Flux2, Kandinsky5Image, Kandinsky5, Anima]
+class ACEStep15(supported_models_base.BASE):
+    unet_config = {
+        "audio_model": "ace1.5",
+    }
+
+    unet_extra_config = {
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    latent_format = latent_formats.ACEAudio15
+
+    memory_usage_factor = 4.7
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.ACEStep15(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3_2b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(ace15.ACE15Tokenizer, ace15.te(**hunyuan_detect))
+
+
+models = [LotusD, Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, PixArtAlpha, PixArtSigma, HunyuanDiT, HunyuanDiT1, FluxInpaint, Flux, FluxSchnell, GenmoMochi, LTXV, LTXAV, HunyuanVideo15_SR_Distilled, HunyuanVideo15, HunyuanImage21Refiner, HunyuanImage21, HunyuanVideoSkyreelsI2V, HunyuanVideoI2V, HunyuanVideo, CosmosT2V, CosmosI2V, CosmosT2IPredict2, CosmosI2VPredict2, ZImage, Lumina2, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate, Hunyuan3Dv2mini, Hunyuan3Dv2, Hunyuan3Dv2_1, HiDream, Chroma, ChromaRadiance, ACEStep, ACEStep15, Omnigen2, QwenImage, Flux2, Kandinsky5Image, Kandinsky5, Anima]
 
 models += [SVD_img2vid]

@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.11.1"
+version = "0.12.0"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -19,7 +19,7 @@ classifiers = [
 
 dependencies = [
     "comfyui-frontend-package>=1.36.14",
-    "comfyui-workflow-templates>=0.8.4",
+    "comfyui-workflow-templates>=0.8.31",
     "comfyui-embedded-docs>=0.4.0",
     "comfy_kitchen>=0.2.7",
     "comfy-aimdo>=0.1.7",

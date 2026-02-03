@@ -91,8 +91,9 @@ class VAEEncodeAudio(IO.ComfyNode):
             import torchaudio  # pylint: disable=import-error
         except ImportError:
             raise TorchAudioNotFoundError()
-        if 44100 != sample_rate:
-            waveform = torchaudio.functional.resample(audio["waveform"], sample_rate, 44100)
+        vae_sample_rate = getattr(vae, "audio_sample_rate", 44100)
+        if vae_sample_rate != sample_rate:
+            waveform = torchaudio.functional.resample(audio["waveform"], sample_rate, vae_sample_rate)
         else:
             waveform = audio["waveform"]
 
@@ -123,7 +124,8 @@ class VAEDecodeAudio(IO.ComfyNode):
         std = torch.std(audio, dim=[1, 2], keepdim=True) * 5.0
         std[std < 1.0] = 1.0
         audio /= std
-        return IO.NodeOutput({"waveform": audio, "sample_rate": 44100 if "sample_rate" not in samples else samples["sample_rate"]})
+        vae_sample_rate = getattr(vae, "audio_sample_rate", 44100)
+        return IO.NodeOutput({"waveform": audio, "sample_rate": vae_sample_rate if "sample_rate" not in samples else samples["sample_rate"]})
 
     decode = execute  # TODO: remove
 

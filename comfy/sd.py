@@ -40,7 +40,8 @@ from .ldm.wan import vae2_2 as wan_vae2_2
 from .lora import load_lora, model_lora_keys_unet, model_lora_keys_clip
 from .lora_convert import convert_lora
 from .model_management import load_models_gpu, module_size
-from .model_patcher import ModelPatcher, CoreModelPatcher, get_model_patcher_class
+from .model_management_types import ModelManageable
+from .model_patcher import ModelPatcher, get_model_patcher_class
 from .pixel_space_convert import PixelspaceConversionVAE
 from .t2i_adapter import adapter
 from .taesd import taesd
@@ -69,11 +70,11 @@ from .text_encoders import z_image
 from .text_encoders import jina_clip_2
 from .text_encoders import newbie
 from .text_encoders import anima
+from .text_encoders import ace15
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
 from .latent_formats import HunyuanVideo15, HunyuanVideo
 from comfy.weight_adapter import WeightAdapterBase, BypassInjectionManager
-
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +472,8 @@ class VAE:
         self.extra_1d_channel = None
         self.crop_input = True
 
+        self.audio_sample_rate = 44100
+
         if config is None:
             if "decoder.mid.block_1.mix_factor" in sd:
                 encoder_config = {'double_z': True, 'z_channels': 4, 'resolution': 256, 'in_channels': 3, 'out_ch': 3, 'ch': 128, 'ch_mult': [1, 2, 4, 4], 'num_res_blocks': 2, 'attn_resolutions': [], 'dropout': 0.0}
@@ -568,7 +571,18 @@ class VAE:
                                                                     encoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Encoder", 'params': ddconfig},
                                                                     decoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Decoder", 'params': ddconfig})
             elif "decoder.layers.1.layers.0.beta" in sd:
-                self.first_stage_model = AudioOobleckVAE()
+                config = {}
+                param_key = None
+                if "decoder.layers.2.layers.1.weight_v" in sd:
+                    param_key = "decoder.layers.2.layers.1.weight_v"
+                if "decoder.layers.2.layers.1.parametrizations.weight.original1" in sd:
+                    param_key = "decoder.layers.2.layers.1.parametrizations.weight.original1"
+                if param_key is not None:
+                    if sd[param_key].shape[-1] == 12:
+                        config["strides"] = [2, 4, 4, 6, 10]
+                        self.audio_sample_rate = 48000
+
+                self.first_stage_model = AudioOobleckVAE(**config)
                 self.memory_used_encode = lambda shape, dtype: (1000 * shape[2]) * model_management.dtype_size(dtype)
                 self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * 2048) * model_management.dtype_size(dtype)
                 self.latent_channels = 64
@@ -1499,6 +1513,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 clip_data_jina = clip_data[0]
             tokenizer_data["gemma_spiece_model"] = clip_data_gemma.get("spiece_model", None)
             tokenizer_data["jina_spiece_model"] = clip_data_jina.get("spiece_model", None)
+        elif clip_type == CLIPType.ACE:
+            clip_target.clip = ace15.te(**llama_detect(clip_data))
+            clip_target.tokenizer = ace15.ACE15Tokenizer
         else:
             clip_target.clip = sdxl_clip.SDXLClipModel
             clip_target.tokenizer = sdxl_clip.SDXLTokenizer
@@ -1571,7 +1588,7 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     return out
 
 
-def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options=None, te_model_options=None, metadata: Optional[FileMetadata] = None, ckpt_path="") -> tuple[CoreModelPatcher, Optional[CLIP], Optional[VAE], Optional[CLIPVision]]:
+def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options=None, te_model_options=None, metadata: Optional[FileMetadata] = None, ckpt_path="") -> tuple[ModelManageable, Optional[CLIP], Optional[VAE], Optional[CLIPVision]]:
     if te_model_options is None:
         te_model_options = {}
     if model_options is None:
