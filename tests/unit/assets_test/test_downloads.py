@@ -6,7 +6,8 @@ from typing import Optional
 
 import pytest
 import requests
-from conftest import get_asset_filename, trigger_sync_seed_assets
+
+from .helpers import get_asset_filename, trigger_sync_seed_assets
 
 
 def test_download_attachment_and_inline(http: requests.Session, api_base: str, seeded_asset: dict):
@@ -99,8 +100,7 @@ def test_download_chooses_existing_state_and_updates_access_time(
 def test_download_missing_file_returns_404(
     http: requests.Session, api_base: str, comfy_tmp_base_dir: Path, seeded_asset: dict
 ):
-    # Remove the underlying file then attempt download.
-    # We initialize fixture without additional tags to know exactly the asset file path.
+    """Remove the underlying file then attempt download - should return 404."""
     try:
         aid = seeded_asset["id"]
         rg = http.get(f"{api_base}/api/assets/{aid}", timeout=120)
@@ -108,7 +108,7 @@ def test_download_missing_file_returns_404(
         assert rg.status_code == 200
         asset_filename = get_asset_filename(detail["asset_hash"], ".safetensors")
         abs_path = comfy_tmp_base_dir / "models" / "checkpoints" / asset_filename
-        assert abs_path.exists()
+        assert abs_path.exists(), f"Expected file at {abs_path}"
         abs_path.unlink()
 
         r2 = http.get(f"{api_base}/api/assets/{aid}/content", timeout=120)
@@ -116,9 +116,8 @@ def test_download_missing_file_returns_404(
         body = r2.json()
         assert body["error"]["code"] == "FILE_NOT_FOUND"
     finally:
-        # We created asset without the "unit-tests" tag(see `autoclean_unit_test_assets`), we need to clear it manually.
-        dr = http.delete(f"{api_base}/api/assets/{aid}", timeout=120)
-        dr.content
+        # Created without "unit-tests" tag, so autoclean won't handle it
+        http.delete(f"{api_base}/api/assets/{aid}", timeout=120)
 
 
 @pytest.mark.skip(reason="Requires computing hashes of files in directories to deduplicate into multiple cache states")

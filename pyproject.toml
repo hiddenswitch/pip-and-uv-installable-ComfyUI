@@ -127,6 +127,7 @@ dependencies = [
     "propcache>=0.4.1",
     "blake3",
     "requests",
+    "matrix-nio",
 ]
 
 [build-system]

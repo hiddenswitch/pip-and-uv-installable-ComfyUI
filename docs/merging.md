@@ -2,6 +2,44 @@
 
 This document covers synchronization tasks needed when merging upstream ComfyUI changes.
 
+## Environment Setup
+
+This project uses `uv` for dependency management. Before running any commands:
+
+### Check if You're in a uv-Managed Environment
+
+```bash
+# Check for UV_VIRTUAL_ENV or if uv created the venv
+echo $UV_VIRTUAL_ENV
+# Or check the venv origin
+cat $VIRTUAL_ENV/pyvenv.cfg | grep uv
+```
+
+### Package Installation
+
+**In a uv-managed environment**: Always use `uv pip install` instead of `pip install`:
+
+```bash
+# Correct
+uv pip install <package-name>
+uv pip install -r requirements.txt
+
+# Incorrect (do not use in uv environments)
+pip install <package-name>
+```
+
+**Why**: Using `pip install` directly in a uv-managed environment can cause dependency resolution conflicts and inconsistent package states. The `uv` tool maintains its own lockfile and dependency graph.
+
+### Quick Reference
+
+| Task | Command |
+|------|---------|
+| Install package | `uv pip install <package>` |
+| Install from requirements | `uv pip install -r requirements.txt` |
+| Install editable | `uv pip install -e .` |
+| Install with extras | `uv pip install "package[extra1,extra2]"` |
+| Sync dependencies | `uv sync` |
+
 ## Linting
 
 After fixing imports and other merge issues, run the linter to catch remaining problems:
@@ -37,6 +75,25 @@ In `__init__`:
 ```python
 self.disable_assets_autoscan: bool = False
 ```
+
+### Configuration Field Categories
+
+When adding new CLI arguments, also check if they belong to special field categories in `comfy/component_model/configuration.py`:
+
+**`AFFECTS_PATHS`** - Fields that affect folder paths. When these change, `folder_names_and_paths` is reinitialized:
+- `cwd`, `base_directory`, `base_paths`
+- `output_directory`, `input_directory`, `temp_directory`, `user_directory`
+- `extra_model_paths_config`
+
+**`MODEL_MANAGEMENT_ARGS`** - Fields that affect model management behavior (VRAM, precision, device selection). When these differ from defaults, `ProcessPoolExecutor` is required:
+- VRAM modes: `lowvram`, `novram`, `highvram`, `gpu_only`, `cpu`
+- Precision: `force_fp32`, `force_fp16`, `force_bf16`, `fp*_unet`, `fp*_vae`, `fp*_text_enc`
+- Attention: `use_*_cross_attention`, `use_sage_attention`, `use_flash_attention`, `disable_xformers`
+- Memory: `reserve_vram`, `disable_smart_memory`, `disable_pinned_memory`, `async_offload`
+- Device: `directml`, `deterministic`, `force_channels_last`
+- Performance: `fast` (includes `DynamicVRAM` feature)
+
+If a new argument affects paths or model management, add it to the appropriate frozenset.
 
 ### Quick Check
 
@@ -274,6 +331,24 @@ import logging  # often missing after refactoring
 
 # Check for module-level function references
 from .cli_args import args  # might need _args() function instead
+```
+
+### Avoid `__all__`
+
+Never use `__all__` in this codebase. It's brittle and causes maintenance issues:
+
+```python
+# Don't do this
+__all__ = ["function1", "function2", "ClassName"]
+
+# Instead, just export what you need via normal imports
+# and use explicit imports at the call site
+```
+
+If you need to re-export symbols from a module, use explicit imports with `# noqa: F401` to silence unused import warnings:
+
+```python
+from .helpers import some_function  # noqa: F401
 ```
 
 ### Undefined Module References

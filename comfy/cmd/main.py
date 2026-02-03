@@ -248,22 +248,10 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         logger.info(f"Setting user directory to: {user_dir}")
         folder_paths.set_user_directory(user_dir)
 
-    # todo: the manager code has to live inside vanilla_node_importing, it has to deal with a git repo already being in custom_nodes
-    # if args.enable_manager:
-    #     if importlib.util.find_spec("comfyui_manager"):
-    #         import comfyui_manager
-    #
-    #         if not comfyui_manager.__file__ or not comfyui_manager.__file__.endswith('__init__.py'):
-    #             handle_comfyui_manager_unavailable(args)
-    #     else:
-    #         handle_comfyui_manager_unavailable(args)
-    #
-    # if args.enable_manager:
-    #     try:
-    #          import comfyui_manager
-    #          comfyui_manager.prestartup()
-    #     except:
-    #          pass
+    # Initialize comfyui_manager if available and enabled
+    from ..manager_integration import init_manager, prestartup as manager_prestartup, start as manager_start
+    init_manager(args)
+    manager_prestartup()
 
     # configure extra model paths earlier
     try:
@@ -296,13 +284,9 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     loop = asyncio.get_event_loop()
     server = server_module.PromptServer(loop)
 
-    # todo: the manager code has to live inside vanilla_node_importing, it has to deal with a git repo already being in custom_nodes
-    # if args.enable_manager and not args.disable_manager_ui:
-    #     try:
-    #         import comfyui_manager
-    #         comfyui_manager.start()
-    #     except:
-    #          pass
+    # Start manager UI if enabled
+    if args.enable_manager and not args.disable_manager_ui:
+        manager_start()
 
     if args.external_address is not None:
         server.external_address = args.external_address

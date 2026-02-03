@@ -78,12 +78,6 @@ class HeuristicPath(NamedTuple):
 LOADED_MODULE_DIRS = {}
 
 
-# todo: is this really how we want to enable the manager? we will have to deal with this later
-# if args.enable_manager:
-#     try:
-#         import comfyui_manager
-#     except ImportError:
-#         logger.warning("ComfyUI Manager not found but enabled in args.")
 
 
 
@@ -302,9 +296,11 @@ class PromptServer(ExecutorToClientProgress):
         if args.disable_api_nodes:
             middlewares.append(create_block_external_middleware())
 
-        # todo: enable the package-installed manager later
-        # if args.enable_manager:
-        #     middlewares.append(comfyui_manager.create_middleware())
+        # Add manager middleware if available
+        from ..manager_integration import get_middleware
+        manager_middleware = get_middleware()
+        if manager_middleware is not None:
+            middlewares.append(manager_middleware)
 
         max_upload_size = round(args.max_upload_size * 1024 * 1024)
         self.app: web.Application = web.Application(client_max_size=max_upload_size,

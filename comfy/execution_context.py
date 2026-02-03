@@ -68,13 +68,44 @@ def _new_execution_context(ctx: ExecutionContext):
         comfyui_execution_context.reset(token)
 
 
+def _config_fields_changed(old_config: Optional[Configuration], new_config: Configuration, fields: frozenset[str]) -> bool:
+    """Check if any of the specified configuration fields have changed."""
+    if old_config is None:
+        return True
+    for field in fields:
+        if getattr(old_config, field, None) != getattr(new_config, field, None):
+            return True
+    return False
+
+
 @contextmanager
 def context_configuration(configuration: Optional[Configuration] = None):
+    """
+    Context manager for setting configuration.
+
+    If path-related configuration fields (defined in AFFECTS_PATHS) differ
+    from the current context, folder_names_and_paths will be reinitialized
+    with the new configuration.
+
+    See component_model.configuration.AFFECTS_PATHS for the list of fields
+    that trigger folder path reinitialization.
+    """
+    from .component_model.configuration import AFFECTS_PATHS
+
     current_ctx = current_execution_context()
     if configuration is None:
         from .cli_args import cli_args_configuration
         configuration = cli_args_configuration()
-    new_ctx = replace(current_ctx, configuration=configuration)
+
+    # Check if paths changed and reinitialize folder_names_and_paths if needed
+    if _config_fields_changed(current_ctx.configuration, configuration, AFFECTS_PATHS):
+        from .cmd.folder_paths import init_default_paths
+        new_folder_names = FolderNames(is_root=True)
+        init_default_paths(new_folder_names, configuration, replace_existing=True)
+        new_ctx = replace(current_ctx, configuration=configuration, folder_names_and_paths=new_folder_names)
+    else:
+        new_ctx = replace(current_ctx, configuration=configuration)
+
     with _new_execution_context(new_ctx):
         yield new_ctx
 

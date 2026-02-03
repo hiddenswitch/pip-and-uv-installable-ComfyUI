@@ -177,14 +177,14 @@ def comfy_background_server(tmp_path_factory) -> Generator[tuple[Configuration, 
     yield from comfy_background_server_from_config(configuration)
 
 
-def comfy_background_server_from_config(configuration):
+def comfy_background_server_from_config(configuration: Configuration):
     server_process = multiprocessing.get_context('spawn').Process(target=run_server, args=(configuration,))
     server_process.start()
     # wait for http url to be ready
     success = False
     for i in range(60):
         try:
-            with urllib.request.urlopen(f"http://localhost:{configuration['port']}/object_info") as response:
+            with urllib.request.urlopen(f"http://{configuration.listen}:{configuration.port}/object_info") as response:
                 success = response.status == 200
                 if success:
                     break

@@ -3,7 +3,20 @@ from __future__ import annotations
 from ..cli_args_types import Configuration
 from ..cli_args import default_configuration
 
-MODEL_MANAGEMENT_ARGS = {
+# Fields that affect folder paths - when changed, folder_names_and_paths needs reinitialization
+AFFECTS_PATHS: frozenset[str] = frozenset({
+    'cwd',
+    'base_directory',
+    'base_paths',
+    'output_directory',
+    'input_directory',
+    'temp_directory',
+    'user_directory',
+    'extra_model_paths_config',
+})
+
+# Fields that affect model management behavior - when changed, requires ProcessPoolExecutor
+MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "deterministic",
     "directml",
     "cpu",
@@ -12,6 +25,7 @@ MODEL_MANAGEMENT_ARGS = {
     # "use_pytorch_cross_attention",
     "use_split_cross_attention",
     "use_quad_cross_attention",
+    "use_pytorch_cross_attention",
     "supports_fp8_compute",
     "fast",
     "lowvram",
@@ -48,7 +62,7 @@ MODEL_MANAGEMENT_ARGS = {
     "force_upcast_attention",
     "use_sage_attention",
     "use_flash_attention",
-}
+})
 
 
 def requires_process_pool_executor(configuration: Configuration | None) -> bool:

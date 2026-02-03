@@ -90,6 +90,12 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
             if isfile(module_path) or module_path.endswith(".disabled") or module_path == "__pycache__":
                 continue
 
+            # Check if manager policy blocks this node
+            from ..manager_integration import should_be_disabled
+            if should_be_disabled(module_path):
+                logger.info(f"Blocked by manager policy: {module_path}")
+                continue
+
             script_path = join(module_path, "prestartup_script.py")
             if exists(script_path):
                 if "comfyui-manager" in module_path.lower():
@@ -251,6 +257,11 @@ def _vanilla_load_custom_nodes_2(node_paths: Iterable[str]) -> ExportedNodes:
                 continue
             if any(fnmatch.fnmatch(possible_module, pattern) for pattern in args.blacklist_custom_nodes):
                 logger.info(f"Skipping {possible_module} due to blacklist_custom_nodes")
+                continue
+            # Check if manager policy blocks this node
+            from ..manager_integration import should_be_disabled
+            if should_be_disabled(module_path):
+                logger.info(f"Blocked by manager policy: {module_path}")
                 continue
             time_before = time.perf_counter()
             possible_exported_nodes = _vanilla_load_custom_nodes_1(module_path, ignore=base_node_names)

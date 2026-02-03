@@ -6,6 +6,7 @@ with a Configuration object instead of raw CLI args.
 """
 import contextlib
 import json
+import socket
 import tempfile
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Generator, Any
@@ -19,6 +20,15 @@ from comfy.cli_args_types import Configuration
 
 # Import the server runner from top-level conftest
 from tests.conftest import comfy_background_server_from_config
+
+
+def _find_free_port() -> int:
+    """Find a free port by binding to port 0 and reading the assigned port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 
 def _make_base_dirs(root: Path) -> None:
@@ -54,11 +64,14 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     db_path = comfy_tmp_base_dir / "assets-test.sqlite3"
     db_url = f"sqlite:///{db_path}"
 
+    # Use temp dir as the only base path for models/custom_nodes
+    config.cwd = str(comfy_tmp_base_dir)
     config.base_directory = str(comfy_tmp_base_dir)
+    config.base_paths = [str(comfy_tmp_base_dir)]
     config.database_url = db_url
     config.disable_assets_autoscan = True
     config.listen = "127.0.0.1"
-    config.port = 0  # Let the system assign a free port
+    config.port = _find_free_port()
     config.cpu = True
     config.output_directory = str(comfy_tmp_base_dir / "output")
     config.input_directory = str(comfy_tmp_base_dir / "input")
@@ -196,11 +209,4 @@ def autoclean_unit_test_assets(http: requests.Session, api_base: str):
                 http.delete(f"{api_base}/api/assets/{aid}", timeout=30)
 
 
-def trigger_sync_seed_assets(session: requests.Session, base_url: str) -> None:
-    """Force a fast sync/seed pass by calling the seed endpoint."""
-    session.post(base_url + "/api/assets/seed", json={"roots": ["models", "input", "output"]}, timeout=30)
-
-
-def get_asset_filename(asset_hash: str, extension: str) -> str:
-    """Convert an asset hash to a filename."""
-    return asset_hash.removeprefix("blake3:") + extension
+# Helper functions are in helpers.py for direct import by test files

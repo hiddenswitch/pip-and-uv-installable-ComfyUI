@@ -297,7 +297,7 @@ options:
                         deteriorating optimizations. Pass a list specific
                         optimizations if you only want to enable specific
                         ones. Current valid optimizations: fp16_accumulation
-                        fp8_matrix_mult cublas_ops autotune [env var:
+                        fp8_matrix_mult cublas_ops autotune dynamic_vram [env var:
                         COMFYUI_FAST]
   --disable-pinned-memory
                         Disable pinned memory use. [env var:
@@ -488,3 +488,25 @@ https://goo.gl/R74nmi). In general, command-line values override environment
 variables which override config file values which override defaults.
 
 ```
+
+### Performance Optimizations (--fast)
+
+The `--fast` option accepts space-separated feature names (not comma-separated):
+
+```bash
+# Enable single optimization
+comfyui --fast cublas_ops
+
+# Enable multiple optimizations (space-separated)
+comfyui --fast cublas_ops dynamic_vram
+
+# Enable all available optimizations
+comfyui --fast fp16_accumulation fp8_matrix_mult cublas_ops autotune dynamic_vram
+```
+
+Available optimizations:
+- `fp16_accumulation` - Use fp16 for accumulation in matrix operations
+- `fp8_matrix_mult` - Enable fp8 matrix multiplication
+- `cublas_ops` - Use cuBLAS for linear operations
+- `autotune` - Enable PyTorch autotuning
+- `dynamic_vram` - Enable dynamic VRAM management
