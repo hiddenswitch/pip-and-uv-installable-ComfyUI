@@ -74,7 +74,7 @@ from .text_encoders import ace15
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
 from .latent_formats import HunyuanVideo15, HunyuanVideo
-from comfy.weight_adapter import WeightAdapterBase, BypassInjectionManager
+from .weight_adapter import WeightAdapterBase, BypassInjectionManager
 
 logger = logging.getLogger(__name__)
 

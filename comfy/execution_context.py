@@ -99,7 +99,7 @@ def context_configuration(configuration: Optional[Configuration] = None):
 
     # Check if paths changed and reinitialize folder_names_and_paths if needed
     if _config_fields_changed(current_ctx.configuration, configuration, AFFECTS_PATHS):
-        from .cmd.folder_paths import init_default_paths
+        from .cmd.folder_paths import init_default_paths  # pylint: disable=import-error
         new_folder_names = FolderNames(is_root=True)
         init_default_paths(new_folder_names, configuration, replace_existing=True)
         new_ctx = replace(current_ctx, configuration=configuration, folder_names_and_paths=new_folder_names)

@@ -2,7 +2,7 @@ import math
 import torch
 from typing import NamedTuple
 
-from comfy.quant_ops import QuantizedTensor
+from .quant_ops import QuantizedTensor
 
 class TensorGeometry(NamedTuple):
     shape: any

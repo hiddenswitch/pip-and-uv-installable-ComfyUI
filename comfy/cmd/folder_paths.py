@@ -18,9 +18,14 @@ from ..component_model.folder_path_types import FolderNames, SaveImagePathTuple,
 from ..component_model.folder_path_types import supported_pt_extensions, extension_mimetypes_cache
 from ..component_model.module_property import create_module_properties
 from ..component_model.platform_path import construct_path
-from ..execution_context import current_execution_context
 
 _module_properties = create_module_properties()
+
+
+def _current_execution_context():
+    """Deferred import to avoid circular dependency with execution_context."""
+    from ..execution_context import current_execution_context
+    return current_execution_context()
 
 logger = logging.getLogger(__name__)
 
@@ -204,32 +209,32 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
 
 @_module_properties.getter
 def _folder_names_and_paths():
-    return current_execution_context().folder_names_and_paths
+    return _current_execution_context().folder_names_and_paths
 
 
 @_module_properties.getter
 def _models_dir():
-    return str(Path(current_execution_context().folder_names_and_paths.base_paths[0]) / construct_path("models"))
+    return str(Path(_current_execution_context().folder_names_and_paths.base_paths[0]) / construct_path("models"))
 
 
 @_module_properties.getter
 def _user_directory() -> str:
-    return str(_resolve_path_with_compatibility(current_execution_context().folder_names_and_paths.application_paths.user_directory))
+    return str(_resolve_path_with_compatibility(_current_execution_context().folder_names_and_paths.application_paths.user_directory))
 
 
 @_module_properties.getter
 def _temp_directory() -> str:
-    return str(_resolve_path_with_compatibility(current_execution_context().folder_names_and_paths.application_paths.temp_directory))
+    return str(_resolve_path_with_compatibility(_current_execution_context().folder_names_and_paths.application_paths.temp_directory))
 
 
 @_module_properties.getter
 def _input_directory() -> str:
-    return str(_resolve_path_with_compatibility(current_execution_context().folder_names_and_paths.application_paths.input_directory))
+    return str(_resolve_path_with_compatibility(_current_execution_context().folder_names_and_paths.application_paths.input_directory))
 
 
 @_module_properties.getter
 def _output_directory() -> str:
-    return str(_resolve_path_with_compatibility(current_execution_context().folder_names_and_paths.application_paths.output_directory))
+    return str(_resolve_path_with_compatibility(_current_execution_context().folder_names_and_paths.application_paths.output_directory))
 
 
 @_deprecate_method(version="0.2.3", message="Mapping of previous folder names is already done by other mechanisms.")

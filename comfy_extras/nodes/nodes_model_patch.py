@@ -8,7 +8,7 @@ import comfy.ldm.common_dit
 import comfy.latent_formats
 import comfy.ldm.lumina.controlnet
 from comfy.ldm.wan.model_multitalk import WanMultiTalkAttentionBlock, MultiTalkAudioProjModel
-from comfy.model_patcher import ModelPatcher, CoreModelPatcher
+from comfy.model_patcher import ModelPatcher, get_model_patcher_class
 
 
 class BlockWiseControlBlock(torch.nn.Module):
@@ -272,7 +272,7 @@ class ModelPatchLoader:
                 device=comfy.model_management.unet_offload_device(),
                 operations=comfy.ops.manual_cast)
 
-        model_patcher = CoreModelPatcher(model, load_device=comfy.model_management.get_torch_device(), offload_device=comfy.model_management.unet_offload_device())
+        model_patcher = get_model_patcher_class()(model, load_device=comfy.model_management.get_torch_device(), offload_device=comfy.model_management.unet_offload_device())
         model.load_state_dict(sd, assign=model_patcher.is_dynamic())
         return (model_patcher,)
 

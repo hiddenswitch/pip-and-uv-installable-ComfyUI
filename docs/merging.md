@@ -42,11 +42,13 @@ pip install <package-name>
 
 ## Linting
 
-After fixing imports and other merge issues, run the linter to catch remaining problems:
+**IMPORTANT:** After fixing imports and other merge issues, run the linter on the **entire codebase**, not just the changed files. Upstream changes may introduce issues in unchanged files due to cross-module dependencies:
 
 ```bash
 pylint -j 32 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
 ```
+
+The full lint must pass with no errors before the merge is complete.
 
 See [Linting Guidelines](linting.md) for custom rules and common fixes.
 

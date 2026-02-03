@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 
 from .base import WeightAdapterBase, WeightAdapterTrainBase
-from comfy.patcher_extension import PatcherInjection
+from ..patcher_extension import PatcherInjection
 
 # Type alias for adapters that support bypass mode
 BypassAdapter = Union[WeightAdapterBase, WeightAdapterTrainBase]
