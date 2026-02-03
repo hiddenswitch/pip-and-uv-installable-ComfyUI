@@ -40,7 +40,7 @@ from .ldm.wan import vae2_2 as wan_vae2_2
 from .lora import load_lora, model_lora_keys_unet, model_lora_keys_clip
 from .lora_convert import convert_lora
 from .model_management import load_models_gpu, module_size
-from .model_patcher import ModelPatcher, CoreModelPatcher
+from .model_patcher import ModelPatcher, CoreModelPatcher, get_model_patcher_class
 from .pixel_space_convert import PixelspaceConversionVAE
 from .t2i_adapter import adapter
 from .taesd import taesd
@@ -243,7 +243,7 @@ class CLIP:
         model_management.archive_model_dtypes(self.cond_stage_model)
 
         self.tokenizer: "sd1_clip.SD1Tokenizer" = tokenizer(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data)
-        self.patcher = CoreModelPatcher(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
+        self.patcher = get_model_patcher_class()(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
         # Match torch.float32 hardcode upcast in TE implemention
         self.patcher.set_model_compute_dtype(torch.float32)
         self.patcher.hook_mode = EnumHookMode.MinVram
@@ -808,9 +808,10 @@ class VAE:
         self.first_stage_model.to(self.vae_dtype)
         self.output_device = model_management.intermediate_device()
 
-        mp = CoreModelPatcher
         if self.disable_offload:
             mp = ModelPatcher
+        else:
+            mp = get_model_patcher_class()
         self.patcher = mp(self.first_stage_model, load_device=self.device, offload_device=offload_device)
 
         m, u = self.first_stage_model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
@@ -1522,7 +1523,7 @@ def load_gligen(ckpt_path):
     model = gligen.load_gligen(data)
     if model_management.should_use_fp16():
         model = model.half()
-    return CoreModelPatcher(model, load_device=model_management.get_torch_device(), offload_device=model_management.unet_offload_device())
+    return get_model_patcher_class()(model, load_device=model_management.get_torch_device(), offload_device=model_management.unet_offload_device())
 
 def model_detection_error_hint(path, state_dict):
     filename = os.path.basename(path)
@@ -1624,7 +1625,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     if output_model:
         inital_load_device = model_management.unet_initial_load_device(parameters, unet_dtype)
         model = model_config.get_model(sd, diffusion_model_prefix, device=inital_load_device)
-        model_patcher = CoreModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device())
+        model_patcher = get_model_patcher_class()(model, load_device=load_device, offload_device=model_management.unet_offload_device())
         model.load_model_weights(sd, diffusion_model_prefix, assign=model_patcher.is_dynamic())
 
     if output_vae:
@@ -1760,7 +1761,7 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
         model_config.optimizations["fp8"] = True
 
     model = model_config.get_model(new_sd, "")
-    model_patcher = CoreModelPatcher(model, load_device=load_device, offload_device=offload_device, ckpt_name=os.path.basename(ckpt_path))
+    model_patcher = get_model_patcher_class()(model, load_device=load_device, offload_device=offload_device, ckpt_name=os.path.basename(ckpt_path))
     if not model_management.is_device_cpu(offload_device):
         model.to(offload_device)
     model.load_model_weights(new_sd, "", assign=model_patcher.is_dynamic())

@@ -207,7 +207,7 @@ class ControlNet(ControlBase):
         self.control_model = control_model
         self.load_device = load_device
         if control_model is not None:
-            self.control_model_wrapped = model_patcher.CoreModelPatcher(self.control_model, load_device=load_device, offload_device=model_management.unet_offload_device())
+            self.control_model_wrapped = model_patcher.get_model_patcher_class()(self.control_model, load_device=load_device, offload_device=model_management.unet_offload_device())
             if ckpt_name is not None:
                 self.control_model_wrapped.ckpt_name = os.path.basename(ckpt_name)
         self.compression_ratio = compression_ratio

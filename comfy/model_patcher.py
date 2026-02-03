@@ -1819,4 +1819,28 @@ class ModelPatcherDynamic(ModelPatcher):
         pass
 
 
-CoreModelPatcher = ModelPatcher
+def get_model_patcher_class() -> type[ModelPatcher]:
+    """
+    Returns the appropriate ModelPatcher class based on current configuration.
+
+    Uses ModelPatcherDynamic when dynamic VRAM is enabled and aimdo is initialized,
+    otherwise falls back to the standard ModelPatcher.
+    """
+    from . import memory_management
+    if memory_management.aimdo_allocator is not None:
+        return ModelPatcherDynamic
+    return ModelPatcher
+
+
+# Module-level property for CoreModelPatcher
+# This allows `from .model_patcher import CoreModelPatcher` to work while
+# returning the correct class (ModelPatcher or ModelPatcherDynamic) based on configuration.
+# See docs/merging.md for explanation of this pattern.
+from .component_model.module_property import create_module_properties
+_module_properties = create_module_properties()
+
+
+@_module_properties.getter
+def _CoreModelPatcher() -> type[ModelPatcher]:
+    """Module property that returns the appropriate ModelPatcher class."""
+    return get_model_patcher_class()

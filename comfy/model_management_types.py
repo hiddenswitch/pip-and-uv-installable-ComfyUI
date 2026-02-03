@@ -213,6 +213,10 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
 
     def clone(self) -> ModelManageableT: ...
 
+    def is_dynamic(self) -> bool:
+        """Return True if this model uses dynamic VRAM management."""
+        ...
+
 
 class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable, metaclass=ABCMeta):
     """
@@ -290,6 +294,13 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
         Returns a counter related to low VRAM patching, used to decide if a reload is necessary.
         """
         return 0
+
+    def is_dynamic(self) -> bool:
+        """
+        Return True if this model uses dynamic VRAM management.
+        Dynamic models use virtual BAR for on-demand weight loading.
+        """
+        return False
 
     def partially_load(self, device_to: torch.device, extra_memory: int = 0, force_patch_weights: bool = False):
         self.patch_model(device_to=device_to)

@@ -264,6 +264,49 @@ Upstream may change error types, message formats, or validation behavior. When t
 2. **Check message content** - Error messages may be reworded
 3. **Verify behavior is correct** - Ensure the test is checking for the right behavior, then update assertions to match
 
+## Module-Level Properties
+
+This fork uses module-level properties from `comfy/component_model/module_property.py` for configuration-dependent exports. This pattern allows module attributes to be evaluated at access time rather than import time.
+
+### Why Use Module Properties
+
+Some exports depend on runtime configuration (e.g., whether dynamic VRAM is enabled). The traditional approach of assigning at module level:
+
+```python
+# Bad: evaluated at import time, before configuration is known
+CoreModelPatcher = ModelPatcher  # or ModelPatcherDynamic?
+```
+
+This leads to "radioactive" patterns where modules mutate each other's attributes after import.
+
+### The Module Property Pattern
+
+Instead, use a module property that evaluates at access time:
+
+```python
+from .component_model.module_property import create_module_properties
+
+_module_properties = create_module_properties()
+
+@_module_properties.getter
+def _CoreModelPatcher() -> type[ModelPatcher]:
+    """Module property - the underscore prefix is stripped."""
+    return get_model_patcher_class()
+```
+
+Now `CoreModelPatcher` is a module attribute that calls `get_model_patcher_class()` each time it's accessed, returning the correct class based on current configuration.
+
+### When to Use
+
+Use module properties when:
+- An export depends on runtime configuration
+- You want to avoid import-time side effects
+- The value might change during program execution
+
+For `CoreModelPatcher` specifically:
+- **Deprecated**: Use `get_model_patcher_class()` in new code
+- **Module property**: Provides backwards compatibility for existing code that imports `CoreModelPatcher`
+
 ## Protocol Alignment
 
 This fork uses protocols in `comfy/model_management_types.py` to define interfaces for model management. When upstream adds parameters to `ModelPatcher` or related classes:

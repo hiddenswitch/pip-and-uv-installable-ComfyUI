@@ -63,7 +63,7 @@ class ClipVisionModel():
         self.model = model_class(config, self.dtype, offload_device, ops.manual_cast)
         self.model.eval()
 
-        self.patcher = model_patcher.CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = model_patcher.get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
