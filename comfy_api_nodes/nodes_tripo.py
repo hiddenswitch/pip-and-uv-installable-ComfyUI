@@ -1,10 +1,6 @@
-import os
-from typing import Optional
-
-import torch
 from typing_extensions import override
 
-from comfy_api.latest import IO, ComfyExtension
+from comfy_api.latest import IO, ComfyExtension, Input
 from comfy_api_nodes.apis.tripo import (
     TripoAnimateRetargetRequest,
     TripoAnimateRigRequest,
@@ -26,12 +22,11 @@ from comfy_api_nodes.apis.tripo import (
 )
 from comfy_api_nodes.util import (
     ApiEndpoint,
-    download_url_as_bytesio,
+    download_url_to_file_3d,
     poll_op,
     sync_op,
     upload_images_to_comfyapi,
 )
-from comfy.cmd.folder_paths import get_output_directory
 
 
 def get_model_url_from_response(response: TripoTaskResponse) -> str:
@@ -45,7 +40,7 @@ def get_model_url_from_response(response: TripoTaskResponse) -> str:
 async def poll_until_finished(
         node_cls: type[IO.ComfyNode],
         response: TripoTaskResponse,
-        average_duration: Optional[int] = None,
+        average_duration: int | None = None,
 ) -> IO.NodeOutput:
     """Polls the Tripo API endpoint until the task reaches a terminal state, then returns the response."""
     if response.code != 0:
@@ -69,12 +64,8 @@ async def poll_until_finished(
     )
     if response_poll.data.status == TripoTaskStatus.SUCCESS:
         url = get_model_url_from_response(response_poll)
-        bytesio = await download_url_as_bytesio(url)
-        # Save the downloaded model file
-        model_file = f"tripo_model_{task_id}.glb"
-        with open(os.path.join(get_output_directory(), model_file), "wb") as f:
-            f.write(bytesio.getvalue())
-        return IO.NodeOutput(model_file, task_id)
+        file_glb = await download_url_to_file_3d(url, "glb", task_id=task_id)
+        return IO.NodeOutput(f"{task_id}.glb", task_id, file_glb)
     raise RuntimeError(f"Failed to generate mesh: {response_poll}")
 
 
@@ -107,8 +98,9 @@ class TripoTextToModelNode(IO.ComfyNode):
                 IO.Combo.Input("geometry_quality", default="standard", options=["standard", "detailed"], optional=True),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("MODEL_TASK_ID").Output(display_name="model task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -155,17 +147,17 @@ class TripoTextToModelNode(IO.ComfyNode):
     async def execute(
             cls,
             prompt: str,
-            negative_prompt: Optional[str] = None,
+            negative_prompt: str | None = None,
             model_version=None,
-            style: Optional[str] = None,
-            texture: Optional[bool] = None,
-            pbr: Optional[bool] = None,
-            image_seed: Optional[int] = None,
-            model_seed: Optional[int] = None,
-            texture_seed: Optional[int] = None,
-            texture_quality: Optional[str] = None,
-            geometry_quality: Optional[str] = None,face_limit: Optional[int] = None,
-            quad: Optional[bool] = None,
+            style: str | None = None,
+            texture: bool | None = None,
+            pbr: bool | None = None,
+            image_seed: int | None = None,
+            model_seed: int | None = None,
+            texture_seed: int | None = None,
+            texture_quality: str | None = None,
+            geometry_quality: str | None = None, face_limit: int | None = None,
+            quad: bool | None = None,
     ) -> IO.NodeOutput:
         style_enum = None if style == "None" else style
         if not prompt:
@@ -231,8 +223,9 @@ class TripoImageToModelNode(IO.ComfyNode):
                 IO.Combo.Input("geometry_quality", default="standard", options=["standard", "detailed"], optional=True),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("MODEL_TASK_ID").Output(display_name="model task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -278,18 +271,18 @@ class TripoImageToModelNode(IO.ComfyNode):
     @classmethod
     async def execute(
             cls,
-            image: torch.Tensor,
-            model_version: Optional[str] = None,
-            style: Optional[str] = None,
-            texture: Optional[bool] = None,
-            pbr: Optional[bool] = None,
-            model_seed: Optional[int] = None,
+            image: Input.Image,
+            model_version: str | None = None,
+            style: str | None = None,
+            texture: bool | None = None,
+            pbr: bool | None = None,
+            model_seed: int | None = None,
             orientation=None,
-            texture_seed: Optional[int] = None,
-            texture_quality: Optional[str] = None,
-            geometry_quality: Optional[str] = None,texture_alignment: Optional[str] = None,
-            face_limit: Optional[int] = None,
-            quad: Optional[bool] = None,
+            texture_seed: int | None = None,
+            texture_quality: str | None = None,
+            geometry_quality: str | None = None, texture_alignment: str | None = None,
+            face_limit: int | None = None,
+            quad: bool | None = None,
     ) -> IO.NodeOutput:
         style_enum = None if style == "None" else style
         if image is None:
@@ -366,8 +359,9 @@ class TripoMultiviewToModelNode(IO.ComfyNode):
                 IO.Combo.Input("geometry_quality", default="standard", options=["standard", "detailed"], optional=True),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("MODEL_TASK_ID").Output(display_name="model task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -409,20 +403,20 @@ class TripoMultiviewToModelNode(IO.ComfyNode):
     @classmethod
     async def execute(
             cls,
-            image: torch.Tensor,
-            image_left: Optional[torch.Tensor] = None,
-            image_back: Optional[torch.Tensor] = None,
-            image_right: Optional[torch.Tensor] = None,
-            model_version: Optional[str] = None,
-            orientation: Optional[str] = None,
-            texture: Optional[bool] = None,
-            pbr: Optional[bool] = None,
-            model_seed: Optional[int] = None,
-            texture_seed: Optional[int] = None,
-            texture_quality: Optional[str] = None,
-            geometry_quality: Optional[str] = None,texture_alignment: Optional[str] = None,
-            face_limit: Optional[int] = None,
-            quad: Optional[bool] = None,
+            image: Input.Image,
+            image_left: Input.Image | None = None,
+            image_back: Input.Image | None = None,
+            image_right: Input.Image | None = None,
+            model_version: str | None = None,
+            orientation: str | None = None,
+            texture: bool | None = None,
+            pbr: bool | None = None,
+            model_seed: int | None = None,
+            texture_seed: int | None = None,
+            texture_quality: str | None = None,
+            geometry_quality: str | None = None, texture_alignment: str | None = None,
+            face_limit: int | None = None,
+            quad: bool | None = None,
     ) -> IO.NodeOutput:
         if image is None:
             raise RuntimeError("front image for multiview is required")
@@ -484,8 +478,9 @@ class TripoTextureNode(IO.ComfyNode):
                 ),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("MODEL_TASK_ID").Output(display_name="model task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -509,11 +504,11 @@ class TripoTextureNode(IO.ComfyNode):
     async def execute(
             cls,
             model_task_id,
-            texture: Optional[bool] = None,
-            pbr: Optional[bool] = None,
-            texture_seed: Optional[int] = None,
-            texture_quality: Optional[str] = None,
-            texture_alignment: Optional[str] = None,
+            texture: bool | None = None,
+            pbr: bool | None = None,
+            texture_seed: int | None = None,
+            texture_quality: str | None = None,
+            texture_alignment: str | None = None,
     ) -> IO.NodeOutput:
         response = await sync_op(
             cls,
@@ -544,8 +539,9 @@ class TripoRefineNode(IO.ComfyNode):
                 IO.Custom("MODEL_TASK_ID").Input("model_task_id", tooltip="Must be a v1.4 Tripo model"),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("MODEL_TASK_ID").Output(display_name="model task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -580,8 +576,9 @@ class TripoRigNode(IO.ComfyNode):
             category="api node/3d/Tripo",
             inputs=[IO.Custom("MODEL_TASK_ID").Input("original_model_task_id")],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("RIG_TASK_ID").Output(display_name="rig task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -639,8 +636,9 @@ class TripoRetargetNode(IO.ComfyNode):
                 ),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
                 IO.Custom("RETARGET_TASK_ID").Output(display_name="retarget task_id"),
+                IO.File3DGLB.Output(display_name="GLB"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -816,20 +814,20 @@ class TripoConversionNode(IO.ComfyNode):
             format: str,
             quad: bool,
             force_symmetry: bool,
-        face_limit: int,
-        flatten_bottom: bool,
-        flatten_bottom_threshold: float,
+            face_limit: int,
+            flatten_bottom: bool,
+            flatten_bottom_threshold: float,
             texture_size: int,
-            texture_format: str,pivot_to_center_bottom: bool,
-        scale_factor: float,
-        with_animation: bool,
-        pack_uv: bool,
-        bake: bool,
-        part_names: str,
-        fbx_preset: str,
-        export_vertex_colors: bool,
-        export_orientation: str,
-        animate_in_place: bool,
+            texture_format: str, pivot_to_center_bottom: bool,
+            scale_factor: float,
+            with_animation: bool,
+            pack_uv: bool,
+            bake: bool,
+            part_names: str,
+            fbx_preset: str,
+            export_vertex_colors: bool,
+            export_orientation: str,
+            animate_in_place: bool,
     ) -> IO.NodeOutput:
         if not original_model_task_id:
             raise RuntimeError("original_model_task_id is required")

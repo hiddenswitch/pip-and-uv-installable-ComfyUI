@@ -1,5 +1,3 @@
-import os
-
 from typing_extensions import override
 
 from comfy_api.latest import IO, ComfyExtension, Input
@@ -14,7 +12,7 @@ from comfy_api_nodes.apis.hunyuan3d import (
 )
 from comfy_api_nodes.util import (
     ApiEndpoint,
-    download_url_to_bytesio,
+    download_url_to_file_3d,
     downscale_image_tensor_by_max_side,
     poll_op,
     sync_op,
@@ -22,14 +20,13 @@ from comfy_api_nodes.util import (
     validate_image_dimensions,
     validate_string,
 )
-from comfy.cmd.folder_paths import get_output_directory
 
 
-def get_glb_obj_from_response(response_objs: list[ResultFile3D]) -> ResultFile3D:
+def get_file_from_response(response_objs: list[ResultFile3D], file_type: str) -> ResultFile3D | None:
     for i in response_objs:
-        if i.Type.lower() == "glb":
+        if i.Type.lower() == file_type.lower():
             return i
-    raise ValueError("No GLB file found in response. Please report this to the developers.")
+    return None
 
 
 class TencentTextToModelNode(IO.ComfyNode):
@@ -70,11 +67,13 @@ class TencentTextToModelNode(IO.ComfyNode):
                     display_mode=IO.NumberDisplay.number,
                     control_after_generate=True,
                     tooltip="Seed controls whether the node should re-run; "
-                    "results are non-deterministic regardless of seed.",
+                            "results are non-deterministic regardless of seed.",
                 ),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+                IO.File3DOBJ.Output(display_name="OBJ"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -98,12 +97,12 @@ class TencentTextToModelNode(IO.ComfyNode):
 
     @classmethod
     async def execute(
-        cls,
-        model: str,
-        prompt: str,
-        face_count: int,
-        generate_type: InputGenerateType,
-        seed: int,
+            cls,
+            model: str,
+            prompt: str,
+            face_count: int,
+            generate_type: InputGenerateType,
+            seed: int,
     ) -> IO.NodeOutput:
         _ = seed
         validate_string(prompt, field_name="prompt", min_length=1, max_length=1024)
@@ -124,19 +123,20 @@ class TencentTextToModelNode(IO.ComfyNode):
         )
         if response.Error:
             raise ValueError(f"Task creation failed with code {response.Error.Code}: {response.Error.Message}")
+        task_id = response.JobId
         result = await poll_op(
             cls,
             ApiEndpoint(path="/proxy/tencent/hunyuan/3d-pro/query", method="POST"),
-            data=To3DProTaskQueryRequest(JobId=response.JobId),
+            data=To3DProTaskQueryRequest(JobId=task_id),
             response_model=To3DProTaskResultResponse,
             status_extractor=lambda r: r.Status,
         )
-        model_file = f"hunyuan_model_{response.JobId}.glb"
-        await download_url_to_bytesio(
-            get_glb_obj_from_response(result.ResultFile3Ds).Url,
-            os.path.join(get_output_directory(), model_file),
+        glb_result = get_file_from_response(result.ResultFile3Ds, "glb")
+        obj_result = get_file_from_response(result.ResultFile3Ds, "obj")
+        file_glb = await download_url_to_file_3d(glb_result.Url, "glb", task_id=task_id) if glb_result else None
+        return IO.NodeOutput(
+            file_glb, file_glb, await download_url_to_file_3d(obj_result.Url, "obj", task_id=task_id) if obj_result else None
         )
-        return IO.NodeOutput(model_file)
 
 
 class TencentImageToModelNode(IO.ComfyNode):
@@ -180,11 +180,13 @@ class TencentImageToModelNode(IO.ComfyNode):
                     display_mode=IO.NumberDisplay.number,
                     control_after_generate=True,
                     tooltip="Seed controls whether the node should re-run; "
-                    "results are non-deterministic regardless of seed.",
+                            "results are non-deterministic regardless of seed.",
                 ),
             ],
             outputs=[
-                IO.String.Output(display_name="model_file"),
+                IO.String.Output(display_name="model_file"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+                IO.File3DOBJ.Output(display_name="OBJ"),
             ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
@@ -214,15 +216,15 @@ class TencentImageToModelNode(IO.ComfyNode):
 
     @classmethod
     async def execute(
-        cls,
-        model: str,
-        image: Input.Image,
-        face_count: int,
-        generate_type: InputGenerateType,
-        seed: int,
-        image_left: Input.Image | None = None,
-        image_right: Input.Image | None = None,
-        image_back: Input.Image | None = None,
+            cls,
+            model: str,
+            image: Input.Image,
+            face_count: int,
+            generate_type: InputGenerateType,
+            seed: int,
+            image_left: Input.Image | None = None,
+            image_right: Input.Image | None = None,
+            image_back: Input.Image | None = None,
     ) -> IO.NodeOutput:
         _ = seed
         if model == "3.1" and generate_type["generate_type"].lower() == "lowpoly":
@@ -269,19 +271,20 @@ class TencentImageToModelNode(IO.ComfyNode):
         )
         if response.Error:
             raise ValueError(f"Task creation failed with code {response.Error.Code}: {response.Error.Message}")
+        task_id = response.JobId
         result = await poll_op(
             cls,
             ApiEndpoint(path="/proxy/tencent/hunyuan/3d-pro/query", method="POST"),
-            data=To3DProTaskQueryRequest(JobId=response.JobId),
+            data=To3DProTaskQueryRequest(JobId=task_id),
             response_model=To3DProTaskResultResponse,
             status_extractor=lambda r: r.Status,
         )
-        model_file = f"hunyuan_model_{response.JobId}.glb"
-        await download_url_to_bytesio(
-            get_glb_obj_from_response(result.ResultFile3Ds).Url,
-            os.path.join(get_output_directory(), model_file),
+        glb_result = get_file_from_response(result.ResultFile3Ds, "glb")
+        obj_result = get_file_from_response(result.ResultFile3Ds, "obj")
+        file_glb = await download_url_to_file_3d(glb_result.Url, "glb", task_id=task_id) if glb_result else None
+        return IO.NodeOutput(
+            file_glb, file_glb, await download_url_to_file_3d(obj_result.Url, "obj", task_id=task_id) if obj_result else None
         )
-        return IO.NodeOutput(model_file)
 
 
 class TencentHunyuan3DExtension(ComfyExtension):

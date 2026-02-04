@@ -31,8 +31,9 @@ from comfy_api_nodes.util import (
     poll_op,
     ApiEndpoint,
     download_url_to_bytesio,
+    download_url_to_file_3d,
 )
-from comfy_api.latest import ComfyExtension, IO
+from comfy_api.latest import ComfyExtension, IO, Types
 
 COMMON_PARAMETERS = [
     IO.Int.Input(
@@ -180,7 +181,7 @@ def check_rodin_status(response: Rodin3DCheckStatusResponse) -> str:
     return "Generating"
 
 
-def extract_progress(response: Rodin3DCheckStatusResponse) -> Optional[int]:
+def extract_progress(response: Rodin3DCheckStatusResponse) -> int | None:
     if not response.jobs:
         return None
     completed_count = sum(1 for job in response.jobs if job.status == JobStatus.Done)
@@ -211,17 +212,25 @@ async def get_rodin_download_list(uuid: str, cls: type[IO.ComfyNode]) -> Rodin3D
     )
 
 
-async def download_files(url_list, task_uuid: str):
+async def download_files(url_list, task_uuid: str) -> tuple[str | None, Types.File3D | None]:
     result_folder_name = f"Rodin3D_{task_uuid}"
     save_path = os.path.join(comfy_paths.get_output_directory(), result_folder_name)
     os.makedirs(save_path, exist_ok=True)
     model_file_path = None
+    file_3d = None
+
     for i in url_list.list:
         file_path = os.path.join(save_path, i.name)
-        if file_path.endswith(".glb"):
+        if i.name.lower().endswith(".glb"):
             model_file_path = os.path.join(result_folder_name, i.name)
-        await download_url_to_bytesio(i.url, file_path)
-    return model_file_path
+            file_3d = await download_url_to_file_3d(i.url, "glb")
+            # Save to disk for backward compatibility
+            with open(file_path, "wb") as f:
+                f.write(file_3d.get_bytes())
+        else:
+            await download_url_to_bytesio(i.url, file_path)
+
+    return model_file_path, file_3d
 
 
 class Rodin3D_Regular(IO.ComfyNode):
@@ -238,7 +247,10 @@ class Rodin3D_Regular(IO.ComfyNode):
                 IO.Image.Input("Images"),
                 *COMMON_PARAMETERS,
             ],
-            outputs=[IO.String.Output(display_name="3D Model Path")],
+            outputs=[
+                IO.String.Output(display_name="3D Model Path"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+            ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
                 IO.Hidden.api_key_comfy_org,
@@ -275,9 +287,9 @@ class Rodin3D_Regular(IO.ComfyNode):
         )
         await poll_for_task_status(subscription_key, cls)
         download_list = await get_rodin_download_list(task_uuid, cls)
-        model = await download_files(download_list, task_uuid)
+        model_path, file_3d = await download_files(download_list, task_uuid)
 
-        return IO.NodeOutput(model)
+        return IO.NodeOutput(model_path, file_3d)
 
 
 class Rodin3D_Detail(IO.ComfyNode):
@@ -294,7 +306,10 @@ class Rodin3D_Detail(IO.ComfyNode):
                 IO.Image.Input("Images"),
                 *COMMON_PARAMETERS,
             ],
-            outputs=[IO.String.Output(display_name="3D Model Path")],
+            outputs=[
+                IO.String.Output(display_name="3D Model Path"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+            ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
                 IO.Hidden.api_key_comfy_org,
@@ -331,9 +346,9 @@ class Rodin3D_Detail(IO.ComfyNode):
         )
         await poll_for_task_status(subscription_key, cls)
         download_list = await get_rodin_download_list(task_uuid, cls)
-        model = await download_files(download_list, task_uuid)
+        model_path, file_3d = await download_files(download_list, task_uuid)
 
-        return IO.NodeOutput(model)
+        return IO.NodeOutput(model_path, file_3d)
 
 
 class Rodin3D_Smooth(IO.ComfyNode):
@@ -350,7 +365,10 @@ class Rodin3D_Smooth(IO.ComfyNode):
                 IO.Image.Input("Images"),
                 *COMMON_PARAMETERS,
             ],
-            outputs=[IO.String.Output(display_name="3D Model Path")],
+            outputs=[
+                IO.String.Output(display_name="3D Model Path"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+            ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
                 IO.Hidden.api_key_comfy_org,
@@ -386,9 +404,9 @@ class Rodin3D_Smooth(IO.ComfyNode):
         )
         await poll_for_task_status(subscription_key, cls)
         download_list = await get_rodin_download_list(task_uuid, cls)
-        model = await download_files(download_list, task_uuid)
+        model_path, file_3d = await download_files(download_list, task_uuid)
 
-        return IO.NodeOutput(model)
+        return IO.NodeOutput(model_path, file_3d)
 
 
 class Rodin3D_Sketch(IO.ComfyNode):
@@ -412,7 +430,10 @@ class Rodin3D_Sketch(IO.ComfyNode):
                     optional=True,
                 ),
             ],
-            outputs=[IO.String.Output(display_name="3D Model Path")],
+            outputs=[
+                IO.String.Output(display_name="3D Model Path"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+            ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
                 IO.Hidden.api_key_comfy_org,
@@ -445,9 +466,9 @@ class Rodin3D_Sketch(IO.ComfyNode):
         )
         await poll_for_task_status(subscription_key, cls)
         download_list = await get_rodin_download_list(task_uuid, cls)
-        model = await download_files(download_list, task_uuid)
+        model_path, file_3d = await download_files(download_list, task_uuid)
 
-        return IO.NodeOutput(model)
+        return IO.NodeOutput(model_path, file_3d)
 
 
 class Rodin3D_Gen2(IO.ComfyNode):
@@ -479,7 +500,10 @@ class Rodin3D_Gen2(IO.ComfyNode):
                 ),
                 IO.Boolean.Input("TAPose", default=False),
             ],
-            outputs=[IO.String.Output(display_name="3D Model Path")],
+            outputs=[
+                IO.String.Output(display_name="3D Model Path"),  # for backward compatibility only
+                IO.File3DGLB.Output(display_name="GLB"),
+            ],
             hidden=[
                 IO.Hidden.auth_token_comfy_org,
                 IO.Hidden.api_key_comfy_org,
@@ -515,9 +539,9 @@ class Rodin3D_Gen2(IO.ComfyNode):
         )
         await poll_for_task_status(subscription_key, cls)
         download_list = await get_rodin_download_list(task_uuid, cls)
-        model = await download_files(download_list, task_uuid)
+        model_path, file_3d = await download_files(download_list, task_uuid)
 
-        return IO.NodeOutput(model)
+        return IO.NodeOutput(model_path, file_3d)
 
 
 class Rodin3DExtension(ComfyExtension):
