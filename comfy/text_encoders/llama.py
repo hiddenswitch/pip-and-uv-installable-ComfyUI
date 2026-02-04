@@ -787,6 +787,8 @@ class BaseLlama:
 
 
 class BaseQwen3:
+    model: Any  # Provided by mixed-in class
+
     def logits(self, x):
         input = x[:, -1:]
         module = self.model.embed_tokens

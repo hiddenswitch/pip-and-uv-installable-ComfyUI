@@ -12,7 +12,7 @@ from aiohttp.client_exceptions import ClientError, ContentTypeError
 
 from comfy_api.latest import IO as COMFY_IO
 from comfy_api.latest import InputImpl, Types
-from folder_paths import get_output_directory
+from comfy.cmd.folder_paths import get_output_directory
 
 from . import request_logger
 from ._helpers import (

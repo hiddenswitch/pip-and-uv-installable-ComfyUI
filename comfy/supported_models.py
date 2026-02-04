@@ -1741,7 +1741,7 @@ class ACEStep15(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         pref = self.text_encoder_key_prefix[0]
         detect_2b = hunyuan_video.llama_detect(state_dict, "{}qwen3_2b.transformer.".format(pref))
-        detect_4b = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen3_4b.transformer.".format(pref))
+        detect_4b = hunyuan_video.llama_detect(state_dict, "{}qwen3_4b.transformer.".format(pref))
         if "dtype_llama" in detect_2b:
             detect = detect_2b
             detect["lm_model"] = "qwen3_2b"
