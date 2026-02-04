@@ -255,6 +255,7 @@ class UploadAssetSpec(BaseModel):
     def _validate_order(self):
         if not self.tags:
             raise ValueError("tags must be provided and non-empty")
+        # pylint: disable=unsubscriptable-object  # false positive in nvcr.io/nvidia/pytorch:24.10-py3 (Python 3.10)
         root = self.tags[0]
         if root not in {"models", "input", "output"}:
             raise ValueError("first tag must be one of: models, input, output")
