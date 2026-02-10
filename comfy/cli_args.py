@@ -292,7 +292,10 @@ def _create_parser(enable_custom_nodes_configuration=True) -> EnhancedConfigArgP
     default_db_url = db_config()
     parser.add_argument("--database-url", type=str, default=default_db_url, help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
     parser.add_argument("--workflows", type=str, action=FlattenAndAppendAction, nargs='+', default=[], help="Execute the API workflow(s) and exit. Each value can be a file path, a literal JSON string starting with '{', a URI (https://, s3://, hf://, etc.), or '-' for stdin. Outputs are printed to stdout; logs go to stderr.")
-    parser.add_argument("--prompt", type=str, default=None, help="Override the positive prompt text in workflows executed via --workflows. Replaces the text in the primary CLIPTextEncode (or equivalent) node.")
+    parser.add_argument("--prompt", type=str, default=None, help="Override the positive prompt text in workflows run via --workflows.")
+    parser.add_argument("--steps", type=int, default=None, help="Override the number of sampling steps in workflows run via --workflows.")
+    parser.add_argument("--image", type=str, nargs='+', default=None, help="Override image inputs in workflows run via --workflows. Accepts file paths or URIs. Multiple values are assigned to image nodes in order.")
+    parser.add_argument("-o", "--output", type=str, default=None, help="Override the output directory for workflows run via --workflows.")
 
     # now give plugins a chance to add configuration
     if enable_custom_nodes_configuration:
