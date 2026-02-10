@@ -12,6 +12,7 @@ from comfy.component_model.prompt_utils import (
     replace_steps,
     find_image_load_nodes,
     replace_images,
+    _is_node_ref,
     _TEXT_ENCODE_FIELDS,
     _SAMPLER_CLASS_TYPES,
     _STEPS_CLASS_TYPES,
@@ -506,3 +507,177 @@ class TestReplaceImagesSpecific:
         }
         result = replace_images(prompt, [])
         assert result is prompt
+
+
+# ---------------------------------------------------------------------------
+# --negative-prompt: find and replace negative prompt text
+# ---------------------------------------------------------------------------
+
+class TestFindNegativeTextEncoder:
+    @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
+    def test_finds_negative_in_workflows_with_sampler(self, workflow_name, workflow_file):
+        """Workflows with a KSampler that has a negative input should have a detectable negative text encoder."""
+        prompt = _load_workflow(workflow_file)
+        has_sampler_with_negative = any(
+            node.get("class_type", "") in _SAMPLER_CLASS_TYPES
+            and _is_node_ref(node.get("inputs", {}).get("negative"))
+            for node in prompt.values()
+        )
+        if not has_sampler_with_negative:
+            pytest.skip(f"{workflow_name} has no sampler with negative conditioning input")
+
+        node_id = find_negative_text_encoder(prompt)
+        assert node_id is not None, f"Could not find negative text encoder in {workflow_name}"
+        assert node_id in prompt
+        class_type = prompt[node_id]["class_type"]
+        assert class_type in _TEXT_ENCODE_FIELDS
+
+
+class TestReplaceNegativePromptText:
+    @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
+    def test_replace_negative_in_all_workflows(self, workflow_name, workflow_file):
+        """replace_negative_prompt_text should work on workflows that have a negative text encoder."""
+        prompt = _load_workflow(workflow_file)
+        if find_negative_text_encoder(prompt) is None:
+            pytest.skip(f"{workflow_name} has no negative text encoder")
+
+        replacement = "a test negative prompt"
+        result = replace_negative_prompt_text(prompt, replacement)
+
+        node_id = find_negative_text_encoder(prompt)
+        class_type = result[node_id]["class_type"]
+        fields = _TEXT_ENCODE_FIELDS[class_type]
+
+        for field in fields:
+            if field in result[node_id]["inputs"]:
+                assert result[node_id]["inputs"][field] == replacement
+
+    @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
+    def test_replace_negative_does_not_mutate_original(self, workflow_name, workflow_file):
+        """replace_negative_prompt_text must not modify the original prompt dict."""
+        prompt = _load_workflow(workflow_file)
+        if find_negative_text_encoder(prompt) is None:
+            pytest.skip(f"{workflow_name} has no negative text encoder")
+
+        original_json = json.dumps(prompt, sort_keys=True)
+        replace_negative_prompt_text(prompt, "mutated?")
+        assert json.dumps(prompt, sort_keys=True) == original_json
+
+
+class TestReplaceNegativePromptTextSpecific:
+    def test_ksampler_positive_negative(self):
+        """KSampler with positive/negative CLIPTextEncode — negative should be replaced."""
+        prompt = {
+            "1": {
+                "inputs": {
+                    "seed": 123,
+                    "positive": ["2", 0],
+                    "negative": ["3", 0],
+                },
+                "class_type": "KSampler",
+            },
+            "2": {
+                "inputs": {"text": "original positive", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "CLIP Text Encode (Positive Prompt)"},
+            },
+            "3": {
+                "inputs": {"text": "original negative", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "CLIP Text Encode (Negative Prompt)"},
+            },
+        }
+        result = replace_negative_prompt_text(prompt, "new negative")
+        assert result["3"]["inputs"]["text"] == "new negative"
+        assert result["2"]["inputs"]["text"] == "original positive"
+
+    def test_negative_via_title(self):
+        """When there's no sampler, title heuristic should find the negative node."""
+        prompt = {
+            "1": {
+                "inputs": {"text": "positive prompt", "clip": ["3", 0]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "Positive"},
+            },
+            "2": {
+                "inputs": {"text": "negative prompt", "clip": ["3", 0]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "Negative"},
+            },
+        }
+        result = replace_negative_prompt_text(prompt, "replaced negative")
+        assert result["2"]["inputs"]["text"] == "replaced negative"
+        assert result["1"]["inputs"]["text"] == "positive prompt"
+
+    def test_qwen_image_edit_negative(self):
+        """TextEncodeQwenImageEdit as negative encoder should be replaced."""
+        prompt = {
+            "3": {
+                "inputs": {
+                    "seed": 1,
+                    "positive": ["76", 0],
+                    "negative": ["77", 0],
+                },
+                "class_type": "KSampler",
+            },
+            "76": {
+                "inputs": {
+                    "prompt": "edit instruction",
+                    "clip": ["38", 0],
+                    "vae": ["39", 0],
+                    "image": ["93", 0],
+                },
+                "class_type": "TextEncodeQwenImageEdit",
+            },
+            "77": {
+                "inputs": {
+                    "prompt": "",
+                    "clip": ["38", 0],
+                    "vae": ["39", 0],
+                    "image": ["93", 0],
+                },
+                "class_type": "TextEncodeQwenImageEdit",
+            },
+        }
+        result = replace_negative_prompt_text(prompt, "ugly, bad quality")
+        assert result["77"]["inputs"]["prompt"] == "ugly, bad quality"
+        assert result["76"]["inputs"]["prompt"] == "edit instruction"
+
+    def test_raises_on_no_negative_encoder(self):
+        """Should raise ValueError when no negative text encoder exists."""
+        prompt = {
+            "1": {
+                "inputs": {"text": "sole prompt", "clip": ["2", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+        }
+        with pytest.raises(ValueError, match="Could not find"):
+            replace_negative_prompt_text(prompt, "test")
+
+    def test_negative_through_passthrough(self):
+        """Negative tracing through ConditioningZeroOut passthrough node."""
+        prompt = {
+            "1": {
+                "inputs": {
+                    "seed": 1,
+                    "positive": ["2", 0],
+                    "negative": ["4", 0],
+                },
+                "class_type": "KSampler",
+            },
+            "2": {
+                "inputs": {"text": "positive", "clip": ["5", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+            "3": {
+                "inputs": {"text": "negative", "clip": ["5", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+            "4": {
+                "inputs": {"conditioning": ["3", 0]},
+                "class_type": "ConditioningZeroOut",
+            },
+        }
+        result = replace_negative_prompt_text(prompt, "replaced negative")
+        assert result["3"]["inputs"]["text"] == "replaced negative"
+        assert result["2"]["inputs"]["text"] == "positive"

@@ -1,34 +1,67 @@
-"""Compatibility shim for torchvision API changes.
+"""Compatibility shim for torchvision InterpolationMode.
 
-In torchvision >= 0.20, ``InterpolationMode`` moved from
-``torchvision.transforms`` to ``torchvision.transforms.v2``.  Some builds
-(e.g. ``--torch-backend=auto`` on Windows/CUDA 12.7) ship a torchvision
-where the old location no longer exports the symbol.
+Some torchvision builds (e.g. CUDA-specific wheels from the PyTorch index
+installed via ``uv --torch-backend=auto``) do not export
+``InterpolationMode`` from ``torchvision.transforms``, even though the
+upstream source code does.  The symbol may live in a different submodule
+or be absent entirely.
 
-This module re-exports a working ``InterpolationMode`` regardless of
-torchvision version, and monkey-patches ``torchvision.transforms`` so that
-third-party packages (transformers, spandrel, diffusers) that import from
-the old location also work.
+This module locates ``InterpolationMode`` by trying every known location.
+If it cannot be found at all, we define a compatible enum ourselves.
+Either way we monkey-patch ``torchvision.transforms`` (and ``.functional``)
+so that third-party packages (transformers, spandrel, diffusers) that
+``from torchvision.transforms import InterpolationMode`` will succeed.
 """
 
 from __future__ import annotations
 
-try:
-    from torchvision.transforms import InterpolationMode
-except ImportError:
-    from torchvision.transforms.v2 import InterpolationMode  # type: ignore[no-redef]
+# pylint: disable=broad-exception-caught,invalid-name
 
-    # Patch the old location so that third-party code importing from
-    # torchvision.transforms.InterpolationMode also works.
-    import torchvision.transforms as _transforms
-    _transforms.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
+InterpolationMode = None  # type: ignore[assignment]
 
-    # Some packages import from torchvision.transforms.functional directly
+# 1. Try every location where InterpolationMode has lived across versions.
+for _modpath in (
+    "torchvision.transforms",
+    "torchvision.transforms.functional",
+    "torchvision.transforms.v2",
+    "torchvision.transforms.v2.functional",
+):
     try:
-        import torchvision.transforms.functional as _functional
-        if not hasattr(_functional, "InterpolationMode"):
-            _functional.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
-    except ImportError:
-        pass
+        _mod = __import__(_modpath, fromlist=["InterpolationMode"])
+        _candidate = getattr(_mod, "InterpolationMode", None)
+        if _candidate is not None:
+            InterpolationMode = _candidate
+            break
+    except Exception:
+        continue
+
+# 2. If none of the imports produced a result, define our own enum that is
+#    value-compatible with the real one (the values are just strings).
+if InterpolationMode is None:
+    from enum import Enum
+
+    class InterpolationMode(Enum):  # type: ignore[no-redef]  # pylint: disable=function-redefined
+        NEAREST = "nearest"
+        NEAREST_EXACT = "nearest-exact"
+        BILINEAR = "bilinear"
+        BICUBIC = "bicubic"
+        BOX = "box"
+        HAMMING = "hamming"
+        LANCZOS = "lanczos"
+
+# 3. Monkey-patch so third-party code finds the symbol in the usual locations.
+try:
+    import torchvision.transforms as _transforms  # pylint: disable=import-outside-toplevel
+    if not hasattr(_transforms, "InterpolationMode"):
+        _transforms.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
+except Exception:
+    pass
+
+try:
+    import torchvision.transforms.functional as _functional  # pylint: disable=import-outside-toplevel
+    if not hasattr(_functional, "InterpolationMode"):
+        _functional.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 __all__ = ["InterpolationMode"]
