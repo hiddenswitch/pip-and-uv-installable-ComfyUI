@@ -205,5 +205,10 @@ args: Configuration
 _configure_logging()
 _fix_pytorch_240()
 _register_fsspec_fs()
+
+# Patch torchvision InterpolationMode for compatibility with newer torchvision
+# builds where InterpolationMode moved. Must happen before third-party imports
+# (transformers, spandrel, diffusers) that use the old location.
+from .. import torchvision_compat  # noqa: F401
 tracer = _create_tracer()
 __all__ = ["args", "tracer"]

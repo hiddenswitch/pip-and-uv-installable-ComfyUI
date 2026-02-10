@@ -5,12 +5,15 @@ import pytest
 
 from comfy.component_model.prompt_utils import (
     find_positive_text_encoder,
+    find_negative_text_encoder,
     replace_prompt_text,
+    replace_negative_prompt_text,
     find_steps_nodes,
     replace_steps,
     find_image_load_nodes,
     replace_images,
     _TEXT_ENCODE_FIELDS,
+    _SAMPLER_CLASS_TYPES,
     _STEPS_CLASS_TYPES,
     _IMAGE_LOAD_CLASS_TYPES,
 )

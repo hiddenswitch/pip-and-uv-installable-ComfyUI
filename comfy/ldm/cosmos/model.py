@@ -23,6 +23,7 @@ import torch
 from einops import rearrange
 from torch import nn
 from torchvision import transforms
+from ...torchvision_compat import InterpolationMode
 
 from enum import Enum
 import logging
@@ -283,7 +284,7 @@ class GeneralDIT(nn.Module):
         if self.concat_padding_mask:
             if padding_mask is not None:
                 padding_mask = transforms.functional.resize(
-                    padding_mask, list(x_B_C_T_H_W.shape[-2:]), interpolation=transforms.InterpolationMode.NEAREST
+                    padding_mask, list(x_B_C_T_H_W.shape[-2:]), interpolation=InterpolationMode.NEAREST
                 )
             else:
                 padding_mask = torch.zeros((x_B_C_T_H_W.shape[0], 1, x_B_C_T_H_W.shape[-2], x_B_C_T_H_W.shape[-1]), dtype=x_B_C_T_H_W.dtype, device=x_B_C_T_H_W.device)

@@ -17,7 +17,7 @@ import requests
 import requests_cache
 import tqdm
 from huggingface_hub import dump_environment_info, hf_hub_download, scan_cache_dir, snapshot_download, HfFileSystem, CacheNotFound
-from huggingface_hub.utils import GatedRepoError, LocalEntryNotFoundError
+from huggingface_hub.utils import GatedRepoError, LocalEntryNotFoundError, LocalTokenNotFoundError
 from requests import Session
 from safetensors import safe_open
 from safetensors.torch import save_file
@@ -38,6 +38,20 @@ logger = logging.getLogger(__name__)
 
 
 from .component_model.uris import is_uri, is_hf_uri
+
+
+def _get_hf_token():
+    """Return the HF token if one is configured, otherwise ``None``.
+
+    Unlike ``token=True`` (which raises ``LocalTokenNotFoundError`` when no
+    token is stored), this returns ``None`` so that public repos can be
+    accessed without authentication.
+    """
+    try:
+        from huggingface_hub.utils._headers import get_token_to_send
+        return get_token_to_send(None)
+    except Exception:
+        return None
 
 
 def parse_hf_uri(uri: str) -> HuggingFile:
@@ -215,7 +229,7 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                                   revision=known_file.revision,
                                   local_files_only=True,
                                   local_dir=hf_destination_dir if args.force_hf_local_dir_mode else None,
-                                  token=True,
+                                  token=_get_hf_token(),
                                                   )
 
                     with requests_cache.disabled():
@@ -224,11 +238,13 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                             path = hf_hub_download(**hf_hub_download_kwargs)
                             logger.debug(f"hf_hub_download cache hit for {known_file.repo_id}/{known_file.filename}")
                             cache_hit = True
-                        except LocalEntryNotFoundError:
+                        except (LocalEntryNotFoundError, LocalTokenNotFoundError):
                             try:
                                 logger.debug(f"{folder_name}/{filename} is being downloaded from {known_file.repo_id}/{known_file.filename} candidate_str_match={candidate_str_match} candidate_filename_match={candidate_filename_match} candidate_alternate_filenames_match={candidate_alternate_filenames_match} candidate_save_filename_match={candidate_save_filename_match}")
-                                hf_hub_download_kwargs.pop("local_files_only")
+                                hf_hub_download_kwargs.pop("local_files_only", None)
                                 path = hf_hub_download(**hf_hub_download_kwargs)
+                            except LocalTokenNotFoundError:
+                                logger.debug(f"no HF token configured for {known_file.repo_id}/{known_file.filename}, skipping authenticated download")
                             except requests.exceptions.HTTPError as exc_info:
                                 if exc_info.response.status_code == 401:
                                     raise GatedRepoError(f"{known_file.repo_id}/{known_file.filename}", response=exc_info.response)

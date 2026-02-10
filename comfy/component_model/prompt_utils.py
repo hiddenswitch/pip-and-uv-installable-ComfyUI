@@ -189,6 +189,65 @@ def replace_prompt_text(prompt: dict, text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# --negative-prompt helpers
+# ---------------------------------------------------------------------------
+
+def _find_negative_text_encoder_via_sampler(prompt: dict) -> Optional[str]:
+    for node_id, node in prompt.items():
+        if node.get("class_type", "") not in _SAMPLER_CLASS_TYPES:
+            continue
+        negative_ref = node.get("inputs", {}).get("negative")
+        if not _is_node_ref(negative_ref):
+            continue
+        result = _trace_to_text_encoder(prompt, str(negative_ref[0]))
+        if result is not None:
+            return result
+    return None
+
+
+def _find_negative_text_encoder_via_title(prompt: dict) -> Optional[str]:
+    for node_id, node in prompt.items():
+        if node.get("class_type", "") not in _TEXT_ENCODE_FIELDS:
+            continue
+        title = node.get("_meta", {}).get("title", "").lower()
+        if "negative" in title:
+            return node_id
+    return None
+
+
+def find_negative_text_encoder(prompt: dict) -> Optional[str]:
+    """Find the node ID of the negative text encoding node in a workflow prompt.
+
+    Tries multiple strategies in order:
+    1. Trace from sampler's "negative" input
+    2. Match by _meta.title heuristic
+    """
+    return (
+        _find_negative_text_encoder_via_sampler(prompt)
+        or _find_negative_text_encoder_via_title(prompt)
+    )
+
+
+def replace_negative_prompt_text(prompt: dict, text: str) -> dict:
+    """Return a copy of *prompt* with the negative text encoding node's text replaced.
+
+    Raises ``ValueError`` if no suitable negative text encoding node is found.
+    """
+    node_id = find_negative_text_encoder(prompt)
+    if node_id is None:
+        raise ValueError("Could not find a negative text encoding node to replace")
+
+    prompt = copy.deepcopy(prompt)
+    node = prompt[node_id]
+    class_type = node["class_type"]
+    fields = _TEXT_ENCODE_FIELDS[class_type]
+    for field in fields:
+        if field in node["inputs"]:
+            node["inputs"][field] = text
+    return prompt
+
+
+# ---------------------------------------------------------------------------
 # --steps
 # ---------------------------------------------------------------------------
 

@@ -29,11 +29,13 @@ async def main():
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
-    """Apply CLI overrides (--prompt, --steps, --image) to a workflow dict."""
-    from ..component_model.prompt_utils import replace_prompt_text, replace_steps, replace_images
+    """Apply CLI overrides (--prompt, --negative-prompt, --steps, --image) to a workflow dict."""
+    from ..component_model.prompt_utils import replace_prompt_text, replace_negative_prompt_text, replace_steps, replace_images
 
     if configuration.prompt is not None:
         obj = replace_prompt_text(obj, configuration.prompt)
+    if configuration.negative_prompt is not None:
+        obj = replace_negative_prompt_text(obj, configuration.negative_prompt)
     if configuration.steps is not None:
         obj = replace_steps(obj, configuration.steps)
     if configuration.image is not None:

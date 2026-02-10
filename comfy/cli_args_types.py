@@ -163,6 +163,7 @@ class Configuration(dict):
         enable_compress_response_body (bool): Enable compressing response body.
         workflows (list[str]): Execute the API workflow(s) and exit. Each value can be a file path, a literal JSON string starting with '{', a URI (https://, s3://, hf://, etc.), or '-' for stdin. Outputs are printed to stdout; logs go to stderr.
         prompt (Optional[str]): Override the positive prompt text in workflows executed via --workflows.
+        negative_prompt (Optional[str]): Override the negative prompt text in workflows executed via --workflows.
         steps (Optional[int]): Override the number of sampling steps in workflows run via --workflows.
         image (Optional[list[str]]): Override image inputs in workflows run via --workflows.
         output (Optional[str]): Override the output directory for workflows run via --workflows.
@@ -295,6 +296,7 @@ class Configuration(dict):
         self.panic_when: list[str] = []
         self.workflows: list[str] = []
         self.prompt: Optional[str] = None
+        self.negative_prompt: Optional[str] = None
         self.steps: Optional[int] = None
         self.image: Optional[list[str]] = None
         self.output: Optional[str] = None

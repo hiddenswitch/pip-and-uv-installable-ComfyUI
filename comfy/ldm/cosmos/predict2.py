@@ -10,6 +10,7 @@ import math
 
 from .position_embedding import VideoRopePosition3DEmb, LearnablePosEmbAxis
 from torchvision import transforms
+from ...torchvision_compat import InterpolationMode
 
 from ..common_dit import pad_to_patch_size
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
@@ -787,7 +788,7 @@ class MiniTrainDIT(nn.Module):
                 padding_mask = torch.zeros(x_B_C_T_H_W.shape[0], 1, x_B_C_T_H_W.shape[3], x_B_C_T_H_W.shape[4], dtype=x_B_C_T_H_W.dtype, device=x_B_C_T_H_W.device)
             else:
                 padding_mask = transforms.functional.resize(
-                    padding_mask, list(x_B_C_T_H_W.shape[-2:]), interpolation=transforms.InterpolationMode.NEAREST
+                    padding_mask, list(x_B_C_T_H_W.shape[-2:]), interpolation=InterpolationMode.NEAREST
                 )
             x_B_C_T_H_W = torch.cat(
                 [x_B_C_T_H_W, padding_mask.unsqueeze(1).repeat(1, 1, x_B_C_T_H_W.shape[2], 1, 1)], dim=1
