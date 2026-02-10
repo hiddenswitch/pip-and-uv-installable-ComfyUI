@@ -1,6 +1,7 @@
 from __future__ import annotations
 import datetime
 import dataclasses
+import decimal
 import io
 import types
 import typing
@@ -241,6 +242,13 @@ def cast_to_allowed_types(
     elif isinstance(arg, float):
         path_to_type[path_to_item] = float
         return arg
+    elif isinstance(arg, decimal.Decimal):
+        # coerce Decimal (e.g. from ijson) to int or float
+        if arg == int(arg):
+            path_to_type[path_to_item] = int
+            return int(arg)
+        path_to_type[path_to_item] = float
+        return float(arg)
     elif isinstance(arg, (tuple, list)):
         path_to_type[path_to_item] = tuple
         return tuple(

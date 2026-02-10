@@ -161,7 +161,7 @@ class Configuration(dict):
         disable_manager_ui (bool): Disables only the ComfyUI-Manager UI.
         enable_manager_legacy_ui (bool): Enables the legacy UI of ComfyUI-Manager.
         enable_compress_response_body (bool): Enable compressing response body.
-        workflows (list[str]): Execute the API workflow(s) specified in the provided files. For each workflow, its outputs will be printed to a line to standard out. Application logging will be redirected to standard error. Use `-` to signify standard in.
+        workflows (list[str]): Execute the API workflow(s) and exit. Each value can be a file path, a literal JSON string starting with '{', a URI (https://, s3://, hf://, etc.), or '-' for stdin. Outputs are printed to stdout; logs go to stderr.
         disable_pinned_memory (bool): Disable pinned memory use.
         fp8_e8m0fnu_unet (bool): Store unet weights in fp8_e8m0fnu.
         bf16_text_enc (bool): Store text encoder weights in bf16.

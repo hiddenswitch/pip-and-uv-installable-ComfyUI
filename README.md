@@ -23,6 +23,14 @@ This LTS fork adds development, embedding, automated testing, LLM and distribute
 - **API and Configuration:** Enhanced API endpoints and extensive configuration options via CLI args, env vars, and config files.
 - **Tests:** Automated test suite ensuring stability for new features.
 
+## Quickstart (Windows & Linux, One Line)
+
+Install `uv`, then:
+
+```shell
+uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui --workflows <(curl -sL "https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json")
+```
+
 ## Quickstart (Linux)
 
 ### UI Users

@@ -37,14 +37,7 @@ _hf_fs = HfFileSystem()
 logger = logging.getLogger(__name__)
 
 
-def is_hf_uri(path: str) -> bool:
-    """Check if a path is a Hugging Face URI (hf://)."""
-    return path.startswith("hf://")
-
-
-def is_uri(path: str) -> bool:
-    """Check if a path is a URI (has a scheme like https://, hf://, s3://, etc.)."""
-    return "://" in path and not path.startswith("://")
+from .component_model.uris import is_uri, is_hf_uri
 
 
 def parse_hf_uri(uri: str) -> HuggingFile:
