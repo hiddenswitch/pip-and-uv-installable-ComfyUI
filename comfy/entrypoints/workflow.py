@@ -9,7 +9,7 @@ import typer
 from ..cli_args_types import Configuration
 from ..component_model.asyncio_files import stream_json_objects
 from ..client.embedded_comfy_client import Comfy
-from ..component_model.entrypoints_common import configure_application_paths, executor_from_args
+from ..component_model.entrypoints_common import configure_application_paths
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,8 @@ async def main():
         args.output_directory = args.output
 
     configure_application_paths(args)
-    executor = await executor_from_args(args)
 
-    await run_workflows(executor, workflows)
+    await run_workflows(workflows)
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
@@ -43,10 +42,10 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     return obj
 
 
-async def run_workflows(executor, workflows: list[str | Literal["-"]], configuration: Optional[Configuration] = None):
+async def run_workflows(workflows: list[str | Literal["-"]], configuration: Optional[Configuration] = None):
     if configuration is None:
         configuration = args
-    async with Comfy(executor=executor, configuration=configuration) as comfy:
+    async with Comfy(configuration=configuration) as comfy:
         for workflow in workflows:
             obj: dict
             async for obj in stream_json_objects(workflow):

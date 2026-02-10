@@ -20,7 +20,7 @@ from ..cli_args_types import Configuration
 from . import cuda_malloc
 from . import folder_paths
 from . import server as server_module
-from ..component_model.entrypoints_common import configure_application_paths, executor_from_args
+from ..component_model.entrypoints_common import configure_application_paths
 from ..component_model.file_counter import cleanup_temp as fc_cleanup_temp
 from ..distributed.distributed_prompt_queue import DistributedPromptQueue
 from ..distributed.server_stub import ServerStub
@@ -362,9 +362,8 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
 
     if len(args.workflows) > 0:
         configure_application_paths(args)
-        executor = await executor_from_args(args)
         from ..entrypoints.workflow import run_workflows
-        await run_workflows(executor, args.workflows)
+        await run_workflows(args.workflows)
         return
 
     # replaced my folder_paths.create_directories
