@@ -26,10 +26,14 @@ async def main():
 async def run_workflows(executor, workflows: list[str | Literal["-"]], configuration: Optional[Configuration] = None):
     if configuration is None:
         configuration = args
+    prompt_text = configuration.prompt
     async with Comfy(executor=executor, configuration=configuration) as comfy:
         for workflow in workflows:
             obj: dict
             async for obj in stream_json_objects(workflow):
+                if prompt_text is not None:
+                    from ..component_model.prompt_utils import replace_prompt_text
+                    obj = replace_prompt_text(obj, prompt_text)
                 try:
                     res = await comfy.queue_prompt_api(obj)
                     typer.echo(json.dumps(res.outputs))
