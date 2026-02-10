@@ -702,12 +702,16 @@ def trim_memory() -> bool:
                 return False
         elif sys.platform == 'win32':
             import ctypes.wintypes
-            kernel32 = ctypes.WinDLL("kernel32")
-            EmptyProcessWorkingSet = kernel32.EmptyProcessWorkingSet
-            EmptyProcessWorkingSet.argtypes = [ctypes.wintypes.HANDLE]
-            EmptyProcessWorkingSet.restype = ctypes.wintypes.BOOL
-            handle = -1
-            success = EmptyProcessWorkingSet(handle)
+            try:
+                kernel32 = ctypes.WinDLL("kernel32")
+                empty_working_set = kernel32.K32EmptyWorkingSet
+            except AttributeError:
+                psapi = ctypes.WinDLL("psapi")
+                empty_working_set = psapi.EmptyWorkingSet
+            empty_working_set.argtypes = [ctypes.wintypes.HANDLE]
+            empty_working_set.restype = ctypes.wintypes.BOOL
+            handle = ctypes.wintypes.HANDLE(-1)
+            success = empty_working_set(handle)
             return bool(success)
         else:
             return False
