@@ -42,14 +42,9 @@ def _load_workflow(workflow_file) -> dict:
     return json.loads(workflow_file.read_text(encoding="utf8"))
 
 
-# ---------------------------------------------------------------------------
-# --prompt: find positive text encoder
-# ---------------------------------------------------------------------------
-
 class TestFindPositiveTextEncoder:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_finds_positive_in_all_workflows(self, workflow_name, workflow_file):
-        """Every bundled workflow should have a detectable positive text encoding node."""
         prompt = _load_workflow(workflow_file)
         has_text_encode = any(
             node.get("class_type", "") in _TEXT_ENCODE_FIELDS
@@ -65,14 +60,9 @@ class TestFindPositiveTextEncoder:
         assert class_type in _TEXT_ENCODE_FIELDS
 
 
-# ---------------------------------------------------------------------------
-# --prompt: replace_prompt_text
-# ---------------------------------------------------------------------------
-
 class TestReplacePromptText:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_in_all_workflows(self, workflow_name, workflow_file):
-        """replace_prompt_text should work on every workflow that has text encoding nodes."""
         prompt = _load_workflow(workflow_file)
         has_text_encode = any(
             node.get("class_type", "") in _TEXT_ENCODE_FIELDS
@@ -94,7 +84,6 @@ class TestReplacePromptText:
 
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_does_not_mutate_original(self, workflow_name, workflow_file):
-        """replace_prompt_text must not modify the original prompt dict."""
         prompt = _load_workflow(workflow_file)
         has_text_encode = any(
             node.get("class_type", "") in _TEXT_ENCODE_FIELDS
@@ -110,7 +99,6 @@ class TestReplacePromptText:
 
 class TestReplacePromptTextSpecific:
     def test_simple_two_node_positive_negative(self):
-        """KSampler with positive/negative CLIPTextEncode nodes."""
         prompt = {
             "1": {
                 "inputs": {
@@ -136,7 +124,6 @@ class TestReplacePromptTextSpecific:
         assert result["3"]["inputs"]["text"] == "original negative"
 
     def test_single_clip_text_encode(self):
-        """When there's only one CLIPTextEncode, it should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"text": "sole prompt", "clip": ["2", 0]},
@@ -147,7 +134,6 @@ class TestReplacePromptTextSpecific:
         assert result["1"]["inputs"]["text"] == "replaced"
 
     def test_sd3_multi_prompt(self):
-        """CLIPTextEncodeSD3 should replace all three text fields."""
         prompt = {
             "1": {
                 "inputs": {
@@ -179,7 +165,6 @@ class TestReplacePromptTextSpecific:
         assert result["3"]["inputs"]["text"] == "negative"
 
     def test_guider_chain(self):
-        """SamplerCustomAdvanced → BasicGuider → FluxGuidance → CLIPTextEncode."""
         prompt = {
             "1": {
                 "inputs": {"guider": ["2", 0]},
@@ -203,7 +188,6 @@ class TestReplacePromptTextSpecific:
         assert result["4"]["inputs"]["text"] == "replaced flux"
 
     def test_qwen_image_edit(self):
-        """TextEncodeQwenImageEdit uses 'prompt' field, not 'text'."""
         prompt = {
             "1": {
                 "inputs": {
@@ -237,7 +221,6 @@ class TestReplacePromptTextSpecific:
         assert result["3"]["inputs"]["prompt"] == ""
 
     def test_oneshot_instruct_tokenize(self):
-        """OneShotInstructTokenize uses 'prompt' field."""
         prompt = {
             "1": {
                 "inputs": {"prompt": "instruct me", "model": ["2", 0]},
@@ -248,7 +231,6 @@ class TestReplacePromptTextSpecific:
         assert result["1"]["inputs"]["prompt"] == "new instruction"
 
     def test_transformers_translation_tokenize(self):
-        """TransformersTranslationTokenize uses 'prompt' field."""
         prompt = {
             "1": {
                 "inputs": {"prompt": "translate this", "model": ["2", 0]},
@@ -259,7 +241,6 @@ class TestReplacePromptTextSpecific:
         assert result["1"]["inputs"]["prompt"] == "translate that"
 
     def test_transformers_tokenize(self):
-        """TransformersTokenize uses 'prompt' field."""
         prompt = {
             "1": {
                 "inputs": {"prompt": "tokenize this", "model": ["2", 0]},
@@ -270,7 +251,6 @@ class TestReplacePromptTextSpecific:
         assert result["1"]["inputs"]["prompt"] == "tokenize that"
 
     def test_raises_on_no_text_encoder(self):
-        """Should raise ValueError when no text encoder exists."""
         prompt = {
             "1": {
                 "inputs": {"width": 512, "height": 512},
@@ -281,14 +261,9 @@ class TestReplacePromptTextSpecific:
             replace_prompt_text(prompt, "test")
 
 
-# ---------------------------------------------------------------------------
-# --steps: find and replace steps
-# ---------------------------------------------------------------------------
-
 class TestReplaceSteps:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_steps_in_all_workflows(self, workflow_name, workflow_file):
-        """replace_steps should work on every workflow that has step-bearing nodes."""
         prompt = _load_workflow(workflow_file)
         has_steps = any(
             node.get("class_type", "") in _STEPS_CLASS_TYPES
@@ -304,7 +279,6 @@ class TestReplaceSteps:
 
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_steps_does_not_mutate_original(self, workflow_name, workflow_file):
-        """replace_steps must not modify the original prompt dict."""
         prompt = _load_workflow(workflow_file)
         has_steps = any(
             node.get("class_type", "") in _STEPS_CLASS_TYPES
@@ -321,7 +295,6 @@ class TestReplaceSteps:
 
 class TestReplaceStepsSpecific:
     def test_ksampler_steps(self):
-        """KSampler steps should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"seed": 1, "steps": 20, "cfg": 7.0},
@@ -332,7 +305,6 @@ class TestReplaceStepsSpecific:
         assert result["1"]["inputs"]["steps"] == 50
 
     def test_multiple_step_nodes(self):
-        """All step-bearing nodes should be updated."""
         prompt = {
             "1": {
                 "inputs": {"seed": 1, "steps": 20, "cfg": 7.0},
@@ -348,7 +320,6 @@ class TestReplaceStepsSpecific:
         assert result["2"]["inputs"]["steps"] == 10
 
     def test_no_step_nodes_returns_unchanged(self):
-        """When no step-bearing nodes exist, return the original prompt."""
         prompt = {
             "1": {
                 "inputs": {"text": "hello", "clip": ["2", 0]},
@@ -359,7 +330,6 @@ class TestReplaceStepsSpecific:
         assert result is prompt  # same object, no copy needed
 
     def test_flux2_scheduler(self):
-        """Flux2Scheduler steps should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"steps": 25, "shift": 1.0, "model": ["2", 0]},
@@ -370,7 +340,6 @@ class TestReplaceStepsSpecific:
         assert result["1"]["inputs"]["steps"] == 15
 
     def test_ksampler_advanced_steps(self):
-        """KSamplerAdvanced steps should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"steps": 30, "cfg": 8.0, "start_at_step": 0, "end_at_step": 30},
@@ -381,14 +350,9 @@ class TestReplaceStepsSpecific:
         assert result["1"]["inputs"]["steps"] == 40
 
 
-# ---------------------------------------------------------------------------
-# --seed: find and replace seed
-# ---------------------------------------------------------------------------
-
 class TestReplaceSeed:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_seed_in_all_workflows(self, workflow_name, workflow_file):
-        """replace_seed should work on every workflow that has seed-bearing nodes."""
         prompt = _load_workflow(workflow_file)
         pairs = find_seed_nodes(prompt)
         if not pairs:
@@ -400,7 +364,6 @@ class TestReplaceSeed:
 
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_seed_does_not_mutate_original(self, workflow_name, workflow_file):
-        """replace_seed must not modify the original prompt dict."""
         prompt = _load_workflow(workflow_file)
         if not find_seed_nodes(prompt):
             pytest.skip(f"{workflow_name} has no seed-bearing nodes")
@@ -412,7 +375,6 @@ class TestReplaceSeed:
 
 class TestReplaceSeedSpecific:
     def test_ksampler_seed(self):
-        """KSampler seed should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"seed": 12345, "steps": 20, "cfg": 7.0},
@@ -423,7 +385,6 @@ class TestReplaceSeedSpecific:
         assert result["1"]["inputs"]["seed"] == 99999
 
     def test_random_noise_seed(self):
-        """RandomNoise noise_seed should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"noise_seed": 1038979},
@@ -434,7 +395,6 @@ class TestReplaceSeedSpecific:
         assert result["1"]["inputs"]["noise_seed"] == 42
 
     def test_sampler_custom_seed(self):
-        """SamplerCustom noise_seed should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"noise_seed": 555, "cfg": 8.0},
@@ -445,7 +405,6 @@ class TestReplaceSeedSpecific:
         assert result["1"]["inputs"]["noise_seed"] == 111
 
     def test_transformers_generate_seed(self):
-        """TransformersGenerate seed should be replaced."""
         prompt = {
             "1": {
                 "inputs": {"seed": 2013744903, "max_tokens": 512},
@@ -456,7 +415,6 @@ class TestReplaceSeedSpecific:
         assert result["1"]["inputs"]["seed"] == 0
 
     def test_multiple_seed_nodes(self):
-        """All seed-bearing nodes should be updated."""
         prompt = {
             "1": {
                 "inputs": {"seed": 100, "steps": 20},
@@ -472,7 +430,6 @@ class TestReplaceSeedSpecific:
         assert result["2"]["inputs"]["noise_seed"] == 777
 
     def test_no_seed_nodes_returns_unchanged(self):
-        """When no seed-bearing nodes exist, return the original prompt."""
         prompt = {
             "1": {
                 "inputs": {"text": "hello", "clip": ["2", 0]},
@@ -483,14 +440,9 @@ class TestReplaceSeedSpecific:
         assert result is prompt
 
 
-# ---------------------------------------------------------------------------
-# --image: find and replace images
-# ---------------------------------------------------------------------------
-
 class TestReplaceImages:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_images_in_all_workflows(self, workflow_name, workflow_file):
-        """replace_images should work on every workflow that has image load nodes."""
         prompt = _load_workflow(workflow_file)
         has_images = any(
             node.get("class_type", "") in _IMAGE_LOAD_CLASS_TYPES
@@ -510,7 +462,6 @@ class TestReplaceImages:
 
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_images_does_not_mutate_original(self, workflow_name, workflow_file):
-        """replace_images must not modify the original prompt dict."""
         prompt = _load_workflow(workflow_file)
         has_images = any(
             node.get("class_type", "") in _IMAGE_LOAD_CLASS_TYPES
@@ -526,7 +477,6 @@ class TestReplaceImages:
 
 class TestReplaceImagesSpecific:
     def test_load_image_converted_to_url(self):
-        """LoadImage should be converted to LoadImageFromURL."""
         prompt = {
             "1": {
                 "inputs": {"image": "example.png", "upload": "image"},
@@ -540,7 +490,6 @@ class TestReplaceImagesSpecific:
         assert "_meta" not in result["1"]
 
     def test_load_image_from_url_updated(self):
-        """LoadImageFromURL should just get its value updated."""
         prompt = {
             "1": {
                 "inputs": {"value": "https://old.com/img.png"},
@@ -552,7 +501,6 @@ class TestReplaceImagesSpecific:
         assert result["1"]["inputs"]["value"] == "https://new.com/img.png"
 
     def test_image_request_parameter_updated(self):
-        """ImageRequestParameter should get its value updated."""
         prompt = {
             "1": {
                 "inputs": {"value": "old_path.png"},
@@ -563,7 +511,6 @@ class TestReplaceImagesSpecific:
         assert result["1"]["inputs"]["value"] == "s3://bucket/new.png"
 
     def test_multiple_images_assigned_in_order(self):
-        """Multiple images are assigned to nodes in order."""
         prompt = {
             "1": {
                 "inputs": {"image": "a.png", "upload": "image"},
@@ -579,7 +526,6 @@ class TestReplaceImagesSpecific:
         assert result["2"]["inputs"]["value"] == "https://x.com/2.png"
 
     def test_fewer_images_than_nodes(self):
-        """Extra image nodes should be left unchanged when fewer images are provided."""
         prompt = {
             "1": {
                 "inputs": {"image": "a.png", "upload": "image"},
@@ -598,7 +544,6 @@ class TestReplaceImagesSpecific:
         assert result["2"]["inputs"]["image"] == "b.png"
 
     def test_no_image_nodes_returns_unchanged(self):
-        """When no image load nodes exist, return the original prompt."""
         prompt = {
             "1": {
                 "inputs": {"text": "hello", "clip": ["2", 0]},
@@ -609,7 +554,6 @@ class TestReplaceImagesSpecific:
         assert result is prompt
 
     def test_empty_images_list_returns_unchanged(self):
-        """Empty images list should return the original prompt."""
         prompt = {
             "1": {
                 "inputs": {"image": "a.png", "upload": "image"},
@@ -620,14 +564,9 @@ class TestReplaceImagesSpecific:
         assert result is prompt
 
 
-# ---------------------------------------------------------------------------
-# --negative-prompt: find and replace negative prompt text
-# ---------------------------------------------------------------------------
-
 class TestFindNegativeTextEncoder:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_finds_negative_in_workflows_with_sampler(self, workflow_name, workflow_file):
-        """Workflows with a KSampler that has a negative input should have a detectable negative text encoder."""
         prompt = _load_workflow(workflow_file)
         has_sampler_with_negative = any(
             node.get("class_type", "") in _SAMPLER_CLASS_TYPES
@@ -647,7 +586,6 @@ class TestFindNegativeTextEncoder:
 class TestReplaceNegativePromptText:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_negative_in_all_workflows(self, workflow_name, workflow_file):
-        """replace_negative_prompt_text should work on workflows that have a negative text encoder."""
         prompt = _load_workflow(workflow_file)
         if find_negative_text_encoder(prompt) is None:
             pytest.skip(f"{workflow_name} has no negative text encoder")
@@ -665,7 +603,6 @@ class TestReplaceNegativePromptText:
 
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_replace_negative_does_not_mutate_original(self, workflow_name, workflow_file):
-        """replace_negative_prompt_text must not modify the original prompt dict."""
         prompt = _load_workflow(workflow_file)
         if find_negative_text_encoder(prompt) is None:
             pytest.skip(f"{workflow_name} has no negative text encoder")
@@ -677,7 +614,6 @@ class TestReplaceNegativePromptText:
 
 class TestReplaceNegativePromptTextSpecific:
     def test_ksampler_positive_negative(self):
-        """KSampler with positive/negative CLIPTextEncode — negative should be replaced."""
         prompt = {
             "1": {
                 "inputs": {
@@ -703,7 +639,6 @@ class TestReplaceNegativePromptTextSpecific:
         assert result["2"]["inputs"]["text"] == "original positive"
 
     def test_negative_via_title(self):
-        """When there's no sampler, title heuristic should find the negative node."""
         prompt = {
             "1": {
                 "inputs": {"text": "positive prompt", "clip": ["3", 0]},
@@ -721,7 +656,6 @@ class TestReplaceNegativePromptTextSpecific:
         assert result["1"]["inputs"]["text"] == "positive prompt"
 
     def test_qwen_image_edit_negative(self):
-        """TextEncodeQwenImageEdit as negative encoder should be replaced."""
         prompt = {
             "3": {
                 "inputs": {
@@ -755,7 +689,6 @@ class TestReplaceNegativePromptTextSpecific:
         assert result["76"]["inputs"]["prompt"] == "edit instruction"
 
     def test_raises_on_no_negative_encoder(self):
-        """Should raise ValueError when no negative text encoder exists."""
         prompt = {
             "1": {
                 "inputs": {"text": "sole prompt", "clip": ["2", 0]},
@@ -766,7 +699,6 @@ class TestReplaceNegativePromptTextSpecific:
             replace_negative_prompt_text(prompt, "test")
 
     def test_negative_through_passthrough(self):
-        """Negative tracing through ConditioningZeroOut passthrough node."""
         prompt = {
             "1": {
                 "inputs": {
@@ -794,13 +726,7 @@ class TestReplaceNegativePromptTextSpecific:
         assert result["2"]["inputs"]["text"] == "positive"
 
 
-# ---------------------------------------------------------------------------
-# --video
-# ---------------------------------------------------------------------------
-
 class TestReplaceVideosSpecific:
-    """Unit tests for video loading node replacement."""
-
     def test_load_video_converted_to_url(self):
         prompt = {
             "1": {
@@ -874,13 +800,7 @@ class TestReplaceVideosSpecific:
         assert result["1"]["class_type"] == "LoadVideoFromURL"
 
 
-# ---------------------------------------------------------------------------
-# --audio
-# ---------------------------------------------------------------------------
-
 class TestReplaceAudiosSpecific:
-    """Unit tests for audio loading node replacement."""
-
     def test_load_audio_converted_to_url(self):
         prompt = {
             "1": {
@@ -929,10 +849,6 @@ class TestReplaceAudiosSpecific:
         assert prompt["1"]["class_type"] == "LoadAudio"
         assert result["1"]["class_type"] == "LoadAudioFromURL"
 
-
-# ---------------------------------------------------------------------------
-# find_video_load_nodes / find_audio_load_nodes
-# ---------------------------------------------------------------------------
 
 class TestFindMediaNodes:
     def test_find_video_nodes(self):

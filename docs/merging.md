@@ -54,10 +54,19 @@ See [Linting Guidelines](linting.md) for custom rules and common fixes.
 
 ## CLI Arguments
 
-When upstream adds new CLI arguments to `comfy/cli_args.py`, you must also update `comfy/cli_args_types.py`:
+`comfy/cli_args.py` is a **stub parser** that accepts all upstream `parser.add_argument(...)` calls as no-ops. Real CLI parsing is handled by Typer in `comfy/cmd/cli.py`.
 
-1. **Docstring** - Add the new argument's documentation to the `Configuration` class docstring
-2. **__init__** - Add the new attribute with its default value to `Configuration.__init__`
+When upstream adds new CLI arguments to `comfy/cli_args.py`, you must also:
+
+1. **`comfy/cli_args_types.py`** — Add the field to the `Configuration` class docstring and `__init__`
+2. **`comfy/cmd/cli.py`** — Add a corresponding `typer.Option(...)` to the appropriate command(s)
+
+### How the Stub Parser Works
+
+Upstream's pattern is `parser.add_argument("--flag", ...)` at module level. Our `parser` is a `_StubParser` whose `add_argument` is a no-op (`return self`). This means:
+- Upstream can add any `parser.add_argument` line and git merges cleanly
+- The actual parsing happens in Typer via `comfy/cmd/cli.py`
+- `cli_args.args` returns the current execution context's `Configuration` via a module property
 
 ### Example
 
@@ -66,16 +75,20 @@ If upstream adds:
 parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning...")
 ```
 
-Then add to `cli_args_types.py`:
+Then:
 
-In the docstring:
+**In `cli_args_types.py`** — add to the docstring and `__init__`:
 ```python
+# Docstring:
 disable_assets_autoscan (bool): Disable asset scanning on startup for database synchronization.
+
+# __init__:
+self.disable_assets_autoscan: bool = False
 ```
 
-In `__init__`:
+**In `comfy/cmd/cli.py`** — add to the `serve` command (and other commands if relevant):
 ```python
-self.disable_assets_autoscan: bool = False
+disable_assets_autoscan: bool = typer.Option(False, "--disable-assets-autoscan", help="Disable asset scanning."),
 ```
 
 ### Configuration Field Categories
@@ -99,11 +112,18 @@ If a new argument affects paths or model management, add it to the appropriate f
 
 ### Quick Check
 
-After merging, diff the argument names:
+After merging, diff the argument names across all three files:
 ```bash
-grep -oP '(?<=add_argument\(")[^"]+' comfy/cli_args.py | sed 's/^--//' | sed 's/-/_/g' | sort > /tmp/args.txt
+# Stub parser (upstream adds here):
+grep -oP '(?<=add_argument\(")[^"]+' comfy/cli_args.py | sed 's/^--//' | sed 's/-/_/g' | sort > /tmp/stub_args.txt
+
+# Configuration fields:
 grep -oP '(?<=self\.)[a-z_]+(?=:)' comfy/cli_args_types.py | sort > /tmp/types.txt
-diff /tmp/args.txt /tmp/types.txt
+
+# Typer options (in serve command):
+grep -oP '(?<=typer\.Option\()[^)]+' comfy/cmd/cli.py | sort > /tmp/typer_args.txt
+
+diff /tmp/stub_args.txt /tmp/types.txt
 ```
 
 ## Version String

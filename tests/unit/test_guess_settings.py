@@ -19,10 +19,6 @@ def _config(**overrides) -> Configuration:
     return Configuration(**overrides)
 
 
-# ---------------------------------------------------------------------------
-# _total_ram_gb
-# ---------------------------------------------------------------------------
-
 class TestTotalRamGb:
     def test_psutil(self):
         mem = collections.namedtuple("svmem", ["total"])(total=16 * 1024 ** 3)
@@ -44,10 +40,6 @@ class TestTotalRamGb:
             result = _total_ram_gb()
             assert result == 0.0
 
-
-# ---------------------------------------------------------------------------
-# _has_nvidia_gpu / _has_amd_gpu
-# ---------------------------------------------------------------------------
 
 class TestGpuDetection:
     def test_nvidia_present(self):
@@ -75,10 +67,6 @@ class TestGpuDetection:
              patch("os.path.exists", return_value=False):
             assert _has_amd_gpu() is False
 
-
-# ---------------------------------------------------------------------------
-# _competing_gpu_processes
-# ---------------------------------------------------------------------------
 
 class TestCompetingGpuProcesses:
     def test_no_nvidia_smi(self):
@@ -119,10 +107,6 @@ class TestCompetingGpuProcesses:
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("nvidia-smi", 5)):
             assert _competing_gpu_processes() == []
 
-
-# ---------------------------------------------------------------------------
-# apply_guess_settings: NVIDIA
-# ---------------------------------------------------------------------------
 
 class TestGuessSettingsNvidia:
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=True)
@@ -179,10 +163,6 @@ class TestGuessSettingsNvidia:
         assert cfg.novram is False
 
 
-# ---------------------------------------------------------------------------
-# apply_guess_settings: AMD
-# ---------------------------------------------------------------------------
-
 class TestGuessSettingsAmd:
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
     @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=True)
@@ -215,10 +195,6 @@ class TestGuessSettingsAmd:
         apply_guess_settings(cfg)
         assert PerformanceFeature.CublasOps not in cfg.fast
 
-
-# ---------------------------------------------------------------------------
-# apply_guess_settings: RAM
-# ---------------------------------------------------------------------------
 
 class TestGuessSettingsRam:
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
@@ -261,10 +237,6 @@ class TestGuessSettingsRam:
         apply_guess_settings(cfg)
         assert cfg.disable_pinned_memory is False
 
-
-# ---------------------------------------------------------------------------
-# apply_guess_settings: attention backend
-# ---------------------------------------------------------------------------
 
 class TestGuessSettingsAttention:
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
@@ -310,10 +282,6 @@ class TestGuessSettingsAttention:
             assert cfg.use_flash_attention is True
 
 
-# ---------------------------------------------------------------------------
-# CLI parsing integration
-# ---------------------------------------------------------------------------
-
 class TestGuessSettingsCliArg:
     def test_default_is_false(self):
         from tests.unit.test_cli_args import _parse_test_args
@@ -331,9 +299,7 @@ class TestGuessSettingsCliArg:
     @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
     @patch("comfy.component_model.guess_settings._has_package", return_value=False)
     def test_cli_args_configuration_applies_guess_settings(self, *_mocks):
-        """cli_args_configuration() must apply guess_settings so that
-        callers like _start_comfyui don't get a bare Configuration."""
-        from comfy.cli_args import cli_args_configuration
-        with patch("sys.argv", ["comfyui", "--guess-settings"]):
-            cfg = cli_args_configuration()
+        from comfy.cmd.setup import setup_guess_settings
+        cfg = Configuration(guess_settings=True)
+        setup_guess_settings(cfg)
         assert PerformanceFeature.CublasOps in cfg.fast

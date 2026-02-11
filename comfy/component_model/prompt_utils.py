@@ -7,9 +7,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# --prompt: text encoding / tokenize node class_types → text input field names
-# ---------------------------------------------------------------------------
 _TEXT_ENCODE_FIELDS: dict[str, list[str]] = {
     "CLIPTextEncode": ["text"],
     "CLIPTextEncodeSD3": ["clip_l", "clip_g", "t5xxl"],
@@ -25,7 +22,7 @@ _SAMPLER_CLASS_TYPES = frozenset({
     "KSamplerAdvanced",
 })
 
-# Nodes that forward conditioning (input → output) so we can trace chains
+# Nodes that forward conditioning (input -> output) so we can trace chains
 _CONDITIONING_PASSTHROUGH = frozenset({
     "FluxGuidance",
     "BasicGuider",
@@ -38,9 +35,6 @@ _CONDITIONING_PASSTHROUGH = frozenset({
     "LTXVConditioning",
 })
 
-# ---------------------------------------------------------------------------
-# --steps: nodes that accept a ``steps`` input
-# ---------------------------------------------------------------------------
 _STEPS_CLASS_TYPES = frozenset({
     "KSampler",
     "KSamplerAdvanced",
@@ -50,9 +44,7 @@ _STEPS_CLASS_TYPES = frozenset({
     "AlignYourStepsScheduler",
 })
 
-# ---------------------------------------------------------------------------
-# --seed: class_type → seed field name
-# ---------------------------------------------------------------------------
+# class_type -> seed field name
 _SEED_FIELDS: dict[str, str] = {
     "KSampler": "seed",
     "KSamplerAdvanced": "seed",
@@ -61,37 +53,24 @@ _SEED_FIELDS: dict[str, str] = {
     "TransformersGenerate": "seed",
 }
 
-# ---------------------------------------------------------------------------
-# --image: nodes that load images
-# ---------------------------------------------------------------------------
 _IMAGE_LOAD_CLASS_TYPES = frozenset({
     "LoadImage",
     "LoadImageFromURL",
     "ImageRequestParameter",
 })
 
-# ---------------------------------------------------------------------------
-# --video: nodes that load videos
-# ---------------------------------------------------------------------------
 _VIDEO_LOAD_CLASS_TYPES = frozenset({
     "LoadVideo",
     "LoadVideoFromURL",
     "VideoRequestParameter",
 })
 
-# ---------------------------------------------------------------------------
-# --audio: nodes that load audio
-# ---------------------------------------------------------------------------
 _AUDIO_LOAD_CLASS_TYPES = frozenset({
     "LoadAudio",
     "LoadAudioFromURL",
     "AudioRequestParameter",
 })
 
-
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
 
 def _is_node_ref(value) -> bool:
     return isinstance(value, (list, tuple)) and len(value) == 2
@@ -131,9 +110,6 @@ def _trace_to_text_encoder(prompt: dict, node_id: str, visited: Optional[set] = 
     return None
 
 
-# ---------------------------------------------------------------------------
-# --prompt helpers
-# ---------------------------------------------------------------------------
 
 def _find_positive_text_encoder_via_sampler(prompt: dict) -> Optional[str]:
     for node_id, node in prompt.items():
@@ -217,9 +193,6 @@ def replace_prompt_text(prompt: dict, text: str) -> dict:
     return prompt
 
 
-# ---------------------------------------------------------------------------
-# --negative-prompt helpers
-# ---------------------------------------------------------------------------
 
 def _find_negative_text_encoder_via_sampler(prompt: dict) -> Optional[str]:
     for node_id, node in prompt.items():
@@ -276,9 +249,6 @@ def replace_negative_prompt_text(prompt: dict, text: str) -> dict:
     return prompt
 
 
-# ---------------------------------------------------------------------------
-# --steps
-# ---------------------------------------------------------------------------
 
 def find_steps_nodes(prompt: dict) -> list[str]:
     """Return node IDs of all nodes that have a ``steps`` input."""
@@ -300,9 +270,6 @@ def replace_steps(prompt: dict, steps: int) -> dict:
     return prompt
 
 
-# ---------------------------------------------------------------------------
-# --seed
-# ---------------------------------------------------------------------------
 
 def find_seed_nodes(prompt: dict) -> list[tuple[str, str]]:
     """Return ``(node_id, field_name)`` pairs for all nodes with a seed input."""
@@ -326,11 +293,7 @@ def replace_seed(prompt: dict, seed: int) -> dict:
     return prompt
 
 
-# ---------------------------------------------------------------------------
-# --image / --video / --audio: generic media replacement
-# ---------------------------------------------------------------------------
-
-# Maps filesystem-loader class_type → URL-loader class_type
+# filesystem-loader -> URL-loader class_type
 _MEDIA_LOADER_TO_URL: dict[str, str] = {
     "LoadImage": "LoadImageFromURL",
     "LoadVideo": "LoadVideoFromURL",

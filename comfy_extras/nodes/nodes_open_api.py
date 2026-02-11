@@ -322,10 +322,8 @@ class LegacyOutputURIs(CustomNode):
                 if entry.is_file() and match is not None:
                     matched_values.append(match.group(1))
 
-        # find the highest value in the matched files
         highest_value = max(int(v, 10) for v in matched_values)
-        # substitute batch number string
-        # this is not going to produce exactly the same path names as SaveImage, but there's no reason to for %batch_num%
+        # not exactly the same path names as SaveImage, but there's no reason to for %batch_num%
         uris = [os.path.join(output_directory, f'{prefix.replace("%batch_num%", str(i))}{highest_value + i + 1:05d}{suffix}') for i in range(len(images))]
         return (uris,)
 
@@ -700,7 +698,6 @@ class SaveImagesResponse(CustomNode):
             else:
                 raise ValueError(f"invalid bits {bits}")
 
-            # Prepare metadata
             fsspec_metadata: FsSpecComfyMetadata = {
                 "prompt_json_str": json.dumps(prompt, separators=(',', ':')),
                 "batch_number_str": str(batch_number),
@@ -750,7 +747,6 @@ class SaveImagesResponse(CustomNode):
                         exif_bytes = exif_obj.tobytes()[6:]
                         # PNG signature (8 bytes) + IHDR chunk (25 bytes) = 33 bytes.
                         insertion_point = 33
-                        # Create eXIf chunk
                         exif_chunk = struct.pack('>I', len(exif_bytes)) + b'eXIf' + exif_bytes + struct.pack('>I', zlib.crc32(b'eXIf' + exif_bytes))
                         img_bytes = img_bytes[:insertion_point] + exif_chunk + img_bytes[insertion_point:]
 
@@ -802,10 +798,6 @@ class SaveImagesResponse(CustomNode):
         return os.path.dirname(os.path.relpath(os.path.abspath(local_uri), os.path.abspath(output_directory)))
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers for media request/response nodes
-# ---------------------------------------------------------------------------
-
 _HTTP_USER_AGENT = (
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -843,10 +835,6 @@ def _media_input_types(media_type: str, *, extra_optional: Optional[dict] = None
         "optional": optional,
     }
 
-
-# ---------------------------------------------------------------------------
-# Image
-# ---------------------------------------------------------------------------
 
 class ImageRequestParameter(CustomNode):
     _EXTRA_OPTIONAL = {"alpha_is_transparency": ("BOOLEAN", {"default": False})}
@@ -910,10 +898,6 @@ class LoadImageFromURL(ImageRequestParameter):
     def execute(self, value: str = "", default_if_empty=None, alpha_is_transparency=False, *args, **kwargs) -> ImageMaskTuple:
         return super().execute(value, default_if_empty, alpha_is_transparency, *args, **kwargs)
 
-
-# ---------------------------------------------------------------------------
-# Video
-# ---------------------------------------------------------------------------
 
 _VIDEO_EXTRA_OPTIONAL = {
     "frame_load_cap": ("INT", {"default": 0, "min": 0, "step": 1, "tooltip": "0 for no limit, otherwise stop loading after N frames"}),
@@ -1032,10 +1016,6 @@ class LoadVideoFromURL(VideoRequestParameter):
     def execute(self, value: str = "", default_if_empty=None, frame_load_cap=0, skip_first_frames=0, select_every_nth=1, *args, **kwargs):
         return super().execute(value, default_if_empty, frame_load_cap, skip_first_frames, select_every_nth, *args, **kwargs)
 
-
-# ---------------------------------------------------------------------------
-# Audio
-# ---------------------------------------------------------------------------
 
 class AudioRequestParameter(CustomNode):
     @classmethod

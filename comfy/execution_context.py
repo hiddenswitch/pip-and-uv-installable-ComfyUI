@@ -6,7 +6,6 @@ from dataclasses import dataclass, replace
 from typing import Optional, Final
 
 from comfy_execution.graph_types import FrozenTopologicalSort
-from .cli_args import cli_args_configuration
 from .cli_args_types import Configuration, LatentPreviewMethod
 from .component_model import cvpickle
 from .component_model.executor_types import ExecutorToClientProgress
@@ -50,7 +49,7 @@ class ExecutionContext:
         yield self.list_index
 
 
-comfyui_execution_context: Final[ContextVar] = ContextVar("comfyui_execution_context", default=ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub(), configuration=cli_args_configuration(), preview_method_override=None))
+comfyui_execution_context: Final[ContextVar] = ContextVar("comfyui_execution_context", default=ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub(), configuration=Configuration(), preview_method_override=None))
 # enables context var propagation across process boundaries for process pool executors
 cvpickle.register_contextvar(comfyui_execution_context, __name__)
 

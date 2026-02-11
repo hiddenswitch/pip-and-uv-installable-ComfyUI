@@ -19,9 +19,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# low-level probes (no torch)
-# ---------------------------------------------------------------------------
 
 def _total_ram_gb() -> float:
     """Return total physical RAM in GiB."""
@@ -94,9 +91,6 @@ def _has_package(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
-# ---------------------------------------------------------------------------
-# public entry point
-# ---------------------------------------------------------------------------
 
 def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disable=too-many-branches
     """Mutate *configuration* with auto-detected defaults.
@@ -110,12 +104,12 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
     is_amd = _has_amd_gpu()
     ram_gb = _total_ram_gb()
 
-    # -- RAM < 32 GB → disable pinned memory ----------------------------
+    # RAM < 32 GB: disable pinned memory
     if ram_gb and ram_gb < 32 and not configuration.disable_pinned_memory:
         logger.info("guess-settings: %.1f GB RAM detected, disabling pinned memory", ram_gb)
         configuration.disable_pinned_memory = True
 
-    # -- NVIDIA: add cublas_ops to --fast --------------------------------
+    # NVIDIA: add cublas_ops to --fast
     if is_nvidia:
         fast = set(configuration.fast) if configuration.fast else set()
         if PerformanceFeature.CublasOps not in fast:
@@ -123,7 +117,7 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
             configuration.fast = list(fast)
             logger.info("guess-settings: NVIDIA GPU detected, enabling cublas_ops")
 
-    # -- NVIDIA: competing GPU processes → novram -----------------------
+    # NVIDIA: competing GPU processes -> novram
     if is_nvidia:
         vram_fields = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
         user_set_vram = any(getattr(configuration, f, False) for f in vram_fields)
@@ -133,14 +127,14 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
                 logger.info("guess-settings: competing GPU processes detected (%s), enabling novram", ", ".join(procs))
                 configuration.novram = True
 
-    # -- AMD: fp32 VAE --------------------------------------------------
+    # AMD: fp32 VAE
     if is_amd:
         vae_fields = ("fp16_vae", "fp32_vae", "bf16_vae")
         if not any(getattr(configuration, f, False) for f in vae_fields):
             logger.info("guess-settings: AMD GPU detected, enabling fp32 VAE")
             configuration.fp32_vae = True
 
-    # -- attention backend ----------------------------------------------
+    # attention backend
     attn_fields = ("use_split_cross_attention", "use_quad_cross_attention",
                    "use_sage_attention", "use_flash_attention")
     user_set_attn = any(getattr(configuration, f, False) for f in attn_fields)

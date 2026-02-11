@@ -34,6 +34,20 @@ from ..execution_context import context_folder_names_and_paths
 
 
 class CustomNodeManager:
+    EXAMPLE_WORKFLOW_FOLDER_NAMES = ["example_workflows", "example", "examples", "workflow", "workflows"]
+
+    @staticmethod
+    def scan_example_workflows(custom_nodes_roots: list[str]) -> list[tuple[str, str, str]]:
+        """Return ``(node_name, workflow_name, filepath)`` for all example workflows."""
+        results = []
+        for root in custom_nodes_roots:
+            for folder_name in CustomNodeManager.EXAMPLE_WORKFLOW_FOLDER_NAMES:
+                for filepath in glob.glob(os.path.join(root, f'*/{folder_name}/*.json')):
+                    node_name = os.path.basename(os.path.dirname(os.path.dirname(filepath)))
+                    workflow_name = os.path.splitext(os.path.basename(filepath))[0]
+                    results.append((node_name, workflow_name, filepath))
+        return results
+
     def __init__(self):
         # binds to context at init time
         self.folder_paths = folder_paths.folder_names_and_paths
@@ -103,34 +117,19 @@ class CustomNodeManager:
 
     def add_routes(self, routes, webapp, loadedModules):
 
-        example_workflow_folder_names = ["example_workflows", "example", "examples", "workflow", "workflows"]
-
         @routes.get("/workflow_templates")
         async def get_workflow_templates(request):
             """Returns a web response that contains the map of custom_nodes names and their associated workflow templates. The ones without templates are omitted."""
             with context_folder_names_and_paths(self.folder_paths):
-                files = [
-                    file
-                    for folder in folder_paths.get_folder_paths("custom_nodes")
-                    for folder_name in example_workflow_folder_names
-                    for file in glob.glob(os.path.join(folder, f'*/{folder_name}/*.json'))
-                ]
-            workflow_templates_dict = (
-                {}
-            )  # custom_nodes folder name -> example workflow names
-            for file in files:
-                custom_nodes_name = os.path.basename(
-                    os.path.dirname(os.path.dirname(file))
-                )
-                workflow_name = os.path.splitext(os.path.basename(file))[0]
-                workflow_templates_dict.setdefault(custom_nodes_name, []).append(
-                    workflow_name
-                )
-            return web.json_response(workflow_templates_dict)
+                entries = self.scan_example_workflows(
+                    folder_paths.get_folder_paths("custom_nodes"))
+            result = {}
+            for node_name, workflow_name, _ in entries:
+                result.setdefault(node_name, []).append(workflow_name)
+            return web.json_response(result)
 
-        # Serve workflow templates from custom nodes.
         for module_name, module_dir in loadedModules:
-            for folder_name in example_workflow_folder_names:
+            for folder_name in self.EXAMPLE_WORKFLOW_FOLDER_NAMES:
                 workflows_dir = os.path.join(module_dir, folder_name)
 
                 if os.path.exists(workflows_dir):

@@ -1,30 +1,16 @@
-from ..cmd.main_pre import args
-
 import asyncio
 import json
 import logging
+import warnings
 from typing import Optional, Literal
 
 import typer
+
 from ..cli_args_types import Configuration
 from ..component_model.asyncio_files import stream_json_objects
 from ..client.embedded_comfy_client import Comfy
-from ..component_model.entrypoints_common import configure_application_paths
 
 logger = logging.getLogger(__name__)
-
-
-async def main():
-    workflows = args.workflows
-    assert len(workflows) > 0, "specify at least one path to a workflow, a literal workflow json starting with `{` or `-` (for standard in) using --workflows cli arg"
-
-    # --output / -o overrides the output directory before paths are configured
-    if args.output is not None:
-        args.output_directory = args.output
-
-    configure_application_paths(args)
-
-    await run_workflows(workflows)
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
@@ -54,6 +40,7 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
 
 async def run_workflows(workflows: list[str | Literal["-"]], configuration: Optional[Configuration] = None):
     if configuration is None:
+        from ..cli_args import args
         configuration = args
     async with Comfy(configuration=configuration) as comfy:
         for workflow in workflows:
@@ -69,7 +56,16 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
 
 
 def entrypoint():
-    asyncio.run(main())
+    """Legacy entrypoint. Delegates to ``comfyui post-workflow``."""
+    warnings.warn(
+        "comfyui-workflow is deprecated. Use: comfyui post-workflow",
+        DeprecationWarning,
+        stacklevel=1,
+    )
+    import sys
+    from ..cmd.cli import app
+    sys.argv = [sys.argv[0], "post-workflow"] + sys.argv[1:]
+    app()
 
 
 if __name__ == "__main__":

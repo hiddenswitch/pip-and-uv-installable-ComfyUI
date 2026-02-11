@@ -154,7 +154,7 @@ dev = [
 ]
 
 [project.scripts]
-comfyui = "comfy.cmd.main:entrypoint"
+comfyui = "comfy.cmd.cli:entrypoint"
 comfyui-worker = "comfy.entrypoints.worker:entrypoint"
 comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
 

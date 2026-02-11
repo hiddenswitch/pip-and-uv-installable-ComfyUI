@@ -549,7 +549,6 @@ def test_save_image_bit_depth(format, bits, supports_16bit, use_temporary_output
 
 @pytest.mark.parametrize("value", [0.0, 0.25, 0.5, 0.75, 1.0])
 def test_color_value_preservation(value, use_temporary_output_directory):
-    """Test that floating point values are correctly scaled to integer color values"""
     test_tensor = torch.full((1, 64, 64, 3), value, dtype=torch.float32)
 
     node = SaveImagesResponse()
@@ -572,7 +571,6 @@ def test_color_value_preservation(value, use_temporary_output_directory):
 
 
 def test_high_precision_tiff(use_temporary_output_directory):
-    """Test that TIFF format preserves high precision values"""
     # Create a gradient image to test precision
     x = torch.linspace(0, 1, 256)
     y = torch.linspace(0, 1, 256)
@@ -598,7 +596,6 @@ def test_high_precision_tiff(use_temporary_output_directory):
 
 
 def test_alpha_channel_preservation(use_temporary_output_directory):
-    """Test that alpha channel is preserved in formats that support it"""
     # Create RGBA test image
     test_tensor = torch.ones((1, 64, 64, 4), dtype=torch.float32) * 0.5
 
@@ -632,7 +629,6 @@ def test_alpha_channel_preservation(use_temporary_output_directory):
     ("webp", 8, False),
 ])
 def test_basic_exif(format, bits, supports_16bit, use_temporary_output_directory):
-    """Test basic EXIF tags are correctly saved and loaded, including for 16-bit PNGs."""
     node = SaveImagesResponse()
     filename = f"test_exif_{bits}bit.{format}"
 
@@ -710,7 +706,6 @@ def test_basic_exif(format, bits, supports_16bit, use_temporary_output_directory
 
 @pytest.mark.parametrize("format", ["tiff", "jpeg", "webp"])
 def test_gps_exif(format, use_temporary_output_directory):
-    """Test GPS EXIF tags are correctly saved and loaded"""
     node = SaveImagesResponse()
     filename = f"test_gps.{format}"
 
@@ -755,7 +750,6 @@ def test_gps_exif(format, use_temporary_output_directory):
     ("webp", 8),
 ])
 def test_datetime_exif(format, bits, use_temporary_output_directory):
-    """Test DateTime EXIF tags are correctly saved and loaded"""
     node = SaveImagesResponse()
     filename = f"test_datetime_{bits}bit.{format}"
 
@@ -803,7 +797,6 @@ def test_datetime_exif(format, bits, use_temporary_output_directory):
 
 @pytest.mark.parametrize("format", ["tiff", "jpeg", "webp"])
 def test_numeric_exif(format, use_temporary_output_directory):
-    """Test numeric EXIF tags are correctly saved and loaded"""
     node = SaveImagesResponse()
     filename = f"test_numeric.{format}"
 
@@ -845,13 +838,8 @@ def test_numeric_exif(format, use_temporary_output_directory):
                 assert str(exif_data[tag_id]) == expected_value
 
 
-# ---------------------------------------------------------------------------
-# DRY helper: _open_media_files
-# ---------------------------------------------------------------------------
-
 class TestOpenMediaFiles:
     def test_local_path_no_http_kwargs(self, use_temporary_input_directory):
-        """Local paths should not get HTTP headers or get_client."""
         img_data = np.array([[[255, 0, 0]]], dtype=np.uint8)
         path = os.path.join(use_temporary_input_directory, "test.png")
         Image.fromarray(img_data, "RGB").save(path)
@@ -862,7 +850,6 @@ class TestOpenMediaFiles:
             assert len(data) > 0
 
     def test_http_url_adds_headers(self, monkeypatch):
-        """HTTP URLs should pass User-Agent header and get_client."""
         captured = {}
 
         def mock_open_files(value, *, mode, **kwargs):
@@ -884,7 +871,6 @@ class TestOpenMediaFiles:
         assert "get_client" in captured
 
     def test_non_http_url_no_headers(self, monkeypatch):
-        """Non-HTTP URLs (e.g. s3://) should not get HTTP headers."""
         captured = {}
 
         def mock_open_files(value, *, mode, **kwargs):
@@ -905,13 +891,8 @@ class TestOpenMediaFiles:
         assert "get_client" not in captured
 
 
-# ---------------------------------------------------------------------------
-# DRY helper: _media_input_types
-# ---------------------------------------------------------------------------
-
 class TestMediaInputTypes:
     def test_with_api_schema(self):
-        """include_api_schema=True should include OpenAPI schema fields."""
         result = _media_input_types("IMAGE")
         assert "value" in result["required"]
         assert result["required"]["value"][0] == "STRING"
@@ -922,7 +903,6 @@ class TestMediaInputTypes:
         assert opt["default_if_empty"] == ("IMAGE",)
 
     def test_without_api_schema(self):
-        """include_api_schema=False should omit OpenAPI schema fields."""
         result = _media_input_types("IMAGE", include_api_schema=False)
         opt = result["optional"]
         for key in _open_api_common_schema:
@@ -930,28 +910,21 @@ class TestMediaInputTypes:
         assert "default_if_empty" in opt
 
     def test_extra_optional(self):
-        """extra_optional dict should be merged into optional."""
         extra = {"alpha_is_transparency": ("BOOLEAN", {"default": False})}
         result = _media_input_types("IMAGE", extra_optional=extra)
         assert "alpha_is_transparency" in result["optional"]
 
     def test_no_extra_optional(self):
-        """Without extra_optional, only schema + default_if_empty should be present."""
         result = _media_input_types("VIDEO")
         # schema keys + default_if_empty
         expected_keys = set(_open_api_common_schema.keys()) | {"default_if_empty"}
         assert set(result["optional"].keys()) == expected_keys
 
     def test_media_type_in_default_if_empty(self):
-        """The media_type arg should appear as the type of default_if_empty."""
         for media_type in ("IMAGE", "VIDEO", "AUDIO"):
             result = _media_input_types(media_type)
             assert result["optional"]["default_if_empty"] == (media_type,)
 
-
-# ---------------------------------------------------------------------------
-# Node INPUT_TYPES: ImageRequestParameter vs LoadImageFromURL
-# ---------------------------------------------------------------------------
 
 class TestImageNodeInputTypes:
     def test_image_request_parameter_has_api_schema(self):
@@ -970,7 +943,6 @@ class TestImageNodeInputTypes:
         assert "default_if_empty" in opt
 
     def test_load_image_from_url_inherits_execute(self, use_temporary_input_directory):
-        """LoadImageFromURL.execute delegates to ImageRequestParameter."""
         img_data = np.array([[[0, 255, 0]]], dtype=np.uint8)
         path = os.path.join(use_temporary_input_directory, "green.png")
         Image.fromarray(img_data, "RGB").save(path)
@@ -981,12 +953,7 @@ class TestImageNodeInputTypes:
         assert torch.allclose(img[0, 0, 0], torch.tensor([0.0, 1.0, 0.0]))
 
 
-# ---------------------------------------------------------------------------
-# Node INPUT_TYPES: VideoRequestParameter vs LoadVideoFromURL
-# ---------------------------------------------------------------------------
-
 def _make_test_video(path, width=16, height=16, num_frames=3, fps=24):
-    """Create a minimal video file using PyAV."""
     import av as _av
 
     container = _av.open(path, mode="w")
@@ -1096,12 +1063,7 @@ class TestLoadVideoFromURLExecute:
         assert video.shape[0] == 4
 
 
-# ---------------------------------------------------------------------------
-# Node INPUT_TYPES: AudioRequestParameter vs LoadAudioFromURL
-# ---------------------------------------------------------------------------
-
 def _make_test_audio(path, sr=16000, duration_s=0.1, channels=1):
-    """Create a minimal audio file using PyAV."""
     import av as _av
 
     layout = "mono" if channels == 1 else "stereo"
@@ -1139,7 +1101,6 @@ class TestAudioNodeInputTypes:
         assert "default_if_empty" in opt
 
     def test_no_video_extra_optional_in_audio(self):
-        """Audio nodes should NOT have video-specific options."""
         types = AudioRequestParameter.INPUT_TYPES()
         for key in _VIDEO_EXTRA_OPTIONAL:
             assert key not in types["optional"]

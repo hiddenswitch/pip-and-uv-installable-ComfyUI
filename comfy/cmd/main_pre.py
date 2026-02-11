@@ -209,6 +209,5 @@ _register_fsspec_fs()
 # Patch torchvision InterpolationMode for compatibility with newer torchvision
 # builds where InterpolationMode moved. Must happen before third-party imports
 # (transformers, spandrel, diffusers) that use the old location.
-from .. import torchvision_compat  # noqa: F401
+from .. import torchvision_compat  # pylint: disable=unused-import
 tracer = _create_tracer()
-__all__ = ["args", "tracer"]

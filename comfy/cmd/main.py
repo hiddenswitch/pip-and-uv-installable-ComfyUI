@@ -1,4 +1,5 @@
 from .main_pre import tracer
+
 import asyncio
 import contextvars
 import gc
@@ -394,10 +395,9 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
 
 
 def entrypoint():
-    try:
-        asyncio.run(_start_comfyui())
-    except KeyboardInterrupt:
-        logger.info(f"Gracefully shutting down due to KeyboardInterrupt")
+    """Delegates to the Typer CLI."""
+    from .cli import entrypoint as cli_entrypoint
+    cli_entrypoint()
 
 
 def main():
