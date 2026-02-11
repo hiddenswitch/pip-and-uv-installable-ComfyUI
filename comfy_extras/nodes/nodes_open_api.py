@@ -802,19 +802,58 @@ class SaveImagesResponse(CustomNode):
         return os.path.dirname(os.path.relpath(os.path.abspath(local_uri), os.path.abspath(output_directory)))
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers for media request/response nodes
+# ---------------------------------------------------------------------------
+
+_HTTP_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/113.0.5672.64 Safari/537.36'
+)
+
+
+def _open_media_files(value: str):
+    """Open files via fsspec with HTTP headers when needed.
+
+    Returns a context manager yielding a list of file-like objects.
+    Used by :class:`ImageRequestParameter`, :class:`VideoRequestParameter`,
+    and :class:`AudioRequestParameter` to avoid duplicating the
+    fsspec + HTTP-header boilerplate.
+    """
+    fsspec_kwargs: dict = {}
+    if value.startswith('http'):
+        fsspec_kwargs.update({
+            "headers": {"User-Agent": _HTTP_USER_AGENT},
+            "get_client": get_client,
+        })
+    return fsspec.open_files(value, mode="rb", **fsspec_kwargs)
+
+
+def _media_input_types(media_type: str, *, extra_optional: Optional[dict] = None, include_api_schema: bool = True) -> InputTypes:
+    """Build an INPUT_TYPES dict for a media-loading RequestParameter node."""
+    optional: dict = {}
+    if include_api_schema:
+        optional.update(_open_api_common_schema)
+    optional[f"default_if_empty"] = (media_type,)
+    if extra_optional:
+        optional.update(extra_optional)
+    return {
+        "required": {"value": ("STRING", {"default": ""})},
+        "optional": optional,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Image
+# ---------------------------------------------------------------------------
+
 class ImageRequestParameter(CustomNode):
+    _EXTRA_OPTIONAL = {"alpha_is_transparency": ("BOOLEAN", {"default": False})}
+
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                **_open_api_common_schema,
-                "default_if_empty": ("IMAGE",),
-                "alpha_is_transparency": ("BOOLEAN", {"default": False}),
-            }
-        }
+        return _media_input_types("IMAGE", extra_optional=cls._EXTRA_OPTIONAL)
 
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "execute"
@@ -825,20 +864,10 @@ class ImageRequestParameter(CustomNode):
             return (default_if_empty,)
         output_images = []
         output_masks = []
-        f: OpenFile
-        fsspec_kwargs = {}
-        if value.startswith('http'):
-            fsspec_kwargs.update({
-                "headers": {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.5672.64 Safari/537.36'
-                },
-                'get_client': get_client
-            })
         # todo: additional security is needed here to prevent users from accessing local paths
         # however this generally needs to be done with user accounts on all OSes
-        with fsspec.open_files(value, mode="rb", **fsspec_kwargs) as files:
+        with _open_media_files(value) as files:
             for f in files:
-                # from LoadImage
                 img = Image.open(f)
                 for i in ImageSequence.Iterator(img):
                     prev_value = None
@@ -876,35 +905,27 @@ class ImageRequestParameter(CustomNode):
 class LoadImageFromURL(ImageRequestParameter):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                "default_if_empty": ("IMAGE",),
-                "alpha_is_transparency": ("BOOLEAN", {"default": False}),
-            }
-        }
+        return _media_input_types("IMAGE", extra_optional=cls._EXTRA_OPTIONAL, include_api_schema=False)
 
     def execute(self, value: str = "", default_if_empty=None, alpha_is_transparency=False, *args, **kwargs) -> ImageMaskTuple:
         return super().execute(value, default_if_empty, alpha_is_transparency, *args, **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Video
+# ---------------------------------------------------------------------------
+
+_VIDEO_EXTRA_OPTIONAL = {
+    "frame_load_cap": ("INT", {"default": 0, "min": 0, "step": 1, "tooltip": "0 for no limit, otherwise stop loading after N frames"}),
+    "skip_first_frames": ("INT", {"default": 0, "min": 0, "step": 1}),
+    "select_every_nth": ("INT", {"default": 1, "min": 1, "step": 1}),
+}
+
+
 class VideoRequestParameter(CustomNode):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                **_open_api_common_schema,
-                "default_if_empty": ("VIDEO",),
-                "frame_load_cap": ("INT", {"default": 0, "min": 0, "step": 1, "tooltip": "0 for no limit, otherwise stop loading after N frames"}),
-                "skip_first_frames": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "select_every_nth": ("INT", {"default": 1, "min": 1, "step": 1}),
-            }
-        }
+        return _media_input_types("VIDEO", extra_optional=_VIDEO_EXTRA_OPTIONAL)
 
     RETURN_TYPES = ("VIDEO", "MASK", "INT", "FLOAT")
     RETURN_NAMES = ("VIDEO", "MASK", "frame_count", "fps")
@@ -928,16 +949,7 @@ class VideoRequestParameter(CustomNode):
         total_frames_loaded = 0
         fps = 0.0
 
-        fsspec_kwargs = {}
-        if value.startswith('http'):
-            fsspec_kwargs.update({
-                "headers": {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.5672.64 Safari/537.36'
-                },
-                'get_client': get_client
-            })
-
-        with fsspec.open_files(value, mode="rb", **fsspec_kwargs) as files:
+        with _open_media_files(value) as files:
             for f in files:
                 try:
                     container = av.open(f)
@@ -1012,17 +1024,7 @@ class VideoRequestParameter(CustomNode):
 class LoadVideoFromURL(VideoRequestParameter):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                "default_if_empty": ("VIDEO",),
-                "frame_load_cap": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "skip_first_frames": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "select_every_nth": ("INT", {"default": 1, "min": 1, "step": 1}),
-            }
-        }
+        return _media_input_types("VIDEO", extra_optional=_VIDEO_EXTRA_OPTIONAL, include_api_schema=False)
 
     RETURN_TYPES = ("VIDEO", "MASK", "INT", "FLOAT")
     RETURN_NAMES = ("VIDEO", "MASK", "frame_count", "fps")
@@ -1031,18 +1033,14 @@ class LoadVideoFromURL(VideoRequestParameter):
         return super().execute(value, default_if_empty, frame_load_cap, skip_first_frames, select_every_nth, *args, **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+
 class AudioRequestParameter(CustomNode):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                **_open_api_common_schema,
-                "default_if_empty": ("AUDIO",),
-            }
-        }
+        return _media_input_types("AUDIO")
 
     RETURN_TYPES = ("AUDIO",)
     FUNCTION = "execute"
@@ -1052,18 +1050,7 @@ class AudioRequestParameter(CustomNode):
         if value.strip() == "":
             return (default_if_empty,)
 
-        fsspec_kwargs = {}
-        if value.startswith('http'):
-            fsspec_kwargs.update({
-                "headers": {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                                  'AppleWebKit/537.36 (KHTML, like Gecko) '
-                                  'Chrome/113.0.5672.64 Safari/537.36'
-                },
-                'get_client': get_client
-            })
-
-        with fsspec.open_files(value, mode="rb", **fsspec_kwargs) as files:
+        with _open_media_files(value) as files:
             for f in files:
                 container = av.open(f)
                 if not container.streams.audio:
@@ -1106,14 +1093,7 @@ class AudioRequestParameter(CustomNode):
 class LoadAudioFromURL(AudioRequestParameter):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
-        return {
-            "required": {
-                "value": ("STRING", {"default": ""})
-            },
-            "optional": {
-                "default_if_empty": ("AUDIO",),
-            }
-        }
+        return _media_input_types("AUDIO", include_api_schema=False)
 
     def execute(self, value: str = "", default_if_empty=None, *args, **kwargs):
         return super().execute(value, default_if_empty, *args, **kwargs)

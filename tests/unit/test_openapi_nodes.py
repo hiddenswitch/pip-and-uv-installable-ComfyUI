@@ -21,7 +21,9 @@ from comfy.component_model.executor_types import ValidateInputsTuple
 from comfy_extras.nodes.nodes_open_api import SaveImagesResponse, IntRequestParameter, FloatRequestParameter, \
     StringRequestParameter, HashImage, StringPosixPathJoin, LegacyOutputURIs, DevNullUris, StringJoin, StringToUri, \
     UriFormat, ImageExifMerge, ImageExifCreationDateAndBatchNumber, ImageExif, ImageExifUncommon, \
-    StringEnumRequestParameter, ExifContainer, BooleanRequestParameter, ImageRequestParameter
+    StringEnumRequestParameter, ExifContainer, BooleanRequestParameter, ImageRequestParameter, \
+    VideoRequestParameter, AudioRequestParameter, LoadImageFromURL, LoadVideoFromURL, LoadAudioFromURL, \
+    _open_media_files, _media_input_types, _HTTP_USER_AGENT, _open_api_common_schema, _VIDEO_EXTRA_OPTIONAL
 
 _image_1x1 = torch.zeros((1, 1, 1, 3), dtype=torch.float32, device="cpu")
 
@@ -841,3 +843,351 @@ def test_numeric_exif(format, use_temporary_output_directory):
             if tag_id in exif_data:
                 # Convert both to strings for comparison since formats might store numbers differently
                 assert str(exif_data[tag_id]) == expected_value
+
+
+# ---------------------------------------------------------------------------
+# DRY helper: _open_media_files
+# ---------------------------------------------------------------------------
+
+class TestOpenMediaFiles:
+    def test_local_path_no_http_kwargs(self, use_temporary_input_directory):
+        """Local paths should not get HTTP headers or get_client."""
+        img_data = np.array([[[255, 0, 0]]], dtype=np.uint8)
+        path = os.path.join(use_temporary_input_directory, "test.png")
+        Image.fromarray(img_data, "RGB").save(path)
+
+        with _open_media_files(path) as files:
+            assert len(files) == 1
+            data = files[0].read()
+            assert len(data) > 0
+
+    def test_http_url_adds_headers(self, monkeypatch):
+        """HTTP URLs should pass User-Agent header and get_client."""
+        captured = {}
+
+        def mock_open_files(value, *, mode, **kwargs):
+            captured.update(kwargs)
+
+            class _FakeCtx:
+                def __enter__(self):
+                    return []
+                def __exit__(self, *a):
+                    pass
+
+            return _FakeCtx()
+
+        monkeypatch.setattr("comfy_extras.nodes.nodes_open_api.fsspec.open_files", mock_open_files)
+        with _open_media_files("https://example.com/image.png"):
+            pass
+        assert "headers" in captured
+        assert captured["headers"]["User-Agent"] == _HTTP_USER_AGENT
+        assert "get_client" in captured
+
+    def test_non_http_url_no_headers(self, monkeypatch):
+        """Non-HTTP URLs (e.g. s3://) should not get HTTP headers."""
+        captured = {}
+
+        def mock_open_files(value, *, mode, **kwargs):
+            captured.update(kwargs)
+
+            class _FakeCtx:
+                def __enter__(self):
+                    return []
+                def __exit__(self, *a):
+                    pass
+
+            return _FakeCtx()
+
+        monkeypatch.setattr("comfy_extras.nodes.nodes_open_api.fsspec.open_files", mock_open_files)
+        with _open_media_files("s3://bucket/file.png"):
+            pass
+        assert "headers" not in captured
+        assert "get_client" not in captured
+
+
+# ---------------------------------------------------------------------------
+# DRY helper: _media_input_types
+# ---------------------------------------------------------------------------
+
+class TestMediaInputTypes:
+    def test_with_api_schema(self):
+        """include_api_schema=True should include OpenAPI schema fields."""
+        result = _media_input_types("IMAGE")
+        assert "value" in result["required"]
+        assert result["required"]["value"][0] == "STRING"
+        opt = result["optional"]
+        for key in _open_api_common_schema:
+            assert key in opt, f"missing OpenAPI schema key: {key}"
+        assert "default_if_empty" in opt
+        assert opt["default_if_empty"] == ("IMAGE",)
+
+    def test_without_api_schema(self):
+        """include_api_schema=False should omit OpenAPI schema fields."""
+        result = _media_input_types("IMAGE", include_api_schema=False)
+        opt = result["optional"]
+        for key in _open_api_common_schema:
+            assert key not in opt, f"unexpected OpenAPI schema key: {key}"
+        assert "default_if_empty" in opt
+
+    def test_extra_optional(self):
+        """extra_optional dict should be merged into optional."""
+        extra = {"alpha_is_transparency": ("BOOLEAN", {"default": False})}
+        result = _media_input_types("IMAGE", extra_optional=extra)
+        assert "alpha_is_transparency" in result["optional"]
+
+    def test_no_extra_optional(self):
+        """Without extra_optional, only schema + default_if_empty should be present."""
+        result = _media_input_types("VIDEO")
+        # schema keys + default_if_empty
+        expected_keys = set(_open_api_common_schema.keys()) | {"default_if_empty"}
+        assert set(result["optional"].keys()) == expected_keys
+
+    def test_media_type_in_default_if_empty(self):
+        """The media_type arg should appear as the type of default_if_empty."""
+        for media_type in ("IMAGE", "VIDEO", "AUDIO"):
+            result = _media_input_types(media_type)
+            assert result["optional"]["default_if_empty"] == (media_type,)
+
+
+# ---------------------------------------------------------------------------
+# Node INPUT_TYPES: ImageRequestParameter vs LoadImageFromURL
+# ---------------------------------------------------------------------------
+
+class TestImageNodeInputTypes:
+    def test_image_request_parameter_has_api_schema(self):
+        types = ImageRequestParameter.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key in opt
+        assert "alpha_is_transparency" in opt
+
+    def test_load_image_from_url_no_api_schema(self):
+        types = LoadImageFromURL.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key not in opt
+        assert "alpha_is_transparency" in opt
+        assert "default_if_empty" in opt
+
+    def test_load_image_from_url_inherits_execute(self, use_temporary_input_directory):
+        """LoadImageFromURL.execute delegates to ImageRequestParameter."""
+        img_data = np.array([[[0, 255, 0]]], dtype=np.uint8)
+        path = os.path.join(use_temporary_input_directory, "green.png")
+        Image.fromarray(img_data, "RGB").save(path)
+
+        node = LoadImageFromURL()
+        img, mask = node.execute(value=path)
+        assert img.shape == (1, 1, 1, 3)
+        assert torch.allclose(img[0, 0, 0], torch.tensor([0.0, 1.0, 0.0]))
+
+
+# ---------------------------------------------------------------------------
+# Node INPUT_TYPES: VideoRequestParameter vs LoadVideoFromURL
+# ---------------------------------------------------------------------------
+
+def _make_test_video(path, width=16, height=16, num_frames=3, fps=24):
+    """Create a minimal video file using PyAV."""
+    import av as _av
+
+    container = _av.open(path, mode="w")
+    stream = container.add_stream("libx264", rate=fps)
+    stream.width = width
+    stream.height = height
+    stream.pix_fmt = "yuv420p"
+
+    for i in range(num_frames):
+        frame = _av.VideoFrame.from_ndarray(
+            np.full((height, width, 3), fill_value=(i * 40) % 256, dtype=np.uint8),
+            format="rgb24",
+        )
+        for packet in stream.encode(frame):
+            container.mux(packet)
+
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+
+
+class TestVideoNodeInputTypes:
+    def test_video_request_parameter_has_api_schema(self):
+        types = VideoRequestParameter.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key in opt
+        for key in _VIDEO_EXTRA_OPTIONAL:
+            assert key in opt
+
+    def test_load_video_from_url_no_api_schema(self):
+        types = LoadVideoFromURL.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key not in opt
+        for key in _VIDEO_EXTRA_OPTIONAL:
+            assert key in opt
+
+    def test_return_types(self):
+        assert VideoRequestParameter.RETURN_TYPES == ("VIDEO", "MASK", "INT", "FLOAT")
+        assert LoadVideoFromURL.RETURN_TYPES == ("VIDEO", "MASK", "INT", "FLOAT")
+
+
+class TestVideoRequestParameterExecute:
+    def test_empty_value_returns_zeros(self):
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value="")
+        assert video.shape[0] == 0
+        assert count == 0
+        assert fps == 0.0
+
+    def test_empty_value_with_default(self):
+        default = torch.rand(2, 4, 4, 3)
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value="  ", default_if_empty=default)
+        assert torch.equal(video, default)
+        assert count == 2
+
+    def test_load_video_file(self, tmp_path):
+        path = str(tmp_path / "test.mp4")
+        _make_test_video(path, num_frames=5, fps=30)
+
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value=path)
+        assert count == 5
+        assert video.shape[0] == 5
+        assert video.shape[-1] == 3
+        assert mask.shape[0] == 5
+        assert fps == pytest.approx(30.0, rel=0.1)
+
+    def test_frame_load_cap(self, tmp_path):
+        path = str(tmp_path / "cap.mp4")
+        _make_test_video(path, num_frames=10, fps=24)
+
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value=path, frame_load_cap=3)
+        assert count == 3
+        assert video.shape[0] == 3
+
+    def test_skip_first_frames(self, tmp_path):
+        path = str(tmp_path / "skip.mp4")
+        _make_test_video(path, num_frames=8, fps=24)
+
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value=path, skip_first_frames=3)
+        assert count == 5
+        assert video.shape[0] == 5
+
+    def test_select_every_nth(self, tmp_path):
+        path = str(tmp_path / "nth.mp4")
+        _make_test_video(path, num_frames=6, fps=24)
+
+        node = VideoRequestParameter()
+        video, mask, count, fps = node.execute(value=path, select_every_nth=2)
+        assert count == 3
+        assert video.shape[0] == 3
+
+
+class TestLoadVideoFromURLExecute:
+    def test_delegates_to_parent(self, tmp_path):
+        path = str(tmp_path / "delegate.mp4")
+        _make_test_video(path, num_frames=4)
+
+        node = LoadVideoFromURL()
+        video, mask, count, fps = node.execute(value=path)
+        assert count == 4
+        assert video.shape[0] == 4
+
+
+# ---------------------------------------------------------------------------
+# Node INPUT_TYPES: AudioRequestParameter vs LoadAudioFromURL
+# ---------------------------------------------------------------------------
+
+def _make_test_audio(path, sr=16000, duration_s=0.1, channels=1):
+    """Create a minimal audio file using PyAV."""
+    import av as _av
+
+    layout = "mono" if channels == 1 else "stereo"
+    n_samples = int(sr * duration_s)
+    container = _av.open(path, mode="w")
+    stream = container.add_stream("pcm_s16le", rate=sr, layout=layout)
+
+    samples = (np.sin(2 * np.pi * 440 * np.arange(n_samples) / sr) * 32767).astype(np.int16)
+    # s16p = planar: shape (channels, n_samples)
+    arr = np.stack([samples] * channels, axis=0)
+
+    frame = _av.AudioFrame.from_ndarray(arr, format="s16p", layout=layout)
+    frame.sample_rate = sr
+
+    for packet in stream.encode(frame):
+        container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+
+
+class TestAudioNodeInputTypes:
+    def test_audio_request_parameter_has_api_schema(self):
+        types = AudioRequestParameter.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key in opt
+        assert "default_if_empty" in opt
+
+    def test_load_audio_from_url_no_api_schema(self):
+        types = LoadAudioFromURL.INPUT_TYPES()
+        opt = types["optional"]
+        for key in _open_api_common_schema:
+            assert key not in opt
+        assert "default_if_empty" in opt
+
+    def test_no_video_extra_optional_in_audio(self):
+        """Audio nodes should NOT have video-specific options."""
+        types = AudioRequestParameter.INPUT_TYPES()
+        for key in _VIDEO_EXTRA_OPTIONAL:
+            assert key not in types["optional"]
+
+    def test_return_types(self):
+        assert AudioRequestParameter.RETURN_TYPES == ("AUDIO",)
+
+
+class TestAudioRequestParameterExecute:
+    def test_empty_value_returns_default(self):
+        default = {"waveform": torch.zeros(1, 1, 100), "sample_rate": 44100}
+        node = AudioRequestParameter()
+        result, = node.execute(value="", default_if_empty=default)
+        assert result is default
+
+    def test_empty_value_no_default_returns_silence(self):
+        node = AudioRequestParameter()
+        result, = node.execute(value="")
+        assert result is None
+
+    def test_load_audio_file(self, tmp_path):
+        path = str(tmp_path / "test.wav")
+        _make_test_audio(path, sr=16000, duration_s=0.1)
+
+        node = AudioRequestParameter()
+        result, = node.execute(value=path)
+        assert "waveform" in result
+        assert "sample_rate" in result
+        assert result["sample_rate"] == 16000
+        assert result["waveform"].shape[0] == 1  # batch dim
+        assert result["waveform"].shape[1] == 1  # mono
+
+    def test_load_stereo_audio(self, tmp_path):
+        path = str(tmp_path / "stereo.wav")
+        _make_test_audio(path, sr=22050, duration_s=0.05, channels=2)
+
+        node = AudioRequestParameter()
+        result, = node.execute(value=path)
+        assert result["sample_rate"] == 22050
+        assert result["waveform"].shape[1] == 2  # stereo
+
+
+class TestLoadAudioFromURLExecute:
+    def test_delegates_to_parent(self, tmp_path):
+        path = str(tmp_path / "delegate.wav")
+        _make_test_audio(path, sr=16000, duration_s=0.1)
+
+        node = LoadAudioFromURL()
+        result, = node.execute(value=path)
+        assert result["sample_rate"] == 16000
+        assert result["waveform"].shape[0] == 1
