@@ -146,7 +146,7 @@ def _create_parser(enable_custom_nodes_configuration=True) -> EnhancedConfigArgP
     parser.add_argument("--deterministic", action="store_true",
                         help="Make pytorch use slower deterministic algorithms when it can. Note that this might not make images deterministic in all cases.")
 
-    parser.add_argument("--fast", nargs="*", type=PerformanceFeature, help=f"Enable some untested and potentially quality deteriorating optimizations. Pass a list specific optimizations if you only want to enable specific ones. Current valid optimizations: {' '.join([f.value for f in PerformanceFeature])}", default=set())
+    parser.add_argument("--fast", nargs="*", type=PerformanceFeature, action=FlattenAndAppendAction, help=f"Enable some untested and potentially quality deteriorating optimizations. Pass specific optimizations if you only want to enable some (e.g. --fast fp16_accumulation fp8_matrix_mult or --fast fp16_accumulation,fp8_matrix_mult). Valid optimizations: {', '.join([f.value for f in PerformanceFeature])}", default=set())
     parser.add_argument("--disable-pinned-memory", action="store_true", help="Disable pinned memory use.")
 
     parser.add_argument("--mmap-torch-files", action="store_true", help="Use mmap when loading ckpt/pt files.")
@@ -295,8 +295,12 @@ def _create_parser(enable_custom_nodes_configuration=True) -> EnhancedConfigArgP
     parser.add_argument("--prompt", type=str, default=None, help="Override the positive prompt text in workflows run via --workflows.")
     parser.add_argument("--negative-prompt", type=str, default=None, help="Override the negative prompt text in workflows run via --workflows.")
     parser.add_argument("--steps", type=int, default=None, help="Override the number of sampling steps in workflows run via --workflows.")
-    parser.add_argument("--image", type=str, nargs='+', default=None, help="Override image inputs in workflows run via --workflows. Accepts file paths or URIs. Multiple values are assigned to image nodes in order.")
+    parser.add_argument("--seed", type=int, default=None, help="Override the seed in sampler and noise nodes in workflows run via --workflows.")
+    parser.add_argument("--image", type=str, nargs='+', default=None, action=FlattenAndAppendAction, help="Override image inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated). Multiple values are assigned to image nodes in order.")
+    parser.add_argument("--video", type=str, nargs='+', default=None, action=FlattenAndAppendAction, help="Override video inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated). Multiple values are assigned to video nodes in order.")
+    parser.add_argument("--audio", type=str, nargs='+', default=None, action=FlattenAndAppendAction, help="Override audio inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated). Multiple values are assigned to audio nodes in order.")
     parser.add_argument("-o", "--output", type=str, default=None, help="Override the output directory for workflows run via --workflows.")
+    parser.add_argument("--guess-settings", action="store_true", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Explicit flags override guessed values.")
 
     # now give plugins a chance to add configuration
     if enable_custom_nodes_configuration:

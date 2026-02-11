@@ -51,12 +51,41 @@ _STEPS_CLASS_TYPES = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# --seed: class_type → seed field name
+# ---------------------------------------------------------------------------
+_SEED_FIELDS: dict[str, str] = {
+    "KSampler": "seed",
+    "KSamplerAdvanced": "seed",
+    "RandomNoise": "noise_seed",
+    "SamplerCustom": "noise_seed",
+    "TransformersGenerate": "seed",
+}
+
+# ---------------------------------------------------------------------------
 # --image: nodes that load images
 # ---------------------------------------------------------------------------
 _IMAGE_LOAD_CLASS_TYPES = frozenset({
     "LoadImage",
     "LoadImageFromURL",
     "ImageRequestParameter",
+})
+
+# ---------------------------------------------------------------------------
+# --video: nodes that load videos
+# ---------------------------------------------------------------------------
+_VIDEO_LOAD_CLASS_TYPES = frozenset({
+    "LoadVideo",
+    "LoadVideoFromURL",
+    "VideoRequestParameter",
+})
+
+# ---------------------------------------------------------------------------
+# --audio: nodes that load audio
+# ---------------------------------------------------------------------------
+_AUDIO_LOAD_CLASS_TYPES = frozenset({
+    "LoadAudio",
+    "LoadAudioFromURL",
+    "AudioRequestParameter",
 })
 
 
@@ -272,39 +301,112 @@ def replace_steps(prompt: dict, steps: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# --image
+# --seed
 # ---------------------------------------------------------------------------
 
-def find_image_load_nodes(prompt: dict) -> list[str]:
-    """Return node IDs of image loading nodes, in the order they appear."""
+def find_seed_nodes(prompt: dict) -> list[tuple[str, str]]:
+    """Return ``(node_id, field_name)`` pairs for all nodes with a seed input."""
+    results = []
+    for nid, node in prompt.items():
+        class_type = node.get("class_type", "")
+        field = _SEED_FIELDS.get(class_type)
+        if field is not None and field in node.get("inputs", {}):
+            results.append((nid, field))
+    return results
+
+
+def replace_seed(prompt: dict, seed: int) -> dict:
+    """Return a copy of *prompt* with all seed values replaced."""
+    pairs = find_seed_nodes(prompt)
+    if not pairs:
+        return prompt
+    prompt = copy.deepcopy(prompt)
+    for nid, field in pairs:
+        prompt[nid]["inputs"][field] = seed
+    return prompt
+
+
+# ---------------------------------------------------------------------------
+# --image / --video / --audio: generic media replacement
+# ---------------------------------------------------------------------------
+
+# Maps filesystem-loader class_type → URL-loader class_type
+_MEDIA_LOADER_TO_URL: dict[str, str] = {
+    "LoadImage": "LoadImageFromURL",
+    "LoadVideo": "LoadVideoFromURL",
+    "LoadAudio": "LoadAudioFromURL",
+}
+
+
+def _find_media_nodes(prompt: dict, class_types: frozenset) -> list[str]:
+    """Return node IDs of media-loading nodes matching *class_types*."""
     return [
         nid for nid, node in prompt.items()
-        if node.get("class_type", "") in _IMAGE_LOAD_CLASS_TYPES
+        if node.get("class_type", "") in class_types
     ]
 
 
-def replace_images(prompt: dict, images: list[str]) -> dict:
-    """Return a copy of *prompt* with image loading nodes replaced.
+def _replace_media(
+    prompt: dict,
+    values: list[str],
+    class_types: frozenset,
+) -> dict:
+    """Generic replacement for image / video / audio loading nodes.
 
-    - ``LoadImage`` nodes are converted to ``LoadImageFromURL`` with the URI.
-    - ``LoadImageFromURL`` and ``ImageRequestParameter`` nodes get their ``value`` updated.
-    - Images are assigned to nodes in order; extra images or nodes are ignored.
+    Filesystem loaders (``LoadImage``, ``LoadVideo``, ``LoadAudio``) are
+    converted to their ``*FromURL`` counterparts.  Nodes that already accept
+    a ``value`` input simply have it updated.
     """
-    node_ids = find_image_load_nodes(prompt)
-    if not node_ids or not images:
+    node_ids = _find_media_nodes(prompt, class_types)
+    if not node_ids or not values:
         return prompt
     prompt = copy.deepcopy(prompt)
     for i, nid in enumerate(node_ids):
-        if i >= len(images):
+        if i >= len(values):
             break
         node = prompt[nid]
         class_type = node["class_type"]
-        if class_type == "LoadImage":
-            # Convert to LoadImageFromURL
-            node["class_type"] = "LoadImageFromURL"
-            node["inputs"] = {"value": images[i]}
+        url_class = _MEDIA_LOADER_TO_URL.get(class_type)
+        if url_class is not None:
+            node["class_type"] = url_class
+            node["inputs"] = {"value": values[i]}
             node.pop("_meta", None)
         else:
-            # LoadImageFromURL or ImageRequestParameter — just set value
-            node["inputs"]["value"] = images[i]
+            node["inputs"]["value"] = values[i]
     return prompt
+
+
+# --image
+
+def find_image_load_nodes(prompt: dict) -> list[str]:
+    """Return node IDs of image loading nodes."""
+    return _find_media_nodes(prompt, _IMAGE_LOAD_CLASS_TYPES)
+
+
+def replace_images(prompt: dict, images: list[str]) -> dict:
+    """Return a copy of *prompt* with image loading nodes replaced."""
+    return _replace_media(prompt, images, _IMAGE_LOAD_CLASS_TYPES)
+
+
+# --video
+
+def find_video_load_nodes(prompt: dict) -> list[str]:
+    """Return node IDs of video loading nodes."""
+    return _find_media_nodes(prompt, _VIDEO_LOAD_CLASS_TYPES)
+
+
+def replace_videos(prompt: dict, videos: list[str]) -> dict:
+    """Return a copy of *prompt* with video loading nodes replaced."""
+    return _replace_media(prompt, videos, _VIDEO_LOAD_CLASS_TYPES)
+
+
+# --audio
+
+def find_audio_load_nodes(prompt: dict) -> list[str]:
+    """Return node IDs of audio loading nodes."""
+    return _find_media_nodes(prompt, _AUDIO_LOAD_CLASS_TYPES)
+
+
+def replace_audios(prompt: dict, audios: list[str]) -> dict:
+    """Return a copy of *prompt* with audio loading nodes replaced."""
+    return _replace_media(prompt, audios, _AUDIO_LOAD_CLASS_TYPES)

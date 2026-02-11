@@ -10,13 +10,22 @@ from comfy.component_model.prompt_utils import (
     replace_negative_prompt_text,
     find_steps_nodes,
     replace_steps,
+    find_seed_nodes,
+    replace_seed,
     find_image_load_nodes,
     replace_images,
+    find_video_load_nodes,
+    replace_videos,
+    find_audio_load_nodes,
+    replace_audios,
     _is_node_ref,
     _TEXT_ENCODE_FIELDS,
     _SAMPLER_CLASS_TYPES,
     _STEPS_CLASS_TYPES,
+    _SEED_FIELDS,
     _IMAGE_LOAD_CLASS_TYPES,
+    _VIDEO_LOAD_CLASS_TYPES,
+    _AUDIO_LOAD_CLASS_TYPES,
 )
 from tests.inference import workflows
 
@@ -373,6 +382,108 @@ class TestReplaceStepsSpecific:
 
 
 # ---------------------------------------------------------------------------
+# --seed: find and replace seed
+# ---------------------------------------------------------------------------
+
+class TestReplaceSeed:
+    @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
+    def test_replace_seed_in_all_workflows(self, workflow_name, workflow_file):
+        """replace_seed should work on every workflow that has seed-bearing nodes."""
+        prompt = _load_workflow(workflow_file)
+        pairs = find_seed_nodes(prompt)
+        if not pairs:
+            pytest.skip(f"{workflow_name} has no seed-bearing nodes")
+
+        result = replace_seed(prompt, 42)
+        for nid, field in pairs:
+            assert result[nid]["inputs"][field] == 42
+
+    @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
+    def test_replace_seed_does_not_mutate_original(self, workflow_name, workflow_file):
+        """replace_seed must not modify the original prompt dict."""
+        prompt = _load_workflow(workflow_file)
+        if not find_seed_nodes(prompt):
+            pytest.skip(f"{workflow_name} has no seed-bearing nodes")
+
+        original_json = json.dumps(prompt, sort_keys=True)
+        replace_seed(prompt, 99)
+        assert json.dumps(prompt, sort_keys=True) == original_json
+
+
+class TestReplaceSeedSpecific:
+    def test_ksampler_seed(self):
+        """KSampler seed should be replaced."""
+        prompt = {
+            "1": {
+                "inputs": {"seed": 12345, "steps": 20, "cfg": 7.0},
+                "class_type": "KSampler",
+            },
+        }
+        result = replace_seed(prompt, 99999)
+        assert result["1"]["inputs"]["seed"] == 99999
+
+    def test_random_noise_seed(self):
+        """RandomNoise noise_seed should be replaced."""
+        prompt = {
+            "1": {
+                "inputs": {"noise_seed": 1038979},
+                "class_type": "RandomNoise",
+            },
+        }
+        result = replace_seed(prompt, 42)
+        assert result["1"]["inputs"]["noise_seed"] == 42
+
+    def test_sampler_custom_seed(self):
+        """SamplerCustom noise_seed should be replaced."""
+        prompt = {
+            "1": {
+                "inputs": {"noise_seed": 555, "cfg": 8.0},
+                "class_type": "SamplerCustom",
+            },
+        }
+        result = replace_seed(prompt, 111)
+        assert result["1"]["inputs"]["noise_seed"] == 111
+
+    def test_transformers_generate_seed(self):
+        """TransformersGenerate seed should be replaced."""
+        prompt = {
+            "1": {
+                "inputs": {"seed": 2013744903, "max_tokens": 512},
+                "class_type": "TransformersGenerate",
+            },
+        }
+        result = replace_seed(prompt, 0)
+        assert result["1"]["inputs"]["seed"] == 0
+
+    def test_multiple_seed_nodes(self):
+        """All seed-bearing nodes should be updated."""
+        prompt = {
+            "1": {
+                "inputs": {"seed": 100, "steps": 20},
+                "class_type": "KSampler",
+            },
+            "2": {
+                "inputs": {"noise_seed": 200},
+                "class_type": "RandomNoise",
+            },
+        }
+        result = replace_seed(prompt, 777)
+        assert result["1"]["inputs"]["seed"] == 777
+        assert result["2"]["inputs"]["noise_seed"] == 777
+
+    def test_no_seed_nodes_returns_unchanged(self):
+        """When no seed-bearing nodes exist, return the original prompt."""
+        prompt = {
+            "1": {
+                "inputs": {"text": "hello", "clip": ["2", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+        }
+        result = replace_seed(prompt, 42)
+        assert result is prompt
+
+
+# ---------------------------------------------------------------------------
 # --image: find and replace images
 # ---------------------------------------------------------------------------
 
@@ -681,3 +792,173 @@ class TestReplaceNegativePromptTextSpecific:
         result = replace_negative_prompt_text(prompt, "replaced negative")
         assert result["3"]["inputs"]["text"] == "replaced negative"
         assert result["2"]["inputs"]["text"] == "positive"
+
+
+# ---------------------------------------------------------------------------
+# --video
+# ---------------------------------------------------------------------------
+
+class TestReplaceVideosSpecific:
+    """Unit tests for video loading node replacement."""
+
+    def test_load_video_converted_to_url(self):
+        prompt = {
+            "1": {
+                "inputs": {"file": "clip.mp4"},
+                "class_type": "LoadVideo",
+                "_meta": {"title": "Load Video"},
+            }
+        }
+        result = replace_videos(prompt, ["https://example.com/clip.mp4"])
+        assert result["1"]["class_type"] == "LoadVideoFromURL"
+        assert result["1"]["inputs"]["value"] == "https://example.com/clip.mp4"
+        assert "_meta" not in result["1"]
+
+    def test_load_video_from_url_value_updated(self):
+        prompt = {
+            "1": {
+                "inputs": {"value": "old.mp4"},
+                "class_type": "LoadVideoFromURL",
+            }
+        }
+        result = replace_videos(prompt, ["https://example.com/new.mp4"])
+        assert result["1"]["class_type"] == "LoadVideoFromURL"
+        assert result["1"]["inputs"]["value"] == "https://example.com/new.mp4"
+
+    def test_video_request_parameter_updated(self):
+        prompt = {
+            "1": {
+                "inputs": {"value": "old.mp4", "frame_load_cap": 100},
+                "class_type": "VideoRequestParameter",
+            }
+        }
+        result = replace_videos(prompt, ["https://example.com/new.mp4"])
+        assert result["1"]["inputs"]["value"] == "https://example.com/new.mp4"
+
+    def test_multiple_video_nodes(self):
+        prompt = {
+            "1": {"inputs": {"file": "a.mp4"}, "class_type": "LoadVideo"},
+            "2": {"inputs": {"value": "b.mp4"}, "class_type": "LoadVideoFromURL"},
+        }
+        result = replace_videos(prompt, ["url1.mp4", "url2.mp4"])
+        assert result["1"]["inputs"]["value"] == "url1.mp4"
+        assert result["2"]["inputs"]["value"] == "url2.mp4"
+
+    def test_more_videos_than_nodes(self):
+        prompt = {
+            "1": {"inputs": {"file": "a.mp4"}, "class_type": "LoadVideo"},
+        }
+        result = replace_videos(prompt, ["url1.mp4", "url2.mp4", "url3.mp4"])
+        assert result["1"]["inputs"]["value"] == "url1.mp4"
+
+    def test_no_video_nodes_unchanged(self):
+        prompt = {
+            "1": {"inputs": {"text": "hello"}, "class_type": "CLIPTextEncode"},
+        }
+        result = replace_videos(prompt, ["url1.mp4"])
+        assert result is prompt  # no copy when nothing to replace
+
+    def test_empty_videos_unchanged(self):
+        prompt = {
+            "1": {"inputs": {"file": "a.mp4"}, "class_type": "LoadVideo"},
+        }
+        result = replace_videos(prompt, [])
+        assert result is prompt
+
+    def test_does_not_mutate_original(self):
+        prompt = {
+            "1": {"inputs": {"file": "a.mp4"}, "class_type": "LoadVideo"},
+        }
+        result = replace_videos(prompt, ["url1.mp4"])
+        assert prompt["1"]["class_type"] == "LoadVideo"
+        assert result["1"]["class_type"] == "LoadVideoFromURL"
+
+
+# ---------------------------------------------------------------------------
+# --audio
+# ---------------------------------------------------------------------------
+
+class TestReplaceAudiosSpecific:
+    """Unit tests for audio loading node replacement."""
+
+    def test_load_audio_converted_to_url(self):
+        prompt = {
+            "1": {
+                "inputs": {"audio": "track.mp3"},
+                "class_type": "LoadAudio",
+                "_meta": {"title": "Load Audio"},
+            }
+        }
+        result = replace_audios(prompt, ["https://example.com/track.mp3"])
+        assert result["1"]["class_type"] == "LoadAudioFromURL"
+        assert result["1"]["inputs"]["value"] == "https://example.com/track.mp3"
+        assert "_meta" not in result["1"]
+
+    def test_load_audio_from_url_value_updated(self):
+        prompt = {
+            "1": {
+                "inputs": {"value": "old.wav"},
+                "class_type": "LoadAudioFromURL",
+            }
+        }
+        result = replace_audios(prompt, ["https://example.com/new.wav"])
+        assert result["1"]["inputs"]["value"] == "https://example.com/new.wav"
+
+    def test_audio_request_parameter_updated(self):
+        prompt = {
+            "1": {
+                "inputs": {"value": "old.wav"},
+                "class_type": "AudioRequestParameter",
+            }
+        }
+        result = replace_audios(prompt, ["https://example.com/new.wav"])
+        assert result["1"]["inputs"]["value"] == "https://example.com/new.wav"
+
+    def test_no_audio_nodes_unchanged(self):
+        prompt = {
+            "1": {"inputs": {"text": "hello"}, "class_type": "CLIPTextEncode"},
+        }
+        result = replace_audios(prompt, ["url.wav"])
+        assert result is prompt
+
+    def test_does_not_mutate_original(self):
+        prompt = {
+            "1": {"inputs": {"audio": "a.mp3"}, "class_type": "LoadAudio"},
+        }
+        result = replace_audios(prompt, ["url.mp3"])
+        assert prompt["1"]["class_type"] == "LoadAudio"
+        assert result["1"]["class_type"] == "LoadAudioFromURL"
+
+
+# ---------------------------------------------------------------------------
+# find_video_load_nodes / find_audio_load_nodes
+# ---------------------------------------------------------------------------
+
+class TestFindMediaNodes:
+    def test_find_video_nodes(self):
+        prompt = {
+            "1": {"inputs": {}, "class_type": "LoadVideo"},
+            "2": {"inputs": {}, "class_type": "LoadVideoFromURL"},
+            "3": {"inputs": {}, "class_type": "CLIPTextEncode"},
+        }
+        assert set(find_video_load_nodes(prompt)) == {"1", "2"}
+
+    def test_find_audio_nodes(self):
+        prompt = {
+            "1": {"inputs": {}, "class_type": "LoadAudio"},
+            "2": {"inputs": {}, "class_type": "AudioRequestParameter"},
+            "3": {"inputs": {}, "class_type": "LoadImage"},
+        }
+        assert set(find_audio_load_nodes(prompt)) == {"1", "2"}
+
+    def test_find_no_video_nodes(self):
+        prompt = {
+            "1": {"inputs": {}, "class_type": "LoadImage"},
+        }
+        assert find_video_load_nodes(prompt) == []
+
+    def test_find_no_audio_nodes(self):
+        prompt = {
+            "1": {"inputs": {}, "class_type": "LoadImage"},
+        }
+        assert find_audio_load_nodes(prompt) == []

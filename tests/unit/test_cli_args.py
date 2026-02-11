@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 from comfy import cli_args
-from comfy.cli_args_types import LatentPreviewMethod
+from comfy.cli_args_types import LatentPreviewMethod, PerformanceFeature
 
 # Helper function to parse args and return the Configuration object
 def _parse_test_args(args_list):
@@ -124,3 +124,142 @@ def test_disable_xformers():
     """Test the --disable-xformers flag."""
     config = _parse_test_args(['--disable-xformers'])
     assert config.disable_xformers is True
+
+
+# ---------------------------------------------------------------------------
+# --fast: comma-separated, space-separated, and mixed
+# ---------------------------------------------------------------------------
+
+class TestFastArg:
+    def test_not_provided(self):
+        config = _parse_test_args([])
+        assert config.fast == set()
+
+    def test_no_values(self):
+        """--fast with no values should produce an empty list."""
+        config = _parse_test_args(['--fast'])
+        assert list(config.fast) == []
+
+    def test_single_value(self):
+        config = _parse_test_args(['--fast', 'fp16_accumulation'])
+        assert PerformanceFeature.Fp16Accumulation in config.fast
+
+    def test_space_separated(self):
+        config = _parse_test_args(['--fast', 'fp16_accumulation', 'fp8_matrix_mult'])
+        assert PerformanceFeature.Fp16Accumulation in config.fast
+        assert PerformanceFeature.Fp8MatrixMultiplication in config.fast
+        assert len(config.fast) == 2
+
+    def test_comma_separated(self):
+        config = _parse_test_args(['--fast', 'fp16_accumulation,fp8_matrix_mult'])
+        assert PerformanceFeature.Fp16Accumulation in config.fast
+        assert PerformanceFeature.Fp8MatrixMultiplication in config.fast
+        assert len(config.fast) == 2
+
+    def test_comma_separated_with_spaces(self):
+        config = _parse_test_args(['--fast', 'fp16_accumulation , fp8_matrix_mult'])
+        assert PerformanceFeature.Fp16Accumulation in config.fast
+        assert PerformanceFeature.Fp8MatrixMultiplication in config.fast
+
+    def test_mixed_comma_and_space(self):
+        config = _parse_test_args(['--fast', 'fp16_accumulation,fp8_matrix_mult', 'cublas_ops'])
+        assert PerformanceFeature.Fp16Accumulation in config.fast
+        assert PerformanceFeature.Fp8MatrixMultiplication in config.fast
+        assert PerformanceFeature.CublasOps in config.fast
+        assert len(config.fast) == 3
+
+    def test_all_features_comma(self):
+        all_values = ','.join(f.value for f in PerformanceFeature)
+        config = _parse_test_args(['--fast', all_values])
+        for feature in PerformanceFeature:
+            assert feature in config.fast
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(SystemExit):
+            _parse_test_args(['--fast', 'not_a_real_feature'])
+
+    def test_invalid_in_comma_list_raises(self):
+        with pytest.raises(SystemExit):
+            _parse_test_args(['--fast', 'fp16_accumulation,bogus'])
+
+
+# ---------------------------------------------------------------------------
+# --image: comma-separated, space-separated, and mixed
+# ---------------------------------------------------------------------------
+
+class TestImageArg:
+    def test_not_provided(self):
+        config = _parse_test_args([])
+        assert config.image is None
+
+    def test_single_value(self):
+        config = _parse_test_args(['--image', 'photo.png'])
+        assert config.image == ['photo.png']
+
+    def test_space_separated(self):
+        config = _parse_test_args(['--image', 'a.png', 'b.png'])
+        assert config.image == ['a.png', 'b.png']
+
+    def test_comma_separated(self):
+        config = _parse_test_args(['--image', 'a.png,b.png'])
+        assert config.image == ['a.png', 'b.png']
+
+    def test_comma_separated_with_spaces(self):
+        config = _parse_test_args(['--image', ' a.png , b.png '])
+        assert config.image == ['a.png', 'b.png']
+
+    def test_mixed_comma_and_space(self):
+        config = _parse_test_args(['--image', 'a.png,b.png', 'c.png'])
+        assert config.image == ['a.png', 'b.png', 'c.png']
+
+    def test_uri_values(self):
+        config = _parse_test_args(['--image', 'https://example.com/img.png,s3://bucket/img.png'])
+        assert config.image == ['https://example.com/img.png', 's3://bucket/img.png']
+
+
+# ---------------------------------------------------------------------------
+# --workflows: verify comma + space still works (backward compat)
+# ---------------------------------------------------------------------------
+
+class TestWorkflowsArg:
+    def test_not_provided(self):
+        config = _parse_test_args([])
+        assert config.workflows == []
+
+    def test_space_separated(self):
+        config = _parse_test_args(['--workflows', 'a.json', 'b.json'])
+        assert config.workflows == ['a.json', 'b.json']
+
+    def test_comma_separated(self):
+        config = _parse_test_args(['--workflows', 'a.json,b.json'])
+        assert config.workflows == ['a.json', 'b.json']
+
+    def test_mixed(self):
+        config = _parse_test_args(['--workflows', 'a.json,b.json', 'c.json'])
+        assert config.workflows == ['a.json', 'b.json', 'c.json']
+
+    def test_repeated(self):
+        config = _parse_test_args(['--workflows', 'a.json', '--workflows', 'b.json'])
+        assert config.workflows == ['a.json', 'b.json']
+
+
+# ---------------------------------------------------------------------------
+# --blacklist-custom-nodes / --whitelist-custom-nodes: backward compat
+# ---------------------------------------------------------------------------
+
+class TestCustomNodeListArgs:
+    def test_blacklist_comma(self):
+        config = _parse_test_args(['--blacklist-custom-nodes', 'foo,bar'])
+        assert config.blacklist_custom_nodes == ['foo', 'bar']
+
+    def test_blacklist_space(self):
+        config = _parse_test_args(['--blacklist-custom-nodes', 'foo', 'bar'])
+        assert config.blacklist_custom_nodes == ['foo', 'bar']
+
+    def test_whitelist_comma(self):
+        config = _parse_test_args(['--whitelist-custom-nodes', 'foo,bar'])
+        assert config.whitelist_custom_nodes == ['foo', 'bar']
+
+    def test_whitelist_repeated(self):
+        config = _parse_test_args(['--whitelist-custom-nodes', 'a', '--whitelist-custom-nodes', 'b,c'])
+        assert config.whitelist_custom_nodes == ['a', 'b', 'c']

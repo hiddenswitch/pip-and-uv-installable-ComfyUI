@@ -1031,4 +1031,92 @@ class LoadVideoFromURL(VideoRequestParameter):
         return super().execute(value, default_if_empty, frame_load_cap, skip_first_frames, select_every_nth, *args, **kwargs)
 
 
+class AudioRequestParameter(CustomNode):
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypes:
+        return {
+            "required": {
+                "value": ("STRING", {"default": ""})
+            },
+            "optional": {
+                **_open_api_common_schema,
+                "default_if_empty": ("AUDIO",),
+            }
+        }
+
+    RETURN_TYPES = ("AUDIO",)
+    FUNCTION = "execute"
+    CATEGORY = "api/openapi"
+
+    def execute(self, value: str = "", default_if_empty=None, *args, **kwargs):
+        if value.strip() == "":
+            return (default_if_empty,)
+
+        fsspec_kwargs = {}
+        if value.startswith('http'):
+            fsspec_kwargs.update({
+                "headers": {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                                  'Chrome/113.0.5672.64 Safari/537.36'
+                },
+                'get_client': get_client
+            })
+
+        with fsspec.open_files(value, mode="rb", **fsspec_kwargs) as files:
+            for f in files:
+                container = av.open(f)
+                if not container.streams.audio:
+                    container.close()
+                    continue
+
+                stream = container.streams.audio[0]
+                sr = stream.codec_context.sample_rate
+                n_channels = stream.channels
+
+                frames = []
+                for frame in container.decode(streams=stream.index):
+                    buf = torch.from_numpy(frame.to_ndarray())
+                    if buf.shape[0] != n_channels:
+                        buf = buf.view(-1, n_channels).t()
+                    frames.append(buf)
+
+                container.close()
+
+                if not frames:
+                    continue
+
+                wav = torch.cat(frames, dim=1)
+                if wav.dtype.is_floating_point:
+                    pass
+                elif wav.dtype == torch.int16:
+                    wav = wav.float() / (2 ** 15)
+                elif wav.dtype == torch.int32:
+                    wav = wav.float() / (2 ** 31)
+
+                audio = {"waveform": wav.unsqueeze(0), "sample_rate": sr}
+                return (audio,)
+
+        if default_if_empty is not None:
+            return (default_if_empty,)
+
+        return ({"waveform": torch.zeros((1, 1, 0)), "sample_rate": 44100},)
+
+
+class LoadAudioFromURL(AudioRequestParameter):
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypes:
+        return {
+            "required": {
+                "value": ("STRING", {"default": ""})
+            },
+            "optional": {
+                "default_if_empty": ("AUDIO",),
+            }
+        }
+
+    def execute(self, value: str = "", default_if_empty=None, *args, **kwargs):
+        return super().execute(value, default_if_empty, *args, **kwargs)
+
+
 export_custom_nodes()

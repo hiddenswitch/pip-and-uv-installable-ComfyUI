@@ -28,8 +28,12 @@ async def main():
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
-    """Apply CLI overrides (--prompt, --negative-prompt, --steps, --image) to a workflow dict."""
-    from ..component_model.prompt_utils import replace_prompt_text, replace_negative_prompt_text, replace_steps, replace_images
+    """Apply CLI overrides to a workflow dict."""
+    from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
+        replace_prompt_text, replace_negative_prompt_text,
+        replace_steps, replace_seed,
+        replace_images, replace_videos, replace_audios,
+    )
 
     if configuration.prompt is not None:
         obj = replace_prompt_text(obj, configuration.prompt)
@@ -37,8 +41,14 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         obj = replace_negative_prompt_text(obj, configuration.negative_prompt)
     if configuration.steps is not None:
         obj = replace_steps(obj, configuration.steps)
+    if configuration.seed is not None:
+        obj = replace_seed(obj, configuration.seed)
     if configuration.image is not None:
         obj = replace_images(obj, configuration.image)
+    if configuration.video is not None:
+        obj = replace_videos(obj, configuration.video)
+    if configuration.audio is not None:
+        obj = replace_audios(obj, configuration.audio)
     return obj
 
 

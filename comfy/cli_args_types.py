@@ -122,7 +122,7 @@ class Configuration(dict):
         lowvram (bool): Reduce UNet's VRAM usage.
         novram (bool): Minimize VRAM usage.
         cpu (bool): Use CPU for processing.
-        fast (set[PerformanceFeature]): Enable some untested and potentially quality deteriorating optimizations. Pass a list specific optimizations if you only want to enable specific ones. Current valid optimizations: fp16_accumulation fp8_matrix_mult cublas_ops
+        fast (set[PerformanceFeature]): Enable some untested and potentially quality deteriorating optimizations. Pass specific optimizations if you only want to enable some (e.g. --fast fp16_accumulation fp8_matrix_mult or --fast fp16_accumulation,fp8_matrix_mult). Valid optimizations: fp16_accumulation, fp8_matrix_mult, cublas_ops, autotune, dynamic_vram
         reserve_vram (Optional[float]): Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS
         disable_smart_memory (bool): Disable smart memory management.
         deterministic (bool): Use deterministic algorithms where possible.
@@ -165,8 +165,12 @@ class Configuration(dict):
         prompt (Optional[str]): Override the positive prompt text in workflows executed via --workflows.
         negative_prompt (Optional[str]): Override the negative prompt text in workflows executed via --workflows.
         steps (Optional[int]): Override the number of sampling steps in workflows run via --workflows.
-        image (Optional[list[str]]): Override image inputs in workflows run via --workflows.
+        seed (Optional[int]): Override the seed in sampler and noise nodes in workflows run via --workflows.
+        image (Optional[list[str]]): Override image inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
+        video (Optional[list[str]]): Override video inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
+        audio (Optional[list[str]]): Override audio inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
         output (Optional[str]): Override the output directory for workflows run via --workflows.
+        guess_settings (bool): Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Explicit flags override guessed values.
         disable_pinned_memory (bool): Disable pinned memory use.
         fp8_e8m0fnu_unet (bool): Store unet weights in fp8_e8m0fnu.
         bf16_text_enc (bool): Store text encoder weights in bf16.
@@ -298,8 +302,12 @@ class Configuration(dict):
         self.prompt: Optional[str] = None
         self.negative_prompt: Optional[str] = None
         self.steps: Optional[int] = None
+        self.seed: Optional[int] = None
         self.image: Optional[list[str]] = None
+        self.video: Optional[list[str]] = None
+        self.audio: Optional[list[str]] = None
         self.output: Optional[str] = None
+        self.guess_settings: bool = False
         self.enable_manager: bool = False
         self.disable_manager_ui: bool = False
         self.enable_manager_legacy_ui: bool = False
@@ -460,20 +468,38 @@ class FlattenAndAppendAction(argparse.Action):
     """
     Custom action to handle comma-separated values and multiple invocations
     of the same argument, flattening them into a single list.
+
+    Type conversion (if specified via ``type=``) is applied *after* comma
+    splitting so that ``--fast fp16_accumulation,fp8_matrix_mult`` works
+    correctly with enum or other non-string types.
     """
+
+    def __init__(self, **kwargs):
+        self._item_type = kwargs.pop("type", None)
+        super().__init__(**kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         items = getattr(namespace, self.dest, None)
         if items is None:
             items = []
         else:
-            # Make a copy if it's not the first time, to avoid modifying the default.
-            items = items[:]
+            items = list(items)
 
-        # 'values' will be a list of strings because of nargs='+'
+        if values is None:
+            values = []
+        elif isinstance(values, str):
+            values = [values]
+
         for value in values:
-            # Split comma-separated strings and add them to the list
-            items.extend(item.strip() for item in value.split(','))
+            for item in (v.strip() for v in str(value).split(',')):
+                if not item:
+                    continue
+                if self._item_type is not None:
+                    try:
+                        items.append(self._item_type(item))
+                    except (ValueError, KeyError) as exc:
+                        raise argparse.ArgumentError(self, str(exc)) from exc
+                else:
+                    items.append(item)
 
-        # Set the flattened list back to the namespace.
         setattr(namespace, self.dest, items)

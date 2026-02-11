@@ -62,6 +62,10 @@ logging.getLogger("jax").setLevel(logging.WARNING)
 
 from ..cli_args import args
 
+if args.guess_settings:
+    from ..component_model.guess_settings import apply_guess_settings
+    apply_guess_settings(args)
+
 if args.default_device is not None:
     default_dev = args.default_device
     devices = list(range(32))
