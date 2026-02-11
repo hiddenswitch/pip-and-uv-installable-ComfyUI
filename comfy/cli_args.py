@@ -356,7 +356,11 @@ def default_configuration() -> Configuration:
 
 
 def cli_args_configuration() -> Configuration:
-    return _parse_args(args_parsing=True)
+    config = _parse_args(args_parsing=True)
+    if config.guess_settings:
+        from .component_model.guess_settings import apply_guess_settings
+        apply_guess_settings(config)
+    return config
 
 
 @_module_properties.getter

@@ -324,3 +324,16 @@ class TestGuessSettingsCliArg:
         from tests.unit.test_cli_args import _parse_test_args
         cfg = _parse_test_args(["--guess-settings"])
         assert cfg.guess_settings is True
+
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=True)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=64.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=False)
+    def test_cli_args_configuration_applies_guess_settings(self, *_mocks):
+        """cli_args_configuration() must apply guess_settings so that
+        callers like _start_comfyui don't get a bare Configuration."""
+        from comfy.cli_args import cli_args_configuration
+        with patch("sys.argv", ["comfyui", "--guess-settings"]):
+            cfg = cli_args_configuration()
+        assert PerformanceFeature.CublasOps in cfg.fast
