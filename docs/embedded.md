@@ -329,7 +329,7 @@ comfyui post-workflow my_workflow.json --prompt "a cat on the moon" --steps 20 -
 Combine with performance flags:
 
 ```bash
-comfyui post-workflow my_workflow.json --novram --fast cublas_ops
+comfyui post-workflow my_workflow.json --guess-settings
 ```
 
 Run `comfyui post-workflow --help` for the full list of options.
@@ -432,7 +432,7 @@ Or via CLI:
 uv run --no-sync comfyui --novram
 ```
 
-Without `--novram`, ComfyUI uses smart memory management to keep recently-used models in VRAM for faster subsequent runs. This is better for interactive use but can cause OOM errors with large models on limited hardware.
+Without `--novram`, ComfyUI will sometimes OOM because you are using your computer interactively and it has less VRAM than it expected during inference. `--novram` reduces peak VRAM usage, making it less likely to OOM due to interactive use. `--guess-settings` will choose `--novram` when you have other applications using your GPU.
 
 ## Automated Testing
 

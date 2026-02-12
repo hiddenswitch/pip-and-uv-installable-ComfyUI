@@ -28,7 +28,7 @@ This LTS fork adds development, embedding, automated testing, LLM and distribute
 Install `uv`, then:
 
 ```shell
-uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui post-workflow https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json --prompt "a girl with red hair" --steps 9
+uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui post-workflow https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json --guess-settings --prompt "a girl with red hair" --steps 9
 ```
 
 ## Quickstart (Linux)
@@ -58,8 +58,8 @@ For users who want to run ComfyUI for generating images and videos.
     # Omit --torch-backend if you want to keep your currently installed PyTorch.
     uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
     
-    # Run
-    uv run --no-sync comfyui
+    # Run (--guess-settings auto-detects GPU type, VRAM mode, attention backend)
+    uv run --no-sync comfyui --guess-settings
     ```
 
 ### Developers
@@ -84,7 +84,7 @@ For developers contributing to the codebase or building on top of it.
 
 3.  **Run**:
     ```bash
-    uv run --no-sync comfyui
+    uv run --no-sync comfyui --guess-settings
     ```
 
 ### Using ComfyUI as a Library

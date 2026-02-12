@@ -36,6 +36,55 @@ When no subcommand is given, `serve` is used by default (e.g. `comfyui --novram`
 
 Run `comfyui serve --help` for the full list. All options can also be set via environment variables (prefixed with `COMFYUI_`).
 
+### `Configuration` Object
+
+All CLI options correspond to attributes on `comfy.cli_args_types.Configuration`. Use `default_configuration()` to create one programmatically:
+
+```python
+from comfy.cli_args import default_configuration
+from comfy.cli_args_types import Configuration, PerformanceFeature
+
+config: Configuration = default_configuration()
+config.novram = True
+config.fast = {PerformanceFeature.CublasOps}
+config.guess_settings = True
+```
+
+`Configuration` is a `dict` subclass with attribute access and observer support — set attributes directly or call `config.update({...})`. See [Embedded / Library Usage](embedded.md) for usage with `Comfy()`.
+
+### Auto-Detection (--guess-settings)
+
+`--guess-settings` auto-detects the best settings for the current machine. It only touches settings still at their defaults — explicit flags always override guessed values.
+
+```bash
+comfyui serve --guess-settings
+comfyui post-workflow my_workflow.json --guess-settings
+```
+
+What it detects:
+
+| Condition | Action |
+|-----------|--------|
+| NVIDIA GPU present | Enables `--fast cublas_ops` |
+| NVIDIA GPU with competing processes (e.g. Discord, games) | Enables `--novram` to avoid VRAM contention |
+| AMD RDNA 4 GPU (gfx12xx) | Enables `--fp16-vae` |
+| AMD GPU (older than RDNA 4) | Enables `--fp32-vae` |
+| AMD GPU on Windows | Enables `--use-quad-cross-attention` |
+| `sageattention` package installed | Enables `--use-sage-attention` |
+| `xformers` package installed (no sageattention) | Keeps xformers enabled |
+| No attention packages | Falls back to `--use-pytorch-cross-attention` |
+| Less than 32 GB RAM | Enables `--disable-pinned-memory` |
+
+For programmatic use:
+
+```python
+from comfy.cli_args import default_configuration
+from comfy.component_model.guess_settings import apply_guess_settings
+
+config = default_configuration()
+apply_guess_settings(config)
+```
+
 ### Performance Optimizations (--fast)
 
 The `--fast` option accepts space-separated feature names (not comma-separated):
