@@ -9,14 +9,12 @@ Use `ProcessPoolExecutor` to run each workflow in a subprocess. This ensures VRA
 ```python
 from comfy.client.embedded_comfy_client import Comfy
 from comfy.cli_args import default_configuration
-from comfy.cli_args_types import PerformanceFeature
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
 
+# auto-detect GPU type, VRAM mode, and attention backend
 config = default_configuration()
+config.guess_settings = True
 config.disable_all_custom_nodes = True
-config.novram = True
-config.use_sage_attention = True
-config.fast = {PerformanceFeature.CublasOps}
 
 with ProcessPoolExecutor(max_workers=1) as executor:
     async with Comfy(configuration=config, executor=executor) as client:

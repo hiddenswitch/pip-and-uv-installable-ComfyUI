@@ -75,14 +75,13 @@ What it detects:
 | No attention packages | Falls back to `--use-pytorch-cross-attention` |
 | Less than 32 GB RAM | Enables `--disable-pinned-memory` |
 
-For programmatic use:
+For programmatic use, set `config.guess_settings = True` — detection runs automatically when `Comfy` starts:
 
 ```python
 from comfy.cli_args import default_configuration
-from comfy.component_model.guess_settings import apply_guess_settings
 
 config = default_configuration()
-apply_guess_settings(config)
+config.guess_settings = True
 ```
 
 ### Performance Optimizations (--fast)

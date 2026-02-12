@@ -110,6 +110,7 @@ dependencies = [
     "pydantic~=2.0",
     "pydantic-settings~=2.0",
     "typer",
+    "questionary",
     "ijson",
     "scikit-learn>=1.4.1",
     # everything that is a torch extension will need setuptools, so just include it

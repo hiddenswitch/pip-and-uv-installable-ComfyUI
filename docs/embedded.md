@@ -18,6 +18,7 @@ Save a workflow from the ComfyUI web UI as a JSON file. You can use either the s
 
 ```python
 from comfy.client.embedded_comfy_client import Comfy
+from comfy.cli_args import default_configuration
 import copy
 
 WORKFLOW = {
@@ -68,7 +69,11 @@ async def run_example():
     prompt["4"]["inputs"]["text"] = "masterpiece best quality man"
     prompt["5"]["inputs"]["seed"] = 5
 
-    async with Comfy() as client:
+    # auto-detect GPU type, VRAM mode, and attention backend
+    config = default_configuration()
+    config.guess_settings = True
+
+    async with Comfy(configuration=config) as client:
         outputs = await client.queue_prompt(prompt)
 
         save_image_node_id = next(
