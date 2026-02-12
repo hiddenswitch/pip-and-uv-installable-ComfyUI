@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import warnings
 from typing import Optional, Literal
 
@@ -8,6 +9,7 @@ import typer
 
 from ..cli_args_types import Configuration
 from ..component_model.asyncio_files import stream_json_objects
+from ..component_model.uris import is_uri
 from ..client.embedded_comfy_client import Comfy
 
 logger = logging.getLogger(__name__)
@@ -38,12 +40,27 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     return obj
 
 
+def _resolve_workflow(workflow: str) -> str:
+    """Resolve a workflow argument to a path/URI/literal that stream_json_objects understands.
+
+    If the string looks like a file path, URI, stdin marker, or literal JSON, return
+    it as-is.  Otherwise try to resolve it as a template name or ID.
+    """
+    if workflow == "-" or workflow.lstrip().startswith("{") or is_uri(workflow):
+        return workflow
+    if os.sep in workflow or workflow.endswith(".json"):
+        return workflow
+    from ..cmd.workflow_templates import resolve_template
+    return resolve_template(workflow)
+
+
 async def run_workflows(workflows: list[str | Literal["-"]], configuration: Optional[Configuration] = None):
     if configuration is None:
         from ..cli_args import args
         configuration = args
+    resolved = [_resolve_workflow(w) for w in workflows]
     async with Comfy(configuration=configuration) as comfy:
-        for workflow in workflows:
+        for workflow in resolved:
             obj: dict
             async for obj in stream_json_objects(workflow):
                 obj = _apply_overrides(obj, configuration)

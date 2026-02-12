@@ -1,10 +1,3 @@
-"""
-List available workflow templates.
-
-Reuses template enumeration from:
-  - ``comfy.app.frontend_management.FrontendManager`` (installed package templates)
-  - ``comfy.app.custom_node_manager`` (custom node example workflows)
-"""
 from __future__ import annotations
 
 import glob
@@ -14,7 +7,13 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from comfyui_workflow_templates import get_asset_path, iter_templates
+from rich.console import Console
+from rich.table import Table
+
 logger = logging.getLogger(__name__)
+
+_INDEX_PREFIXES = ("index", "fuse_options")
 
 
 @dataclass
@@ -28,23 +27,35 @@ class TemplateInfo:
     media_type: Optional[str] = None
 
 
+def _load_index_metadata() -> dict[str, dict]:
+    path = get_asset_path("index", "index.json")
+    with open(path) as f:
+        categories = json.load(f)
+    return {
+        t["name"]: t
+        for cat in categories
+        for t in cat.get("templates", [])
+    }
+
+
 def _templates_from_package() -> list[TemplateInfo]:
+    index = _load_index_metadata()
     templates = []
-    try:
-        from comfyui_workflow_templates import iter_templates
-        for entry in iter_templates():
-            templates.append(TemplateInfo(
-                name=getattr(entry, "title", None) or getattr(entry, "name", str(entry.template_id)),
-                source="package",
-                template_id=str(entry.template_id),
-                description=getattr(entry, "description", None),
-                tags=list(getattr(entry, "tags", [])),
-                media_type=getattr(entry, "media_type", None) or getattr(entry, "mediaType", None),
-            ))
-    except ImportError:
-        logger.debug("comfyui_workflow_templates not installed")
-    except Exception as exc:
-        logger.warning("Failed to enumerate package templates: %s", exc)
+    for entry in iter_templates():
+        tid = str(entry.template_id)
+        if tid.startswith(_INDEX_PREFIXES):
+            continue
+        meta = index.get(tid, {})
+        path = get_asset_path(tid, f"{tid}.json")
+        templates.append(TemplateInfo(
+            name=meta.get("title") or tid,
+            source="package",
+            path=path,
+            template_id=tid,
+            description=meta.get("description"),
+            tags=meta.get("tags", []),
+            media_type=meta.get("mediaType"),
+        ))
     return templates
 
 
@@ -75,39 +86,76 @@ def _templates_from_dirs(dirs: list[str]) -> list[TemplateInfo]:
     return templates
 
 
-def list_templates(format: str = "table", extra_dirs: list[str] = None, convert: bool = False):
+def get_all_templates(extra_dirs: list[str] = None) -> list[TemplateInfo]:
     extra_dirs = extra_dirs or []
-
     all_templates = []
     all_templates.extend(_templates_from_package())
     all_templates.extend(_templates_from_custom_nodes())
     all_templates.extend(_templates_from_dirs(extra_dirs))
+    return all_templates
+
+
+def resolve_template(name_or_id: str, extra_dirs: list[str] = None) -> str:
+    """Resolve a template name or ID to a workflow JSON file path.
+
+    Raises ``ValueError`` if no match is found.
+    """
+    templates = get_all_templates(extra_dirs)
+
+    for t in templates:
+        if t.template_id == name_or_id:
+            return t.path
+
+    lower = name_or_id.lower()
+    for t in templates:
+        if t.name.lower() == lower:
+            return t.path
+
+    matches = [t for t in templates if lower in t.name.lower() or (t.template_id and lower in t.template_id.lower())]
+    if len(matches) == 1:
+        return matches[0].path
+    if len(matches) > 1:
+        names = ", ".join(m.template_id or m.name for m in matches[:5])
+        raise ValueError(f"Ambiguous template '{name_or_id}', matches: {names}")
+    raise ValueError(f"No template found matching '{name_or_id}'")
+
+
+def list_templates(format: str = "table", extra_dirs: list[str] = None, convert: bool = False):
+    all_templates = get_all_templates(extra_dirs)
 
     if convert:
         from ..component_model.workflow_convert import convert_ui_to_api
         for tmpl in all_templates:
             if tmpl.path and os.path.exists(tmpl.path):
-                try:
-                    with open(tmpl.path) as f:
-                        workflow = json.load(f)
-                    if "nodes" in workflow:
-                        convert_ui_to_api(workflow)
-                        tmpl.description = (tmpl.description or "") + " [converted to API format]"
-                except Exception as exc:
-                    logger.warning("Failed to convert %s: %s", tmpl.name, exc)
+                with open(tmpl.path) as f:
+                    workflow = json.load(f)
+                if "nodes" in workflow:
+                    convert_ui_to_api(workflow)
+                    tmpl.description = (tmpl.description or "") + " [converted to API format]"
 
     if format == "json":
         print(json.dumps([asdict(t) for t in all_templates], indent=2))
     else:
-        if not all_templates:
-            print("No workflow templates found.")
-            return
-        name_width = max(max(len(t.name) for t in all_templates), 4)
-        source_width = max(max(len(t.source) for t in all_templates), 6)
-        print(f"{'Name':<{name_width}}  {'Source':<{source_width}}  Description")
-        print(f"{'-' * name_width}  {'-' * source_width}  {'-' * 40}")
-        for t in all_templates:
-            desc = t.description or ""
-            if len(desc) > 60:
-                desc = desc[:57] + "..."
-            print(f"{t.name:<{name_width}}  {t.source:<{source_width}}  {desc}")
+        _print_table(all_templates)
+
+
+def _print_table(templates: list[TemplateInfo]):
+    if not templates:
+        print("No workflow templates found.")
+        return
+
+    table = Table(show_edge=False, pad_edge=False, box=None)
+    table.add_column("ID", no_wrap=True)
+    table.add_column("Name", no_wrap=True)
+    table.add_column("Type", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Description", no_wrap=True, overflow="ellipsis")
+    for t in templates:
+        table.add_row(
+            t.template_id or "",
+            t.name,
+            t.media_type or "",
+            t.source,
+            t.description or "",
+        )
+    Console().print(table)
