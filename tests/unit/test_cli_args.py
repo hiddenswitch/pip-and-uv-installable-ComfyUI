@@ -5,10 +5,6 @@ from comfy.cmd.cli import _build_config, app, _validate_mutex
 import typer
 
 
-# ---------------------------------------------------------------------------
-# Helper: build config from a dict of CLI-like params
-# ---------------------------------------------------------------------------
-
 def _parse_test_args(args_list: list[str]) -> Configuration:
     # Parse the args list into a dict
     params = _defaults_dict()
@@ -89,10 +85,6 @@ def _config_from(**kwargs) -> Configuration:
     return _build_config(params)
 
 
-# ---------------------------------------------------------------------------
-# Default values
-# ---------------------------------------------------------------------------
-
 def test_default_values():
     config = _config_from()
     assert config.listen == "127.0.0.1"
@@ -110,10 +102,6 @@ def test_default_values():
     assert config.novram is False
     assert config.cpu is False
 
-
-# ---------------------------------------------------------------------------
-# Basic option parsing
-# ---------------------------------------------------------------------------
 
 def test_listen_and_port():
     config = _config_from(listen="0.0.0.0", port=8000)
@@ -151,10 +139,6 @@ def test_force_fp16_enables_fp16_unet():
     assert config.fp16_unet is True
 
 
-# ---------------------------------------------------------------------------
-# VRAM modes (mutually exclusive)
-# ---------------------------------------------------------------------------
-
 @pytest.mark.parametrize("vram_arg, expected_true_field", [
     ("gpu_only", "gpu_only"),
     ("highvram", "highvram"),
@@ -178,10 +162,6 @@ def test_vram_mutex_violation():
         _config_from(gpu_only=True, highvram=True)
 
 
-# ---------------------------------------------------------------------------
-# Preview method
-# ---------------------------------------------------------------------------
-
 def test_preview_method():
     config = _config_from(preview_method="taesd")
     assert config.preview_method == LatentPreviewMethod.TAESD
@@ -193,18 +173,10 @@ def test_preview_method_case_insensitive():
     assert config.preview_method == LatentPreviewMethod.NoPreviews
 
 
-# ---------------------------------------------------------------------------
-# Logging level
-# ---------------------------------------------------------------------------
-
 def test_logging_level():
     config = _config_from(logging_level="DEBUG")
     assert config.logging_level == "DEBUG"
 
-
-# ---------------------------------------------------------------------------
-# Multi-user / xformers
-# ---------------------------------------------------------------------------
 
 def test_multi_user():
     config = _config_from(multi_user=True)
@@ -215,10 +187,6 @@ def test_disable_xformers():
     config = _config_from(disable_xformers=True)
     assert config.disable_xformers is True
 
-
-# ---------------------------------------------------------------------------
-# --fast: comma-separated, multiple values
-# ---------------------------------------------------------------------------
 
 class TestFastArg:
     def test_not_provided(self):
@@ -264,10 +232,6 @@ class TestFastArg:
             _config_from(fast=["not_a_real_feature"])
 
 
-# ---------------------------------------------------------------------------
-# List fields: comma-separated splitting
-# ---------------------------------------------------------------------------
-
 class TestListFields:
     def test_extra_model_paths_comma(self):
         config = _config_from(extra_model_paths_config=["a,b"])
@@ -306,10 +270,6 @@ class TestListFields:
         assert config.image == ["https://example.com/img.png", "s3://bucket/img.png"]
 
 
-# ---------------------------------------------------------------------------
-# Mutex group validation
-# ---------------------------------------------------------------------------
-
 class TestMutexValidation:
     def test_precision_mutex(self):
         with pytest.raises(typer.BadParameter):
@@ -323,10 +283,6 @@ class TestMutexValidation:
         with pytest.raises(typer.BadParameter):
             _config_from(force_upcast_attention=True, dont_upcast_attention=True)
 
-
-# ---------------------------------------------------------------------------
-# Backward compatibility: cli_args module
-# ---------------------------------------------------------------------------
 
 def test_cli_args_default_configuration():
     from comfy.cli_args import default_configuration

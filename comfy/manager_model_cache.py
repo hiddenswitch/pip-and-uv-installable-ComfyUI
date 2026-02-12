@@ -14,8 +14,9 @@ import functools
 import importlib.resources as resources
 import json
 import logging
-import re
 from typing import Optional, Dict, FrozenSet, Tuple
+
+from can_ada import can_parse, parse as urlparse
 
 import requests
 
@@ -52,17 +53,28 @@ class ManagerModelEntry:
 
 def parse_huggingface_url(url: str, filename: str) -> Optional[HuggingFile]:
     """Convert HuggingFace HTTPS URL to HuggingFile."""
-    match = re.match(r'https://huggingface\.co/([^/]+/[^/]+)/resolve/([^/]+)/(.+)', url)
-    if match:
-        repo_id, revision, filepath = match.groups()
-        return HuggingFile(
-            repo_id=repo_id,
-            filename=filepath,
-            save_with_filename=filename,
-            revision=revision if revision != "main" else None,
-            show_in_ui=False
-        )
-    return None
+    if not can_parse(url):
+        return None
+    parsed = urlparse(url)
+    if parsed.hostname != "huggingface.co":
+        return None
+    parts = [p for p in parsed.pathname.split("/") if p]
+    try:
+        resolve_idx = parts.index("resolve")
+    except ValueError:
+        return None
+    if resolve_idx < 1 or resolve_idx + 2 > len(parts):
+        return None
+    repo_id = "/".join(parts[:resolve_idx])
+    revision = parts[resolve_idx + 1]
+    filepath = "/".join(parts[resolve_idx + 2:])
+    return HuggingFile(
+        repo_id=repo_id,
+        filename=filepath,
+        save_with_filename=filename,
+        revision=revision if revision != "main" else None,
+        show_in_ui=False,
+    )
 
 
 def _resolve_folder(save_path: str, type_name: str) -> str:

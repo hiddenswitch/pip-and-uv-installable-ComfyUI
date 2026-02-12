@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+from can_ada import can_parse, parse as urlparse
 from rich.console import Console
 from rich.table import Table
 
@@ -76,24 +77,15 @@ def _check_exists(folder: str, filename: str, uri: str) -> bool:
     if path is not None:
         return True
 
-    if uri.startswith("hf://"):
+    if can_parse(uri) and urlparse(uri).protocol == "hf:":
         try:
             from huggingface_hub import hf_hub_download
-            from huggingface_hub.utils import LocalEntryNotFoundError
-            from ..model_downloader import _get_hf_token
+            from ..model_downloader import parse_hf_uri, _get_hf_token
 
-            # parse repo_id and hf_filename from hf://repo_id/filename
-            stripped = uri[len("hf://"):]
-            parts = stripped.split("/", 2)
-            if len(parts) >= 3:
-                repo_id = f"{parts[0]}/{parts[1]}"
-                hf_filename = parts[2]
-            else:
-                return False
-
+            hf_file = parse_hf_uri(uri)
             hf_hub_download(
-                repo_id,
-                hf_filename,
+                hf_file.repo_id,
+                hf_file.filename,
                 local_files_only=True,
                 token=_get_hf_token(),
             )

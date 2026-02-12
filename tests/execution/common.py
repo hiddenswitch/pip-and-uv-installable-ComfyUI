@@ -10,6 +10,7 @@ from comfy.component_model.executor_types import SendSyncEvent, SendSyncData, De
 from comfy.distributed.server_stub import ServerStub
 from comfy.execution_context import context_add_custom_nodes
 from comfy.nodes.package_typing import ExportedNodes
+from comfy_execution import jobs
 
 from comfy_execution.graph_utils import Node, GraphBuilder
 from tests.conftest import current_test_name
@@ -103,6 +104,17 @@ class ComfyClient:
 
     def get_all_history(self, *args, **kwargs):
         return self.embedded_client.history.copy(*args, **kwargs)
+
+    async def get_jobs(self, status=None, workflow_id=None, limit=None, offset=0, sort_by="created_at", sort_order="desc"):
+        history = self.get_all_history()
+        status_filter = [status] if status else None
+        job_list, total = jobs.get_all_jobs([], [], history, status_filter=status_filter, workflow_id=workflow_id,
+                                            sort_by=sort_by, sort_order=sort_order, limit=limit, offset=offset)
+        return {"jobs": job_list, "pagination": {"offset": offset, "limit": limit, "total": total, "has_more": (offset + len(job_list)) < total}}
+
+    async def get_job(self, job_id):
+        history = self.get_all_history()
+        return jobs.get_job(job_id, [], [], history)
 
 
 async def client_fixture(self, request=None):

@@ -102,7 +102,15 @@ def setup_cuda_malloc():
     from ..cmd import cuda_malloc  # pylint: disable=unused-import
 
 
+_tracing_initialized = False
+
+
 def setup_tracing(config: Configuration):
+    global _tracing_initialized
+    if _tracing_initialized:
+        return
+    _tracing_initialized = True
+
     from opentelemetry import trace, metrics
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -152,11 +160,12 @@ def setup_tracing(config: Configuration):
 
     patch_spanbuilder_set_channel()
 
-    AioPikaInstrumentor().instrument()
-    AioHttpServerInstrumentor().instrument()
-    AioHttpClientInstrumentor().instrument()
-    RequestsInstrumentor().instrument()
-    URLLib3Instrumentor().instrument()
+    for instrumentor_cls in (AioPikaInstrumentor, AioHttpServerInstrumentor,
+                             AioHttpClientInstrumentor, RequestsInstrumentor,
+                             URLLib3Instrumentor):
+        inst = instrumentor_cls()
+        if not inst.is_instrumented_by_opentelemetry:
+            inst.instrument()
 
     provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
 

@@ -15,6 +15,20 @@ from ..client.embedded_comfy_client import Comfy
 logger = logging.getLogger(__name__)
 
 
+def _is_ui_workflow(obj: dict) -> bool:
+    """Return True if *obj* is a UI/LiteGraph workflow (not API format)."""
+    return "nodes" in obj and "links" in obj
+
+
+def _ensure_api_format(obj: dict) -> dict:
+    """Convert a UI workflow to API format if needed, otherwise return as-is."""
+    if not _is_ui_workflow(obj):
+        return obj
+    from ..component_model.workflow_convert import convert_ui_to_api
+    logger.info("Converting UI workflow to API format")
+    return convert_ui_to_api(obj)
+
+
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     """Apply CLI overrides to a workflow dict."""
     from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
@@ -63,6 +77,7 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
         for workflow in resolved:
             obj: dict
             async for obj in stream_json_objects(workflow):
+                obj = _ensure_api_format(obj)
                 obj = _apply_overrides(obj, configuration)
                 try:
                     res = await comfy.queue_prompt_api(obj)

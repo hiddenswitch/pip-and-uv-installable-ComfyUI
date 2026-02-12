@@ -1,8 +1,11 @@
+from can_ada import can_parse, parse
+
+
 def is_uri(path: str) -> bool:
     """Check if a path is a URI (has a scheme like https://, hf://, s3://, etc.)."""
-    return "://" in path and not path.startswith("://")
+    return can_parse(path)
 
 
 def is_hf_uri(path: str) -> bool:
     """Check if a path is a Hugging Face URI (hf://)."""
-    return path.startswith("hf://")
+    return can_parse(path) and parse(path).protocol == "hf:"

@@ -190,7 +190,7 @@ async def test_queue_and_forget_prompt_api_integration(frontend_backend_worker_w
                     await asyncio.sleep(poll_interval)
                 else:
                     response.raise_for_status()
-            except _:
+            except Exception:
                 await asyncio.sleep(poll_interval)
 
     pytest.fail("Failed to get a 200 response with valid data within the timeout period")

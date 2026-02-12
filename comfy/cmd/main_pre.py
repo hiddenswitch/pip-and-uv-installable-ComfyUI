@@ -177,15 +177,20 @@ def _create_tracer():
     # enable instrumentation BEFORE any aio_pika imports
     patch_spanbuilder_set_channel()
 
-    # Instrument aio_pika first since it's most likely to be imported early
-    AioPikaInstrumentor().instrument()
-    AioHttpServerInstrumentor().instrument()
-    AioHttpClientInstrumentor().instrument()
-    RequestsInstrumentor().instrument()
-    URLLib3Instrumentor().instrument()
+    for instrumentor_cls in (AioPikaInstrumentor, AioHttpServerInstrumentor,
+                             AioHttpClientInstrumentor, RequestsInstrumentor,
+                             URLLib3Instrumentor):
+        inst = instrumentor_cls()
+        if not inst.is_instrumented_by_opentelemetry:
+            inst.instrument()
 
 
     provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
+
+    # Mark setup.py's tracing as done so it won't duplicate instrumentation
+    from ..component_model import setup as _setup_mod
+    _setup_mod._tracing_initialized = True
+
     # makes this behave better as a library
     return trace.get_tracer(args.otel_service_name, tracer_provider=provider)
 

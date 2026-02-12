@@ -487,6 +487,11 @@ def post_workflow(
     from ..component_model.entrypoints_common import configure_application_paths
     configure_application_paths(config)
 
+    from ..execution_context import context_configuration
+    from ..nodes.package import import_all_nodes_in_workspace
+    with context_configuration(config):
+        import_all_nodes_in_workspace(raise_on_failure=False)
+
     from ..entrypoints.workflow import run_workflows
     try:
         asyncio.run(run_workflows(config.workflows, configuration=config))
@@ -593,9 +598,27 @@ def list_models_cmd(
     list_models(format=format, folder=folder, include_manager=not no_manager, check_exists=check_exists)
 
 
+@app.command(name="integrity-check", context_settings=_COMFYUI_ENV)
+def integrity_check(
+    cwd: Optional[str] = typer.Option(None, "-w", "--cwd"),
+    base_directory: Optional[str] = typer.Option(None, "--base-directory"),
+    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config"),
+):
+    """Print system diagnostics and verify installation integrity."""
+    from ..component_model.setup import setup_pre_torch
+    params = {k: v for k, v in locals().items() if k != "ctx"}
+    params.setdefault("base_paths", [])
+    params["extra_model_paths_config"] = params.get("extra_model_paths_config") or []
+    config = _build_config(params)
+    setup_pre_torch(config)
+    _set_config_context(config)
+    from .integrity_check import run_integrity_check
+    run_integrity_check(config)
+
+
 _KNOWN_COMMANDS = frozenset({
     "serve", "worker", "post-workflow", "list-workflow-templates",
-    "list-models", "create-directories",
+    "list-models", "create-directories", "integrity-check",
 })
 
 

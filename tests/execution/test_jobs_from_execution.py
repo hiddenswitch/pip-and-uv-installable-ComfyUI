@@ -20,8 +20,8 @@ class TestJobs:
         yield GraphBuilder(prefix=request.node.name)
 
     @pytest.fixture
-    async def client(self, comfy_background_server_from_config):
-        async with AsyncRemoteComfyClient(f"http://localhost:{comfy_background_server_from_config[0].port}") as obj:
+    async def client(self, comfy_background_server):
+        async with AsyncRemoteComfyClient(f"http://localhost:{comfy_background_server[0].port}") as obj:
             yield obj
 
     async def _create_history_item(self, client, builder):

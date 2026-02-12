@@ -1,10 +1,11 @@
 import importlib.resources
 import json
 import logging
+import threading
 import time
 from importlib.abc import Traversable
 from typing import Any, AsyncGenerator
-import threading
+
 import psutil
 
 try:
@@ -17,11 +18,10 @@ import pytest
 from comfy.api.components.schema.prompt import Prompt
 from comfy.client.embedded_comfy_client import Comfy
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
-from comfy.model_downloader import add_known_models, KNOWN_LORAS
-from comfy.model_downloader_types import CivitFile, HuggingFile
+from comfy.model_downloader import add_known_models
+from comfy.model_downloader_types import HuggingFile
 from comfy_extras.nodes.nodes_audio import TorchAudioNotFoundError
 from . import workflows
-import itertools
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import PerformanceFeature
 
@@ -46,7 +46,7 @@ class ResourceMonitor:
                 children = current_process.children(recursive=True)
                 processes = [current_process] + children
                 pids = {p.pid for p in processes}
-                
+
                 total_rss = 0
                 for p in processes:
                     try:
@@ -65,20 +65,20 @@ class ResourceMonitor:
                             try:
                                 compute_procs = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
                                 graphics_procs = pynvml.nvmlDeviceGetGraphicsRunningProcesses(handle)
-                                
+
                                 # Filter for our process tree
                                 for p in compute_procs + graphics_procs:
                                     if p.pid in pids:
                                         total_vram += p.usedGpuMemory
                             except Exception:
-                                pass # Skip errors for specific GPU queries
-                        
+                                pass  # Skip errors for specific GPU queries
+
                         self.peak_gpu_vram = max(self.peak_gpu_vram, total_vram)
                     except Exception:
                         pass
             except Exception:
                 pass
-            
+
             time.sleep(self.interval)
 
     def __enter__(self):
@@ -107,17 +107,9 @@ class ResourceMonitor:
 
 
 def _generate_config_params():
-    # Two focused configurations:
-    # 1. novram mode with cublas_ops
-    # 2. dynamic_vram mode with cublas_ops
     yield {
         "use_pytorch_cross_attention": True,
-        "novram": True,
-        "fast": {PerformanceFeature.CublasOps},
-    }
-    yield {
-        "use_pytorch_cross_attention": True,
-        "fast": {PerformanceFeature.DynamicVRAM, PerformanceFeature.CublasOps},
+        "fast": {PerformanceFeature.CublasOps, PerformanceFeature.Fp16Accumulation},
     }
 
 
@@ -134,7 +126,6 @@ async def client(tmp_path_factory, request) -> AsyncGenerator[Any, Any]:
 
 
 def _prepare_for_workflows() -> dict[str, Traversable]:
-
     add_known_models("loras", HuggingFile("artificialguybr/pixelartredmond-1-5v-pixel-art-loras-for-sd-1-5", "PixelArtRedmond15V-PixelArt-PIXARFK.safetensors"))
     add_known_models("checkpoints", HuggingFile("autismanon/modeldump", "cardosAnime_v20.safetensors"))
 
@@ -156,7 +147,7 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
     prompt = Prompt.validate(workflow)
     # todo: add all the models we want to test a bit m2ore elegantly
     outputs = {}
-    
+
     start_time = time.time()
     monitor = ResourceMonitor()
     try:
@@ -167,8 +158,8 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
     finally:
         end_time = time.time()
         duration = end_time - start_time
-        ram_gb = monitor.peak_cpu_ram / (1024**3)
-        vram_gb = monitor.peak_gpu_vram / (1024**3)
+        ram_gb = monitor.peak_cpu_ram / (1024 ** 3)
+        vram_gb = monitor.peak_gpu_vram / (1024 ** 3)
         logger.info(f"Test {workflow_name} with client {client} took {duration:.4f}s | Peak RAM: {ram_gb:.2f} GB | Peak VRAM: {vram_gb:.2f} GB")
 
     if any(v.class_type == "SaveImage" for v in prompt.values()):

@@ -85,12 +85,11 @@ def normalize_queue_item(item: tuple, status: str) -> dict:
 
 
 def normalize_history_item(prompt_id: str, history_item: dict, include_outputs: bool = False) -> dict:
-    """Convert history item dict to unified job dict.
-
-    History items have sensitive data already removed (prompt tuple has 5 elements).
-    """
+    """Convert history item dict to unified job dict."""
     prompt_tuple = history_item['prompt']
-    priority, _, prompt, extra_data, _ = prompt_tuple
+    priority = prompt_tuple[0]
+    prompt = prompt_tuple[2] if len(prompt_tuple) > 2 else {}
+    extra_data = prompt_tuple[3] if len(prompt_tuple) > 3 else {}
     create_time, workflow_id = _extract_job_metadata(extra_data)
 
     status_info = history_item.get('status', {})
@@ -125,18 +124,20 @@ def normalize_history_item(prompt_id: str, history_item: dict, include_outputs: 
     else:
         status = JobStatus.COMPLETED
 
-    job = prune_dict({
+    job = {
         'id': prompt_id,
         'status': status,
         'priority': priority,
         'create_time': create_time,
+        'outputs_count': outputs_count,
+        'preview_output': preview_output,
+    }
+    job.update(prune_dict({
         'execution_start_time': execution_start_time,
         'execution_end_time': execution_end_time,
         'execution_error': execution_error,
-        'outputs_count': outputs_count,
-        'preview_output': preview_output,
         'workflow_id': workflow_id,
-    })
+    }))
 
     if include_outputs:
         job['outputs'] = outputs
@@ -201,7 +202,7 @@ def apply_sorting(jobs: list[dict], sort_by: str, sort_order: str) -> list[dict]
             return end - start if end and start else 0
     else:
         def get_sort_key(job):
-            return job.get('create_time', 0)
+            return job.get('create_time') or 0
 
     return sorted(jobs, key=get_sort_key, reverse=reverse)
 

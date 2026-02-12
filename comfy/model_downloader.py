@@ -37,6 +37,8 @@ _hf_fs = HfFileSystem()
 logger = logging.getLogger(__name__)
 
 
+from can_ada import parse as urlparse
+
 from .component_model.uris import is_uri, is_hf_uri
 
 
@@ -55,45 +57,37 @@ def _get_hf_token():
 
 
 def parse_hf_uri(uri: str) -> HuggingFile:
-    """
-    Parse an hf:// URI into a HuggingFile object.
+    """Parse an hf:// URI into a HuggingFile object.
 
-    Parses hf:// URIs in the format:
-    - hf://repo/file (repo_id=repo, filename=file)
-    - hf://org/repo/path/to/file (repo_id=org/repo, filename=path/to/file)
-    - hf://datasets/org/repo/path/to/file (for datasets)
-    - hf://spaces/org/repo/path/to/file (for spaces)
-    """
-    path_part = uri.replace("hf://", "")
-    parts = path_part.split("/")
+    Supported formats::
 
-    # Check if it starts with a repo_type
-    if parts[0] in ("datasets", "spaces"):
-        repo_type = parts[0]
-        parts = parts[1:]  # Remove repo_type prefix
+        hf://repo/file
+        hf://org/repo/path/to/file
+        hf://datasets/org/repo/path/to/file
+        hf://spaces/org/repo/path/to/file
+    """
+    url = urlparse(uri)
+    hostname = url.hostname
+    path_parts = [p for p in url.pathname.split("/") if p]
+
+    if hostname in ("datasets", "spaces"):
+        repo_type = hostname
     else:
         repo_type = "model"
+        path_parts = [hostname] + path_parts
 
-    # Now parts is either [repo, file...] or [org, repo, file...]
-    # HuggingFace repo names can be "repo" or "org/repo"
-    # If there are only 2 parts, it's repo/file
-    # If there are more, check if the first part looks like an org
-    if len(parts) == 2:
-        # Simple case: repo/file
-        repo_id = parts[0]
-        filename = parts[1]
+    if len(path_parts) < 2:
+        raise ValueError(f"Invalid hf:// URI: {uri}")
+
+    if len(path_parts) == 2:
+        repo_id = path_parts[0]
+        filename = path_parts[1]
+    elif "." in path_parts[1] and len(path_parts[1].split(".")[-1]) <= 10:
+        repo_id = path_parts[0]
+        filename = "/".join(path_parts[1:])
     else:
-        # Could be org/repo/file... or repo/path/to/file
-        # HuggingFace orgs/users don't have file extensions, so if parts[1] has an extension, it's likely a file
-        # Otherwise, assume org/repo format
-        if "." in parts[1] and len(parts[1].split(".")[-1]) <= 10:
-            # parts[1] looks like a filename
-            repo_id = parts[0]
-            filename = "/".join(parts[1:])
-        else:
-            # Assume org/repo format
-            repo_id = f"{parts[0]}/{parts[1]}"
-            filename = "/".join(parts[2:])
+        repo_id = f"{path_parts[0]}/{path_parts[1]}"
+        filename = "/".join(path_parts[2:])
 
     return HuggingFile(repo_id=repo_id, filename=filename, repo_type=repo_type)
 
@@ -138,18 +132,15 @@ def get_full_path(folder_name: str, filename: str) -> Optional[str]:
 
 
 def get_or_download(folder_name: str, filename: str, known_files: Optional[List[Downloadable] | KnownDownloadables] = None) -> Optional[str]:
-    # Handle URIs by transforming them into Downloadable objects
     if is_uri(filename):
-        if is_hf_uri(filename):
-            # Transform hf:// URI into HuggingFile and use the standard download path
+        url = urlparse(filename)
+        if url.protocol == "hf:":
             hf_file = parse_hf_uri(filename)
             return get_or_download(folder_name, str(hf_file), known_files=[hf_file])
-        elif filename.startswith("http://") or filename.startswith("https://"):
-            # Transform http/https URIs into UrlFile and use the standard download path
+        elif url.protocol in ("http:", "https:"):
             url_file = UrlFile(filename)
             return get_or_download(folder_name, str(url_file), known_files=[url_file])
         else:
-            # For other URIs (s3://, etc.), transform into FsspecFile and use the standard download path
             fsspec_file = FsspecFile(filename)
             return get_or_download(folder_name, str(fsspec_file), known_files=[fsspec_file])
 

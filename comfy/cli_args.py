@@ -17,11 +17,6 @@ import sys
 
 from .cli_args_types import Configuration, LatentPreviewMethod, PerformanceFeature
 from .component_model.module_property import create_module_properties
-
-# ---------------------------------------------------------------------------
-# Stub parser — accepts any add_argument / add_mutually_exclusive_group call
-# ---------------------------------------------------------------------------
-
 class _StubGroup:
     def add_argument(self, *a, **kw):
         return self

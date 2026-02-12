@@ -211,22 +211,19 @@ def create_origin_only_middleware():
         # in that case the Host and Origin hostnames won't match
         # I know the proper fix would be to add a cookie but this should take care of the problem in the meantime
         if 'Host' in request.headers and 'Origin' in request.headers:
-            host = request.headers['Host']
-            origin = request.headers['Origin']
-            host_domain = host.lower()
-            parsed = urllib.parse.urlparse(origin)
-            origin_domain = parsed.netloc.lower()
-            host_domain_parsed = urllib.parse.urlsplit('//' + host_domain)
+            origin_parsed = urlparse(request.headers['Origin'])
+            host_parsed = urlparse("http://" + request.headers['Host'].lower())
 
-            # limit the check to when the host domain is localhost, this makes it slightly less safe but should still prevent the exploit
-            loopback = is_loopback(host_domain_parsed.hostname)
+            loopback = is_loopback(host_parsed.hostname)
 
-            if parsed.port is None:  # if origin doesn't have a port strip it from the host to handle weird browsers, same for host
-                host_domain = host_domain_parsed.hostname
-            if host_domain_parsed.port is None:
-                origin_domain = parsed.hostname
+            if origin_parsed.port and host_parsed.port:
+                origin_domain = f"{origin_parsed.hostname}:{origin_parsed.port}"
+                host_domain = f"{host_parsed.hostname}:{host_parsed.port}"
+            else:
+                origin_domain = origin_parsed.hostname
+                host_domain = host_parsed.hostname
 
-            if loopback and host_domain is not None and origin_domain is not None and len(host_domain) > 0 and len(origin_domain) > 0:
+            if loopback and host_domain and origin_domain:
                 if host_domain != origin_domain:
                     logger.warning("WARNING: request with non matching host and origin {} != {}, returning 403".format(host_domain, origin_domain))
                     return web.Response(status=403)
