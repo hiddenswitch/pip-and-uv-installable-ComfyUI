@@ -16,24 +16,6 @@ _TEXT_ENCODE_FIELDS: dict[str, list[str]] = {
     "TransformersTokenize": ["prompt"],
 }
 
-# Sampler nodes that have "positive" / "negative" conditioning inputs
-_SAMPLER_CLASS_TYPES = frozenset({
-    "KSampler",
-    "KSamplerAdvanced",
-})
-
-# Nodes that forward conditioning (input -> output) so we can trace chains
-_CONDITIONING_PASSTHROUGH = frozenset({
-    "FluxGuidance",
-    "BasicGuider",
-    "ConditioningSetTimestepRange",
-    "ConditioningZeroOut",
-    "ConditioningCombine",
-    "ConditioningConcat",
-    "ConditioningAverage",
-    "StyleModelApply",
-    "LTXVConditioning",
-})
 
 _STEPS_CLASS_TYPES = frozenset({
     "KSampler",
@@ -76,49 +58,34 @@ def _is_node_ref(value) -> bool:
     return isinstance(value, (list, tuple)) and len(value) == 2
 
 
-def _trace_to_text_encoder(prompt: dict, node_id: str, visited: Optional[set] = None) -> Optional[str]:
-    """Follow conditioning references back to find a text encoding node."""
-    if visited is None:
-        visited = set()
-    if node_id in visited:
-        return None
-    visited.add(node_id)
-
-    node = prompt.get(node_id)
-    if node is None:
-        return None
-
-    class_type = node.get("class_type", "")
-    if class_type in _TEXT_ENCODE_FIELDS:
-        return node_id
-
-    inputs = node.get("inputs", {})
-    for key, val in inputs.items():
-        if _is_node_ref(val):
-            ref_id = str(val[0])
-            ref_node = prompt.get(ref_id)
-            if ref_node is None:
-                continue
-            ref_class = ref_node.get("class_type", "")
-            if ref_class in _TEXT_ENCODE_FIELDS:
-                return ref_id
-            if ref_class in _CONDITIONING_PASSTHROUGH:
-                result = _trace_to_text_encoder(prompt, ref_id, visited)
-                if result is not None:
-                    return result
-
+def _find_text_encoder_in_predecessors(prompt: dict, start_node_id: str) -> Optional[str]:
+    visited: set[str] = set()
+    stack = [start_node_id]
+    while stack:
+        nid = stack.pop()
+        if nid in visited:
+            continue
+        visited.add(nid)
+        node = prompt.get(nid)
+        if node is None:
+            continue
+        if node.get("class_type", "") in _TEXT_ENCODE_FIELDS:
+            return nid
+        for val in node.get("inputs", {}).values():
+            if _is_node_ref(val):
+                ref_id = str(val[0])
+                if ref_id not in visited:
+                    stack.append(ref_id)
     return None
 
 
 
-def _find_positive_text_encoder_via_sampler(prompt: dict) -> Optional[str]:
+def _find_positive_text_encoder_via_positive_input(prompt: dict) -> Optional[str]:
     for node_id, node in prompt.items():
-        if node.get("class_type", "") not in _SAMPLER_CLASS_TYPES:
-            continue
         positive_ref = node.get("inputs", {}).get("positive")
         if not _is_node_ref(positive_ref):
             continue
-        result = _trace_to_text_encoder(prompt, str(positive_ref[0]))
+        result = _find_text_encoder_in_predecessors(prompt, str(positive_ref[0]))
         if result is not None:
             return result
     return None
@@ -131,7 +98,7 @@ def _find_positive_text_encoder_via_guider(prompt: dict) -> Optional[str]:
         cond_ref = node.get("inputs", {}).get("conditioning")
         if not _is_node_ref(cond_ref):
             continue
-        result = _trace_to_text_encoder(prompt, str(cond_ref[0]))
+        result = _find_text_encoder_in_predecessors(prompt, str(cond_ref[0]))
         if result is not None:
             return result
     return None
@@ -158,16 +125,8 @@ def _find_sole_text_encoder(prompt: dict) -> Optional[str]:
 
 
 def find_positive_text_encoder(prompt: dict) -> Optional[str]:
-    """Find the node ID of the positive text encoding node in a workflow prompt.
-
-    Tries multiple strategies in order:
-    1. Trace from sampler's "positive" input
-    2. Trace from BasicGuider's "conditioning" input
-    3. Match by _meta.title heuristic
-    4. Use the sole text encoding node if there's only one
-    """
     return (
-        _find_positive_text_encoder_via_sampler(prompt)
+        _find_positive_text_encoder_via_positive_input(prompt)
         or _find_positive_text_encoder_via_guider(prompt)
         or _find_positive_text_encoder_via_title(prompt)
         or _find_sole_text_encoder(prompt)
@@ -194,14 +153,12 @@ def replace_prompt_text(prompt: dict, text: str) -> dict:
 
 
 
-def _find_negative_text_encoder_via_sampler(prompt: dict) -> Optional[str]:
+def _find_negative_text_encoder_via_negative_input(prompt: dict) -> Optional[str]:
     for node_id, node in prompt.items():
-        if node.get("class_type", "") not in _SAMPLER_CLASS_TYPES:
-            continue
         negative_ref = node.get("inputs", {}).get("negative")
         if not _is_node_ref(negative_ref):
             continue
-        result = _trace_to_text_encoder(prompt, str(negative_ref[0]))
+        result = _find_text_encoder_in_predecessors(prompt, str(negative_ref[0]))
         if result is not None:
             return result
     return None
@@ -218,14 +175,8 @@ def _find_negative_text_encoder_via_title(prompt: dict) -> Optional[str]:
 
 
 def find_negative_text_encoder(prompt: dict) -> Optional[str]:
-    """Find the node ID of the negative text encoding node in a workflow prompt.
-
-    Tries multiple strategies in order:
-    1. Trace from sampler's "negative" input
-    2. Match by _meta.title heuristic
-    """
     return (
-        _find_negative_text_encoder_via_sampler(prompt)
+        _find_negative_text_encoder_via_negative_input(prompt)
         or _find_negative_text_encoder_via_title(prompt)
     )
 

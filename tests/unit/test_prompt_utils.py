@@ -20,7 +20,6 @@ from comfy.component_model.prompt_utils import (
     replace_audios,
     _is_node_ref,
     _TEXT_ENCODE_FIELDS,
-    _SAMPLER_CLASS_TYPES,
     _STEPS_CLASS_TYPES,
     _SEED_FIELDS,
     _IMAGE_LOAD_CLASS_TYPES,
@@ -249,6 +248,62 @@ class TestReplacePromptTextSpecific:
         }
         result = replace_prompt_text(prompt, "tokenize that")
         assert result["1"]["inputs"]["prompt"] == "tokenize that"
+
+    def test_cfg_guider_chain(self):
+        prompt = {
+            "1": {
+                "inputs": {
+                    "cfg": 5,
+                    "model": ["5", 0],
+                    "positive": ["2", 0],
+                    "negative": ["3", 0],
+                },
+                "class_type": "CFGGuider",
+            },
+            "2": {
+                "inputs": {"text": "original positive", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+            "3": {
+                "inputs": {"text": "original negative", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+        }
+        result = replace_prompt_text(prompt, "new positive")
+        assert result["2"]["inputs"]["text"] == "new positive"
+        assert result["3"]["inputs"]["text"] == "original negative"
+
+    def test_cfg_guider_with_passthrough(self):
+        prompt = {
+            "1": {
+                "inputs": {"guider": ["2", 0]},
+                "class_type": "SamplerCustomAdvanced",
+            },
+            "2": {
+                "inputs": {
+                    "cfg": 5,
+                    "model": ["6", 0],
+                    "positive": ["3", 0],
+                    "negative": ["5", 0],
+                },
+                "class_type": "CFGGuider",
+            },
+            "3": {
+                "inputs": {"guidance": 3, "conditioning": ["4", 0]},
+                "class_type": "FluxGuidance",
+            },
+            "4": {
+                "inputs": {"text": "flux prompt", "clip": ["7", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+            "5": {
+                "inputs": {"text": "", "clip": ["7", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+        }
+        result = replace_prompt_text(prompt, "replaced flux")
+        assert result["4"]["inputs"]["text"] == "replaced flux"
+        assert result["5"]["inputs"]["text"] == ""
 
     def test_raises_on_no_text_encoder(self):
         prompt = {
@@ -566,15 +621,14 @@ class TestReplaceImagesSpecific:
 
 class TestFindNegativeTextEncoder:
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
-    def test_finds_negative_in_workflows_with_sampler(self, workflow_name, workflow_file):
+    def test_finds_negative_in_workflows_with_negative_input(self, workflow_name, workflow_file):
         prompt = _load_workflow(workflow_file)
-        has_sampler_with_negative = any(
-            node.get("class_type", "") in _SAMPLER_CLASS_TYPES
-            and _is_node_ref(node.get("inputs", {}).get("negative"))
+        has_negative_input = any(
+            _is_node_ref(node.get("inputs", {}).get("negative"))
             for node in prompt.values()
         )
-        if not has_sampler_with_negative:
-            pytest.skip(f"{workflow_name} has no sampler with negative conditioning input")
+        if not has_negative_input:
+            pytest.skip(f"{workflow_name} has no node with negative conditioning input")
 
         node_id = find_negative_text_encoder(prompt)
         assert node_id is not None, f"Could not find negative text encoder in {workflow_name}"
@@ -697,6 +751,30 @@ class TestReplaceNegativePromptTextSpecific:
         }
         with pytest.raises(ValueError, match="Could not find"):
             replace_negative_prompt_text(prompt, "test")
+
+    def test_cfg_guider_negative(self):
+        prompt = {
+            "1": {
+                "inputs": {
+                    "cfg": 5,
+                    "model": ["5", 0],
+                    "positive": ["2", 0],
+                    "negative": ["3", 0],
+                },
+                "class_type": "CFGGuider",
+            },
+            "2": {
+                "inputs": {"text": "original positive", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+            "3": {
+                "inputs": {"text": "original negative", "clip": ["4", 0]},
+                "class_type": "CLIPTextEncode",
+            },
+        }
+        result = replace_negative_prompt_text(prompt, "new negative")
+        assert result["3"]["inputs"]["text"] == "new negative"
+        assert result["2"]["inputs"]["text"] == "original positive"
 
     def test_negative_through_passthrough(self):
         prompt = {
@@ -848,6 +926,58 @@ class TestReplaceAudiosSpecific:
         result = replace_audios(prompt, ["url.mp3"])
         assert prompt["1"]["class_type"] == "LoadAudio"
         assert result["1"]["class_type"] == "LoadAudioFromURL"
+
+
+def _real_nodes_available() -> bool:
+    try:
+        from comfy.nodes.package import import_all_nodes_in_workspace
+        return True
+    except ImportError:
+        return False
+
+
+def _load_template_workflow(template_id: str) -> dict | None:
+    try:
+        from comfyui_workflow_templates import get_asset_path, iter_templates
+    except ImportError:
+        return None
+    for t in iter_templates():
+        if t.template_id == template_id:
+            json_assets = [a for a in t.assets if a.filename.endswith(".json")]
+            if json_assets:
+                path = get_asset_path(t.template_id, json_assets[0].filename)
+                with open(path) as f:
+                    return json.load(f)
+    return None
+
+
+@pytest.mark.skipif(not _real_nodes_available(), reason="node system not available")
+class TestConvertedTemplatePromptReplacement:
+
+    @pytest.fixture(scope="class")
+    def real_nodes(self):
+        from comfy.nodes.package import import_all_nodes_in_workspace
+        from comfy.execution_context import context_add_custom_nodes
+        nodes = import_all_nodes_in_workspace()
+        with context_add_custom_nodes(nodes):
+            yield nodes
+
+    def _convert(self, workflow: dict, real_nodes) -> dict:
+        from comfy.component_model.workflow_convert import convert_ui_to_api
+        return convert_ui_to_api(workflow)
+
+    def test_klein_text_to_image_positive_prompt(self, real_nodes):
+        workflow = _load_template_workflow("image_flux2_klein_text_to_image")
+        if workflow is None:
+            pytest.skip("image_flux2_klein_text_to_image template not found")
+        api = self._convert(workflow, real_nodes)
+        node_id = find_positive_text_encoder(api)
+        assert node_id is not None, (
+            "Could not find positive text encoder in converted Klein workflow"
+        )
+        assert api[node_id]["class_type"] in _TEXT_ENCODE_FIELDS
+        result = replace_prompt_text(api, "a girl with red hair")
+        assert result[node_id]["class_type"] in _TEXT_ENCODE_FIELDS
 
 
 class TestFindMediaNodes:

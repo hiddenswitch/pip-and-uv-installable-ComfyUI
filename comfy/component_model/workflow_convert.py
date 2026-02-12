@@ -517,10 +517,13 @@ def _convert_subgraph(
                 api_inputs[inp_name] = [f"{outer_id}:{resolved_id}", resolved[2]]
 
         prefixed_id = f"{outer_id}:{inner_nid}"
-        api_entries[prefixed_id] = {
+        entry = {
             "class_type": class_type,
             "inputs": api_inputs,
         }
+        title = inner_node.get("title") or class_type
+        entry["_meta"] = {"title": title}
+        api_entries[prefixed_id] = entry
 
     return api_entries, output_map
 
@@ -663,10 +666,13 @@ def convert_ui_to_api(workflow: dict) -> dict:
                 else:
                     api_inputs[inp_name] = [resolved[1], resolved[2]]
 
-        api_workflow[str(node_id)] = {
+        entry = {
             "class_type": class_type,
             "inputs": api_inputs,
         }
+        title = node.get("title") or class_type
+        entry["_meta"] = {"title": title}
+        api_workflow[str(node_id)] = entry
 
     # ── clean up dangling references ──────────────────────────────────────
     for entry in api_workflow.values():
