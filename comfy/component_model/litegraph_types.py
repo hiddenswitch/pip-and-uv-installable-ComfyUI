@@ -23,3 +23,14 @@ class LiteLink(NamedTuple):
             dst_slot=raw[4],
             type=raw[5] if len(raw) > 5 else None,
         )
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> LiteLink:
+        return cls(
+            link_id=raw["id"],
+            src_node=raw["origin_id"],
+            src_slot=raw["origin_slot"],
+            dst_node=raw["target_id"],
+            dst_slot=raw["target_slot"],
+            type=raw.get("type"),
+        )
