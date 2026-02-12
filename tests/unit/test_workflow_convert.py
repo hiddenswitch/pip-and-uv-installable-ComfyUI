@@ -276,10 +276,10 @@ class TestExtraWidgets:
         assert _extra_widgets_after({"control_after_generate": True}) == [None]
 
     def test_image_upload(self):
-        assert _extra_widgets_after({"image_upload": True}) == ["upload"]
+        assert _extra_widgets_after({"image_upload": True}) == [None]
 
     def test_both(self):
-        assert _extra_widgets_after({"control_after_generate": True, "image_upload": True}) == [None, "upload"]
+        assert _extra_widgets_after({"control_after_generate": True, "image_upload": True}) == [None, None]
 
 
 # ── unit tests: _map_widgets ──────────────────────────────────────────────────
@@ -322,7 +322,7 @@ class TestMapWidgets:
     def test_load_image_with_upload(self):
         input_types = _LoadImage.INPUT_TYPES()
         result = _map_widgets(input_types, ["photo.png", "image"])
-        assert result == {"image": "photo.png", "upload": "image"}
+        assert result == {"image": "photo.png"}
 
     def test_vae_decode_empty(self):
         input_types = _VAEDecode.INPUT_TYPES()
@@ -880,7 +880,7 @@ class TestLoadImage:
         }
         result = convert_ui_to_api(workflow)
         assert result["1"]["inputs"]["image"] == "photo.png"
-        assert result["1"]["inputs"]["upload"] == "image"
+        assert "upload" not in result["1"]["inputs"]
 
 
 @pytest.mark.usefixtures("_with_test_nodes")

@@ -20,11 +20,8 @@ from .litegraph_types import LiteLink
 
 logger = logging.getLogger(__name__)
 
-# ── widget-type classification ────────────────────────────────────────────────
-# These INPUT_TYPES type strings produce UI widgets rather than connection slots.
 _WIDGET_TYPES = frozenset({"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"})
 
-# Virtual node types that never appear in the API output.
 _VIRTUAL_NODE_TYPES = frozenset({
     "Reroute",
     "PrimitiveNode",
@@ -32,14 +29,12 @@ _VIRTUAL_NODE_TYPES = frozenset({
     "MarkdownNote",
 })
 
-# ── LiteGraph node mode constants ─────────────────────────────────────────────
 _MODE_ALWAYS = 0
 _MODE_ON_EVENT = 1
 _MODE_NEVER = 2  # muted
 _MODE_ON_TRIGGER = 3
 _MODE_BYPASS = 4
 
-# Subgraph boundary node IDs used by the frontend.
 _SUBGRAPH_INPUT_NODE_ID = -10
 _SUBGRAPH_OUTPUT_NODE_ID = -20
 
@@ -48,7 +43,6 @@ _UUID_RE = re.compile(
 )
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _is_widget_type(type_spec) -> bool:
     """Return True if *type_spec* from INPUT_TYPES represents a widget."""
@@ -77,7 +71,7 @@ def _extra_widgets_after(opts: dict) -> list[str | None]:
     if opts.get("control_after_generate"):
         extras.append(None)  # frontend-only, serialize=false
     if opts.get("image_upload") or opts.get("video_upload") or opts.get("audio_upload"):
-        extras.append("upload")  # included in API
+        extras.append(None)  # frontend marks upload widgets serialize=false
     return extras
 
 
@@ -127,7 +121,6 @@ def _map_widgets(input_types: dict, widgets_values: list) -> dict[str, object]:
     return result
 
 
-# ── link resolution ───────────────────────────────────────────────────────────
 
 def _types_match(a: str | None, b: str | None) -> bool:
     if a is None or b is None:
@@ -212,7 +205,6 @@ def _resolve_source(
     node_type = node.get("type", "")
     mode = node.get("mode", 0)
 
-    # ── Reroute: transparently follow the single input ────────────────────
     if node_type == "Reroute":
         inputs = node.get("inputs", [])
         if inputs and inputs[0].get("link") is not None:
@@ -224,19 +216,15 @@ def _resolve_source(
                 )
         return None
 
-    # ── PrimitiveNode: yield its stored widget value ──────────────────────
     if node_type == "PrimitiveNode":
         wv = node.get("widgets_values", [])
         if wv:
             return ("value", wv[0])
         return None
 
-    # ── Muted node (mode=2): dead end ─────────────────────────────────────
     if mode == _MODE_NEVER:
         return None
 
-    # ── Bypassed node (mode=4): route through matching input ──────────────
-    # Mirrors frontend ``ExecutableNodeDTO._getBypassSlotIndex``.
     if mode == _MODE_BYPASS:
         outputs = node.get("outputs", [])
         node_inputs = node.get("inputs", [])
@@ -260,11 +248,9 @@ def _resolve_source(
                 )
         return None
 
-    # ── Normal / active node: this is the source ──────────────────────────
     return ("link", str(src_node_id), src_slot)
 
 
-# ── subgraph / group-node expansion ──────────────────────────────────────────
 
 def _collect_subgraph_defs(workflow: dict) -> dict[str, dict]:
     """Extract subgraph definitions keyed by UUID from the workflow."""
@@ -533,7 +519,6 @@ def _is_subgraph_type(class_type: str, sg_defs: dict[str, dict]) -> bool:
     return class_type in sg_defs
 
 
-# ── public API ────────────────────────────────────────────────────────────────
 
 def convert_ui_to_api(workflow: dict) -> dict:
     """Convert a UI (LiteGraph) workflow dict to API format.
@@ -555,10 +540,8 @@ def convert_ui_to_api(workflow: dict) -> dict:
             "Node system not loaded. Call import_all_nodes_in_workspace() first."
         )
 
-    # ── collect subgraph definitions ─────────────────────────────────────
     sg_defs = _collect_subgraph_defs(workflow)
 
-    # ── build indices ─────────────────────────────────────────────────────
     links: dict[int, LiteLink] = {}
     for raw in workflow.get("links", []):
         link = LiteLink.from_list(raw)
@@ -570,13 +553,27 @@ def convert_ui_to_api(workflow: dict) -> dict:
         if nid is not None:
             nodes_by_id[nid] = node
 
-    # ── expand subgraphs ─────────────────────────────────────────────────
-    # output_remaps: maps (group_node_id, output_slot) to the resolved
-    # inner source so outer nodes can find the correct connection.
     output_remaps: dict[tuple[int, int], tuple] = {}
 
-    # ── convert each eligible node ────────────────────────────────────────
     api_workflow: dict[str, dict] = {}
+
+    for node in workflow.get("nodes", []):
+        node_id = node.get("id")
+        if node_id is None:
+            continue
+        mode = node.get("mode", 0)
+        if mode in (_MODE_NEVER, _MODE_BYPASS):
+            continue
+        class_type = node.get("type")
+        if class_type is None:
+            continue
+        if _is_subgraph_type(class_type, sg_defs):
+            entries, output_map = _convert_subgraph(
+                node, sg_defs[class_type], nodes_by_id, links, node_mappings,
+            )
+            api_workflow.update(entries)
+            for slot, target in output_map.items():
+                output_remaps[(node_id, slot)] = target
 
     for node in workflow.get("nodes", []):
         node_id = node.get("id")
@@ -593,14 +590,7 @@ def convert_ui_to_api(workflow: dict) -> dict:
         if class_type in _VIRTUAL_NODE_TYPES:
             continue
 
-        # ── subgraph / group node ────────────────────────────────────────
         if _is_subgraph_type(class_type, sg_defs):
-            entries, output_map = _convert_subgraph(
-                node, sg_defs[class_type], nodes_by_id, links, node_mappings,
-            )
-            api_workflow.update(entries)
-            for slot, target in output_map.items():
-                output_remaps[(node_id, slot)] = target
             continue
 
         class_def = _get_node_class(node_mappings, class_type)
@@ -674,7 +664,6 @@ def convert_ui_to_api(workflow: dict) -> dict:
         entry["_meta"] = {"title": title}
         api_workflow[str(node_id)] = entry
 
-    # ── clean up dangling references ──────────────────────────────────────
     for entry in api_workflow.values():
         inputs = entry["inputs"]
         for key in list(inputs.keys()):
@@ -690,7 +679,6 @@ def convert_ui_to_api(workflow: dict) -> dict:
     return api_workflow
 
 
-# ── node-class helpers ────────────────────────────────────────────────────────
 
 def _get_node_class(node_mappings, class_type: str) -> Optional[type]:
     if hasattr(node_mappings, 'NODE_CLASS_MAPPINGS'):
