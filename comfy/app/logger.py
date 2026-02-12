@@ -9,6 +9,7 @@ from datetime import datetime
 logs = deque(maxlen=1000)
 stdout_interceptor = sys.stdout
 stderr_interceptor = sys.stderr
+_initialized = False
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +71,10 @@ class StackTraceLogger(logging.Logger):
 
 
 def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool = False):
-    global logs
-    if logs:
+    global logs, _initialized
+    if _initialized:
         return
+    _initialized = True
 
     # workaround for google colab
     if not hasattr(sys.stdout, "buffer") or not hasattr(sys.stdout, "encoding") or not hasattr(sys.stdout, "line_buffering"):

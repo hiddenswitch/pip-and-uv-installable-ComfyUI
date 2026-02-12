@@ -544,10 +544,9 @@ def convert_ui_to_api(workflow: dict) -> dict:
     Raises:
         RuntimeError: If node system is not loaded.
     """
-    from ..execution_context import current_execution_context
+    from ..nodes_context import get_nodes
 
-    ctx = current_execution_context()
-    node_mappings = ctx.custom_nodes
+    node_mappings = get_nodes()
     if len(node_mappings) == 0:
         raise RuntimeError(
             "Node system not loaded. Call import_all_nodes_in_workspace() first."

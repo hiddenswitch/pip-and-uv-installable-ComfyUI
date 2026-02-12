@@ -120,6 +120,14 @@ def _fix_pytorch_240():
 
 
 def _create_tracer():
+    from ..component_model import setup as _setup_mod
+    if _setup_mod._tracing_initialized:
+        # Already set up by setup_post_torch → setup_tracing; just return a tracer
+        from opentelemetry import trace
+        return trace.get_tracer(args.otel_service_name)
+
+    _setup_mod._tracing_initialized = True
+
     from opentelemetry import trace, metrics
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -187,10 +195,6 @@ def _create_tracer():
 
     provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
 
-    # Mark setup.py's tracing as done so it won't duplicate instrumentation
-    from ..component_model import setup as _setup_mod
-    _setup_mod._tracing_initialized = True
-
     # makes this behave better as a library
     return trace.get_tracer(args.otel_service_name, tracer_provider=provider)
 
@@ -215,4 +219,19 @@ _register_fsspec_fs()
 # builds where InterpolationMode moved. Must happen before third-party imports
 # (transformers, spandrel, diffusers) that use the old location.
 from .. import torchvision_compat  # pylint: disable=unused-import
-tracer = _create_tracer()
+
+# tracer is a lazy module property: created on first access so that when the
+# CLI path (setup_post_torch → setup_tracing) has already initialised the
+# global TracerProvider we just hand back a tracer from it instead of trying
+# to set_tracer_provider a second time.
+from ..component_model.module_property import create_module_properties
+
+_module_properties = create_module_properties()
+
+
+@_module_properties.getter
+def _tracer():
+    return _create_tracer()
+
+
+tracer: ...

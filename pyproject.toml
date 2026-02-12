@@ -153,6 +153,7 @@ dev = [
     "pylint",
     "astroid",
     "nvidia-ml-py",
+    "playwright",
 ]
 
 [project.scripts]
@@ -168,6 +169,7 @@ Repository = "https://github.com/comfyanonymous/ComfyUI"
 markers = [
     "inference: mark as inference test (deselect with '-m \"not inference\"')",
     "execution: mark as execution test (deselect with '-m \"not execution\"')",
+    "slow: mark as slow test (deselect with '-m \"not slow\"')",
 ]
 testpaths = ["tests"]
 asyncio_mode = "auto"
