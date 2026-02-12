@@ -37,7 +37,7 @@ _hf_fs = HfFileSystem()
 logger = logging.getLogger(__name__)
 
 
-from can_ada import parse as urlparse
+from can_ada import parse as urlparse  # pylint: disable=no-name-in-module
 
 from .component_model.uris import is_uri, is_hf_uri
 

@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-from can_ada import can_parse, parse as urlparse
+from can_ada import can_parse, parse as urlparse  # pylint: disable=no-name-in-module
 from rich.console import Console
 from rich.table import Table
 

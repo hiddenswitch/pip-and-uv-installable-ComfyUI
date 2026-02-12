@@ -16,7 +16,7 @@ import json
 import logging
 from typing import Optional, Dict, FrozenSet, Tuple
 
-from can_ada import can_parse, parse as urlparse
+from can_ada import can_parse, parse as urlparse  # pylint: disable=no-name-in-module
 
 import requests
 

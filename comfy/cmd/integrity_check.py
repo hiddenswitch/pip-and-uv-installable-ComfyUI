@@ -218,7 +218,7 @@ def _check_sageattention() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("sageattention runtime", None, "no CUDA device")
     try:
-        from sageattention import sageattn_qk_int8_pv_fp16_cuda
+        from sageattention import sageattn_qk_int8_pv_fp16_cuda  # pylint: disable=import-error
         q = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
         k = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
         v = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
@@ -236,7 +236,7 @@ def _check_xformers() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("xformers runtime", None, "no GPU device")
     try:
-        from xformers.ops import memory_efficient_attention
+        from xformers.ops import memory_efficient_attention  # pylint: disable=import-error
         q = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
         k = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
         v = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
