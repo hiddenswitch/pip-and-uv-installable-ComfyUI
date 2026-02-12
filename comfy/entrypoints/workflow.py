@@ -10,27 +10,20 @@ import typer
 from ..cli_args_types import Configuration
 from ..component_model.asyncio_files import stream_json_objects
 from ..component_model.uris import is_uri
+from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
 from ..client.embedded_comfy_client import Comfy
 
 logger = logging.getLogger(__name__)
 
 
-def _is_ui_workflow(obj: dict) -> bool:
-    """Return True if *obj* is a UI/LiteGraph workflow (not API format)."""
-    return "nodes" in obj and "links" in obj
-
-
 def _ensure_api_format(obj: dict) -> dict:
-    """Convert a UI workflow to API format if needed, otherwise return as-is."""
-    if not _is_ui_workflow(obj):
+    if not is_ui_workflow(obj):
         return obj
-    from ..component_model.workflow_convert import convert_ui_to_api
     logger.info("Converting UI workflow to API format")
     return convert_ui_to_api(obj)
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
-    """Apply CLI overrides to a workflow dict."""
     from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
         replace_prompt_text, replace_negative_prompt_text,
         replace_steps, replace_seed,
@@ -55,11 +48,6 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
 
 
 def _resolve_workflow(workflow: str) -> str:
-    """Resolve a workflow argument to a path/URI/literal that stream_json_objects understands.
-
-    If the string looks like a file path, URI, stdin marker, or literal JSON, return
-    it as-is.  Otherwise try to resolve it as a template name or ID.
-    """
     if workflow == "-" or workflow.lstrip().startswith("{") or is_uri(workflow):
         return workflow
     if os.sep in workflow or workflow.endswith(".json"):
@@ -88,7 +76,6 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
 
 
 def entrypoint():
-    """Legacy entrypoint. Delegates to ``comfyui post-workflow``."""
     warnings.warn(
         "comfyui-workflow is deprecated. Use: comfyui post-workflow",
         DeprecationWarning,

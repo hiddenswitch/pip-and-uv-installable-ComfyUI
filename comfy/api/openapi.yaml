@@ -403,12 +403,14 @@ paths:
       summary: (API) Generate image
       description: |
         Run a prompt to generate an image.
-        
+
+        Accepts both API-format prompts and UI-format workflows (exported via Save from the ComfyUI web UI). UI workflows are automatically converted to API format before execution.
+
         Blocks until the image is produced. This may take an arbitrarily long amount of time due to model loading.
-        
+
         Prompts that produce multiple images will return the last SaveImage output node in the Prompt by default. To return a specific image, remove other
         SaveImage nodes.
-        
+
         When images are included in your request body, these are saved and their
         filenames will be used in your Prompt.
       responses:
@@ -646,8 +648,11 @@ components:
     Prompt:
       type: object
       description: |
-        The keys are stringified integers corresponding to nodes.
-        
+        An API-format prompt or a UI-format workflow.
+
+        API format: keys are stringified integers corresponding to nodes, values are PromptNode objects.
+        UI format: a LiteGraph workflow object with "nodes" and "links" arrays (exported via Save from the web UI). UI workflows are automatically converted to API format.
+
         You can retrieve the last prompt run using GET /api/v1/prompts
       additionalProperties:
         $ref: '#/components/schemas/PromptNode'

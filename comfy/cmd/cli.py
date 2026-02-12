@@ -465,6 +465,7 @@ def post_workflow(
     guess_settings: bool = typer.Option(False, "--guess-settings", help="Auto-detect settings."),
     logging_level: str = typer.Option("INFO", "--logging-level", help="Log level."),
     disable_all_custom_nodes: bool = typer.Option(False, "--disable-all-custom-nodes", help="Disable custom nodes."),
+    disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
     database_url: Optional[str] = typer.Option(None, "--database-url", help="Database URL."),
 ):
     """Execute workflow(s) and exit."""
@@ -538,13 +539,18 @@ def list_workflow_templates(
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     template_dir: Optional[list[str]] = typer.Option(None, "--template-dir", help="Extra directories to scan."),
     convert_to_api: bool = typer.Option(False, "--convert-to-api", help="Convert UI workflows to API format (boots node system)."),
+    all_templates: bool = typer.Option(False, "-a", "--all", help="Include API-key-requiring templates."),
 ):
     """List available workflow templates."""
+    import sys
     from .workflow_templates import list_templates
+    interactive = sys.stdout.isatty() and format == "table"
     list_templates(
         format=format,
         extra_dirs=template_dir or [],
         convert=convert_to_api,
+        show_all=all_templates,
+        interactive=interactive,
     )
 
 

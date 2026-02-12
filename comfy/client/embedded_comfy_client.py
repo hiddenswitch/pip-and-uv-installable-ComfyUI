@@ -28,6 +28,7 @@ from ..cmd.folder_paths import init_default_paths  # pylint: disable=import-erro
 from ..component_model.executor_types import ExecutorToClientProgress
 from ..component_model.make_mutable import make_mutable
 from ..component_model.queue_types import QueueItem, ExecutionStatus, TaskInvocation, QueueTuple, ExtraData
+from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
 from ..distributed.executors import ContextVarExecutor
 from ..distributed.history import History
 from ..distributed.process_pool_executor import ProcessPoolExecutor
@@ -430,6 +431,10 @@ class Comfy:
         if isinstance(self._executor, ProcessPoolExecutor) and progress_handler is not None:
             logger.debug(f"a progress_handler={progress_handler} was passed, it must be pickleable to support ProcessPoolExecutor")
         progress_handler = progress_handler or self._progress_handler
+
+        if isinstance(prompt, dict) and is_ui_workflow(prompt):
+            prompt = convert_ui_to_api(prompt)
+
         with self._task_count_lock:
             self._task_count += 1
         prompt_id = prompt_id or str(uuid.uuid4())
@@ -438,7 +443,6 @@ class Comfy:
         span_context = context.get_current()
         carrier = {}
         propagate.inject(carrier, span_context)
-        # setup history
         prompt = make_mutable(prompt)
 
         try:

@@ -28,7 +28,7 @@ This LTS fork adds development, embedding, automated testing, LLM and distribute
 Install `uv`, then:
 
 ```shell
-uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui --workflows https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json --prompt "a girl with red hair" --steps 9
+uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui post-workflow https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json --prompt "a girl with red hair" --steps 9
 ```
 
 ## Quickstart (Linux)
@@ -99,7 +99,7 @@ async with Comfy() as client:
     # All models unloaded and VRAM released on exit
 ```
 
-Build workflows programmatically with `GraphBuilder`, or paste API-format JSON from the web UI. Stream previews during inference with `queue_with_progress`.
+Build workflows programmatically with `GraphBuilder`, or paste JSON from the web UI (both API and UI format workflows are accepted). Stream previews during inference with `queue_with_progress`.
 
 See [Embedded / Library Usage](docs/embedded.md) for complete examples.
 

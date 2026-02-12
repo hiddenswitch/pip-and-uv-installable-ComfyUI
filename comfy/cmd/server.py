@@ -59,6 +59,7 @@ from ..component_model.executor_types import ExecutorToClientProgress, StatusMes
 from ..component_model.file_output_path import file_output_path
 from ..component_model.queue_types import QueueItem, HistoryEntry, BinaryEventTypes, TaskInvocation, ExecutionError, \
     ExecutionStatus, QueueTuple, ExtraData
+from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
 from ..digest import digest
 from ..images import open_image
 from ..middleware.cache_middleware import cache_control
@@ -1134,6 +1135,9 @@ class PromptServer(ExecutorToClientProgress):
 
             if len(prompt_dict) == 0:
                 return web.Response(status=400, reason="no prompt was specified")
+
+            if is_ui_workflow(prompt_dict):
+                prompt_dict = convert_ui_to_api(prompt_dict)
 
             content_digest = digest(prompt_dict)
             task_id = str(uuid.uuid4())

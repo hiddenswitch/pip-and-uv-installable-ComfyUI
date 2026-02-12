@@ -14,7 +14,7 @@ uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch
 
 ## Running a Workflow
 
-Save a workflow from the ComfyUI web UI in API format (a JSON file). This JSON is a valid Python `dict[str, Any]` literal — paste it directly into your code:
+Save a workflow from the ComfyUI web UI as a JSON file. You can use either the standard Save (UI format) or Save -> API Format — `queue_prompt` accepts both and automatically converts UI workflows to API format. The API format JSON is a valid Python `dict[str, Any]` literal — paste it directly into your code:
 
 ```python
 from comfy.client.embedded_comfy_client import Comfy
@@ -158,6 +158,23 @@ prompt = builder.finalize()
 
 The `finalize()` output is identical to the API format JSON — pass it to `client.queue_prompt(prompt)`.
 
+## Converting UI Workflows to API Format
+
+`queue_prompt` accepts both API and UI format workflows and converts automatically. You can also convert explicitly:
+
+```python
+import json
+from comfy.component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
+
+workflow = json.loads(open("my_workflow.json").read())
+
+if is_ui_workflow(workflow):
+    api_workflow = convert_ui_to_api(workflow)
+    print(json.dumps(api_workflow, indent=2))
+```
+
+This is useful for batch-converting saved UI workflows to API format, or for inspecting the conversion output.
+
 ## Streaming Progress and Previews
 
 Use `queue_with_progress` to receive preview images during inference:
@@ -273,41 +290,49 @@ async with Comfy(configuration=config) as client:
         print(f"{workflow_path.name}: {outputs}")
 ```
 
-## Headless Workflow Execution with `--workflows`
+## Headless Workflow Execution with `post-workflow`
 
-The `--workflows` CLI flag runs workflows without starting the web server. Outputs are printed as JSON to stdout, and application logging goes to stderr.
+The `post-workflow` subcommand executes workflows and exits without starting the web server. Both API-format and UI-format workflow files are accepted. Outputs are printed as JSON to stdout, and application logging goes to stderr.
 
 **Run a single workflow file:**
 
 ```bash
-uv run --no-sync comfyui --workflows my_workflow.json
+comfyui post-workflow my_workflow.json
 ```
 
 **Run multiple workflow files:**
 
 ```bash
-uv run --no-sync comfyui --workflows workflow1.json workflow2.json
+comfyui post-workflow workflow1.json workflow2.json
 ```
 
 **Read workflows from stdin (use `-`):**
 
 ```bash
-cat my_workflow.json | uv run --no-sync comfyui --workflows -
+cat my_workflow.json | comfyui post-workflow -
 ```
 
 **Pipe a literal JSON workflow:**
 
 ```bash
-echo '{"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"v1-5-pruned-emaonly.safetensors"}}}' | uv run --no-sync comfyui --workflows -
+echo '{"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"v1-5-pruned-emaonly.safetensors"}}}' | comfyui post-workflow -
 ```
 
 The input stream supports concatenated JSON objects — multiple `{}{}{}` objects in sequence will each be executed as a separate workflow. Each workflow's outputs are printed as a single JSON line to stdout.
 
-Combine with other flags for performance tuning:
+**Override prompt text, seed, or steps:**
 
 ```bash
-uv run --no-sync comfyui --novram --use-sage-attention --fast cublas_ops --workflows my_workflow.json
+comfyui post-workflow my_workflow.json --prompt "a cat on the moon" --steps 20 --seed 42
 ```
+
+Combine with performance flags:
+
+```bash
+comfyui post-workflow my_workflow.json --novram --fast cublas_ops
+```
+
+Run `comfyui post-workflow --help` for the full list of options.
 
 ## Adding Known Models for Automatic Download
 

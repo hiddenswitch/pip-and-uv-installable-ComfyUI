@@ -289,7 +289,7 @@ class TestMapWidgets:
         """widgets_values should skip connection types and handle control_after_generate."""
         input_types = _KSamplerLike.INPUT_TYPES()
         widgets = [685468484323813, "randomize", 20, 8, "euler", "normal", 1]
-        result = _map_widgets(input_types, widgets)
+        result, _ = _map_widgets(input_types, widgets)
         assert result == {
             "seed": 685468484323813,
             "steps": 20,
@@ -301,37 +301,37 @@ class TestMapWidgets:
 
     def test_clip_text_encode(self):
         input_types = _CLIPTextEncode.INPUT_TYPES()
-        result = _map_widgets(input_types, ["beautiful scenery"])
+        result, _ = _map_widgets(input_types, ["beautiful scenery"])
         assert result == {"text": "beautiful scenery"}
 
     def test_checkpoint_loader(self):
         input_types = _CheckpointLoaderSimple.INPUT_TYPES()
-        result = _map_widgets(input_types, ["model_a.safetensors"])
+        result, _ = _map_widgets(input_types, ["model_a.safetensors"])
         assert result == {"ckpt_name": "model_a.safetensors"}
 
     def test_empty_latent_image(self):
         input_types = _EmptyLatentImage.INPUT_TYPES()
-        result = _map_widgets(input_types, [512, 512, 1])
+        result, _ = _map_widgets(input_types, [512, 512, 1])
         assert result == {"width": 512, "height": 512, "batch_size": 1}
 
     def test_save_image(self):
         input_types = _SaveImage.INPUT_TYPES()
-        result = _map_widgets(input_types, ["SD1.5"])
+        result, _ = _map_widgets(input_types, ["SD1.5"])
         assert result == {"filename_prefix": "SD1.5"}
 
     def test_load_image_with_upload(self):
         input_types = _LoadImage.INPUT_TYPES()
-        result = _map_widgets(input_types, ["photo.png", "image"])
+        result, _ = _map_widgets(input_types, ["photo.png", "image"])
         assert result == {"image": "photo.png"}
 
     def test_vae_decode_empty(self):
         input_types = _VAEDecode.INPUT_TYPES()
-        result = _map_widgets(input_types, [])
+        result, _ = _map_widgets(input_types, [])
         assert result == {}
 
     def test_image_scale_with_optional(self):
         input_types = _ImageScaleToTotalPixels.INPUT_TYPES()
-        result = _map_widgets(input_types, ["lanczos", 1.0, 1])
+        result, _ = _map_widgets(input_types, ["lanczos", 1.0, 1])
         assert result == {
             "upscale_method": "lanczos",
             "megapixels": 1.0,
@@ -340,13 +340,13 @@ class TestMapWidgets:
 
     def test_force_input_skipped(self):
         input_types = _ForceInputNode.INPUT_TYPES()
-        result = _map_widgets(input_types, ["hello"])
+        result, _ = _map_widgets(input_types, ["hello"])
         assert result == {"label": "hello"}
 
     def test_truncated_widgets(self):
         """If widgets_values is shorter than expected, map what we can."""
         input_types = _EmptyLatentImage.INPUT_TYPES()
-        result = _map_widgets(input_types, [768])
+        result, _ = _map_widgets(input_types, [768])
         assert result == {"width": 768}
 
     def test_dict_widgets_passthrough(self):
@@ -362,13 +362,13 @@ class TestMapWidgets:
             def INPUT_TYPES(cls):
                 return {"required": {"items": ("STRING", {})}}
 
-        result = _map_widgets(_ListWidget.INPUT_TYPES(), [["a", "b"]])
+        result, _ = _map_widgets(_ListWidget.INPUT_TYPES(), [["a", "b"]])
         assert result == {"items": {"__value__": ["a", "b"]}}
 
     def test_scalar_not_wrapped(self):
         """Scalar values should NOT be wrapped."""
         input_types = _EmptyLatentImage.INPUT_TYPES()
-        result = _map_widgets(input_types, [512, 512, 1])
+        result, _ = _map_widgets(input_types, [512, 512, 1])
         assert result["width"] == 512
         assert not isinstance(result["width"], dict)
 

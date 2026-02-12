@@ -39,7 +39,7 @@ See more in Colab: https://colab.research.google.com/drive/1Gd9F8iYRJW-LG8JLiwGT
 
 ### Remote
 
-Visit the ComfyUI interface, design your workflow and click **Save (API Format)**. This JSON is what you will use as your workflow.
+Visit the ComfyUI interface and design your workflow. You can export it using either **Save** (UI format) or **Save (API Format)**. Both formats are accepted — UI workflows are automatically converted to API format.
 
 You can use the built-in Python client library by installing this package without its dependencies.
 
@@ -65,7 +65,7 @@ See [script_examples/remote_api_example.py](examples/script_examples/remote_api_
 
 First, install this package using the [Installation Instructions](#installing). Then, run `comfyui`.
 
-Visit the ComfyUI interface, design your workflow and click **Save (API Format)**. This JSON is what you will use as your workflow.
+Visit the ComfyUI interface and design your workflow. Export it using either **Save** (UI format) or **Save (API Format)** — both are accepted.
 
 Then, send a request to `api/v1/prompts`. Here are some examples:
 

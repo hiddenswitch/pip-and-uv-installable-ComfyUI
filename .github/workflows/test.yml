@@ -66,6 +66,12 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=numpy_override.txt
           uv pip install --torch-backend=auto ".[dev]" --inexact
+      - name: Install VideoHelperSuite
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          export UV_OVERRIDE=numpy_override.txt
+          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Lint for errors
         run: |
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
@@ -121,6 +127,13 @@ jobs:
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
+      - name: Install VideoHelperSuite
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_PYTHON=/opt/venv/bin/python
+          export UV_PRERELEASE=allow
+          export UV_OVERRIDE=overrides.txt
+          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src
@@ -172,6 +185,13 @@ jobs:
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
+      - name: Install VideoHelperSuite
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          export UV_PRERELEASE=allow
+          export UV_OVERRIDE=overrides.txt
+          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src
@@ -179,7 +199,6 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          # Exclude tests that spawn background servers - XPU initialization is too slow for 60s timeout
           python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test
 #      - name: Run inference tests
 #        run: |
@@ -204,3 +223,6 @@ jobs:
         run: |
           uv venv --python 3.12
           uv pip install --torch-backend=auto '.[mps,dev]' --inexact
+      - name: Install VideoHelperSuite
+        run: |
+          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact

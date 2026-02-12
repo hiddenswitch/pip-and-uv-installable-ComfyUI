@@ -39,7 +39,7 @@ tests/
         └── my-custom-workflow-0.json
 ```
 
-The `__init__.py` inside `workflows/` is required so that `importlib.resources` can discover the JSON files. Each JSON file is an API-format workflow exported from the ComfyUI web UI (Save -> API Format).
+The `__init__.py` inside `workflows/` is required so that `importlib.resources` can discover the JSON files. Each JSON file can be either an API-format workflow (Save -> API Format) or a standard UI workflow (Save) exported from the ComfyUI web UI. UI workflows are automatically converted to API format at runtime.
 
 ## Minimal pytest Example
 
@@ -186,7 +186,7 @@ my-custom-nodes/
         └── test.yaml
 ```
 
-Export each workflow from the ComfyUI web UI via Save -> API Format and place the JSON files in `tests/workflows/`.
+Export each workflow from the ComfyUI web UI (either Save or Save -> API Format) and place the JSON files in `tests/workflows/`. Both formats are accepted — UI workflows are converted automatically.
 
 ### pyproject.toml
 
@@ -467,3 +467,33 @@ pytest tests/ -x -vv
 # Run a specific workflow
 pytest tests/ -k "my-workflow-a" -vv
 ```
+
+---
+
+## Playwright Frontend Parity Tests
+
+The `test_workflow_convert_playwright.py` test cross-validates the Python `convert_ui_to_api()` against the real frontend `graphToPrompt()`. It loads template workflows in a headless Chromium browser and compares the output.
+
+### Cache
+
+Frontend outputs are cached on disk at `tests/unit/playwright_cache/{frontend_version}/` keyed by the `comfyui-frontend-package` version. Playwright is only needed when the cache is missing for a template.
+
+### Invalidating the Cache
+
+After adding new node implementations (e.g. adding a custom node to `comfy_extras/nodes/`), the cached frontend outputs may be stale — the frontend previously serialized those nodes as `class_type: null` but will now serialize them properly.
+
+Clear affected cache entries:
+
+```python
+from tests.unit.test_workflow_convert_playwright import invalidate_stale_cache
+deleted = invalidate_stale_cache()
+print(f"Deleted {len(deleted)} stale cache entries: {deleted}")
+```
+
+Or from the command line:
+
+```shell
+python -c "from tests.unit.test_workflow_convert_playwright import invalidate_stale_cache; print(invalidate_stale_cache())"
+```
+
+The next test run will regenerate those entries via Playwright (requires `pip install playwright && python -m playwright install chromium`).
