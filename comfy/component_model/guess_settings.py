@@ -11,7 +11,10 @@ import logging
 import os
 import subprocess
 import re
-from typing import TYPE_CHECKING
+import sys
+from typing import Optional, TYPE_CHECKING
+
+from ..cli_args_types import VRAM_MODES, VAE_MODES, ATTENTION_MODES
 
 if TYPE_CHECKING:
     from ..cli_args_types import Configuration
@@ -87,6 +90,45 @@ def _competing_gpu_processes() -> list[str]:
         return []
 
 
+def _amd_gfx_version() -> Optional[str]:
+    """Return the GFX target ID (e.g. 'gfx1100', 'gfx1201') or None."""
+    try:
+        result = subprocess.run(
+            ["rocminfo"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                m = re.search(r"(gfx\d+)", line)
+                if m:
+                    return m.group(1)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # fallback: /sys/class/kfd
+    try:
+        topology = "/sys/class/kfd/kfd/topology/nodes"
+        if os.path.isdir(topology):
+            for node in sorted(os.listdir(topology)):
+                props = os.path.join(topology, node, "properties")
+                if os.path.isfile(props):
+                    with open(props, encoding="utf-8") as fh:
+                        for line in fh:
+                            if line.startswith("gfx_target_version"):
+                                ver = line.split()[-1].strip()
+                                if ver and ver != "0":
+                                    major = int(ver) // 10000
+                                    minor = (int(ver) % 10000) // 100
+                                    patch = int(ver) % 100
+                                    return f"gfx{major}{minor:01d}{patch:02d}"
+    except (OSError, ValueError):
+        pass
+
+    return None
+
+
 def _has_package(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
@@ -104,47 +146,46 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
     is_amd = _has_amd_gpu()
     ram_gb = _total_ram_gb()
 
-    # RAM < 32 GB: disable pinned memory
     if ram_gb and ram_gb < 32 and not configuration.disable_pinned_memory:
-        logger.info("guess-settings: %.1f GB RAM detected, disabling pinned memory", ram_gb)
+        logger.info(f"{ram_gb:.1f} GB RAM detected, disabling pinned memory")
         configuration.disable_pinned_memory = True
 
-    # NVIDIA: add cublas_ops to --fast
     if is_nvidia:
         fast = set(configuration.fast) if configuration.fast else set()
         if PerformanceFeature.CublasOps not in fast:
             fast.add(PerformanceFeature.CublasOps)
             configuration.fast = list(fast)
-            logger.info("guess-settings: NVIDIA GPU detected, enabling cublas_ops")
+            logger.info("NVIDIA GPU detected, enabling cublas_ops")
 
-    # NVIDIA: competing GPU processes -> novram
     if is_nvidia:
-        vram_fields = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
-        user_set_vram = any(getattr(configuration, f, False) for f in vram_fields)
+        user_set_vram = any(getattr(configuration, f, False) for f in VRAM_MODES)
         if not user_set_vram:
             procs = _competing_gpu_processes()
             if procs:
-                logger.info("guess-settings: competing GPU processes detected (%s), enabling novram", ", ".join(procs))
+                logger.info(f"competing GPU processes detected ({', '.join(procs)}), enabling novram")
                 configuration.novram = True
 
-    # AMD: fp32 VAE
     if is_amd:
-        vae_fields = ("fp16_vae", "fp32_vae", "bf16_vae")
-        if not any(getattr(configuration, f, False) for f in vae_fields):
-            logger.info("guess-settings: AMD GPU detected, enabling fp32 VAE")
-            configuration.fp32_vae = True
+        if not any(getattr(configuration, f, False) for f in VAE_MODES):
+            gfx = _amd_gfx_version()
+            if gfx and gfx.startswith("gfx12"):
+                logger.info(f"AMD RDNA 4 ({gfx}) detected, enabling fp16 VAE")
+                configuration.fp16_vae = True
+            else:
+                logger.info(f"AMD GPU ({gfx or 'unknown'}) detected, enabling fp32 VAE")
+                configuration.fp32_vae = True
 
-    # attention backend
-    attn_fields = ("use_split_cross_attention", "use_quad_cross_attention",
-                   "use_sage_attention", "use_flash_attention")
-    user_set_attn = any(getattr(configuration, f, False) for f in attn_fields)
+    user_set_attn = any(getattr(configuration, f, False) for f in ATTENTION_MODES)
     if not user_set_attn:
-        if _has_package("sageattention"):
-            logger.info("guess-settings: sageattention found, enabling sage attention")
+        if is_amd and sys.platform == "win32":
+            logger.info("AMD GPU on Windows detected, enabling quad cross attention")
+            configuration.use_quad_cross_attention = True
+        elif _has_package("sageattention"):
+            logger.info("sageattention found, enabling sage attention")
             configuration.use_sage_attention = True
         elif _has_package("xformers"):
-            logger.info("guess-settings: xformers found, keeping xformers enabled")
+            logger.info("xformers found, keeping xformers enabled")
             configuration.disable_xformers = False
         else:
-            logger.info("guess-settings: using default PyTorch cross attention")
+            logger.info("using default PyTorch cross attention")
             configuration.use_pytorch_cross_attention = True

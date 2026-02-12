@@ -142,6 +142,7 @@ dev = [
     "pytest-mock",
     "pytest-aiohttp",
     "pytest-xdist",
+    "pytest-timeout",
     "websocket-client>=1.6.1",
     "PyInstaller",
     "testcontainers",
@@ -162,6 +163,14 @@ comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
 [project.urls]
 Homepage = "https://github.com/comfyanonymous/ComfyUI"
 Repository = "https://github.com/comfyanonymous/ComfyUI"
+
+[tool.pytest.ini_options]
+markers = [
+    "inference: mark as inference test (deselect with '-m \"not inference\"')",
+    "execution: mark as execution test (deselect with '-m \"not execution\"')",
+]
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 lint.select = [

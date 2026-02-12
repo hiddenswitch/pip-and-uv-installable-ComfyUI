@@ -144,18 +144,15 @@ def _print_table(templates: list[TemplateInfo]):
         print("No workflow templates found.")
         return
 
-    table = Table(show_edge=False, pad_edge=False, box=None)
+    console = Console()
+    table = Table(show_edge=False, pad_edge=False, box=None, width=max(console.width, 200))
     table.add_column("ID", no_wrap=True)
     table.add_column("Name", no_wrap=True)
-    table.add_column("Type", no_wrap=True)
-    table.add_column("Source", no_wrap=True)
-    table.add_column("Description", no_wrap=True, overflow="ellipsis")
+    table.add_column("Description", no_wrap=True, overflow="ellipsis", ratio=1)
     for t in templates:
         table.add_row(
             t.template_id or "",
             t.name,
-            t.media_type or "",
-            t.source,
             t.description or "",
         )
-    Console().print(table)
+    console.print(table, soft_wrap=True)

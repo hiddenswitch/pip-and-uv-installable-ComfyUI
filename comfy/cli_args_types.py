@@ -63,6 +63,16 @@ class PerformanceFeature(enum.Enum):
     DynamicVRAM = "dynamic_vram"
 
 
+VRAM_MODES = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
+PRECISION_MODES = ("force_fp32", "force_fp16", "force_bf16")
+UNET_MODES = ("fp32_unet", "fp64_unet", "bf16_unet", "fp16_unet", "fp8_e4m3fn_unet", "fp8_e5m2_unet", "fp8_e8m0fnu_unet")
+VAE_MODES = ("fp16_vae", "fp32_vae", "bf16_vae")
+TEXT_ENC_MODES = ("fp8_e4m3fn_text_enc", "fp8_e5m2_text_enc", "fp16_text_enc", "fp32_text_enc", "bf16_text_enc")
+ATTENTION_MODES = ("use_split_cross_attention", "use_quad_cross_attention", "use_pytorch_cross_attention", "use_sage_attention", "use_flash_attention")
+CACHE_MODES = ("cache_classic", "cache_lru", "cache_none", "cache_ram")
+UPCAST_MODES = ("force_upcast_attention", "dont_upcast_attention")
+
+
 class Configuration(dict):
     """
     Configuration options parsed from command-line arguments or config files.
