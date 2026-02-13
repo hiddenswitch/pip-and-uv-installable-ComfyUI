@@ -114,7 +114,6 @@ def test_preview_string():
 
 
 def test_openai_language_model_loader():
-    """OpenAILanguageModelLoader now returns a RemoteLanguageModel (deprecation shim)."""
     if "OPENAI_API_KEY" not in os.environ:
         pytest.skip("must set OPENAI_API_KEY")
     loader = OpenAILanguageModelLoader()

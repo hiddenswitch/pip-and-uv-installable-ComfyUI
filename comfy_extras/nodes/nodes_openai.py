@@ -37,8 +37,6 @@ def validate_has_key():
 
 
 class OpenAILanguageModelLoader(CustomNode):
-    """Deprecated: use RemoteLanguageLoader instead. Kept for backward compatibility."""
-
     @classmethod
     def INPUT_TYPES(cls) -> InputTypes:
         return {

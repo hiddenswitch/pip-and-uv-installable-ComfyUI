@@ -47,7 +47,6 @@ def test_remote_language_model_from_pretrained():
 
 
 def _make_mock_agent(chunks):
-    """Create a mock Agent that streams the given text chunks."""
     mock_agent_instance = MagicMock()
 
     async def fake_stream_text(delta=False):
@@ -90,7 +89,6 @@ def test_remote_language_model_generate_with_images(MockAgent):
     result = model.generate(tokens, max_new_tokens=50, seed=0)
 
     assert result == "A cat"
-    # Verify user_prompt includes BinaryContent
     call_kwargs = mock_agent.run_stream.call_args.kwargs
     user_parts = call_kwargs["user_prompt"]
     assert len(user_parts) == 2  # text + image
@@ -116,7 +114,6 @@ def test_remote_language_model_generate_with_sampler(MockAgent):
 
 @patch("comfy.language.remote_model.Agent")
 def test_remote_language_model_generate_no_sampler_omits_temperature(MockAgent):
-    """When no sampler is provided, temperature/top_p should not be sent."""
     mock_agent = _make_mock_agent(["OK"])
     MockAgent.return_value = mock_agent
 
@@ -146,14 +143,11 @@ def test_remote_language_model_generate_with_language_prompt(MockAgent):
     result = model.generate(tokens, max_new_tokens=50, seed=0)
 
     assert result == "Response"
-    # System prompt should be passed as instructions
     assert MockAgent.call_args.kwargs["instructions"] == "You are a poet."
-    # User prompt should contain the text
     call_kwargs = mock_agent.run_stream.call_args.kwargs
     assert "Write a haiku" in call_kwargs["user_prompt"]
 
 
-# --- RemoteLanguageLoader tests ---
 
 @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False)
 def test_remote_language_loader_execute():
@@ -195,5 +189,4 @@ def test_get_available_models():
     assert "openai:gpt-4o" in models
     assert "anthropic:claude-sonnet-4-5-20250514" in models
     assert "google-gla:gemini-2.0-flash" in models
-    # No suffixes — clean model IDs for stable serialization
     assert all("[" not in m for m in models)
