@@ -105,7 +105,7 @@ class RemoteLanguageModel(LanguageModel):
             settings["top_p"] = sampler["top_p"]
         model_settings = ModelSettings(**settings)
 
-        agent = Agent(
+        agent = Agent(  # pylint: disable=unexpected-keyword-arg
             model=self._model_id,
             instructions=system_prompt or "",
         )
