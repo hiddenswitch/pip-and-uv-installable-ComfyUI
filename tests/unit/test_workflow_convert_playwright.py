@@ -480,17 +480,34 @@ def _normalize_numeric(val):
     return val
 
 
+_UI_STATE_INPUTS: set[tuple[str, str]] = {
+    ("LoadAudio", "audioUI"),
+    ("SaveAudio", "audioUI"),
+    ("PreviewAudio", "audioUI"),
+    ("SaveAudioMP3", "audioUI"),
+    ("SaveAudioOpus", "audioUI"),
+    ("RecordAudio", "audio"),
+    ("Preview3D", "image"),
+    ("SaveGLB", "image"),
+    ("ImageCompare", "compare_view"),
+    ("PreviewAny", "previewMode"),
+}
+
+
 def _normalize_api_output(output: dict) -> dict:
     """Normalize an API output dict for comparison."""
     normalized = {}
     for node_id, node_data in output.items():
         node_id_str = str(node_id)
+        class_type = node_data.get("class_type")
         entry = {
-            "class_type": node_data.get("class_type"),
+            "class_type": class_type,
             "inputs": {},
         }
         for key, val in node_data.get("inputs", {}).items():
             if key == "_meta":
+                continue
+            if (class_type, key) in _UI_STATE_INPUTS:
                 continue
             if isinstance(val, list) and len(val) == 2:
                 entry["inputs"][key] = [str(val[0]), int(val[1])]

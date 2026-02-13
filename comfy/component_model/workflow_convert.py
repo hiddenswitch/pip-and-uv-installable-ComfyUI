@@ -44,7 +44,7 @@ _UUID_RE: Final[re.Pattern[str]] = re.compile(
 )
 
 _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object], ...]]] = MappingProxyType({
-    "PreviewAny": (("preview", ""), ("previewMode", False)),
+    "PreviewAny": (("preview_markdown", ""), ("preview_text", ""), ("previewMode", False)),
     "LoadAudio": (("audioUI", ""),),
     "SaveAudio": (("audioUI", ""),),
     "PreviewAudio": (("audioUI", ""),),
@@ -357,14 +357,14 @@ class _NodeDTO:
     __slots__ = (
         'exec_id', 'node', 'graph_links', 'graph_nodes_by_id',
         'subgraph_node_path', 'sg_node_exec_id',
-        'sg_def', 'inner_links', 'proxy_overrides',
+        'sg_def', 'inner_links', 'proxy_overrides', 'id_remap',
     )
 
     def __init__(self, node, subgraph_node_path, graph_links, graph_nodes_by_id,
-                 sg_node_exec_id=None, sg_def=None):
+                 sg_node_exec_id=None, sg_def=None, remapped_nid=None):
         self.node = node
         self.subgraph_node_path = list(subgraph_node_path)
-        nid = node['id']
+        nid = remapped_nid if remapped_nid is not None else node['id']
         self.exec_id = ':'.join(str(x) for x in [*subgraph_node_path, nid])
         self.graph_links = graph_links
         self.graph_nodes_by_id = graph_nodes_by_id
@@ -372,6 +372,7 @@ class _NodeDTO:
         self.sg_def = sg_def
         self.inner_links = _build_inner_links(sg_def) if sg_def else {}
         self.proxy_overrides: dict[tuple[int, str], object] = {}
+        self.id_remap: dict[int, int] = {}
 
 
 def _compute_proxy_overrides(sg_node, parent_overrides=None):
@@ -404,12 +405,100 @@ def _compute_proxy_overrides(sg_node, parent_overrides=None):
     return overrides
 
 
-def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
-                     sg_defs, dto_map, sg_exec_id):
-    sg_nid = sg_node['id']
-    instance_path = [*subgraph_node_path, sg_nid]
+def _ensure_global_id_uniqueness(
+    workflow: dict, sg_defs: dict[str, dict],
+) -> dict[str, dict[int, int]]:
+    """Pre-remap inner node IDs across all subgraph definitions to ensure
+    global uniqueness, mirroring the frontend ``ensureGlobalIdUniqueness``.
 
+    The frontend iterates ``[rootGraph, ...subgraphs]`` (subgraphs in
+    definition order), maintaining a shared ``usedNodeIds`` set and a shared
+    ``lastNodeId`` counter.  When an inner node ID collides with any
+    previously-seen ID, it is reassigned to ``++lastNodeId`` (skipping any
+    IDs already in ``usedNodeIds``).
+
+    Returns a ``{subgraph_uuid: {old_id: new_id}}`` mapping for each
+    subgraph that required remapping.
+    """
+    outer_ids = {n['id'] for n in workflow.get('nodes', [])
+                 if isinstance(n.get('id'), int)}
+    last_node_id = workflow.get('last_node_id', max(outer_ids) if outer_ids else 0)
+
+    # The frontend bumps state.lastNodeId when adding inner nodes during
+    # subgraph.configure() (via LGraph.add), so by the time
+    # ensureGlobalIdUniqueness runs, lastNodeId is already >= max of all
+    # inner node IDs.  Mirror that by pre-scanning all subgraph definitions.
+    subgraph_defs = workflow.get('definitions', {}).get('subgraphs', [])
+    for sg in subgraph_defs:
+        if not isinstance(sg, dict):
+            continue
+        sg_state = sg.get('state')
+        if isinstance(sg_state, dict):
+            sg_last = sg_state.get('lastNodeId')
+            if isinstance(sg_last, int) and sg_last > last_node_id:
+                last_node_id = sg_last
+        for n in sg.get('nodes', []):
+            nid = n.get('id')
+            if isinstance(nid, int) and nid > last_node_id:
+                last_node_id = nid
+
+    used_ids: set[int] = set(outer_ids)
+    remaps: dict[str, dict[int, int]] = {}
+
+    for sg in subgraph_defs:
+        if not isinstance(sg, dict) or 'id' not in sg:
+            continue
+        sg_id = sg['id']
+        id_remap: dict[int, int] = {}
+        for n in sg.get('nodes', []):
+            nid = n.get('id')
+            if not isinstance(nid, int) or nid < 0:
+                continue
+            if nid in used_ids:
+                while last_node_id + 1 in used_ids:
+                    last_node_id += 1
+                last_node_id += 1
+                id_remap[nid] = last_node_id
+                used_ids.add(last_node_id)
+            else:
+                used_ids.add(nid)
+                if nid > last_node_id:
+                    last_node_id = nid
+        if id_remap:
+            remaps[sg_id] = id_remap
+
+    return remaps
+
+
+def _build_clobbered_node_data(workflow: dict) -> dict[int, dict]:
+    """Build a map ``{node_id: node_dict}`` recording the *last* definition's
+    node data for each inner node ID, matching the frontend's configure-time
+    clobbering when multiple subgraph definitions share the same inner IDs.
+
+    In the frontend, ``Subgraph.configure`` creates ``LGraphNode`` instances
+    from the definition and adds them via ``LGraph.add``.  When two
+    definitions both define a node with ID *N*, the second ``configure``
+    overwrites the first's widget values for that ID.  After
+    ``ensureGlobalIdUniqueness`` remaps collisions, the *first* definition
+    retains the original ID but has the *last* definition's widget values.
+    """
+    result: dict[int, dict] = {}
+    for sg in workflow.get('definitions', {}).get('subgraphs', []):
+        if not isinstance(sg, dict):
+            continue
+        for n in sg.get('nodes', []):
+            nid = n.get('id')
+            if isinstance(nid, int) and nid >= 0:
+                result[nid] = n
+    return result
+
+
+def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
+                     sg_defs, dto_map, sg_exec_id, id_remaps=None,
+                     clobbered_node_data=None):
     sg_dto = dto_map[sg_exec_id]
+    instance_path = [int(x) for x in sg_dto.exec_id.split(':')]
+
     inner_links = sg_dto.inner_links
     inner_nodes_by_id: dict[int, dict] = {}
     for n in sg_def.get('nodes', []):
@@ -417,35 +506,49 @@ def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
         if nid is not None:
             inner_nodes_by_id[nid] = n
 
+    sg_uuid = sg_def.get('id', '')
+    id_remap: dict[int, int] = id_remaps.get(sg_uuid, {}) if id_remaps else {}
+    sg_dto.id_remap = id_remap
+
     for inner_node in sg_def.get('nodes', []):
         inner_nid = inner_node.get('id')
         if inner_nid is None or inner_nid < 0:
             continue
 
+        remapped_nid = id_remap.get(inner_nid)
         class_type = inner_node.get('type', '')
         mode = inner_node.get('mode', 0)
+
+        effective_node = inner_node
+        if clobbered_node_data and remapped_nid is None and inner_nid in clobbered_node_data:
+            clobbered = clobbered_node_data[inner_nid]
+            if clobbered is not inner_node:
+                effective_node = {**inner_node, 'widgets_values': clobbered.get('widgets_values', [])}
 
         if _is_subgraph_type(class_type, sg_defs):
             child_sg_def = sg_defs[class_type]
             child_dto = _NodeDTO(
-                inner_node, instance_path, inner_links, inner_nodes_by_id,
+                effective_node, instance_path, inner_links, inner_nodes_by_id,
                 sg_node_exec_id=sg_exec_id, sg_def=child_sg_def,
+                remapped_nid=remapped_nid,
             )
             child_dto.proxy_overrides = _compute_proxy_overrides(
-                inner_node,
+                effective_node,
                 parent_overrides=sg_dto.proxy_overrides,
             )
             dto_map[child_dto.exec_id] = child_dto
 
             if mode not in (_MODE_NEVER, _MODE_BYPASS):
                 _expand_subgraph(
-                    inner_node, child_sg_def, instance_path,
+                    effective_node, child_sg_def, instance_path,
                     sg_defs, dto_map, child_dto.exec_id,
+                    id_remaps=id_remaps,
+                    clobbered_node_data=clobbered_node_data,
                 )
         else:
             dto = _NodeDTO(
-                inner_node, instance_path, inner_links, inner_nodes_by_id,
-                sg_node_exec_id=sg_exec_id,
+                effective_node, instance_path, inner_links, inner_nodes_by_id,
+                sg_node_exec_id=sg_exec_id, remapped_nid=remapped_nid,
             )
             dto_map[dto.exec_id] = dto
 
@@ -461,6 +564,9 @@ def _build_dto_map(workflow, sg_defs):
         nid = node.get('id')
         if nid is not None:
             nodes_by_id[nid] = node
+
+    id_remaps = _ensure_global_id_uniqueness(workflow, sg_defs)
+    clobbered_node_data = _build_clobbered_node_data(workflow)
 
     dto_map: dict[str, _NodeDTO] = {}
 
@@ -481,6 +587,8 @@ def _build_dto_map(workflow, sg_defs):
             if mode not in (_MODE_NEVER, _MODE_BYPASS):
                 _expand_subgraph(
                     node, sg_def, [], sg_defs, dto_map, sg_dto.exec_id,
+                    id_remaps=id_remaps,
+                    clobbered_node_data=clobbered_node_data,
                 )
         else:
             dto = _NodeDTO(node, [], links, nodes_by_id)
@@ -606,7 +714,12 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
 
         return _resolve_dto_input(sg_dto, sg_inp_idx, dto_map, visited)
 
-    src_exec_id = ':'.join(str(x) for x in [*dto.subgraph_node_path, link.src_node])
+    src_nid = link.src_node
+    if dto.sg_node_exec_id:
+        _sg_parent = dto_map.get(dto.sg_node_exec_id)
+        if _sg_parent and _sg_parent.id_remap:
+            src_nid = _sg_parent.id_remap.get(src_nid, src_nid)
+    src_exec_id = ':'.join(str(x) for x in [*dto.subgraph_node_path, src_nid])
     src_dto = dto_map.get(src_exec_id)
     if src_dto is None:
         return None
@@ -654,11 +767,10 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited):
 def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited):
     for link in sg_dto.inner_links.values():
         if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot:
-            inner_exec_id = ':'.join(
-                str(x) for x in [
-                    *sg_dto.subgraph_node_path, sg_dto.node['id'], link.src_node,
-                ]
-            )
+            src_nid = link.src_node
+            if sg_dto.id_remap:
+                src_nid = sg_dto.id_remap.get(src_nid, src_nid)
+            inner_exec_id = f"{sg_dto.exec_id}:{src_nid}"
             inner_dto = dto_map.get(inner_exec_id)
             if inner_dto is None:
                 continue
