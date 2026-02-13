@@ -306,6 +306,7 @@ class Configuration(dict):
         self.openai_api_key: Optional[str] = None
         self.ideogram_api_key: Optional[str] = None
         self.anthropic_api_key: Optional[str] = None
+        self.google_api_key: Optional[str] = None
         self.user_directory: Optional[str] = None
         self.panic_when: list[str] = []
         self.workflows: list[str] = []

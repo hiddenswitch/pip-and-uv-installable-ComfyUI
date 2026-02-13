@@ -326,17 +326,24 @@ def _static_server(_server_port, _object_info_json):
 
 
 # ---------------------------------------------------------------------------
-# Module-scoped page fixture
+# Session-scoped page fixture
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def _app_page(_static_server, _object_info_json, _real_nodes):
     """Create a Playwright browser page with the frontend loaded."""
     port = _static_server
     base_url = f"http://127.0.0.1:{port}"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        try:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        except Exception as e:
+            if "Executable doesn't exist" in str(e):
+                pytest.skip(
+                    "Playwright browsers not installed. Run: playwright install chromium"
+                )
+            raise
         context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
 

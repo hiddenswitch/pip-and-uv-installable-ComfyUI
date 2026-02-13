@@ -298,6 +298,7 @@ def serve(
     openai_api_key: Optional[str] = typer.Option(None, "--openai-api-key", envvar="OPENAI_API_KEY", help="Configures the OpenAI API Key for the OpenAI nodes."),
     ideogram_api_key: Optional[str] = typer.Option(None, "--ideogram-api-key", envvar="IDEOGRAM_API_KEY", help="Configures the Ideogram API Key for the Ideogram nodes."),
     anthropic_api_key: Optional[str] = typer.Option(None, "--anthropic-api-key", envvar="ANTHROPIC_API_KEY", help="Configures the Anthropic API key for its nodes related to Claude functionality."),
+    google_api_key: Optional[str] = typer.Option(None, "--google-api-key", envvar="GOOGLE_API_KEY", help="Google API key for Gemini models."),
 
     comfy_api_base: str = typer.Option("https://api.comfy.org", "--comfy-api-base", help="Set the base URL for the ComfyUI API."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."),

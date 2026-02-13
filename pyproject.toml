@@ -101,6 +101,8 @@ dependencies = [
     "pebble>=5.0.7",
     "openai",
     "anthropic",
+    "pydantic-ai",
+    "google-generativeai",
     "humanize",
     "lightning",
     "flax",
