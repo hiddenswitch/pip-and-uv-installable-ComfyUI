@@ -88,25 +88,30 @@ class ProgressHandler(ABC):
 
 
 class CLIProgressHandler(ProgressHandler):
-    """
-    Handler that displays progress using tqdm progress bars in the CLI.
-    """
+    _tqdm_init = tqdm.__init__
+    _tqdm_update = tqdm.update
 
     def __init__(self):
         super().__init__("cli")
         self.progress_bars: Dict[str, tqdm] = {}
 
+    def _create_bar(self, node_id: str, total: float) -> tqdm:
+        bar = tqdm.__new__(tqdm)
+        CLIProgressHandler._tqdm_init(
+            bar,
+            total=total,
+            desc=f"Node {node_id}",
+            unit="steps",
+            leave=True,
+            position=len(self.progress_bars),
+        )
+        self.progress_bars[node_id] = bar
+        return bar
+
     @override
     def start_handler(self, node_id: str, state: NodeProgressState, prompt_id: str):
-        # Create a new tqdm progress bar
         if node_id not in self.progress_bars:
-            self.progress_bars[node_id] = tqdm(
-                total=state["max"],
-                desc=f"Node {node_id}",
-                unit="steps",
-                leave=True,
-                position=len(self.progress_bars),
-            )
+            self._create_bar(node_id, state["max"])
 
     @override
     def update_handler(
@@ -118,40 +123,29 @@ class CLIProgressHandler(ProgressHandler):
             prompt_id: str,
             image: PreviewImageTuple | None = None,
     ):
-        # Handle case where start_handler wasn't called
         if node_id not in self.progress_bars:
-            self.progress_bars[node_id] = tqdm(
-                total=max_value,
-                desc=f"Node {node_id}",
-                unit="steps",
-                leave=True,
-                position=len(self.progress_bars),
-            )
-            self.progress_bars[node_id].update(value)
+            bar = self._create_bar(node_id, max_value)
+            CLIProgressHandler._tqdm_update(bar, value)
         else:
-            # Update existing progress bar
-            if max_value != self.progress_bars[node_id].total:
-                self.progress_bars[node_id].total = max_value
-            # Calculate the update amount (difference from current position)
-            current_position = self.progress_bars[node_id].n
-            update_amount = value - current_position
+            bar = self.progress_bars[node_id]
+            if max_value != bar.total:
+                bar.total = max_value
+            update_amount = value - bar.n
             if update_amount > 0:
-                self.progress_bars[node_id].update(update_amount)
+                CLIProgressHandler._tqdm_update(bar, update_amount)
 
     @override
     def finish_handler(self, node_id: str, state: NodeProgressState, prompt_id: str):
-        # Complete and close the progress bar if it exists
         if node_id in self.progress_bars:
-            # Ensure the bar shows 100% completion
-            remaining = state["max"] - self.progress_bars[node_id].n
+            bar = self.progress_bars[node_id]
+            remaining = state["max"] - bar.n
             if remaining > 0:
-                self.progress_bars[node_id].update(remaining)
-            self.progress_bars[node_id].close()
+                CLIProgressHandler._tqdm_update(bar, remaining)
+            bar.close()
             del self.progress_bars[node_id]
 
     @override
     def reset(self):
-        # Close all progress bars
         for bar in self.progress_bars.values():
             bar.close()
         self.progress_bars.clear()
