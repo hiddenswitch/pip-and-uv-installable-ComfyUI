@@ -215,6 +215,20 @@ _configure_logging()
 _fix_pytorch_240()
 _register_fsspec_fs()
 
+
+def _stub_soundfile():
+    try:
+        import soundfile  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
+    except OSError:
+        import sys  # pylint: disable=import-outside-toplevel
+        import types  # pylint: disable=import-outside-toplevel
+        sf = types.ModuleType("soundfile")
+        sf.__version__ = "0.0.0"
+        sys.modules["soundfile"] = sf
+
+
+_stub_soundfile()
+
 # Patch torchvision InterpolationMode for compatibility with newer torchvision
 # builds where InterpolationMode moved. Must happen before third-party imports
 # (transformers, spandrel, diffusers) that use the old location.
