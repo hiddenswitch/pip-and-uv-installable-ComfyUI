@@ -7,9 +7,9 @@ from typing import Optional
 import numpy as np
 import torch
 from PIL import Image
-from pydantic_ai import Agent
-from pydantic_ai.messages import BinaryContent, UserContent
-from pydantic_ai.settings import ModelSettings
+from pydantic_ai import Agent  # pylint: disable=import-error
+from pydantic_ai.messages import BinaryContent, UserContent  # pylint: disable=import-error,no-name-in-module
+from pydantic_ai.settings import ModelSettings  # pylint: disable=import-error,no-name-in-module
 
 from .language_types import (
     LanguageModel,
@@ -117,7 +117,7 @@ class RemoteLanguageModel(LanguageModel):
 
             async def _run():
                 nonlocal token_count, full_response
-                async with agent.run_stream(
+                async with agent.run_stream(  # pylint: disable=no-member
                     user_prompt=user_parts,
                     model_settings=model_settings,
                 ) as result:
