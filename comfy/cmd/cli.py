@@ -39,13 +39,6 @@ _COMFYUI_ENV = {"auto_envvar_prefix": "COMFYUI"}
 DEFAULT_VERSION_STRING = "comfyanonymous/ComfyUI@latest"
 
 
-# ---------------------------------------------------------------------------
-# Shared CLI option groups
-# ---------------------------------------------------------------------------
-# Each entry: (param_name, type_annotation, typer.Option default)
-# These are injected into command signatures by @_with_options so that
-# serve, worker, and post-workflow share a single source of truth.
-# ---------------------------------------------------------------------------
 
 _DIRECTORY_OPTS: list[tuple] = [
     ("cwd", Optional[str], typer.Option(None, "-w", "--cwd", help="Specify the working directory. If not set, this is the current working directory. models/, input/, output/ and other directories will be located here by default.")),
@@ -80,11 +73,11 @@ _VRAM_OPTS: list[tuple] = [
 ]
 
 _PRECISION_OPTS: list[tuple] = [
-    # Global precision
+
     ("force_fp32", bool, typer.Option(False, "--force-fp32", help="Force using FP32 precision.")),
     ("force_fp16", bool, typer.Option(False, "--force-fp16", help="Force using FP16 precision.")),
     ("force_bf16", bool, typer.Option(False, "--force-bf16", help="Force using BF16 precision.")),
-    # UNet precision
+
     ("fp32_unet", bool, typer.Option(False, "--fp32-unet", help="Run the diffusion model in fp32.")),
     ("fp64_unet", bool, typer.Option(False, "--fp64-unet", help="Run the diffusion model in fp64.")),
     ("bf16_unet", bool, typer.Option(False, "--bf16-unet", help="Run the diffusion model in bf16.")),
@@ -92,12 +85,12 @@ _PRECISION_OPTS: list[tuple] = [
     ("fp8_e4m3fn_unet", bool, typer.Option(False, "--fp8_e4m3fn-unet", help="Store unet weights in fp8_e4m3fn.")),
     ("fp8_e5m2_unet", bool, typer.Option(False, "--fp8_e5m2-unet", help="Store unet weights in fp8_e5m2.")),
     ("fp8_e8m0fnu_unet", bool, typer.Option(False, "--fp8_e8m0fnu-unet", help="Store unet weights in fp8_e8m0fnu.")),
-    # VAE precision
+
     ("fp16_vae", bool, typer.Option(False, "--fp16-vae", help="Run the VAE in FP16 precision.")),
     ("fp32_vae", bool, typer.Option(False, "--fp32-vae", help="Run the VAE in full precision fp32.")),
     ("bf16_vae", bool, typer.Option(False, "--bf16-vae", help="Run the VAE in BF16 precision.")),
     ("cpu_vae", bool, typer.Option(False, "--cpu-vae", help="Run the VAE on the CPU.")),
-    # Text encoder precision
+
     ("fp8_e4m3fn_text_enc", bool, typer.Option(False, "--fp8_e4m3fn-text-enc", help="Store text encoder weights in fp8 (e4m3fn).")),
     ("fp8_e5m2_text_enc", bool, typer.Option(False, "--fp8_e5m2-text-enc", help="Store text encoder weights in fp8 (e5m2).")),
     ("fp16_text_enc", bool, typer.Option(False, "--fp16-text-enc", help="Store text encoder weights in fp16.")),
@@ -186,7 +179,6 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("output", Optional[str], typer.Option(None, "-o", "--output", help="Override the output directory for workflows.")),
 ]
 
-# Composite groups for convenience
 _COMPUTE_OPTS = (
     _DEVICE_OPTS + _VRAM_OPTS + _PRECISION_OPTS + _ATTENTION_OPTS +
     _MEMORY_OPTS + _CACHE_OPTS + _PREVIEW_OPTS + _PERF_OPTS
@@ -197,17 +189,12 @@ _ALL_SHARED_OPTS = (
     _TELEMETRY_OPTS + _LOGGING_OPTS + _MISC_OPTS
 )
 
-# List-type fields that should default to [] when None
 _NULLABLE_LIST_FIELDS = frozenset({
     "fast", "base_paths", "extra_model_paths_config", "panic_when",
     "whitelist_custom_nodes", "blacklist_custom_nodes", "workflows",
     "image", "video", "audio",
 })
 
-
-# ---------------------------------------------------------------------------
-# Decorator for injecting shared option groups into Typer command signatures
-# ---------------------------------------------------------------------------
 
 def _with_options(*option_groups):
     """Add shared option groups to a Typer command function.
@@ -236,10 +223,6 @@ def _with_options(*option_groups):
         return wrapper
     return decorator
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _set_config_context(config: Configuration):
     """Set config into the execution context so main_pre reads the correct values.
@@ -368,15 +351,11 @@ def main(ctx: typer.Context):
         ctx.invoke(serve)
 
 
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
 @app.command(context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True})
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def serve(
     ctx: typer.Context,
-    # --- Server ---
+
     listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on (default: 127.0.0.1). You can give a list of ip addresses by separating them with a comma like: 127.2.2.2,127.3.3.3 If --listen is provided without an argument, it defaults to 0.0.0.0,:: (listens on all ipv4 and ipv6)"),
     port: int = typer.Option(8188, help="Set the listen port."),
     enable_cors_header: Optional[str] = typer.Option(None, "--enable-cors-header", help="Enable CORS (Cross-Origin Resource Sharing) with optional origin or allow all with default '*'."),
@@ -386,36 +365,28 @@ def serve(
     external_address: Optional[str] = typer.Option(None, "--external-address", help="Specifies a base URL for external addresses reported by the API, such as for image paths."),
     multi_user: bool = typer.Option(False, "--multi-user", help="Enable multi-user mode with per-user storage."),
     enable_compress_response_body: bool = typer.Option(False, "--enable-compress-response-body", help="Enable compressing response body."),
-    # --- Manager ---
     enable_manager: bool = typer.Option(False, "--enable-manager", help="Enable the ComfyUI-Manager feature."),
     disable_manager_ui: bool = typer.Option(False, "--disable-manager-ui", help="Disables only the ComfyUI-Manager UI."),
     enable_manager_legacy_ui: bool = typer.Option(False, "--enable-manager-legacy-ui", help="Enables the legacy UI of ComfyUI-Manager."),
-    # --- Output ---
     dont_print_server: bool = typer.Option(False, "--dont-print-server", help="Don't print server output."),
     log_stdout: bool = typer.Option(False, "--log-stdout", help="Send normal process output to stdout instead of stderr (default)."),
-    # --- Special ---
     quick_test_for_ci: bool = typer.Option(False, "--quick-test-for-ci", help="Enable quick testing mode for CI."),
     windows_standalone_build: bool = typer.Option(False, "--windows-standalone-build", help="Enable features for standalone Windows build."),
     create_directories: bool = typer.Option(False, "--create-directories", help="Creates the default models/, input/, output/ and temp/ directories, then exits."),
-    # --- Analytics ---
     plausible_analytics_base_url: Optional[str] = typer.Option(None, "--plausible-analytics-base-url", help="Base URL for server-side analytics."),
     plausible_analytics_domain: Optional[str] = typer.Option(None, "--plausible-analytics-domain", help="Domain for analytics events."),
     analytics_use_identity_provider: bool = typer.Option(False, "--analytics-use-identity-provider", help="Use platform identifiers for analytics."),
-    # --- Distributed queue ---
     distributed_queue_connection_uri: Optional[str] = typer.Option(None, "--distributed-queue-connection-uri", help="Servers and clients will connect to this AMQP URL to form a distributed queue and exchange prompt execution requests and progress updates."),
     distributed_queue_worker: bool = typer.Option(False, "--distributed-queue-worker", help="Workers will pull requests off the AMQP URL."),
     distributed_queue_frontend: bool = typer.Option(False, "--distributed-queue-frontend", help="Frontends will start the web UI and connect to the provided AMQP URL to submit prompts."),
     distributed_queue_name: str = typer.Option("comfyui", "--distributed-queue-name", help="This name will be used by the frontends and workers to exchange prompt requests and replies."),
     max_queue_size: int = typer.Option(65536, "--max-queue-size", help="The API will reject prompt requests if the queue's size exceeds this value."),
-    # --- Frontend ---
     front_end_version: str = typer.Option(DEFAULT_VERSION_STRING, "--front-end-version", help="Specifies the version of the frontend to be used. Format: [owner]/[repo]@[version]."),
     front_end_root: Optional[str] = typer.Option(None, "--front-end-root", help="The local filesystem path to the directory where the frontend is located. Overrides --front-end-version."),
-    # --- API keys ---
     openai_api_key: Optional[str] = typer.Option(None, "--openai-api-key", envvar="OPENAI_API_KEY", help="Configures the OpenAI API Key for the OpenAI nodes."),
     ideogram_api_key: Optional[str] = typer.Option(None, "--ideogram-api-key", envvar="IDEOGRAM_API_KEY", help="Configures the Ideogram API Key for the Ideogram nodes."),
     anthropic_api_key: Optional[str] = typer.Option(None, "--anthropic-api-key", envvar="ANTHROPIC_API_KEY", help="Configures the Anthropic API key for its nodes related to Claude functionality."),
     google_api_key: Optional[str] = typer.Option(None, "--google-api-key", envvar="GOOGLE_API_KEY", help="Google API key for Gemini models."),
-    # --- Misc serve-only ---
     comfy_api_base: str = typer.Option("https://api.comfy.org", "--comfy-api-base", help="Set the base URL for the ComfyUI API."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."),
     workflows: Optional[list[str]] = typer.Option(None, "--workflows", help="Execute the API workflow(s) and exit. Each value can be a file path, a literal JSON string starting with '{', a URI (https://, s3://, hf://, etc.), or '-' for stdin."),
