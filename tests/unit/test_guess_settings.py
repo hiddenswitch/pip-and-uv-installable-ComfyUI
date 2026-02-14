@@ -282,6 +282,71 @@ class TestGuessSettingsAttention:
             assert cfg.use_flash_attention is True
 
 
+class TestGuessSettingsMacOS:
+    @patch("comfy.component_model.guess_settings.sys")
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=36.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=False)
+    def test_macos_sets_pytorch_cross_attention(self, _pkg, _procs, _ram, _amd, _nv, mock_sys):
+        mock_sys.platform = "darwin"
+        cfg = _config()
+        apply_guess_settings(cfg)
+        assert cfg.use_pytorch_cross_attention is True
+
+    @patch("comfy.component_model.guess_settings.sys")
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=36.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=True)
+    def test_macos_ignores_sageattention(self, _pkg, _procs, _ram, _amd, _nv, mock_sys):
+        mock_sys.platform = "darwin"
+        cfg = _config()
+        apply_guess_settings(cfg)
+        assert cfg.use_sage_attention is False
+        assert cfg.use_pytorch_cross_attention is True
+
+    @patch("comfy.component_model.guess_settings.sys")
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=36.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=False)
+    def test_macos_sets_gpu_only(self, _pkg, _procs, _ram, _amd, _nv, mock_sys):
+        mock_sys.platform = "darwin"
+        cfg = _config()
+        apply_guess_settings(cfg)
+        assert cfg.gpu_only is True
+
+    @patch("comfy.component_model.guess_settings.sys")
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=36.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=False)
+    def test_macos_respects_user_vram_mode(self, _pkg, _procs, _ram, _amd, _nv, mock_sys):
+        mock_sys.platform = "darwin"
+        cfg = _config(cpu=True)
+        apply_guess_settings(cfg)
+        assert cfg.gpu_only is False
+        assert cfg.cpu is True
+
+    @patch("comfy.component_model.guess_settings.sys")
+    @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
+    @patch("comfy.component_model.guess_settings._total_ram_gb", return_value=36.0)
+    @patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[])
+    @patch("comfy.component_model.guess_settings._has_package", return_value=False)
+    def test_macos_respects_user_attention(self, _pkg, _procs, _ram, _amd, _nv, mock_sys):
+        mock_sys.platform = "darwin"
+        cfg = _config(use_flash_attention=True)
+        apply_guess_settings(cfg)
+        assert cfg.use_pytorch_cross_attention is False
+        assert cfg.use_flash_attention is True
+
+
 class TestGuessSettingsCliArg:
     def test_default_is_false(self):
         from tests.unit.test_cli_args import _parse_test_args

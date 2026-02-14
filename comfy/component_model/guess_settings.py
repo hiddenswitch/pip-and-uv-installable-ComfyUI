@@ -142,9 +142,18 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
     """
     from ..cli_args_types import PerformanceFeature  # pylint: disable=import-outside-toplevel
 
+    is_macos = sys.platform == "darwin"
     is_nvidia = _has_nvidia_gpu()
     is_amd = _has_amd_gpu()
     ram_gb = _total_ram_gb()
+
+    # macOS / Apple Silicon: unified memory means CPU and GPU share RAM,
+    # so offloading to CPU just adds copy overhead.
+    if is_macos:
+        user_set_vram = any(getattr(configuration, f, False) for f in VRAM_MODES)
+        if not user_set_vram:
+            logger.info("macOS detected (unified memory), enabling gpu_only")
+            configuration.gpu_only = True
 
     if ram_gb and ram_gb < 32 and not configuration.disable_pinned_memory:
         logger.info(f"{ram_gb:.1f} GB RAM detected, disabling pinned memory")
@@ -177,7 +186,10 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
 
     user_set_attn = any(getattr(configuration, f, False) for f in ATTENTION_MODES)
     if not user_set_attn:
-        if is_amd and sys.platform == "win32":
+        if is_macos:
+            logger.info("macOS detected, using PyTorch cross attention")
+            configuration.use_pytorch_cross_attention = True
+        elif is_amd and sys.platform == "win32":
             logger.info("AMD GPU on Windows detected, enabling quad cross attention")
             configuration.use_quad_cross_attention = True
         elif _has_package("sageattention"):
