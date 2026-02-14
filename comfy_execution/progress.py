@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from typing import TypedDict, Dict, Optional, Tuple
 
 from PIL import Image
-from tqdm import tqdm
 from typing_extensions import override
 
 from comfy.component_model.executor_types import ExecutorToClientProgress, PreviewImageWithMetadataMessage
@@ -85,70 +84,6 @@ class ProgressHandler(ABC):
     def disable(self):
         """Disable this handler"""
         self.enabled = False
-
-
-class CLIProgressHandler(ProgressHandler):
-    _tqdm_init = tqdm.__init__
-    _tqdm_update = tqdm.update
-
-    def __init__(self):
-        super().__init__("cli")
-        self.progress_bars: Dict[str, tqdm] = {}
-
-    def _create_bar(self, node_id: str, total: float) -> tqdm:
-        bar = tqdm.__new__(tqdm)
-        CLIProgressHandler._tqdm_init(
-            bar,
-            total=total,
-            desc=f"Node {node_id}",
-            unit="steps",
-            leave=True,
-            position=len(self.progress_bars),
-        )
-        self.progress_bars[node_id] = bar
-        return bar
-
-    @override
-    def start_handler(self, node_id: str, state: NodeProgressState, prompt_id: str):
-        if node_id not in self.progress_bars:
-            self._create_bar(node_id, state["max"])
-
-    @override
-    def update_handler(
-            self,
-            node_id: str,
-            value: float,
-            max_value: float,
-            state: NodeProgressState,
-            prompt_id: str,
-            image: PreviewImageTuple | None = None,
-    ):
-        if node_id not in self.progress_bars:
-            bar = self._create_bar(node_id, max_value)
-            CLIProgressHandler._tqdm_update(bar, value)
-        else:
-            bar = self.progress_bars[node_id]
-            if max_value != bar.total:
-                bar.total = max_value
-            update_amount = value - bar.n
-            if update_amount > 0:
-                CLIProgressHandler._tqdm_update(bar, update_amount)
-
-    @override
-    def finish_handler(self, node_id: str, state: NodeProgressState, prompt_id: str):
-        if node_id in self.progress_bars:
-            bar = self.progress_bars[node_id]
-            remaining = state["max"] - bar.n
-            if remaining > 0:
-                CLIProgressHandler._tqdm_update(bar, remaining)
-            bar.close()
-            del self.progress_bars[node_id]
-
-    @override
-    def reset(self):
-        for bar in self.progress_bars.values():
-            bar.close()
-        self.progress_bars.clear()
 
 
 class WebUIProgressHandler(ProgressHandler):

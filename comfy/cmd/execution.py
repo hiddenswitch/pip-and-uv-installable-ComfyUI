@@ -44,9 +44,7 @@ from comfy_execution.graph import (
 from comfy_execution.graph_types import FrozenTopologicalSort
 from comfy_execution.graph_utils import is_link, GraphBuilder
 from comfy_execution.progress import get_progress_state, reset_progress_state, add_progress_handler, \
-    WebUIProgressHandler, CLIProgressHandler, \
-    ProgressRegistry
-from ..distributed.server_stub import ServerStub
+    WebUIProgressHandler, ProgressRegistry
 from comfy_execution.utils import CurrentNodeContext
 from comfy_execution.validation import validate_node_input
 from .. import interruption
@@ -866,8 +864,6 @@ class PromptExecutor:
             dynamic_prompt = prompt
             prompt: dict = prompt.original_prompt
             add_progress_handler(WebUIProgressHandler(self.server))
-            if isinstance(self.server, ServerStub) and not current_execution_context().configuration.disable_progress:
-                add_progress_handler(CLIProgressHandler())
             is_changed_cache = IsChangedCache(prompt_id, dynamic_prompt, self.caches.outputs)
             for cache in self.caches.all:
                 await cache.set_prompt(dynamic_prompt, prompt.keys(), is_changed_cache)
