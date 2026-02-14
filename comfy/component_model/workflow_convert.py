@@ -358,6 +358,7 @@ class _NodeDTO:
         'exec_id', 'node', 'graph_links', 'graph_nodes_by_id',
         'subgraph_node_path', 'sg_node_exec_id',
         'sg_def', 'inner_links', 'proxy_overrides', 'id_remap',
+        'clobbered_wv',
     )
 
     def __init__(self, node, subgraph_node_path, graph_links, graph_nodes_by_id,
@@ -373,6 +374,7 @@ class _NodeDTO:
         self.inner_links = _build_inner_links(sg_def) if sg_def else {}
         self.proxy_overrides: dict[tuple[int, str], object] = {}
         self.id_remap: dict[int, int] = {}
+        self.clobbered_wv: list | None = None
 
 
 def _compute_proxy_overrides(sg_node, parent_overrides=None):
@@ -470,32 +472,43 @@ def _ensure_global_id_uniqueness(
     return remaps
 
 
-def _build_clobbered_node_data(workflow: dict) -> dict[int, dict]:
-    """Build a map ``{node_id: node_dict}`` recording the *last* definition's
-    node data for each inner node ID, matching the frontend's configure-time
-    clobbering when multiple subgraph definitions share the same inner IDs.
+def _build_dom_widget_store(workflow: dict) -> dict[int, tuple[str, list]]:
+    """Simulate the frontend WidgetValueStore for DOM widgets.
 
-    In the frontend, ``Subgraph.configure`` creates ``LGraphNode`` instances
-    from the definition and adds them via ``LGraph.add``.  When two
-    definitions both define a node with ID *N*, the second ``configure``
-    overwrites the first's widget values for that ID.  After
-    ``ensureGlobalIdUniqueness`` remaps collisions, the *first* definition
-    retains the original ID but has the *last* definition's widget values.
+    The frontend processes subgraph definitions in order.  During each
+    definition's ``configure()``, inner-node widgets are registered in
+    a shared store keyed by ``nodeId``.  If two definitions share the
+    same inner-node ID, the **last** definition's values overwrite the
+    earlier ones.  ``ensureGlobalIdUniqueness`` runs *after* configure,
+    so the first definition's non-remapped nodes read the clobbered
+    (last-write) value at serialization time.
+
+    Only DOM widgets (``customtext`` type = STRING multiline) are
+    affected because they read from the store at access time via
+    ``getValue()`` callbacks, whereas regular ``BaseWidget`` subclasses
+    cache their own ``_state`` reference.
+
+    Returns ``{nodeId: (nodeType, widgets_values)}``.  The node type is
+    tracked so that clobbering is only applied when the colliding nodes
+    share the same type (and therefore the same widget layout).
     """
-    result: dict[int, dict] = {}
+    store: dict[int, tuple[str, list]] = {}
     for sg in workflow.get('definitions', {}).get('subgraphs', []):
         if not isinstance(sg, dict):
             continue
         for n in sg.get('nodes', []):
             nid = n.get('id')
-            if isinstance(nid, int) and nid >= 0:
-                result[nid] = n
-    return result
+            if not isinstance(nid, int) or nid < 0:
+                continue
+            wv = n.get('widgets_values')
+            if isinstance(wv, list):
+                store[nid] = (n.get('type', ''), wv)
+    return store
 
 
 def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
                      sg_defs, dto_map, sg_exec_id, id_remaps=None,
-                     clobbered_node_data=None):
+                     dom_widget_store=None):
     sg_dto = dto_map[sg_exec_id]
     instance_path = [int(x) for x in sg_dto.exec_id.split(':')]
 
@@ -519,37 +532,39 @@ def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
         class_type = inner_node.get('type', '')
         mode = inner_node.get('mode', 0)
 
-        effective_node = inner_node
-        if clobbered_node_data and remapped_nid is None and inner_nid in clobbered_node_data:
-            clobbered = clobbered_node_data[inner_nid]
-            if clobbered is not inner_node:
-                effective_node = {**inner_node, 'widgets_values': clobbered.get('widgets_values', [])}
-
         if _is_subgraph_type(class_type, sg_defs):
             child_sg_def = sg_defs[class_type]
             child_dto = _NodeDTO(
-                effective_node, instance_path, inner_links, inner_nodes_by_id,
+                inner_node, instance_path, inner_links, inner_nodes_by_id,
                 sg_node_exec_id=sg_exec_id, sg_def=child_sg_def,
                 remapped_nid=remapped_nid,
             )
             child_dto.proxy_overrides = _compute_proxy_overrides(
-                effective_node,
+                inner_node,
                 parent_overrides=sg_dto.proxy_overrides,
             )
             dto_map[child_dto.exec_id] = child_dto
 
             if mode not in (_MODE_NEVER, _MODE_BYPASS):
                 _expand_subgraph(
-                    effective_node, child_sg_def, instance_path,
+                    inner_node, child_sg_def, instance_path,
                     sg_defs, dto_map, child_dto.exec_id,
                     id_remaps=id_remaps,
-                    clobbered_node_data=clobbered_node_data,
+                    dom_widget_store=dom_widget_store,
                 )
         else:
             dto = _NodeDTO(
-                effective_node, instance_path, inner_links, inner_nodes_by_id,
+                inner_node, instance_path, inner_links, inner_nodes_by_id,
                 sg_node_exec_id=sg_exec_id, remapped_nid=remapped_nid,
             )
+            if dom_widget_store and remapped_nid is None:
+                stored = dom_widget_store.get(inner_nid)
+                own_wv = inner_node.get('widgets_values')
+                if (stored is not None and own_wv is not None
+                        and isinstance(own_wv, list)
+                        and stored[0] == class_type
+                        and stored[1] != own_wv):
+                    dto.clobbered_wv = stored[1]
             dto_map[dto.exec_id] = dto
 
 
@@ -566,7 +581,7 @@ def _build_dto_map(workflow, sg_defs):
             nodes_by_id[nid] = node
 
     id_remaps = _ensure_global_id_uniqueness(workflow, sg_defs)
-    clobbered_node_data = _build_clobbered_node_data(workflow)
+    dom_store = _build_dom_widget_store(workflow)
 
     dto_map: dict[str, _NodeDTO] = {}
 
@@ -588,7 +603,7 @@ def _build_dto_map(workflow, sg_defs):
                 _expand_subgraph(
                     node, sg_def, [], sg_defs, dto_map, sg_dto.exec_id,
                     id_remaps=id_remaps,
-                    clobbered_node_data=clobbered_node_data,
+                    dom_widget_store=dom_store,
                 )
         else:
             dto = _NodeDTO(node, [], links, nodes_by_id)
@@ -845,6 +860,15 @@ def convert_ui_to_api(workflow: dict) -> dict:
         else:
             api_inputs = {}
             use_class_type = class_type
+
+        if dto.clobbered_wv is not None and not is_unknown and input_types:
+            clobbered_mapped, _ = _map_widgets(input_types, dto.clobbered_wv)
+            all_inputs = {**input_types.get('required', {}),
+                          **input_types.get('optional', {})}
+            for wname, cval in clobbered_mapped.items():
+                ts, opts = _input_type_and_opts(all_inputs.get(wname, (None,)))
+                if ts == 'STRING' and opts.get('multiline'):
+                    api_inputs[wname] = cval
 
         if dto.sg_node_exec_id and not is_unknown:
             sg_dto = dto_map.get(dto.sg_node_exec_id)
