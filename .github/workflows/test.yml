@@ -166,7 +166,11 @@ jobs:
             container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
     steps:
       - run: |
-          apt-get update && apt-get install -y curl
+          apt-get update
+          apt-get install -y software-properties-common curl
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y python3.11 python3.11-venv python3.11-dev libpython3.11
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - uses: actions/checkout@v4
@@ -174,7 +178,7 @@ jobs:
         with:
           path: src
       - run: |
-          apt-get update && apt-get install -y libsndfile1 libxcb1 --no-install-recommends
+          apt-get install -y libsndfile1 libxcb1 --no-install-recommends
         name: sndfile Dependency
       - name: Write Overrides
         run: |

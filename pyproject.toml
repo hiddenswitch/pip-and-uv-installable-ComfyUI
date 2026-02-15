@@ -139,7 +139,7 @@ build-backend = "hatchling.build"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8,<9",
+    "pytest",
     "pytest-asyncio",
     "pytest-mock",
     "pytest-aiohttp",
