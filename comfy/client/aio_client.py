@@ -259,3 +259,25 @@ class AsyncRemoteComfyClient:
                 return None
             else:
                 raise RuntimeError(f"could not get job: {response.status}: {await response.text()}")
+
+    async def post_interrupt(self, prompt_id: Optional[str] = None) -> None:
+        body = {}
+        if prompt_id is not None:
+            body["prompt_id"] = prompt_id
+        async with self.session.post(urljoin(self.server_address, "/interrupt"), json=body) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"could not interrupt: {response.status}: {await response.text()}")
+
+    async def get_system_stats(self) -> dict:
+        async with self.session.get(urljoin(self.server_address, "/system_stats")) as response:
+            if response.status == 200:
+                return await response.json()
+            else:
+                raise RuntimeError(f"could not get system stats: {response.status}: {await response.text()}")
+
+    async def get_logs(self) -> str:
+        async with self.session.get(urljoin(self.server_address, "/internal/logs/raw")) as response:
+            if response.status == 200:
+                return await response.text()
+            else:
+                raise RuntimeError(f"could not get logs: {response.status}: {await response.text()}")

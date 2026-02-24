@@ -37,7 +37,7 @@ def _make_base_dirs(root: Path) -> None:
         (root / sub).mkdir(parents=True, exist_ok=True)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def comfy_tmp_base_dir() -> Generator[Path, Any, None]:
     """Create a temporary base directory for ComfyUI."""
     tmp = Path(tempfile.mkdtemp(prefix="comfyui-assets-tests-"))
@@ -53,7 +53,7 @@ def comfy_tmp_base_dir() -> Generator[Path, Any, None]:
         tmp.rmdir()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     """
     Create a Configuration object for the assets test server.
@@ -73,13 +73,15 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     config.listen = "127.0.0.1"
     config.port = _find_free_port()
     config.cpu = True
+    config.disable_all_custom_nodes = True
+    config.disable_known_models = True
     config.output_directory = str(comfy_tmp_base_dir / "output")
     config.input_directory = str(comfy_tmp_base_dir / "input")
 
     return config
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def comfy_url_and_proc(
     assets_server_config: Configuration,
 ) -> Generator[tuple[str, Process], Any, None]:

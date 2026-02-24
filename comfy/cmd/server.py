@@ -13,7 +13,6 @@ import struct
 import sys
 import traceback
 import typing
-import urllib
 import uuid
 from asyncio import Future, AbstractEventLoop, Task
 from enum import Enum
@@ -32,7 +31,6 @@ from packaging import version
 from typing_extensions import NamedTuple
 
 from comfy_api import feature_flags
-from comfy_api.internal import _ComfyNodeInternal
 from comfy_execution.jobs import JobStatus, get_job, get_all_jobs
 from .latent_preview_image_encoding import encode_preview_image
 from .. import __version__
@@ -718,46 +716,9 @@ class PromptServer(ExecutorToClientProgress):
         async def get_prompt(request):
             return web.json_response(self.get_queue_info())
 
-        def node_info(node_class):
-            obj_class = self.nodes.NODE_CLASS_MAPPINGS[node_class]
-            if issubclass(obj_class, _ComfyNodeInternal):
-                return obj_class.GET_NODE_INFO_V1()
-            info = {}
-            info['input'] = obj_class.INPUT_TYPES()
-            info['input_order'] = {key: list(value.keys()) for (key, value) in obj_class.INPUT_TYPES().items()}
-            info['is_input_list'] = getattr(obj_class, "INPUT_IS_LIST", False)
-            _return_types = ["*" if isinstance(rt, list) and rt == [] else rt for rt in obj_class.RETURN_TYPES]
-            info['output'] = _return_types
-            info['output_is_list'] = obj_class.OUTPUT_IS_LIST if hasattr(obj_class, 'OUTPUT_IS_LIST') else [False] * len(_return_types)
-            info['output_name'] = obj_class.RETURN_NAMES if hasattr(obj_class, 'RETURN_NAMES') else info['output']
-            info['name'] = node_class
-            info['display_name'] = self.nodes.NODE_DISPLAY_NAME_MAPPINGS[node_class] if node_class in self.nodes.NODE_DISPLAY_NAME_MAPPINGS.keys() else node_class
-            info['description'] = obj_class.DESCRIPTION if hasattr(obj_class, 'DESCRIPTION') else ''
-            info['python_module'] = getattr(obj_class, "RELATIVE_PYTHON_MODULE", "nodes")
-            info['category'] = 'sd'
-            if hasattr(obj_class, 'OUTPUT_NODE') and obj_class.OUTPUT_NODE == True:
-                info['output_node'] = True
-            else:
-                info['output_node'] = False
-
-            if hasattr(obj_class, 'CATEGORY'):
-                info['category'] = obj_class.CATEGORY
-
-            if hasattr(obj_class, 'OUTPUT_TOOLTIPS'):
-                info['output_tooltips'] = obj_class.OUTPUT_TOOLTIPS
-
-            if getattr(obj_class, "DEPRECATED", False):
-                info['deprecated'] = True
-            if getattr(obj_class, "EXPERIMENTAL", False):
-                info['experimental'] = True
-            if getattr(obj_class, "DEV_ONLY", False):
-                info['dev_only'] = True
-
-            if hasattr(obj_class, 'API_NODE'):
-                info['api_node'] = obj_class.API_NODE
-
-            info['search_aliases'] = getattr(obj_class, 'SEARCH_ALIASES', [])
-            return info
+        def node_info(node_class_name):
+            from .node_info import node_info as _node_info
+            return _node_info(node_class_name, self.nodes.NODE_CLASS_MAPPINGS, self.nodes.NODE_DISPLAY_NAME_MAPPINGS)
 
         @routes.get("/object_info")
         async def get_object_info(request):
@@ -765,7 +726,7 @@ class PromptServer(ExecutorToClientProgress):
             try:
                 seed_assets(["models"])
             except Exception as e:
-                logger.debug(f"Failed to seed assets", exc_info=e)
+                logger.debug("Failed to seed assets", exc_info=e)
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:
@@ -1095,7 +1056,7 @@ class PromptServer(ExecutorToClientProgress):
             if "+" in accept:
                 accept = accept.split("+")[0]
 
-            wait = not "respond-async" in preferences
+            wait = "respond-async" not in preferences
 
             if accept not in ("application/json", "image/png"):
                 return web.json_response(status=400, reason=f"invalid accept content type, expected application/json or image/png, got {accept}")

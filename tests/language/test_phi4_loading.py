@@ -4,6 +4,7 @@ from comfy.client.embedded_comfy_client import Comfy
 from comfy.api.components.schema.prompt import Prompt
 
 
+@pytest.mark.inference
 class TestPhi4Loading:
     @pytest.mark.asyncio
     async def test_phi4_loading(self):

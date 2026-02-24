@@ -133,9 +133,17 @@ class TestGetOrDownloadWithHfUri:
     @patch("comfy.model_downloader.folder_paths.get_full_path")
     def test_local_filename_uses_normal_lookup(self, mock_get_full_path):
         """Test that local filenames use normal path lookup."""
+        import comfy.model_downloader as md
         mock_get_full_path.return_value = "/path/to/model.safetensors"
 
-        result = get_or_download("checkpoints", "model.safetensors")
+        saved = getattr(md, '_original_get_full_path', None)
+        try:
+            if hasattr(md, '_original_get_full_path'):
+                delattr(md, '_original_get_full_path')
+            result = get_or_download("checkpoints", "model.safetensors")
+        finally:
+            if saved is not None:
+                md._original_get_full_path = saved
 
         assert result == "/path/to/model.safetensors"
         mock_get_full_path.assert_called_once()

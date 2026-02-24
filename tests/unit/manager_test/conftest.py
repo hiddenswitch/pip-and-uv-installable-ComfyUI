@@ -34,7 +34,7 @@ def _make_base_dirs(root: Path) -> None:
         (root / sub).mkdir(parents=True, exist_ok=True)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_tmp_base_dir() -> Generator[Path, Any, None]:
     """Create a temporary base directory for ComfyUI with manager enabled."""
     tmp = Path(tempfile.mkdtemp(prefix="comfyui-manager-tests-"))
@@ -50,7 +50,7 @@ def manager_tmp_base_dir() -> Generator[Path, Any, None]:
         tmp.rmdir()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_enabled_config(manager_tmp_base_dir: Path) -> Configuration:
     """
     Create a Configuration with manager enabled.
@@ -62,12 +62,13 @@ def manager_enabled_config(manager_tmp_base_dir: Path) -> Configuration:
     config.cpu = True
     config.enable_manager = True
     config.disable_manager_ui = False
+    config.disable_all_custom_nodes = True
     config.output_directory = str(manager_tmp_base_dir / "output")
     config.input_directory = str(manager_tmp_base_dir / "input")
     return config
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_disabled_config(manager_tmp_base_dir: Path) -> Configuration:
     """
     Create a Configuration with manager disabled.
@@ -78,12 +79,13 @@ def manager_disabled_config(manager_tmp_base_dir: Path) -> Configuration:
     config.port = _find_free_port()
     config.cpu = True
     config.enable_manager = False
+    config.disable_all_custom_nodes = True
     config.output_directory = str(manager_tmp_base_dir / "output")
     config.input_directory = str(manager_tmp_base_dir / "input")
     return config
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_enabled_server(
     manager_enabled_config: Configuration,
 ) -> Generator[tuple[str, Process], Any, None]:
@@ -96,7 +98,7 @@ def manager_enabled_server(
         yield base_url, proc
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_disabled_server(
     manager_disabled_config: Configuration,
 ) -> Generator[tuple[str, Process], Any, None]:
@@ -109,7 +111,7 @@ def manager_disabled_server(
         yield base_url, proc
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_with_disabled_custom_nodes_config(manager_tmp_base_dir: Path) -> Configuration:
     """
     Create a Configuration with manager enabled but custom nodes disabled.
@@ -126,7 +128,7 @@ def manager_with_disabled_custom_nodes_config(manager_tmp_base_dir: Path) -> Con
     return config
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def manager_with_disabled_custom_nodes_server(
     manager_with_disabled_custom_nodes_config: Configuration,
 ) -> Generator[tuple[str, Process], Any, None]:

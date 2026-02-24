@@ -122,11 +122,16 @@ class TestDetectSupportedParams:
     def test_full_workflow(self):
         wf = _ui_workflow("CLIPTextEncode", "KSampler", "LoadImage")
         params = _detect_supported_params(wf)
-        assert params == ["prompt", "negative-prompt", "steps", "seed", "image"]
+        assert params == [
+            "prompt", "negative-prompt", "steps", "seed",
+            "cfg", "sampler", "scheduler", "denoise",
+            "image",
+        ]
 
     def test_no_params(self):
         wf = _ui_workflow("CheckpointLoaderSimple", "VAEDecode")
-        assert _detect_supported_params(wf) == []
+        params = _detect_supported_params(wf)
+        assert params == ["checkpoint"]
 
     def test_subgraph_detection(self):
         wf = _ui_subgraph_workflow("CLIPTextEncode", "KSampler", "LoadImage")
@@ -144,7 +149,7 @@ class TestBuildExampleInvocation:
             supported_params=["prompt", "seed"],
         )
         result = _build_example_invocation(tmpl)
-        assert result == 'comfyui post-workflow my_template --prompt "your text here" --seed 42'
+        assert result == 'comfyui workflows run my_template --prompt "your text here" --seed 42'
 
     def test_fallback_to_name(self):
         tmpl = TemplateInfo(
@@ -152,12 +157,12 @@ class TestBuildExampleInvocation:
             supported_params=["prompt"],
         )
         result = _build_example_invocation(tmpl)
-        assert result == 'comfyui post-workflow My Workflow --prompt "your text here"'
+        assert result == 'comfyui workflows run My Workflow --prompt "your text here"'
 
     def test_no_params(self):
         tmpl = TemplateInfo(name="bare", source="package", template_id="bare")
         result = _build_example_invocation(tmpl)
-        assert result == "comfyui post-workflow bare"
+        assert result == "comfyui workflows run bare"
 
     def test_all_params(self):
         tmpl = TemplateInfo(

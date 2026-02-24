@@ -93,6 +93,7 @@ class Configuration(dict):
         auto_launch (bool): Auto-launch UI in the default browser. Defaults to False.
         disable_auto_launch (bool): Disable auto launching the browser.
         cuda_device (Optional[int]): CUDA device ID. None means default device.
+        torch_device (Optional[str]): Torch device by name, e.g. "cuda:1", "cpu", "mps". Overrides cuda_device and cpu flags.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
         disable_cuda_malloc (bool): Disable cudaMallocAsync.
         dont_upcast_attention (bool): Disable upcasting of attention.
@@ -226,6 +227,7 @@ class Configuration(dict):
         self.auto_launch: bool = False
         self.disable_auto_launch: bool = False
         self.cuda_device: Optional[int] = None
+        self.torch_device: Optional[str] = None
         self.cuda_malloc: bool = True
         self.disable_cuda_malloc: bool = True
         self.dont_upcast_attention: bool = False
@@ -343,12 +345,22 @@ class Configuration(dict):
         self.database_url: str = db_config()
         self.disable_assets_autoscan: bool = False
         self.default_device: Optional[int] = None
-        self.block_runtime_package_installation: bool = False
+        self.block_runtime_package_installation: bool = True
         self.enable_eval: Optional[bool] = False
         self.disable_progress: bool = False
         self.enable_video_to_image_fallback: bool = False
         self.disable_manager_model_fallback: bool = False
         self.refresh_manager_models: bool = False
+
+        self.cfg: Optional[float] = None
+        self.sampler: Optional[str] = None
+        self.scheduler: Optional[str] = None
+        self.denoise: Optional[float] = None
+        self.width: Optional[int] = None
+        self.height: Optional[int] = None
+        self.batch_size: Optional[int] = None
+        self.checkpoint: Optional[str] = None
+        self.set: list[str] = []
 
         for key, value in kwargs.items():
             self[key] = value

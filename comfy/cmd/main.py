@@ -296,6 +296,11 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     if args.external_address is not None:
         server.external_address = args.external_address
 
+    # Permanently replace folder_paths functions with download-aware versions
+    # so that custom node loaders get download-on-miss during validation and execution.
+    from ..nodes.download_interception import apply_folder_paths_patches
+    apply_folder_paths_patches()
+
     # at this stage, it's safe to import nodes
     hook_breaker_ac10a0.save_functions()
     nodes_to_import = get_nodes()

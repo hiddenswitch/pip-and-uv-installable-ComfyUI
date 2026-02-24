@@ -48,7 +48,7 @@ async def test_blacklist_node():
     async with Comfy(config) as client:
         from comfy.cmd.execution import validate_prompt
         res = await validate_prompt("1", prompt=_TEST_WORKFLOW_1, partial_execution_list=[])
-        assert "ShouldNotExist" in res.error["message"]
-        assert res.error["type"] == "invalid_prompt"
+        assert res.error["extra_info"]["class_type"] == "ShouldNotExist"
+        assert res.error["type"] == "missing_node_type"
         res = await validate_prompt("2", prompt=_TEST_WORKFLOW_2, partial_execution_list=[])
         assert "TestPath" not in res.error, "successfully loaded issue_25 nodes"

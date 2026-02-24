@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+
 from ..cmd import folder_paths
 import glob
 from aiohttp import web
@@ -47,6 +52,122 @@ class CustomNodeManager:
                     workflow_name = os.path.splitext(os.path.basename(filepath))[0]
                     results.append((node_name, workflow_name, filepath))
         return results
+
+    # Default packages that must never be installed/overridden by custom node deps.
+    DEFAULT_SKIP: frozenset[str] = frozenset({
+        "torch", "torchvision", "torchaudio", "torchsde",
+        "comfy", "comfyui",
+    })
+
+    @staticmethod
+    def _extract_pkg_name(req: str) -> str:
+        """Extract the bare package name from a pip requirement string."""
+        for ch in (">=", "<=", "==", "!=", "~=", ">", "<", "[", ";", " "):
+            req = req.split(ch)[0]
+        return req.strip().lower().replace("-", "_")
+
+    @staticmethod
+    def _parse_requirements(repo_path: Path) -> list[str]:
+        """Parse requirements from requirements.txt and/or pyproject.toml."""
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
+
+        reqs: list[str] = []
+        seen_names: set[str] = set()
+
+        req_file = repo_path / "requirements.txt"
+        if req_file.exists():
+            for line in req_file.read_text(errors="replace").splitlines():
+                line = line.split("#")[0].strip()
+                if not line or line.startswith("-r") or line.startswith("--"):
+                    continue
+                name = CustomNodeManager._extract_pkg_name(line)
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    reqs.append(line)
+
+        pyproject = repo_path / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                data = tomllib.loads(pyproject.read_text(errors="replace"))
+                for dep in data.get("project", {}).get("dependencies", []):
+                    name = CustomNodeManager._extract_pkg_name(dep)
+                    if name and name not in seen_names:
+                        seen_names.add(name)
+                        reqs.append(dep)
+            except Exception:
+                logger.debug("Failed to parse pyproject.toml", exc_info=True)
+
+        return reqs
+
+    @staticmethod
+    def install_custom_node(
+        repo_url: str,
+        target_dir: Path,
+        *,
+        git_ref: Optional[str] = None,
+        needs_submodules: bool = False,
+        skip_requirements: frozenset[str] = frozenset(),
+        extra_requirements: Optional[list[str]] = None,
+        git_timeout: Optional[int] = None,
+    ) -> Path:
+        """Clone a custom node repo and install its dependencies.
+
+        Args:
+            repo_url: Git URL of the custom node repository.
+            target_dir: Directory under which the repo will be cloned
+                        (e.g. ``base_dir / "custom_nodes"``).
+            git_ref: Optional branch or tag to check out.
+            needs_submodules: Whether to recurse submodules on clone.
+            skip_requirements: Package names to exclude from installation.
+            extra_requirements: Additional pip requirements to install.
+            git_timeout: Timeout in seconds for git clone (default: 600, override with COMFY_GIT_CLONE_TIMEOUT env var).
+
+        Returns:
+            Path to the cloned repository.
+        """
+        node_id = repo_url.rstrip("/").rsplit("/", 1)[-1]
+        repo_path = target_dir / node_id
+
+        # --- clone ---
+        if git_timeout is None:
+            git_timeout = int(os.environ.get("COMFY_GIT_CLONE_TIMEOUT", "600"))
+
+        cmd = ["git", "clone", "--depth=1"]
+        if git_ref:
+            cmd += ["--branch", git_ref]
+        if needs_submodules:
+            cmd.append("--recurse-submodules")
+        cmd += [repo_url, str(repo_path)]
+        logger.info("Cloning %s from %s (timeout=%ds)", node_id, repo_url, git_timeout)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=git_timeout)
+
+        # --- install deps ---
+        reqs = CustomNodeManager._parse_requirements(repo_path)
+        if extra_requirements:
+            reqs += extra_requirements
+
+        all_skip = CustomNodeManager.DEFAULT_SKIP | skip_requirements
+        filtered = [r for r in reqs if CustomNodeManager._extract_pkg_name(r) not in all_skip]
+
+        if filtered:
+            install_target = target_dir.parent / "node_site"
+            install_target.mkdir(parents=True, exist_ok=True)
+            pip_cmd = [
+                sys.executable, "-m", "uv", "pip", "install",
+                "--target", str(install_target),
+            ] + filtered
+            logger.info("Installing deps for %s: %s", node_id, " ".join(filtered))
+            result = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                logger.warning(
+                    "%s dep install had errors (rc=%d):\n%s",
+                    node_id, result.returncode, result.stderr[:2000],
+                )
+
+        return repo_path
 
     def __init__(self):
         # binds to context at init time

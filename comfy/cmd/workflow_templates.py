@@ -8,7 +8,6 @@ from typing import Final, Optional
 
 from comfyui_workflow_templates import get_asset_path, iter_templates
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from ..component_model.workflow_convert import convert_ui_to_api
 from ..component_model.prompt_utils import (
@@ -18,6 +17,12 @@ from ..component_model.prompt_utils import (
     _IMAGE_LOAD_CLASS_TYPES,
     _VIDEO_LOAD_CLASS_TYPES,
     _AUDIO_LOAD_CLASS_TYPES,
+    _CFG_CLASS_TYPES,
+    _SAMPLER_CLASS_TYPES,
+    _SCHEDULER_CLASS_TYPES,
+    _DENOISE_CLASS_TYPES,
+    _LATENT_SIZE_CLASS_TYPES,
+    _CHECKPOINT_CLASS_TYPES,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,6 +150,14 @@ _PARAM_CHECKS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
     ("prompt", frozenset(_TEXT_ENCODE_FIELDS.keys())),
     ("steps", _STEPS_CLASS_TYPES),
     ("seed", frozenset(_SEED_FIELDS.keys())),
+    ("cfg", _CFG_CLASS_TYPES),
+    ("sampler", _SAMPLER_CLASS_TYPES),
+    ("scheduler", _SCHEDULER_CLASS_TYPES),
+    ("denoise", _DENOISE_CLASS_TYPES),
+    ("width", _LATENT_SIZE_CLASS_TYPES),
+    ("height", _LATENT_SIZE_CLASS_TYPES),
+    ("batch-size", _LATENT_SIZE_CLASS_TYPES),
+    ("checkpoint", _CHECKPOINT_CLASS_TYPES),
     ("image", _IMAGE_LOAD_CLASS_TYPES),
     ("video", _VIDEO_LOAD_CLASS_TYPES),
     ("audio", _AUDIO_LOAD_CLASS_TYPES),
@@ -172,13 +185,21 @@ def _populate_supported_params(templates: list[TemplateInfo]) -> None:
 
 def _build_example_invocation(tmpl: TemplateInfo) -> str:
     name = tmpl.template_id or tmpl.name
-    parts = [f"comfyui post-workflow {name}"]
+    parts = [f"comfyui workflows run {name}"]
 
     placeholders = {
         "prompt": '--prompt "your text here"',
         "negative-prompt": '--negative-prompt "things to avoid"',
         "steps": "--steps 20",
         "seed": "--seed 42",
+        "cfg": "--cfg 7.0",
+        "sampler": "--sampler euler",
+        "scheduler": "--scheduler normal",
+        "denoise": "--denoise 1.0",
+        "width": "--width 1024",
+        "height": "--height 1024",
+        "batch-size": "--batch-size 1",
+        "checkpoint": "--checkpoint model.safetensors",
         "image": "--image https://example.com/image.png",
         "video": "--video https://example.com/video.mp4",
         "audio": "--audio https://example.com/audio.wav",

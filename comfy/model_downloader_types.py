@@ -178,6 +178,31 @@ class DownloadableFileList(ComboOptions, list[str]):
         self._cached_validation_view = sorted(list(frozenset(self._validation_view) | frozenset(self)))
         return self._cached_validation_view
 
+    def __add__(self, other):
+        """Preserve DownloadableFileList type when concatenated with ``+``."""
+        result = DownloadableFileList([], folder_name=self._folder_name)
+        result.extend(list.__add__(self, list(other)))
+        result._validation_view = set(self._validation_view)
+        if isinstance(other, DownloadableFileList):
+            result._validation_view.update(other._validation_view)
+            # Merge folder names for lazy manager loading
+            if other._folder_name and not result._folder_name:
+                result._folder_name = other._folder_name
+        else:
+            result._validation_view.update(other)
+        return result
+
+    def __radd__(self, other):
+        """Support ``list + DownloadableFileList``."""
+        result = DownloadableFileList([], folder_name=self._folder_name)
+        result.extend(list(other) + list(self))
+        result._validation_view = set(self._validation_view)
+        if isinstance(other, DownloadableFileList):
+            result._validation_view.update(other._validation_view)
+        else:
+            result._validation_view.update(other)
+        return result
+
 
 class CivitStats(TypedDict):
     downloadCount: int

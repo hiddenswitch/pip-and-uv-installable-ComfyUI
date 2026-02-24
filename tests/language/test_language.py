@@ -1,8 +1,10 @@
+import pytest
 import torch
 
 from comfy_extras.nodes.nodes_language import TransformersLoader, OneShotInstructTokenize
 
 
+@pytest.mark.inference
 def test_integration_transformers_loader_and_tokenize():
     loader = TransformersLoader()
     tokenize = OneShotInstructTokenize()

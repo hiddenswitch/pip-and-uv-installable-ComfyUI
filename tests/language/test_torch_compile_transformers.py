@@ -5,6 +5,7 @@ from comfy.client.embedded_comfy_client import Comfy
 from comfy.api.components.schema.prompt import Prompt
 
 
+@pytest.mark.inference
 class TestTorchCompileTransformers:
     @pytest.mark.asyncio
     async def test_torch_compile_transformers(self):

@@ -80,6 +80,7 @@ def test_init_frontend_invalid_version():
         FrontendManager.init_frontend_unsafe(version_string)
 
 
+@pytest.mark.skip(reason="requires network access to GitHub API")
 def test_init_frontend_invalid_provider():
     version_string = "invalid/invalid@latest"
     with pytest.raises(HTTPError):

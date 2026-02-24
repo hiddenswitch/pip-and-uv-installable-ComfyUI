@@ -35,6 +35,36 @@ _SEED_FIELDS: dict[str, str] = {
     "TransformersGenerate": "seed",
 }
 
+_CFG_CLASS_TYPES = frozenset({
+    "KSampler",
+    "KSamplerAdvanced",
+})
+
+_SAMPLER_CLASS_TYPES = frozenset({
+    "KSampler",
+    "KSamplerAdvanced",
+})
+
+_SCHEDULER_CLASS_TYPES = frozenset({
+    "KSampler",
+    "KSamplerAdvanced",
+    "BasicScheduler",
+})
+
+_DENOISE_CLASS_TYPES = frozenset({
+    "KSampler",
+    "KSamplerAdvanced",
+})
+
+_LATENT_SIZE_CLASS_TYPES = frozenset({
+    "EmptyLatentImage",
+    "EmptySD3LatentImage",
+})
+
+_CHECKPOINT_CLASS_TYPES = frozenset({
+    "CheckpointLoaderSimple",
+})
+
 _IMAGE_LOAD_CLASS_TYPES = frozenset({
     "LoadImage",
     "LoadImageFromURL",
@@ -54,8 +84,21 @@ _AUDIO_LOAD_CLASS_TYPES = frozenset({
 })
 
 
-def _is_node_ref(value) -> bool:
-    return isinstance(value, (list, tuple)) and len(value) == 2
+from comfy_execution.graph_utils import is_link as _is_node_ref
+
+
+def _replace_field_in_nodes(prompt: dict, class_types: frozenset, field: str, value) -> dict:
+    node_ids = [
+        nid for nid, node in prompt.items()
+        if node.get("class_type", "") in class_types
+        and field in node.get("inputs", {})
+    ]
+    if not node_ids:
+        return prompt
+    prompt = copy.deepcopy(prompt)
+    for nid in node_ids:
+        prompt[nid]["inputs"][field] = value
+    return prompt
 
 
 def _find_text_encoder_in_predecessors(prompt: dict, start_node_id: str) -> Optional[str]:
@@ -212,13 +255,7 @@ def find_steps_nodes(prompt: dict) -> list[str]:
 
 def replace_steps(prompt: dict, steps: int) -> dict:
     """Return a copy of *prompt* with all sampler/scheduler step counts replaced."""
-    node_ids = find_steps_nodes(prompt)
-    if not node_ids:
-        return prompt
-    prompt = copy.deepcopy(prompt)
-    for nid in node_ids:
-        prompt[nid]["inputs"]["steps"] = steps
-    return prompt
+    return _replace_field_in_nodes(prompt, _STEPS_CLASS_TYPES, "steps", steps)
 
 
 
@@ -324,3 +361,35 @@ def find_audio_load_nodes(prompt: dict) -> list[str]:
 def replace_audios(prompt: dict, audios: list[str]) -> dict:
     """Return a copy of *prompt* with audio loading nodes replaced."""
     return _replace_media(prompt, audios, _AUDIO_LOAD_CLASS_TYPES)
+
+
+def replace_cfg(prompt: dict, cfg: float) -> dict:
+    return _replace_field_in_nodes(prompt, _CFG_CLASS_TYPES, "cfg", cfg)
+
+
+def replace_sampler(prompt: dict, sampler_name: str) -> dict:
+    return _replace_field_in_nodes(prompt, _SAMPLER_CLASS_TYPES, "sampler_name", sampler_name)
+
+
+def replace_scheduler(prompt: dict, scheduler: str) -> dict:
+    return _replace_field_in_nodes(prompt, _SCHEDULER_CLASS_TYPES, "scheduler", scheduler)
+
+
+def replace_denoise(prompt: dict, denoise: float) -> dict:
+    return _replace_field_in_nodes(prompt, _DENOISE_CLASS_TYPES, "denoise", denoise)
+
+
+def replace_width(prompt: dict, width: int) -> dict:
+    return _replace_field_in_nodes(prompt, _LATENT_SIZE_CLASS_TYPES, "width", width)
+
+
+def replace_height(prompt: dict, height: int) -> dict:
+    return _replace_field_in_nodes(prompt, _LATENT_SIZE_CLASS_TYPES, "height", height)
+
+
+def replace_batch_size(prompt: dict, batch_size: int) -> dict:
+    return _replace_field_in_nodes(prompt, _LATENT_SIZE_CLASS_TYPES, "batch_size", batch_size)
+
+
+def replace_checkpoint(prompt: dict, ckpt_name: str) -> dict:
+    return _replace_field_in_nodes(prompt, _CHECKPOINT_CLASS_TYPES, "ckpt_name", ckpt_name)

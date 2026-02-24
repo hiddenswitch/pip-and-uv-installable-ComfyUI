@@ -5,6 +5,8 @@ import shutil
 import time
 from pathlib import Path
 
+pytestmark = [pytest.mark.slow, pytest.mark.git_clone]
+
 # Timeout in seconds for the server to start and print the expected lines.
 SERVER_START_TIMEOUT = 20
 # Repository URLs and references

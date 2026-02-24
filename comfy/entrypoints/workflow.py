@@ -23,11 +23,43 @@ def _ensure_api_format(obj: dict) -> dict:
     return convert_ui_to_api(obj)
 
 
+def _apply_sets(obj: dict, sets: list[str]) -> dict:
+    import copy as _copy
+    if not sets:
+        return obj
+    obj = _copy.deepcopy(obj)
+    for item in sets:
+        if "=" not in item:
+            raise ValueError(f"Invalid --set format: {item!r} (expected key=value)")
+        key, value = item.split("=", 1)
+        parts = key.split(".")
+        target = obj
+        for part in parts[:-1]:
+            target = target[part]
+        parsed = value
+        if parsed.lower() == "true":
+            parsed = True
+        elif parsed.lower() == "false":
+            parsed = False
+        else:
+            try:
+                parsed = int(value)
+            except ValueError:
+                try:
+                    parsed = float(value)
+                except ValueError:
+                    pass
+        target[parts[-1]] = parsed
+    return obj
+
+
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
         replace_prompt_text, replace_negative_prompt_text,
         replace_steps, replace_seed,
         replace_images, replace_videos, replace_audios,
+        replace_cfg, replace_sampler, replace_scheduler, replace_denoise,
+        replace_width, replace_height, replace_batch_size, replace_checkpoint,
     )
 
     if configuration.prompt is not None:
@@ -38,12 +70,30 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         obj = replace_steps(obj, configuration.steps)
     if configuration.seed is not None:
         obj = replace_seed(obj, configuration.seed)
+    if configuration.cfg is not None:
+        obj = replace_cfg(obj, configuration.cfg)
+    if configuration.sampler is not None:
+        obj = replace_sampler(obj, configuration.sampler)
+    if configuration.scheduler is not None:
+        obj = replace_scheduler(obj, configuration.scheduler)
+    if configuration.denoise is not None:
+        obj = replace_denoise(obj, configuration.denoise)
+    if configuration.width is not None:
+        obj = replace_width(obj, configuration.width)
+    if configuration.height is not None:
+        obj = replace_height(obj, configuration.height)
+    if configuration.batch_size is not None:
+        obj = replace_batch_size(obj, configuration.batch_size)
+    if configuration.checkpoint is not None:
+        obj = replace_checkpoint(obj, configuration.checkpoint)
     if configuration.image is not None:
         obj = replace_images(obj, configuration.image)
     if configuration.video is not None:
         obj = replace_videos(obj, configuration.video)
     if configuration.audio is not None:
         obj = replace_audios(obj, configuration.audio)
+    if configuration.set:
+        obj = _apply_sets(obj, configuration.set)
     return obj
 
 

@@ -68,26 +68,39 @@ def setup_logging(config: Configuration):
 
 
 def setup_cuda_devices(config: Configuration):
-    if config.default_device is not None:
-        default_dev = config.default_device
-        devices = list(range(32))
-        devices.remove(default_dev)
-        devices.insert(0, default_dev)
-        devices = ','.join(map(str, devices))
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
-        os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
+    if config.torch_device is not None:
+        td = config.torch_device
+        if td.startswith("cuda:"):
+            cuda_idx = td.split(":", 1)[1]
+            os.environ['CUDA_VISIBLE_DEVICES'] = cuda_idx
+            os.environ['HIP_VISIBLE_DEVICES'] = cuda_idx
+            os.environ["ASCEND_RT_VISIBLE_DEVICES"] = cuda_idx
+        elif td.startswith("xpu:"):
+            os.environ['ONEAPI_DEVICE_SELECTOR'] = f"level_zero:{td.split(':', 1)[1]}"
+        elif td.startswith("npu:"):
+            os.environ["ASCEND_RT_VISIBLE_DEVICES"] = td.split(":", 1)[1]
+        logger.info("Set torch device to: %s", td)
+    else:
+        if config.default_device is not None:
+            default_dev = config.default_device
+            devices = list(range(32))
+            devices.remove(default_dev)
+            devices.insert(0, default_dev)
+            devices = ','.join(map(str, devices))
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
+            os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
 
-    if config.cuda_device is not None:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(config.cuda_device)
-        os.environ['HIP_VISIBLE_DEVICES'] = str(config.cuda_device)
-        os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(config.cuda_device)
-        logger.info("Set cuda device to: %s", config.cuda_device)
+        if config.cuda_device is not None:
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(config.cuda_device)
+            os.environ['HIP_VISIBLE_DEVICES'] = str(config.cuda_device)
+            os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(config.cuda_device)
+            logger.info("Set cuda device to: %s", config.cuda_device)
 
     if config.deterministic:
         if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
             os.environ['CUBLAS_WORKSPACE_CONFIG'] = ":4096:8"
 
-    if config.oneapi_device_selector is not None:
+    if config.oneapi_device_selector is not None and config.torch_device is None:
         os.environ['ONEAPI_DEVICE_SELECTOR'] = config.oneapi_device_selector
         logger.info("Set oneapi device selector to: %s", config.oneapi_device_selector)
 

@@ -171,7 +171,7 @@ try:
 except:
     ixuca_available = False
 
-if args.cpu:
+if args.cpu or (args.torch_device is not None and args.torch_device == "cpu"):
     cpu_state = CPUState.CPU
 
 

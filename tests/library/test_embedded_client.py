@@ -3,6 +3,8 @@ import asyncio
 import pytest
 import torch
 
+pytestmark = pytest.mark.inference
+
 from comfy.cli_args_types import Configuration
 from comfy.client.embedded_comfy_client import Comfy
 from comfy.client.sdxl_with_refiner_workflow import sdxl_workflow_with_refiner

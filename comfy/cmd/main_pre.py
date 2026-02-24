@@ -62,20 +62,34 @@ logging.getLogger("jax").setLevel(logging.WARNING)
 
 from ..cli_args import args
 
-if args.default_device is not None:
-    default_dev = args.default_device
-    devices = list(range(32))
-    devices.remove(default_dev)
-    devices.insert(0, default_dev)
-    devices = ','.join(map(str, devices))
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
-    os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
+if args.torch_device is not None:
+    # --torch-device takes priority over --cuda-device and --default-device
+    _td = args.torch_device
+    if _td.startswith("cuda:"):
+        _cuda_idx = _td.split(":", 1)[1]
+        os.environ['CUDA_VISIBLE_DEVICES'] = _cuda_idx
+        os.environ['HIP_VISIBLE_DEVICES'] = _cuda_idx
+        os.environ["ASCEND_RT_VISIBLE_DEVICES"] = _cuda_idx
+    elif _td.startswith("xpu:"):
+        os.environ['ONEAPI_DEVICE_SELECTOR'] = f"level_zero:{_td.split(':', 1)[1]}"
+    elif _td.startswith("npu:"):
+        os.environ["ASCEND_RT_VISIBLE_DEVICES"] = _td.split(":", 1)[1]
+    this_logger.info("Set torch device to: %s", _td)
+else:
+    if args.default_device is not None:
+        default_dev = args.default_device
+        devices = list(range(32))
+        devices.remove(default_dev)
+        devices.insert(0, default_dev)
+        devices = ','.join(map(str, devices))
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
+        os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
 
-if args.cuda_device is not None:
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
-    os.environ['HIP_VISIBLE_DEVICES'] = str(args.cuda_device)
-    os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(args.cuda_device)
-    this_logger.info("Set cuda device to: {}".format(args.cuda_device))
+    if args.cuda_device is not None:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
+        os.environ['HIP_VISIBLE_DEVICES'] = str(args.cuda_device)
+        os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(args.cuda_device)
+        this_logger.info("Set cuda device to: {}".format(args.cuda_device))
 
 if args.deterministic:
     if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:

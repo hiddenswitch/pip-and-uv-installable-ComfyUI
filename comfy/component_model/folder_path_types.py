@@ -541,8 +541,7 @@ class FolderNames:
         for candidate in self.contents:
             if candidate.has_folder_name(key):
                 return FolderPathsTuple(key, parent=weakref.ref(self))
-        if __default is not None:
-            raise ValueError("get with default is not supported")
+        return __default
 
     def copy(self):
         return copy.deepcopy(self)

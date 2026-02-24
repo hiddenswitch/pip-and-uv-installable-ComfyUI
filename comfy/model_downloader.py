@@ -105,13 +105,19 @@ def get_filename_list_with_downloadable(folder_name: str, known_files: Optional[
     if known_files is None:
         known_files = _get_known_models_for_folder_name(folder_name)
 
+    # Use the original folder_paths.get_filename_list if available (set by
+    # apply_folder_paths_patches) to avoid infinite recursion when
+    # folder_paths.get_filename_list has been replaced with this module's
+    # get_filename_list.
+    _get_existing = getattr(sys.modules[__name__], '_original_get_filename_list', None) or folder_paths.get_filename_list
+
     # workaround for lora loading issue, still needs to be investigated
     if sys.platform == "nt":
-        existing = frozenset(folder_paths.get_filename_list(folder_name))
+        existing = frozenset(_get_existing(folder_name))
         downloadable = frozenset() if args.disable_known_models else frozenset(str(f) for f in known_files)
         return list(map(canonicalize_path, sorted(list(existing | downloadable))))
     else:
-        existing = folder_paths.get_filename_list(folder_name)
+        existing = _get_existing(folder_name)
 
         downloadable_files = []
         if not args.disable_known_models:
@@ -148,7 +154,10 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
         known_files = _get_known_models_for_folder_name(folder_name)
 
     filename = canonicalize_path(filename)
-    path = folder_paths.get_full_path(folder_name, filename)
+    # Use the original folder_paths.get_full_path if available (set by
+    # apply_folder_paths_patches) to avoid infinite recursion.
+    _get_full_path = getattr(sys.modules[__name__], '_original_get_full_path', None) or folder_paths.get_full_path
+    path = _get_full_path(folder_name, filename)
 
     candidate_str_match = False
     candidate_filename_match = False
@@ -330,7 +339,7 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                             model_info: CivitModelsGetResponse = model_info_res.json()
 
                             civit_file: CivitFile_
-                            for civit_file in chain.from_iterable(version['files'] for version in model_info['modelVersions']):
+                            for civit_file in chain.from_iterable(version['files'] for version in model_info.get('modelVersions', [])):
                                 if canonicalize_path(civit_file['name']) == filename:
                                     url = civit_file['downloadUrl']
                                     break
@@ -494,6 +503,8 @@ KNOWN_CLIP_VISION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/sigclip_vision_384", "sigclip_vision_patch14_384.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/clip_vision/llava_llama3_vision.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/clip_vision/clip_vision_h.safetensors"),
+    # WanVideoWrapper (Kijai) -- CLIP vision
+    HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors", show_in_ui=False),
 ], folder_name="clip_vision")
 
 KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
@@ -521,6 +532,25 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors", show_in_ui=False),
     HuggingFile("Lightricks/LTX-2", "ltx-2-19b-distilled-lora-384.safetensors"),
     HuggingFile("Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left", "ltx-2-19b-lora-camera-control-dolly-left.safetensors"),
+    # WanVideoWrapper (Kijai) -- LoRAs
+    HuggingFile("Kijai/WanVideo_comfy", "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors", save_with_filename="WanVideo/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors", alternate_filenames=("WanVid/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank32_bf16.safetensors", save_with_filename="WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank32_bf16_.safetensors", alternate_filenames=("WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank32_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors", save_with_filename="WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors", alternate_filenames=("WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan21_T2V_14B/Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors", save_with_filename="Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/CausVid/Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors", save_with_filename="Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan2_1_self_forcing_1_3B/Wan2_1_self_forcing_dmd_1_3B_lora_rank_32_fp16.safetensors", save_with_filename="Wan2_1_self_forcing_dmd_1_3B_lora_rank_32_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Pusa/Wan21_PusaV1_LoRA_14B_rank512_bf16.safetensors", save_with_filename="WanVideo/Pusa/Wan21_PusaV1_LoRA_14B_rank512_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Pusa/Wan22_PusaV1_lora_HIGH_resized_dynamic_avg_rank_98_bf16.safetensors", save_with_filename="WanVideo/Pusa/Wan22_PusaV1_lora_HIGH_resized_dynamic_avg_rank_98_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Pusa/Wan22_PusaV1_lora_LOW_resized_dynamic_avg_rank_98_bf16.safetensors", save_with_filename="WanVideo/Pusa/Wan22_PusaV1_lora_LOW_resized_dynamic_avg_rank_98_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan22-Lightning/old/Wan2.2-Lightning_I2V-A14B-4steps-lora_HIGH_fp16.safetensors", save_with_filename="WanVideo/Wan22-Lightning/Wan2.2-Lightning_I2V-A14B-4steps-lora_HIGH_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan22-Lightning/old/Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors", save_with_filename="WanVideo/Wan22-Lightning/Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0_fp16.safetensors", save_with_filename="WanVideo/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0.safetensors", alternate_filenames=("WanVideo/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0_fp16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors", save_with_filename="WanVideo/WanAnimate_relight_lora_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat_distill_lora_rank128_bf16.safetensors", save_with_filename="LongCat_distill_lora_rank128_bf16.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- reward LoRAs
+    HuggingFile("Kijai/Wan2.1-Fun-Reward-LoRAs-comfy", "Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", save_with_filename="WanVid/funreward/Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- control LoRAs
+    HuggingFile("spacepxl/Wan2.1-control-loras", "wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", save_with_filename="WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", alternate_filenames=("WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors",), show_in_ui=False),
 ], folder_name="loras")
 
 KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -625,6 +655,8 @@ KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("stabilityai/stable-diffusion-3.5-controlnets", "sd3.5_large_controlnet_depth.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3.5-controlnets", "sd3.5_large_controlnet_blur.safetensors"),
     HuggingFile("Shakker-Labs/FLUX.1-dev-ControlNet-Depth", "diffusion_pytorch_model.safetensors", save_with_filename="shakker-labs-flux.1-dev-controlnet-depth.safetensors"),
+    # WanVideo 2.2 controlnets
+    HuggingFile("TheDenk/wan2.2-ti2v-5b-controlnet-depth-v1", "diffusion_pytorch_model.safetensors", save_with_filename="wan2.2-ti2v-5b-controlnet-depth-v1/diffusion_pytorch_model.safetensors"),
 ], folder_name="controlnet")
 
 KNOWN_DIFF_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -655,6 +687,8 @@ KNOWN_APPROX_VAES: Final[KnownDownloadables] = KnownDownloadables([
     UrlFile("https://raw.githubusercontent.com/madebyollin/taesd/main/taef1_encoder.pth", show_in_ui=False),
     UrlFile("https://raw.githubusercontent.com/madebyollin/taesd/main/taef1_decoder.pth", show_in_ui=False),
     # todo: update this with the video VAEs
+    # WanVideoWrapper (Kijai) -- tiny VAE
+    HuggingFile("Kijai/WanVideo_comfy", "taew2_1.safetensors", show_in_ui=False),
 ], folder_name="vae_approx")
 
 KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
@@ -676,6 +710,11 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     # Hunyuan Image
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/vae/hunyuan_image_2.1_vae_fp16.safetensors"),
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/vae/hunyuan_image_refiner_vae_fp16.safetensors"),
+    # WanVideoWrapper (Kijai) -- VAE
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1_VAE_bf16.safetensors", alternate_filenames=("wanvideo/Wan2_1_VAE_bf16.safetensors",)),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_2_VAE_bf16.safetensors", alternate_filenames=("wanvideo/Wan2_2_VAE_bf16.safetensors",)),
+    HuggingFile("Kijai/WanVideo_comfy", "FlashVSR/Wan2_1_FlashVSR_TCDecoder_fp32.safetensors", save_with_filename="Wan2_1_FlashVSR_TCDecoder_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "MTVCrafter/MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", save_with_filename="wanvideo/MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", show_in_ui=False),
 ], folder_name="vae")
 
 KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
@@ -696,6 +735,24 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
     'llava-hf/llava-onevision-qwen2-7b-si-hf',
     'llava-hf/llama3-llava-next-8b-hf',
     'PromptEnhancer/PromptEnhancer-32B',
+    # Florence-2 (ComfyUI-Florence2)
+    'microsoft/Florence-2-base',
+    'microsoft/Florence-2-base-ft',
+    'microsoft/Florence-2-large',
+    'microsoft/Florence-2-large-ft',
+    'thwri/CogFlorence-2.1-Large',
+    'thwri/CogFlorence-2.2-Large',
+    'gokaygokay/Florence-2-SD3-Captioner',
+    'gokaygokay/Florence-2-Flux-Large',
+    'MiaoshouAI/Florence-2-base-PromptGen-v1.5',
+    'MiaoshouAI/Florence-2-base-PromptGen-v2.0',
+    'MiaoshouAI/Florence-2-large-PromptGen-v1.5',
+    'MiaoshouAI/Florence-2-large-PromptGen-v2.0',
+    # NormalCrafter (ComfyUI-NormalCrafterWrapper)
+    'Yanrui95/NormalCrafter',
+    # ChatterBox TTS (ComfyUI_Fill-ChatterBox)
+    'ResembleAI/chatterbox',
+    'ResembleAI/chatterbox-turbo',
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -745,7 +802,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp16.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"),
-    HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"),
+    HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors", alternate_filenames=("WanVideo/2_2/wan2.2_ti2v_5B_fp16.safetensors",)),
     HuggingFile("lodestones/Chroma", "chroma-unlocked-v37.safetensors"),
     HuggingFile("QuantStack/Wan2.2-T2V-A14B-GGUF", "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q8_0.gguf"),
     HuggingFile("QuantStack/Wan2.2-T2V-A14B-GGUF", "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf"),
@@ -773,6 +830,63 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/diffusion_models/hunyuanimage2.1_refiner_bf16.safetensors"),
     # Ovis
     HuggingFile("Comfy-Org/Ovis-Image", "split_files/diffusion_models/ovis_image_bf16.safetensors"),
+    # WanVideoWrapper (Kijai) -- base fp8 models
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-T2V-14B_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-I2V-14B-720P_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-I2V-14B-720P_fp8_e4m3fn.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-FLF2V-14B-720P_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-FLF2V-14B-720P_fp8_e4m3fn.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-VACE_module_1_3B_bf16.safetensors", save_with_filename="WanVideo/Wan2_1-VACE_module_1_3B_bf16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "wan2.1_t2v_1.3B_fp16.safetensors", save_with_filename="WanVideo/wan2.1_t2v_1.3B_fp16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "wan2.1_fun_control_1.3B_bf16.safetensors", save_with_filename="WanVideo/wan2.1_fun_control_1.3B_bf16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Fun/Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors", save_with_filename="WanVideo/Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-Wan-I2V-ATI-14B_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-Wan-I2V-ATI-14B_fp8_e4m3fn.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- specialty models
+    HuggingFile("Kijai/WanVideo_comfy", "EchoShot/Wan2_1-T2V-1-3B-EchoShot_fp16.safetensors", save_with_filename="WanVideo/EchoShot/Wan2_1-T2V-1-3B-EchoShot_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "FantasyPortrait/Wan2_1_FantasyPortrait_fp16.safetensors", save_with_filename="WanVideo/FantasyPortrait/Wan2_1_FantasyPortrait_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "fantasytalking_fp16.safetensors", save_with_filename="WanVideo/fantasytalking_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "FlashVSR/Wan2_1-T2V-1_3B_FlashVSR_fp32.safetensors", save_with_filename="WanVideo/FlashVSR/Wan2_1-T2V-1_3B_FlashVSR_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "FlashVSR/Wan2_1_FlashVSR_LQ_proj_model_bf16.safetensors", save_with_filename="WanVideo/FlashVSR/Wan2_1_FlashVSR_LQ_proj_model_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "MTVCrafter/Wan2_1_MTV-Crafter_motion_adapter_bf16.safetensors", save_with_filename="WanVideo/MTVCrafter/Wan2_1_MTV-Crafter_motion_adapter_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors", save_with_filename="WanVideo/Skyreels/Wan2_1-SkyReels-V2-DF-1_3B-540P_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Skyreels/Wan2_1_SkyreelsA2_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1_SkyreelsA2_fp8_e4m3fn.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "UniLumos/Wan2_1_UniLumos_1_3B_bf16.safetensors", save_with_filename="WanVideo/UniLumos/Wan2_1_UniLumos_1_3B_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors", save_with_filename="WanVideo/Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Lynx/lynx_lite_resampler_fp32.safetensors", save_with_filename="WanVideo/lynx/lynx_lite_resampler_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Lynx/Wan2_1-T2V-Lynx_full_ref_layers_fp16.safetensors", save_with_filename="WanVideo/lynx/Wan2_1-T2V-Lynx_full_ref_layers_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Lynx/Wan2_1-T2V-Lynx_lite_ip_layers_fp16.safetensors", save_with_filename="WanVideo/lynx/Wan2_1-T2V-Lynx_lite_ip_layers_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "FastWan/Wan2_2-TI2V-5B-FastWanFullAttn_bf16.safetensors", save_with_filename="Wan2_2-TI2V-5B-FastWanFullAttn_bf16.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- fp8 scaled (Kijai quantized)
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "T2V/Wan2_1-T2V-14B_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/fp8_scaled_kj/T2V/Wan2_1-T2V-14B_fp8_e4m3fn_scaled_KJ.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "I2V/Wan2_1-I2V-14B-720p_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/fp8_scaled_kj/I2V/Wan2_1-I2V-14B-720p_fp8_e4m3fn_scaled_KJ.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "I2V/Wan2_1-I2V-14B-MAGREF_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/fp8_scaled_kj/I2V/Wan2_1-I2V-14B-MAGREF_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "T2V/Wan2_1-T2V-14B-Phantom_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/Wan2_1-T2V-14B-Phantom_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "I2V/Wan2_2-I2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Wan2_2-I2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "I2V/Wan2_2-I2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Wan2_2-I2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "T2V/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "T2V/Wan2_2-T2V-A14B_HIGH_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Wan2_2-T2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors", alternate_filenames=("WanVideo/2_2/Wan2_2-T2V-A14B_HIGH_fp8_e4m3fn_scaled_KJ.safetensors",)),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "Fun/Wan2_2-Fun-Control-A14B-HIGH_fp8_e4m3fn_scaled_KJ_fixed.safetensors", save_with_filename="WanVideo/2_2/Fun/Wan2_2-Fun-Control-A14B-HIGH_fp8_e4m3fn_scaled_KJ_fixed.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "Fun/Wan2_2-Fun-Control-A14B-LOW_fp8_e4m3fn_scaled_KJ_fixed.safetensors", save_with_filename="WanVideo/2_2/Fun/Wan2_2-Fun-Control-A14B-LOW_fp8_e4m3fn_scaled_KJ_fixed.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "Fun/Wan2_2-Fun-Control-Camera-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/2_2/Fun/Wan2_2-Fun-Control-Camera-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "HuMo/Wan2_1-HuMo-14B_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/HuMo/Wan2_1-HuMo-14B_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "SCAIL/Wan21-14B-SCAIL-preview_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/SCAIL/Wan21-14B-SCAIL-preview_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "SteadyDancer/Wan21_SteadyDancer_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/SteadyDancer/Wan2.1-SteadyDancer_fp8_scaled_KJ.safetensors", alternate_filenames=("WanVideo/SteadyDancer/Wan21_SteadyDancer_fp8_e4m3fn_scaled_KJ.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "OneToAllAnimation/Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/OneToAll/Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "WanMove/Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors", save_with_filename="WanVideo/WanMove/Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/mocha/MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "SkyReelsV3/Wan21-SkyReelsV3-A2V_fp8_scaled_mixed.safetensors", save_with_filename="WanVideo/SkyreelsV3/Wan21_SkyReelsV3-A2V_fp8_scaled_mixed.safetensors", alternate_filenames=("WanVideo/SkyreelsV3/Wan21-SkyReelsV3-A2V_fp8_scaled_mixed.safetensors",), show_in_ui=False),
+    # WanVideoWrapper -- Ovi models
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_1_Ovi_audio_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_1_Ovi_audio_model_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/model_960x960_10s.safetensors", save_with_filename="WanVideo/Ovi/model_960x960_10s.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- InfiniteTalk GGUF
+    HuggingFile("Kijai/WanVideo_comfy", "InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", save_with_filename="WanVideo/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", show_in_ui=False),
+    # WanVideoWrapper -- LongCat
+    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat-Avatar_bf16.safetensors", save_with_filename="LongCat/LongCat-Avatar_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="LongCat/LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- MelBandRoFormer (audio separation)
+    HuggingFile("Kijai/WanVideo_comfy", "MelBandRoFormer/MelBandRoformer_fp16.safetensors", save_with_filename="MelBandRoFormer/MelBandRoformer_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "MelBandRoFormer/MelBandRoformer_fp32.safetensors", save_with_filename="MelBandRoformer_fp32.safetensors", show_in_ui=False),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
@@ -809,11 +923,225 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Ovis-Image", "split_files/text_encoders/ovis_2.5.safetensors"),
     HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it.safetensors"),
     HuggingFile("Comfy-Org/ltx-2", "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"),
+    # WanVideoWrapper (Kijai) -- text encoder
+    HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
 ], folder_names=["clip", "text_encoders"])
 
 KNOWN_STYLE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("black-forest-labs/FLUX.1-Redux-dev", "flux1-redux-dev.safetensors"),
 ], folder_name="style_models")
+
+# WanVideoWrapper (Kijai) -- MMAudio models (Ovi audio generation)
+KNOWN_MMAUDIO_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vae_16k_bf16.safetensors", save_with_filename="mmaudio/mmaudio_vae_16k_bf16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vocoder_bigvgan_best_netG_bf16.safetensors", save_with_filename="mmaudio/mmaudio_vocoder_bigvgan_best_netG_bf16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vae_16k_fp32.safetensors", save_with_filename="mmaudio_vae_16k_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vocoder_bigvgan_best_netG_fp32.safetensors", save_with_filename="mmaudio_vocoder_bigvgan_best_netG_fp32.safetensors", show_in_ui=False),
+], folder_name="mmaudio")
+
+# WanVideoWrapper (Kijai) -- Audio encoder models (HuMo whisper)
+KNOWN_AUDIO_ENCODER_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "HuMo/whisper_large_v3_encoder_fp16.safetensors", save_with_filename="whisper_large_v3_encoder_fp16.safetensors"),
+], folder_name="audio_encoders")
+
+# WanVideoWrapper (Kijai) -- Wav2Vec2 models (MultiTalk)
+KNOWN_WAV2VEC2_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "wav2vec2/wav2vec2-chinese-base_fp16.safetensors", save_with_filename="wav2vec2-chinese-base_fp16.safetensors"),
+], folder_name="wav2vec2")
+
+# ComfyUI-segment-anything-2, Impact-Pack, LayerStyle -- SAM2 models
+KNOWN_SAM2_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    # SAM 2.1 (newer)
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_large.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_large-fp16.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_base_plus.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_base_plus-fp16.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_small.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_small-fp16.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_tiny.safetensors"),
+    HuggingFile("Kijai/sam2-safetensors", "sam2.1_hiera_tiny-fp16.safetensors"),
+    # SAM 2.0 (original)
+    HuggingFile("Kijai/sam2-safetensors", "sam2_hiera_large.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/sam2-safetensors", "sam2_hiera_base_plus.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/sam2-safetensors", "sam2_hiera_small.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/sam2-safetensors", "sam2_hiera_tiny.safetensors", show_in_ui=False),
+], folder_name="sams")
+
+# Impact-Pack -- SAM 1.x models (original Segment Anything)
+KNOWN_SAM_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    UrlFile("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"),
+    UrlFile("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth", _save_with_filename="sam_vit_l_0b3195.pth"),
+    UrlFile("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth", _save_with_filename="sam_vit_h_4b8939.pth"),
+], folder_name="sams")
+
+# Impact-Pack -- Ultralytics YOLO detection models
+KNOWN_ULTRALYTICS_BBOX_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Bingsu/adetailer", "face_yolov8m.pt"),
+    HuggingFile("Bingsu/adetailer", "face_yolov8n.pt"),
+    HuggingFile("Bingsu/adetailer", "face_yolov8n_v2.pt"),
+    HuggingFile("Bingsu/adetailer", "face_yolov8s.pt"),
+    HuggingFile("Bingsu/adetailer", "face_yolov9c.pt"),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8n.pt"),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8s.pt"),
+], folder_names=["ultralytics", "ultralytics/bbox"])
+
+KNOWN_ULTRALYTICS_SEGM_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Bingsu/adetailer", "deepfashion2_yolov8s-seg.pt"),
+    HuggingFile("Bingsu/adetailer", "person_yolov8n-seg.pt"),
+], folder_names=["ultralytics", "ultralytics/segm"])
+
+# ComfyUI-DepthAnythingV2 -- depth estimation models
+KNOWN_DEPTH_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vitl_fp16.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vitl_fp32.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vitb_fp16.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vitb_fp32.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vits_fp16.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_vits_fp32.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_metric_hypersim_vitl_fp32.safetensors"),
+    HuggingFile("Kijai/DepthAnythingV2-safetensors", "depth_anything_v2_metric_vkitti_vitl_fp32.safetensors"),
+], folder_name="depthanything")
+
+# ComfyUI_IPAdapter_plus -- IP-Adapter models
+KNOWN_IPADAPTER_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    # SD 1.5 models
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter_sd15.safetensors", save_with_filename="ip-adapter_sd15.safetensors"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter_sd15_light.safetensors", save_with_filename="ip-adapter_sd15_light.safetensors"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter_sd15_light_v11.bin", save_with_filename="ip-adapter_sd15_light_v11.bin"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter_sd15_vit-G.safetensors", save_with_filename="ip-adapter_sd15_vit-G.safetensors"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter-plus_sd15.safetensors", save_with_filename="ip-adapter-plus_sd15.safetensors"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter-plus-face_sd15.safetensors", save_with_filename="ip-adapter-plus-face_sd15.safetensors"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter-full-face_sd15.safetensors", save_with_filename="ip-adapter-full-face_sd15.safetensors"),
+    # SDXL models
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter_sdxl.safetensors", save_with_filename="ip-adapter_sdxl.safetensors"),
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter_sdxl_vit-h.safetensors", save_with_filename="ip-adapter_sdxl_vit-h.safetensors"),
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors", save_with_filename="ip-adapter-plus_sdxl_vit-h.safetensors"),
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors", save_with_filename="ip-adapter-plus-face_sdxl_vit-h.safetensors"),
+    # FaceID models
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid_sd15.bin", save_with_filename="ip-adapter-faceid_sd15.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid_sdxl.bin", save_with_filename="ip-adapter-faceid_sdxl.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plus_sd15.bin", save_with_filename="ip-adapter-faceid-plus_sd15.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plusv2_sd15.bin", save_with_filename="ip-adapter-faceid-plusv2_sd15.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plusv2_sdxl.bin", save_with_filename="ip-adapter-faceid-plusv2_sdxl.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-portrait_sd15.bin", save_with_filename="ip-adapter-faceid-portrait_sd15.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-portrait-v11_sd15.bin", save_with_filename="ip-adapter-faceid-portrait-v11_sd15.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-portrait_sdxl.bin", save_with_filename="ip-adapter-faceid-portrait_sdxl.bin"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-portrait_sdxl_unnorm.bin", save_with_filename="ip-adapter-faceid-portrait_sdxl_unnorm.bin"),
+    # FaceID LoRAs (placed in loras folder, not ipadapter)
+], folder_name="ipadapter")
+
+# ComfyUI_IPAdapter_plus -- FaceID LoRAs
+KNOWN_IPADAPTER_LORAS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid_sd15_lora.safetensors", save_with_filename="ip-adapter-faceid_sd15_lora.safetensors"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid_sdxl_lora.safetensors", save_with_filename="ip-adapter-faceid_sdxl_lora.safetensors"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plus_sd15_lora.safetensors", save_with_filename="ip-adapter-faceid-plus_sd15_lora.safetensors"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plusv2_sd15_lora.safetensors", save_with_filename="ip-adapter-faceid-plusv2_sd15_lora.safetensors"),
+    HuggingFile("h94/IP-Adapter-FaceID", "ip-adapter-faceid-plusv2_sdxl_lora.safetensors", save_with_filename="ip-adapter-faceid-plusv2_sdxl_lora.safetensors"),
+], folder_name="loras")
+
+# ComfyUI-Lotus -- lotus depth/normal models
+KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/lotus-comfyui", "lotus-depth-d-v-1-1-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-depth-g-v1-0-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-depth-g-v2-1-disparity-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-normal-d-v1-0-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-1-fp16.safetensors"),
+], folder_name="diffusion_models")
+
+# ComfyUI-SeedVR2_VideoUpscaler -- video upscaling models
+KNOWN_SEEDVR2_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_3b_fp16.safetensors"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_3b_fp8_e4m3fn.safetensors"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_7b_fp16.safetensors"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors"),
+    HuggingFile("numz/SeedVR2_comfyUI", "ema_vae_fp16.safetensors"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_3b-Q4_K_M.gguf"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_3b-Q8_0.gguf"),
+    HuggingFile("numz/SeedVR2_comfyUI", "seedvr2_ema_7b-Q4_K_M.gguf"),
+], folder_name="SEEDVR2")
+
+# ComfyUI-NormalCrafterWrapper -- NormalCrafter models (downloaded as full repo)
+KNOWN_NORMALCRAFTER_REPOS: Final[Set[str]] = {
+    'Yanrui95/NormalCrafter',
+}
+
+# ComfyUI-Florence2 -- Florence-2 model repos (downloaded as full repo)
+KNOWN_FLORENCE2_REPOS: Final[Set[str]] = {
+    'microsoft/Florence-2-base',
+    'microsoft/Florence-2-base-ft',
+    'microsoft/Florence-2-large',
+    'microsoft/Florence-2-large-ft',
+    'thwri/CogFlorence-2.1-Large',
+    'thwri/CogFlorence-2.2-Large',
+    'gokaygokay/Florence-2-SD3-Captioner',
+    'gokaygokay/Florence-2-Flux-Large',
+    'MiaoshouAI/Florence-2-base-PromptGen-v1.5',
+    'MiaoshouAI/Florence-2-base-PromptGen-v2.0',
+    'MiaoshouAI/Florence-2-large-PromptGen-v1.5',
+    'MiaoshouAI/Florence-2-large-PromptGen-v2.0',
+}
+
+# ComfyUI-GGUF -- GGUF-quantized models
+KNOWN_GGUF_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    # Flux GGUF
+    HuggingFile("city96/FLUX.1-dev-gguf", "flux1-dev-Q4_K_S.gguf"),
+    HuggingFile("city96/FLUX.1-dev-gguf", "flux1-dev-Q8_0.gguf"),
+    HuggingFile("city96/FLUX.1-schnell-gguf", "flux1-schnell-Q4_K_S.gguf"),
+    HuggingFile("city96/FLUX.1-schnell-gguf", "flux1-schnell-Q8_0.gguf"),
+    # T5 text encoder GGUF
+    HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q4_K_M.gguf"),
+    HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q8_0.gguf"),
+], folder_names=["diffusion_models", "unet", "clip", "text_encoders"])
+
+# ComfyUI_Fill-ChatterBox -- ChatterBox TTS models (downloaded as full repo)
+KNOWN_CHATTERBOX_REPOS: Final[Set[str]] = {
+    'ResembleAI/chatterbox',
+    'ResembleAI/chatterbox-turbo',
+}
+
+# ComfyUI-SCAIL-Pose -- pose detection models
+KNOWN_POSE_DETECTION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("JunkyByte/easy_ViTPose", "onnx/wholebody/vitpose-l-wholebody.onnx", save_with_filename="vitpose-l-wholebody.onnx"),
+], folder_name="detection")
+
+# ComfyUI-Frame-Interpolation -- VFI models
+# RIFE models from GitHub releases (no HF mirror)
+_VFI_GITHUB_BASE = "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation/releases/download/models"
+KNOWN_VFI_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    # RIFE (most commonly used)
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife47.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife49.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife48.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife46.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife45.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife44.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife43.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife42.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife41.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/rife40.pth"),
+    UrlFile(f"{_VFI_GITHUB_BASE}/sudo_rife4_269.662_testV1_scale1.pth"),
+    # FILM (from HF)
+    HuggingFile("jkawamoto/frame-interpolation-pytorch", "film_net_fp32.pt"),
+    HuggingFile("jkawamoto/frame-interpolation-pytorch", "film_net_fp16.pt"),
+    # AMT (from HF)
+    HuggingFile("lalala125/AMT", "amt-s.pth"),
+    HuggingFile("lalala125/AMT", "amt-l.pth"),
+    HuggingFile("lalala125/AMT", "amt-g.pth"),
+    HuggingFile("lalala125/AMT", "gopro_amt-s.pth"),
+    # GIMM-VFI (Kijai safetensors)
+    HuggingFile("Kijai/GIMM-VFI_safetensors", "gimmvfi_f_arb_lpips_fp32.safetensors"),
+    HuggingFile("Kijai/GIMM-VFI_safetensors", "gimmvfi_r_arb_lpips_fp32.safetensors"),
+    HuggingFile("Kijai/GIMM-VFI_safetensors", "flowformer_sintel_fp32.safetensors"),
+    HuggingFile("Kijai/GIMM-VFI_safetensors", "raft-things_fp32.safetensors"),
+], folder_name="vfi_models")
+
+# FlashVSR -- video super-resolution (from HF)
+KNOWN_FLASHVSR_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("JunhaoZhuang/FlashVSR-v1.1", "LQ_proj_in.ckpt", save_with_filename="FlashVSR/LQ_proj_in.ckpt"),
+    HuggingFile("JunhaoZhuang/FlashVSR-v1.1", "TCDecoder.ckpt", save_with_filename="FlashVSR/TCDecoder.ckpt"),
+    HuggingFile("JunhaoZhuang/FlashVSR-v1.1", "diffusion_pytorch_model_streaming_dmd.safetensors", save_with_filename="FlashVSR/diffusion_pytorch_model_streaming_dmd.safetensors"),
+], folder_name="FlashVSR")
 
 _known_models_db: list[KnownDownloadables] = [
     KNOWN_CHECKPOINTS,
@@ -831,6 +1159,22 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_UPSCALERS,
     KNOWN_LATENT_UPSCALE_MODELS,
     KNOWN_STYLE_MODELS,
+    KNOWN_MMAUDIO_MODELS,
+    KNOWN_AUDIO_ENCODER_MODELS,
+    KNOWN_WAV2VEC2_MODELS,
+    KNOWN_SAM2_MODELS,
+    KNOWN_SAM_MODELS,
+    KNOWN_ULTRALYTICS_BBOX_MODELS,
+    KNOWN_ULTRALYTICS_SEGM_MODELS,
+    KNOWN_DEPTH_MODELS,
+    KNOWN_IPADAPTER_MODELS,
+    KNOWN_IPADAPTER_LORAS,
+    KNOWN_LOTUS_MODELS,
+    KNOWN_SEEDVR2_MODELS,
+    KNOWN_GGUF_MODELS,
+    KNOWN_POSE_DETECTION_MODELS,
+    KNOWN_VFI_MODELS,
+    KNOWN_FLASHVSR_MODELS,
 ]
 
 
@@ -913,12 +1257,12 @@ def get_huggingface_repo_list(*extra_cache_dirs: str) -> List[str]:
         return list(existing_repo_ids | existing_local_dir_repos | known_repo_ids)
 
 
-def get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] = None, local_dirs: Optional[list] = None, force: bool = False, subset: bool = False) -> Optional[str]:
+def get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] = None, local_dirs: Optional[list] = None, force: bool = False, subset: bool = False, allow_patterns=None, ignore_patterns=None) -> Optional[str]:
     with comfy_tqdm():
-        return _get_or_download_huggingface_repo(repo_id, cache_dirs, local_dirs, force=force, subset=subset)
+        return _get_or_download_huggingface_repo(repo_id, cache_dirs, local_dirs, force=force, subset=subset, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns)
 
 
-def _get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] = None, local_dirs: Optional[list] = None, force: bool = False, subset: bool = False) -> Optional[str]:
+def _get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] = None, local_dirs: Optional[list] = None, force: bool = False, subset: bool = False, allow_patterns=None, ignore_patterns=None) -> Optional[str]:
     cache_dirs = cache_dirs or folder_paths.get_folder_paths("huggingface_cache")
     local_dirs = local_dirs or folder_paths.get_folder_paths("huggingface")
     cache_dirs_snapshots, local_dirs_snapshots = _get_cache_hits(cache_dirs, local_dirs, repo_id, subset=subset)
@@ -935,14 +1279,14 @@ def _get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] =
         elif not args.disable_known_models:
             destination = os.path.join(local_dirs[0], repo_id)
             logger.debug(f"downloading repo_id={repo_id}, local_dir={destination}")
-            return snapshot_download(repo_id, local_dir=destination, force_download=force)
+            return snapshot_download(repo_id, local_dir=destination, force_download=force, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns)
 
     snapshots = local_dirs_snapshots + cache_dirs_snapshots
     if len(snapshots) > 0 and not force:
         return snapshots[0]
     elif not args.disable_known_models:
         logger.debug(f"downloading repo_id={repo_id}")
-        return snapshot_download(repo_id, force_download=force)
+        return snapshot_download(repo_id, force_download=force, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns)
 
     # this repo was not found
     return None

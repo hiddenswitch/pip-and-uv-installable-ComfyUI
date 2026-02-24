@@ -63,6 +63,8 @@ parser.add_argument("--auto-launch", action="store_true", help="Automatically la
 parser.add_argument("--disable-auto-launch", action="store_true", help="Disable auto launching the browser.")
 parser.add_argument("--cuda-device", type=int, default=None, metavar="DEVICE_ID",
                     help="Set the id of the cuda device this instance will use.")
+parser.add_argument("--torch-device", type=str, default=None, metavar="DEVICE",
+                    help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")
 parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device.")
 
 cm_group = parser.add_mutually_exclusive_group()

@@ -132,6 +132,7 @@ def _prepare_for_workflows() -> dict[str, Traversable]:
     return {f.name: f for f in importlib.resources.files(workflows).iterdir() if f.is_file() and f.name.endswith(".json")}
 
 
+@pytest.mark.inference
 @pytest.mark.asyncio
 @pytest.mark.parametrize("workflow_name, workflow_file", _prepare_for_workflows().items())
 async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu: bool, client: Comfy):

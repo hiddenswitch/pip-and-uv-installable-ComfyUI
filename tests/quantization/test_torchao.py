@@ -1,5 +1,7 @@
 import pytest
 
+pytestmark = pytest.mark.inference
+
 from comfy import model_management
 from comfy.model_patcher import ModelPatcher
 from comfy.nodes.base_nodes import UNETLoader, CheckpointLoaderSimple

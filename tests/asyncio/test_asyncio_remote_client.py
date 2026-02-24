@@ -5,6 +5,8 @@ import aiohttp
 import pytest
 from can_ada import URL, parse
 
+pytestmark = pytest.mark.inference
+
 from comfy.client.aio_client import AsyncRemoteComfyClient
 from comfy.client.sdxl_with_refiner_workflow import sdxl_workflow_with_refiner
 

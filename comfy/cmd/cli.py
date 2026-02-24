@@ -1,8 +1,8 @@
 """
 Typer CLI application for ComfyUI.
 
-Single entry point for all commands: serve, worker, post-workflow,
-create-directories, list-workflow-templates.
+Single entry point for all commands: serve, worker, stop, logs,
+and sub-apps: models, workflows, nodes, jobs, env.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import typer
 from ..cli_args_types import (
     Configuration, LatentPreviewMethod, PerformanceFeature,
     VRAM_MODES, PRECISION_MODES, UNET_MODES, VAE_MODES, TEXT_ENC_MODES,
-    ATTENTION_MODES, CACHE_MODES, UPCAST_MODES,
+    ATTENTION_MODES, UPCAST_MODES,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ _DIRECTORY_OPTS: list[tuple] = [
 
 _DEVICE_OPTS: list[tuple] = [
     ("cuda_device", Optional[int], typer.Option(None, "--cuda-device", help="Set the id of the cuda device this instance will use.")),
+    ("torch_device", Optional[str], typer.Option(None, "--torch-device", help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")),
     ("default_device", Optional[int], typer.Option(None, "--default-device", help="Set the id of the default device, all other devices will stay visible.")),
     ("cuda_malloc", bool, typer.Option(False, "--cuda-malloc", help="Enable cudaMallocAsync.")),
     ("disable_cuda_malloc", bool, typer.Option(True, "--disable-cuda-malloc", help="Disable cudaMallocAsync.")),
@@ -173,10 +174,19 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("negative_prompt", Optional[str], typer.Option(None, "--negative-prompt", help="Override the negative prompt text in workflows.")),
     ("steps", Optional[int], typer.Option(None, "--steps", help="Override the number of sampling steps in workflows.")),
     ("seed", Optional[int], typer.Option(None, "--seed", help="Override the seed in sampler and noise nodes in workflows.")),
+    ("cfg", Optional[float], typer.Option(None, "--cfg", help="Override the CFG scale in sampler nodes.")),
+    ("sampler", Optional[str], typer.Option(None, "--sampler", help="Override the sampler name in sampler nodes.")),
+    ("scheduler", Optional[str], typer.Option(None, "--scheduler", help="Override the scheduler in sampler/scheduler nodes.")),
+    ("denoise", Optional[float], typer.Option(None, "--denoise", help="Override the denoise strength in sampler nodes.")),
+    ("width", Optional[int], typer.Option(None, "--width", help="Override the width in latent image nodes.")),
+    ("height", Optional[int], typer.Option(None, "--height", help="Override the height in latent image nodes.")),
+    ("batch_size", Optional[int], typer.Option(None, "--batch-size", help="Override the batch size in latent image nodes.")),
+    ("checkpoint", Optional[str], typer.Option(None, "--checkpoint", help="Override the checkpoint model name.")),
     ("image", Optional[list[str]], typer.Option(None, "--image", help="Override image inputs in workflows. Accepts file paths or URIs.")),
     ("video", Optional[list[str]], typer.Option(None, "--video", help="Override video inputs in workflows. Accepts file paths or URIs.")),
     ("audio", Optional[list[str]], typer.Option(None, "--audio", help="Override audio inputs in workflows. Accepts file paths or URIs.")),
     ("output", Optional[str], typer.Option(None, "-o", "--output", help="Override the output directory for workflows.")),
+    ("set", Optional[list[str]], typer.Option(None, "--set", help="Override arbitrary node inputs. Format: node_id.inputs.field=value")),
 ]
 
 _COMPUTE_OPTS = (
@@ -192,7 +202,7 @@ _ALL_SHARED_OPTS = (
 _NULLABLE_LIST_FIELDS = frozenset({
     "fast", "base_paths", "extra_model_paths_config", "panic_when",
     "whitelist_custom_nodes", "blacklist_custom_nodes", "workflows",
-    "image", "video", "audio",
+    "image", "video", "audio", "set",
 })
 
 
@@ -356,6 +366,9 @@ def main(ctx: typer.Context):
 def serve(
     ctx: typer.Context,
 
+    daemon: bool = typer.Option(False, "-d", "--daemon", help="Run as a background daemon."),
+    pid_file: Optional[str] = typer.Option(None, "--pid-file", help="PID file path (default: ~/.comfyui/comfyui.pid)."),
+    log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
     listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on (default: 127.0.0.1). You can give a list of ip addresses by separating them with a comma like: 127.2.2.2,127.3.3.3 If --listen is provided without an argument, it defaults to 0.0.0.0,:: (listens on all ipv4 and ipv6)"),
     port: int = typer.Option(8188, help="Set the listen port."),
     enable_cors_header: Optional[str] = typer.Option(None, "--enable-cors-header", help="Enable CORS (Cross-Origin Resource Sharing) with optional origin or allow all with default '*'."),
@@ -398,7 +411,13 @@ def serve(
     """Start the ComfyUI server (default command)."""
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
+    _daemon = daemon
+    _pid_file = pid_file
+    _log_file = log_file
+
     params = _collect_params(locals(), kwargs)
+    for _k in ("daemon", "pid_file", "log_file", "_daemon", "_pid_file", "_log_file"):
+        params.pop(_k, None)
 
     if params.get("otel_service_version") is None:
         from .. import __version__
@@ -406,6 +425,10 @@ def serve(
 
     config = _build_config(params)
     _parse_plugin_args(ctx, config)
+
+    if _daemon:
+        from .daemon import daemonize, default_pid_file, default_log_file
+        daemonize(_pid_file or default_pid_file(), _log_file or default_log_file())
 
     setup_pre_torch(config)
     _set_config_context(config)
@@ -617,14 +640,97 @@ def integrity_check(
     run_integrity_check(config)
 
 
+@app.command(name="stop")
+def stop(
+    server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
+    pid_file: Optional[str] = typer.Option(None, "--pid-file", help="PID file path (default: ~/.comfyui/comfyui.pid)."),
+):
+    """Stop the ComfyUI daemon."""
+    from .daemon import stop_daemon, default_pid_file
+
+    pf = pid_file or default_pid_file()
+    if stop_daemon(pf):
+        typer.echo("ComfyUI daemon stopped.")
+        return
+    try:
+        from .server_connection import post_json
+        asyncio.run(post_json(server, "/interrupt"))
+        typer.echo("Sent interrupt to server.")
+    except Exception as exc:
+        typer.echo(f"Could not stop daemon: {exc}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command(name="logs")
+def logs(
+    follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output."),
+    server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
+    log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
+):
+    """Tail server logs."""
+    from .daemon import default_log_file
+
+    lf = log_file or default_log_file()
+    log_path = Path(lf)
+
+    if not follow:
+        try:
+            from .server_connection import fetch_text
+            text = asyncio.run(fetch_text(server, "/internal/logs/raw"))
+            typer.echo(text)
+            return
+        except Exception:
+            pass
+        if log_path.exists():
+            typer.echo(log_path.read_text())
+        else:
+            typer.echo("No logs found.", err=True)
+        return
+
+    import time
+    if not log_path.exists():
+        typer.echo(f"Waiting for {lf}...", err=True)
+        while not log_path.exists():
+            time.sleep(0.5)
+    with open(log_path) as f:
+        f.seek(0, 2)
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    typer.echo(line, nl=False)
+                else:
+                    time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+
+
+def _register_sub_apps():
+    from .sub_models import models_app
+    from .sub_workflows import workflows_app
+    from .sub_nodes import nodes_app
+    from .sub_jobs import jobs_app
+    from .sub_env import env_app
+
+    app.add_typer(models_app, name="models", help="Manage models.")
+    app.add_typer(workflows_app, name="workflows", help="Run and manage workflows.")
+    app.add_typer(nodes_app, name="nodes", help="Inspect installed nodes.")
+    app.add_typer(jobs_app, name="jobs", help="List and cancel server jobs.")
+    app.add_typer(env_app, name="env", help="Environment and diagnostics.")
+
+
 _KNOWN_COMMANDS = frozenset({
-    "serve", "worker", "post-workflow", "list-workflow-templates",
+    "serve", "worker", "stop", "logs",
+    "models", "workflows", "nodes", "jobs", "env",
+    "post-workflow", "list-workflow-templates",
     "list-models", "create-directories", "integrity-check",
 })
 
 
 def entrypoint():
     """Main CLI entrypoint. Defaults to 'serve' when no subcommand is given."""
+    _register_sub_apps()
+
     if len(sys.argv) <= 1:
         sys.argv.insert(1, "serve")
     elif sys.argv[1] not in _KNOWN_COMMANDS and sys.argv[1] not in ("--help", "-h"):

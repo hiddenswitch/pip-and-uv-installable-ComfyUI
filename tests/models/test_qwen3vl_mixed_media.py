@@ -3,6 +3,9 @@ from comfy_execution.graph_utils import GraphBuilder
 from comfy.client.embedded_comfy_client import Comfy
 from comfy.api.components.schema.prompt import Prompt
 
+pytestmark = pytest.mark.inference
+
+
 class TestQwen3VLMixedMedia:
     @pytest.mark.asyncio
     async def test_qwen3vl_mixed_media(self):

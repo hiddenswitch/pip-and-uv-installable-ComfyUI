@@ -49,6 +49,15 @@ def _execute_prompt(
         configuration: Configuration | None,
         partial_execution_targets: Optional[list[str]] = None) -> dict:
     configuration = copy.deepcopy(configuration) if configuration is not None else None
+
+    # In a ProcessPoolExecutor subprocess, main_pre.py runs at import time
+    # before the context is available, so CUDA_VISIBLE_DEVICES won't be set
+    # from the configuration. Apply device env vars here, before torch is
+    # imported by model_management.
+    if configuration is not None:
+        from ..component_model.setup import setup_cuda_devices
+        setup_cuda_devices(configuration)
+
     from ..execution_context import current_execution_context
     execution_context = current_execution_context()
     if len(execution_context.folder_names_and_paths) == 0 or configuration is not None:

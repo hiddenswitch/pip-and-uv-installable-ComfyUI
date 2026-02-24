@@ -16,6 +16,12 @@ from unittest.mock import patch, MagicMock
 from comfy_compatibility.vanilla import prepare_vanilla_environment, patch_pip_install_subprocess_run, patch_pip_install_popen
 from . import base_nodes
 from .comfyui_v3_package_imports import _comfy_entrypoint_upstream_v3_imports
+from .download_interception import (
+    patch_hf_hub_download,
+    patch_snapshot_download,
+    patch_folder_names_dict,
+    patch_torch_downloads,
+)
 from .package_typing import ExportedNodes
 from ..cmd import folder_paths
 from ..component_model.plugins import prompt_server_instance_routes
@@ -50,11 +56,38 @@ class StreamToLogger:
         return "utf-8"
 
 
+class _PromptQueueStub:
+    """Stub for PromptServer.instance.prompt_queue used by VideoHelperSuite at import time."""
+
+    def __init__(self):
+        self.currently_running = {}
+
+    def put(self, item):
+        logger.warning("prompt_queue.put() called on stub — ignored")
+
+    def get_current_queue(self):
+        return [], []
+
+    def get_current_queue_volatile(self):
+        return [], []
+
+    def get_history(self, **kwargs):
+        return {}
+
+    def size(self):
+        return 0
+
+    def get_tasks_remaining(self):
+        return 0
+
+
 class _PromptServerStub(ServerStub):
     def __init__(self):
         super().__init__()
         self.routes = prompt_server_instance_routes
         self.on_prompt_handlers = []
+        self.prompt_queue = _PromptQueueStub()
+        self.number = 0
 
     def add_on_prompt_handler(self, handler):
         # todo: these need to be added to a real prompt server if the loading order is behaving in a complex way
@@ -145,39 +178,44 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
                     node_prestartup_times.append((time.perf_counter() - time_before, module_path, success))
 
 
+_MITIGATED_MODULES = frozenset((
+    "comfyui-manager",
+    "comfyui_ryanonyheinside",
+    "comfyui-easy-use",
+    "comfyui_custom_nodes_alekpet",
+))
+
+
 @contextmanager
 def _exec_mitigations(module: types.ModuleType, module_path: str) -> Generator[ExportedNodes, Any, None]:
-    if module.__name__.lower() in (
-            "comfyui-manager",
-            "comfyui_ryanonyheinside",
-            "comfyui-easy-use",
-            "comfyui_custom_nodes_alekpet",
+    config = current_execution_context()
+    block_installation = config and config.configuration and config.configuration.block_runtime_package_installation
+
+    needs_file_mitigation = module.__name__.lower() in _MITIGATED_MODULES
+
+    with (
+        # download interception — always active during custom node import
+        patch_hf_hub_download(),
+        patch_snapshot_download(),
+        # Note: folder_paths functions are permanently patched at startup via
+        # apply_folder_paths_patches(), not scoped to import time.
+        patch_folder_names_dict(),
+        patch_torch_downloads(),
+        # pip blocking
+        patch_pip_install_subprocess_run() if block_installation else nullcontext(),
+        patch_pip_install_popen() if block_installation else nullcontext(),
     ):
-        from ..cmd import folder_paths
-        old_file = folder_paths.__file__
-
-        try:
-            # mitigate path
-            new_path = join(abspath(join(dirname(old_file), "..", "..")), basename(old_file))
-            config = current_execution_context()
-
-            block_installation = config and config.configuration and config.configuration.block_runtime_package_installation
-            with (
-                patch.object(folder_paths, "__file__", new_path),
-                # mitigate packages installing things dynamically
-                patch_pip_install_subprocess_run() if block_installation else nullcontext(),
-                patch_pip_install_popen() if block_installation else nullcontext(),
-            ):
-                yield ExportedNodes()
-        finally:
-            # todo: mitigate "/manager/reboot"
-            # todo: mitigate process_wrap
-            # todo: unfortunately, we shouldn't restore the patches here, they will have to be applied forever.
-            # concurrent.futures.ThreadPoolExecutor = _ThreadPoolExecutor
-            # threading.Thread.start = original_thread_start
-            logger.info(f"Exec mitigations were applied for {module.__name__}, due to using the folder_paths.__file__ symbol and manipulating EXTENSION_WEB_DIRS")
-    else:
-        yield ExportedNodes()
+        if needs_file_mitigation:
+            from ..cmd import folder_paths
+            old_file = folder_paths.__file__
+            try:
+                new_path = join(abspath(join(dirname(old_file), "..", "..")), basename(old_file))
+                with patch.object(folder_paths, "__file__", new_path):
+                    yield ExportedNodes()
+            finally:
+                logger.info(f"Exec mitigations were applied for {module.__name__}, due to using the folder_paths.__file__ symbol and manipulating EXTENSION_WEB_DIRS")
+        else:
+            yield ExportedNodes()
 
 
 @contextmanager

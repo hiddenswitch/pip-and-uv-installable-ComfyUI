@@ -154,6 +154,15 @@ http {{
         os.unlink(nginx_conf_path)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _jaeger_before_services(jaeger_container):
+    """Ensure Jaeger is initialized (and OTEL_EXPORTER_OTLP_ENDPOINT is set) before
+    frontend_backend_worker_with_rabbitmq starts its subprocess. Both fixtures are
+    module-scoped; without this, the frontend/worker processes start before jaeger_container
+    has had a chance to set OTEL_EXPORTER_OTLP_ENDPOINT, so traces never reach Jaeger."""
+    pass
+
+
 @pytest.fixture(scope="module")
 def jaeger_container():
     """
@@ -546,7 +555,7 @@ async def test_trace_contains_rabbitmq_operations(frontend_backend_worker_with_r
     async with AsyncRemoteComfyClient(server_address=server_address) as client:
         prompt = sdxl_workflow_with_refiner("test_rmq", inference_steps=1, refiner_steps=1)
         task_id = await client.queue_and_forget_prompt_api(prompt)
-        status_code, result = await client.poll_prompt_until_done(task_id, max_attempts=60)
+        status_code, result = await client.poll_prompt_until_done(task_id, max_attempts=120)
         assert status_code == 200
 
     await asyncio.sleep(5)

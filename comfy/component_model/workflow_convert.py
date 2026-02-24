@@ -28,6 +28,8 @@ _VIRTUAL_NODE_TYPES: Final[frozenset[str]] = frozenset({
     "PrimitiveNode",
     "Note",
     "MarkdownNote",
+    "SetNode",
+    "GetNode",
 })
 
 _MODE_ALWAYS: Final[int] = 0
@@ -81,9 +83,18 @@ def _input_type_and_opts(entry) -> tuple:
     return entry, {}
 
 
-def _extra_widgets_after(opts: dict) -> list[str | None]:
+_SEED_CONTROL_NAMES = frozenset({"seed", "noise_seed"})
+
+
+def _extra_widgets_after(opts: dict, name: str = "", type_spec=None) -> list[str | None]:
     extras: list[str | None] = []
-    if opts.get("control_after_generate"):
+    has_seed_control = opts.get("control_after_generate")
+    # The ComfyUI frontend also adds seed control widgets for INT fields
+    # named "seed" or "noise_seed" even without control_after_generate,
+    # so match that behavior for correct widget value alignment.
+    if not has_seed_control and name in _SEED_CONTROL_NAMES and type_spec == "INT":
+        has_seed_control = True
+    if has_seed_control:
         extras.append(None)
     if opts.get("image_upload") or opts.get("video_upload") or opts.get("audio_upload"):
         extras.append(None)
@@ -128,7 +139,7 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
         else:
             break
 
-        for extra_name in _extra_widgets_after(opts):
+        for extra_name in _extra_widgets_after(opts, name=name, type_spec=type_spec):
             if idx < len(widgets_values):
                 if extra_name is not None:
                     result[extra_name] = _wrap_value(widgets_values[idx])
@@ -198,7 +209,10 @@ def _map_widgets_dict(input_types: dict, widgets_values: dict) -> dict[str, obje
     for name, entry in all_inputs.items():
         type_spec, opts = _input_type_and_opts(entry)
         if _is_widget_type(type_spec, opts) and not opts.get("forceInput"):
-            result[name] = None
+            if name in widgets_values:
+                result[name] = _wrap_value(widgets_values[name])
+            else:
+                result[name] = opts.get("default")
     return result
 
 
@@ -676,7 +690,29 @@ def _get_sg_widget_positional(sg_def, boundary_name, wv):
     return False, None
 
 
-def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=False):
+def _get_set_get_channel_name(node: dict) -> str:
+    """Extract the channel name from a SetNode or GetNode."""
+    wv = node.get('widgets_values', [])
+    if isinstance(wv, list) and wv:
+        return str(wv[0]) if wv[0] else ''
+    if isinstance(wv, dict):
+        return str(wv.get('Constant', ''))
+    return ''
+
+
+def _build_set_node_map(dto_map: dict[str, '_NodeDTO']) -> dict[str, '_NodeDTO']:
+    """Build a mapping from SetNode channel name to its DTO."""
+    result: dict[str, '_NodeDTO'] = {}
+    for dto in dto_map.values():
+        if dto.node.get('type') == 'SetNode':
+            name = _get_set_get_channel_name(dto.node)
+            if name:
+                result[name] = dto
+    return result
+
+
+def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=False,
+                       set_node_map=None):
     if visited is None:
         visited = set()
     uid = f"{dto.exec_id}[I]{slot}"
@@ -727,7 +763,8 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
         if outer_link is None:
             return None
 
-        return _resolve_dto_input(sg_dto, sg_inp_idx, dto_map, visited)
+        return _resolve_dto_input(sg_dto, sg_inp_idx, dto_map, visited,
+                                  set_node_map=set_node_map)
 
     src_nid = link.src_node
     if dto.sg_node_exec_id:
@@ -741,10 +778,11 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
 
     return _resolve_dto_output(
         src_dto, link.src_slot, inp.get('type'), dto_map, visited,
+        set_node_map=set_node_map,
     )
 
 
-def _resolve_dto_output(dto, slot, target_type, dto_map, visited):
+def _resolve_dto_output(dto, slot, target_type, dto_map, visited, set_node_map=None):
     uid = f"{dto.exec_id}[O]{slot}"
     if uid in visited:
         return None
@@ -759,7 +797,8 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited):
         )
         if idx == -1:
             return None
-        return _resolve_dto_input(dto, idx, dto_map, visited)
+        return _resolve_dto_input(dto, idx, dto_map, visited,
+                                  set_node_map=set_node_map)
 
     if mode == _MODE_NEVER:
         return None
@@ -767,10 +806,27 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited):
     class_type = dto.node.get('type', '')
 
     if dto.sg_def is not None:
-        return _resolve_sg_output(dto, slot, target_type, dto_map, visited)
+        return _resolve_sg_output(dto, slot, target_type, dto_map, visited,
+                                  set_node_map=set_node_map)
 
     if class_type == 'Reroute':
-        return _resolve_dto_input(dto, slot, dto_map, visited)
+        return _resolve_dto_input(dto, slot, dto_map, visited,
+                                  set_node_map=set_node_map)
+
+    if class_type == 'SetNode':
+        # SetNode passes through its input slot 0, like Reroute
+        return _resolve_dto_input(dto, 0, dto_map, visited,
+                                  set_node_map=set_node_map)
+
+    if class_type == 'GetNode':
+        # GetNode retrieves the value from the matching SetNode by channel name
+        channel_name = _get_set_get_channel_name(dto.node)
+        if set_node_map and channel_name:
+            set_dto = set_node_map.get(channel_name)
+            if set_dto:
+                return _resolve_dto_input(set_dto, 0, dto_map, visited,
+                                          set_node_map=set_node_map)
+        return None
 
     if class_type == 'PrimitiveNode':
         wv = dto.node.get('widgets_values', [])
@@ -779,7 +835,7 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited):
     return ("link", dto.exec_id, slot)
 
 
-def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited):
+def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited, set_node_map=None):
     for link in sg_dto.inner_links.values():
         if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot:
             src_nid = link.src_node
@@ -791,6 +847,7 @@ def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited):
                 continue
             result = _resolve_dto_output(
                 inner_dto, link.src_slot, target_type, dto_map, visited,
+                set_node_map=set_node_map,
             )
             if result is not None:
                 return result
@@ -827,6 +884,7 @@ def convert_ui_to_api(workflow: dict) -> dict:
     sg_defs = _collect_subgraph_defs(workflow)
 
     dto_map = _build_dto_map(workflow, sg_defs)
+    set_node_map = _build_set_node_map(dto_map)
 
     api_workflow: dict[str, dict] = {}
 
@@ -911,7 +969,8 @@ def convert_ui_to_api(workflow: dict) -> dict:
 
             skip_bw = is_unknown or inp_name not in _widget_input_names
             resolved = _resolve_dto_input(dto, i, dto_map,
-                                          skip_boundary_widgets=skip_bw)
+                                          skip_boundary_widgets=skip_bw,
+                                          set_node_map=set_node_map)
             if resolved is None:
                 api_inputs.pop(inp_name, None)
             elif resolved[0] == 'value':

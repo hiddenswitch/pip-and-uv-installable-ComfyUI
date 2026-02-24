@@ -120,13 +120,17 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
             env["OTEL_EXPORTER_OTLP_ENDPOINT"] = otel_endpoint
             logging.info(f"Configuring services to export traces to: {otel_endpoint}")
 
+        # NOTE: use --cwd=, not -w=, for the working directory argument.
+        # Click does not treat '=' as a separator for short options: -w=/path
+        # is parsed as cwd="=/path" (a relative path), not cwd="/path".
+        # This caused a stray "=/" directory to be created in the project root.
         frontend_command = [
             "comfyui",
             "--listen=0.0.0.0",
             "--port=19001",
             "--cpu",
             "--distributed-queue-frontend",
-            f"-w={str(tmp_path)}",
+            f"--cwd={str(tmp_path)}",
             f"--distributed-queue-connection-uri={connection_uri}",
         ]
 
@@ -137,7 +141,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
             backend_command = [
                 "comfyui-worker",
                 f"--port={19002 + i}",
-                f"-w={str(tmp_path)}",
+                f"--cwd={str(tmp_path)}",
                 f"--distributed-queue-connection-uri={connection_uri}",
                 f"--executor-factory={executor_factory}"
             ]
@@ -162,6 +166,11 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
         finally:
             for process in processes_to_close:
                 process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
 
 
 @pytest.fixture(scope="module", autouse=False)
@@ -195,6 +204,10 @@ def comfy_background_server_from_config(configuration: Configuration):
         raise Exception("Failed to start background server")
     yield configuration, server_process
     server_process.terminate()
+    server_process.join(timeout=10)
+    if server_process.is_alive():
+        server_process.kill()
+        server_process.join(timeout=5)
     import torch
     torch.cuda.empty_cache()
 

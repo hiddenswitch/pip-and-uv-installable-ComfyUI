@@ -20,6 +20,7 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "deterministic",
     "directml",
     "cpu",
+    "torch_device",
     "disable_xformers",
     # todo: this is the default, so it will be omitted
     # "use_pytorch_cross_attention",

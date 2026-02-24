@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc
 import contextvars
 import logging
+import os
 import subprocess
 import sys
 import types
@@ -153,6 +154,9 @@ def prepare_vanilla_environment():
     # Impact Pack wants to find model_patcher
     from comfy import model_patcher
     sys.modules['model_patcher'] = model_patcher
+    # NormalCrafter and others import bare 'model_management'
+    from comfy import model_management
+    sys.modules['model_management'] = model_management
     comfy_extras_mitigation: Dict[str, types.ModuleType] = {}
     import comfy_extras
     for module_name, module in sys.modules.items():
@@ -180,37 +184,91 @@ def prepare_vanilla_environment():
         logger.debug("Patched `threading.Thread.start` to propagate contextvars.")
 
 
+def _is_pip_install_command(command_list) -> tuple[bool, list[str]]:
+    """Detect pip/uv-pip install commands regardless of arg structure.
+
+    Matches all of:
+      [python, -m, pip, install, ...]
+      [python, -s, -m, pip, install, ...]
+      [python, -m, uv, pip, install, ...]
+      [python, -s, -m, uv, pip, install, ...]
+
+    Returns (is_match, package_names).
+    """
+    if not isinstance(command_list, list) or len(command_list) < 4:
+        return False, []
+    if command_list[0] != sys.executable:
+        return False, []
+
+    # strip optional -s flag
+    rest = command_list[1:]
+    if rest and rest[0] == "-s":
+        rest = rest[1:]
+
+    # expect [-m, pip, install, ...] or [-m, uv, pip, install, ...]
+    if len(rest) < 3 or rest[0] != "-m":
+        return False, []
+
+    if rest[1] == "pip" and rest[2] == "install":
+        return True, rest[3:]
+    if rest[1] == "uv" and len(rest) >= 4 and rest[2] == "pip" and rest[3] == "install":
+        return True, rest[4:]
+
+    return False, []
+
+
+def _log_pip_intercept(intercept_type: str, command_list: list):
+    _pip_log = os.environ.get("COMFY_PIP_INTERCEPT_LOG")
+    if _pip_log:
+        import json as _json
+        with open(_pip_log, "a") as _f:
+            _f.write(_json.dumps({"type": intercept_type, "command": command_list}) + "\n")
+
+
 @contextmanager
 def patch_pip_install_subprocess_run():
     from unittest.mock import patch, MagicMock
     original_subprocess_run = subprocess.run
+    original_check_call = subprocess.check_call
+    original_check_output = subprocess.check_output
 
-    def custom_side_effect(*args, **kwargs):
+    def _run_side_effect(*args, **kwargs):
         command_list = args[0] if args else []
-
-        # from easy-use
-        is_pip_install_call = (
-                isinstance(command_list, list) and
-                len(command_list) == 6 and
-                command_list[0] == sys.executable and
-                command_list[1] == '-s' and
-                command_list[2] == '-m' and
-                command_list[3] == 'pip' and
-                command_list[4] == 'install' and
-                isinstance(command_list[5], str)
-        )
-
-        if is_pip_install_call:
-            package_name = command_list[5]
-            logger.info(f"Intercepted and mocked `pip install` for: {package_name}")
+        is_pip, packages = _is_pip_install_command(command_list)
+        if is_pip:
+            logger.warning(f"Blocked runtime pip install for: {' '.join(packages)}. Pre-install these packages or see comfy.nodes.custom_node_dependencies for known runtime deps.")
+            _log_pip_intercept("subprocess_run", command_list)
             mock_result = MagicMock()
             mock_result.returncode = 0
             return mock_result
-        else:
-            return original_subprocess_run(*args, **kwargs)
+        return original_subprocess_run(*args, **kwargs)
 
-    with patch('subprocess.run') as mock_run:
-        mock_run.side_effect = custom_side_effect
+    def _check_call_side_effect(*args, **kwargs):
+        command_list = args[0] if args else []
+        is_pip, packages = _is_pip_install_command(command_list)
+        if is_pip:
+            logger.warning(f"Blocked runtime pip install (check_call) for: {' '.join(packages)}. Pre-install these packages or see comfy.nodes.custom_node_dependencies for known runtime deps.")
+            _log_pip_intercept("check_call", command_list)
+            return 0
+        return original_check_call(*args, **kwargs)
+
+    def _check_output_side_effect(*args, **kwargs):
+        command_list = args[0] if args else []
+        is_pip, packages = _is_pip_install_command(command_list)
+        if is_pip:
+            logger.warning(f"Blocked runtime pip install (check_output) for: {' '.join(packages)}. Pre-install these packages or see comfy.nodes.custom_node_dependencies for known runtime deps.")
+            _log_pip_intercept("check_output", command_list)
+            return b""
+        return original_check_output(*args, **kwargs)
+
+    with (
+        patch('subprocess.run') as mock_run,
+        patch('subprocess.check_call') as mock_check_call,
+        patch('subprocess.check_output') as mock_check_output,
+    ):
+        mock_run.side_effect = _run_side_effect
+        mock_check_call.side_effect = _check_call_side_effect
+        mock_check_output.side_effect = _check_output_side_effect
         yield
 
 
@@ -221,21 +279,11 @@ def patch_pip_install_popen():
 
     def custom_side_effect(*args, **kwargs):
         command_list = args[0] if args else []
+        is_pip, packages = _is_pip_install_command(command_list)
 
-        is_pip_install_call = (
-                isinstance(command_list, list) and
-                len(command_list) >= 5 and
-                command_list[0] == sys.executable and
-                command_list[1] == "-m" and
-                command_list[2] == "pip" and
-                command_list[3] == "install" and
-                # special case nunchaku
-                "nunchaku" not in command_list[4:]
-        )
-
-        if is_pip_install_call:
-            package_names = command_list[4:]
-            logger.info(f"Intercepted and mocked `subprocess.Popen` for: pip install {' '.join(package_names)}")
+        if is_pip:
+            logger.warning(f"Blocked runtime pip install (Popen) for: {' '.join(packages)}. Pre-install these packages or see comfy.nodes.custom_node_dependencies for known runtime deps.")
+            _log_pip_intercept("popen", command_list)
 
             mock_popen_instance = MagicMock()
             # make stdout and stderr empty iterables so loops over them complete immediately.

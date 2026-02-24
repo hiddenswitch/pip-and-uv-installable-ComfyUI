@@ -807,3 +807,117 @@ class OpenAINode(CustomNode):
     def execute(self):
         openai_api_key = args.open_api_key
 ```
+
+---
+
+## Custom Node Compatibility Test Results
+
+This section documents the compatibility status of the 38 registered custom node packs tested against this fork's infrastructure. Tests verify installation, import, workflow conversion (UI-to-API), and workflow execution using each node's bundled example workflows.
+
+### Test Infrastructure
+
+Tests are located in `tests/unit/custom_node_compat_test/`:
+
+| Test Suite | What It Tests |
+|---|---|
+| `test_custom_node_compat.py` | Installation + import (clones repo, installs deps, boots server, queries `/object_info`) |
+| `test_custom_node_conversion.py` | UI-to-API workflow conversion via `convert_ui_to_api()` |
+| `test_custom_node_execution.py` | End-to-end execution of example workflows via embedded Comfy client |
+| `test_dependency_discovery.py` | Generates inter-node dependency report from workflow analysis |
+| `test_download_interception.py` | Verifies HuggingFace/torch download interception routes through `model_downloader` |
+| `extract_model_references.py` | Extracts model file references from all example workflows |
+
+```bash
+# Run a single node's execution tests
+CUDA_VISIBLE_DEVICES=1 pytest tests/unit/custom_node_compat_test/test_custom_node_execution.py -k "ComfyUI-WanVideoWrapper" -v --log-cli-level=INFO
+
+# Run all execution tests
+CUDA_VISIBLE_DEVICES=1 pytest tests/unit/custom_node_compat_test/test_custom_node_execution.py -v --log-cli-level=INFO
+```
+
+### Model Discovery & Registration
+
+Models referenced by custom node workflows are registered in `comfy/model_downloader.py` so they can be downloaded on-demand during execution. The download interception layer (`comfy/nodes/download_interception.py`) routes `huggingface_hub.hf_hub_download()`, `snapshot_download()`, and `torch.hub.download_url_to_file()` calls through the centralized model downloader.
+
+### Compatibility Table
+
+**Legend:**
+- **Install** = clones and imports without errors
+- **Convert** = example workflows convert from UI to API format
+- **Execute** = example workflows run to completion (with cost reduction)
+- **Models** = model sources registered in `model_downloader.py`
+
+| Node Pack | Priority | Install | Convert | Execute | Models | Notes |
+|---|---|---|---|---|---|---|
+| **Group A: Utility nodes (no model files)** | | | | | | |
+| ComfyUI-Prompt-Combinator | High | Pass | Pass | Pass | None needed | Pure text manipulation |
+| ComfyMath | High | Pass | Pass | Pass | None needed | Math operations |
+| Comfyui-Resolution-Master | High | Pass | Pass | Pass | None needed | Resolution presets |
+| ComfyUI-Crystools | High | Pass | Pass | Pass | None needed | Debug/utility tools |
+| ComfyUI-Detail-Daemon | High | Pass | Pass | Pass | None needed | Sampler scheduling helper |
+| rgthree-comfy | High | Pass | Pass | Pass | None needed | UI convenience nodes |
+| ComfyUI_essentials | High | Pass | Pass | Pass | None needed | Image/mask utilities |
+| ComfyUI-KJNodes | Mid | Pass | Pass | Pass | None needed | Utility nodes (depends on VHS) |
+| ComfyUI-VideoHelperSuite | Mid | Pass | Pass | Pass | None needed | Video I/O utilities |
+| **Group B: Use existing model tables** | | | | | | |
+| ComfyUI-Advanced-ControlNet | High | Pass | Pass | Pass | `KNOWN_CONTROLNETS` | Depends on controlnet_aux |
+| ComfyUI_UltimateSDUpscale | High | Pass | Pass | Pass | `KNOWN_CHECKPOINTS`, `KNOWN_UPSCALERS` | Needs submodules |
+| ComfyUI-GGUF | High | Pass | Pass | Pass | `KNOWN_GGUF_MODELS` | **Sherlocked** -- native GGUF support is built into this fork; `.gguf` files work anywhere `.safetensors` does (diffusion_models, text_encoders, clip, etc.). This node is still compatible but redundant. |
+| ComfyUI-Flux-Continuum | High | Pass | Pass | Pass | `KNOWN_UNET_MODELS` (Flux) | Depends on rgthree + essentials |
+| RES4LYF | High | Pass | Pass | Pass | `KNOWN_CHECKPOINTS` | Advanced samplers |
+| ComfyUI-WanVideoWrapper | High | Pass | Pass | Pass | ~75 models across 8 tables | Fully registered (Kijai repos) |
+| ComfyUI-WanAnimatePreprocess | High | Pass | Pass | Pass | Shares WanVideo models | Depends on WanVideoWrapper |
+| **Group C: New model tables added** | | | | | | |
+| ComfyUI-segment-anything-2 | High | Pass | Pass | Pass | `KNOWN_SAM2_MODELS` (12 files from `Kijai/sam2-safetensors`) | SAM 2.0 + 2.1 models |
+| ComfyUI-Impact-Pack | High | Pass | Pass | Partial | `KNOWN_SAM_MODELS`, `KNOWN_ULTRALYTICS_BBOX_MODELS`, `KNOWN_ULTRALYTICS_SEGM_MODELS` | SAM 1.x + YOLO detection models from `Bingsu/adetailer` |
+| ComfyUI-Impact-Subpack | High | Pass | Pass | Partial | Shares Impact-Pack models | Depends on Impact-Pack |
+| ComfyUI-Inspire-Pack | High | Pass | Pass | Partial | Shares Impact-Pack models | Depends on Impact-Pack |
+| ComfyUI_IPAdapter_plus | High | Pass | Pass | Pass | `KNOWN_IPADAPTER_MODELS` (20 files), `KNOWN_IPADAPTER_LORAS` (5 files) | From `h94/IP-Adapter` + `h94/IP-Adapter-FaceID` |
+| ComfyUI-Florence2 | High | Pass | Pass | Pass | `KNOWN_HUGGINGFACE_MODEL_REPOS` (12 Florence-2 repos) | Full repo download via `snapshot_download` |
+| comfyui_controlnet_aux | Mid | Pass | Pass | Pass | Annotator models auto-download | Preprocessor nodes |
+| ComfyUI-DepthAnythingV2 | Mid | Pass | Pass | Pass | `KNOWN_DEPTH_MODELS` (8 files from `Kijai/DepthAnythingV2-safetensors`) | ViT-S/B/L + metric variants |
+| ComfyUI-Lotus | Mid | Pass | Pass | Pass | `KNOWN_LOTUS_MODELS` (6 files from `Kijai/lotus-comfyui`) | Depth + normal estimation |
+| ComfyUI_LayerStyle | High | Pass | Pass | Partial | Shares SAM2 + Impact-Pack models | Complex dependencies |
+| ComfyUI-SeedVR2_VideoUpscaler | High | Pass | Pass | Pass | `KNOWN_SEEDVR2_MODELS` (8 files from `numz/SeedVR2_comfyUI`) | 3B + 7B video upscaling |
+| ComfyUI-SCAIL-Pose | High | Pass | Pass | Pass | `KNOWN_POSE_DETECTION_MODELS` (ViTPose ONNX) | Depends on WanVideoWrapper |
+| ComfyUI_Fill-ChatterBox | Mid | Pass | Pass | Pass | `KNOWN_HUGGINGFACE_MODEL_REPOS` (ChatterBox repos) | TTS model from `ResembleAI/chatterbox` |
+| ComfyUI-NormalCrafterWrapper | Mid | Pass | Pass | Pass | `KNOWN_HUGGINGFACE_MODEL_REPOS` (`Yanrui95/NormalCrafter`) | Diffusers-style full repo |
+| ControlAltAI-Nodes | Mid | Pass | Pass | Pass | Shares controlnet_aux models | Depends on controlnet_aux |
+| **Group D: Runtime-download / xfail nodes** | | | | | | |
+| ComfyUI-Frame-Interpolation | High | Pass | Pass | Pass | `KNOWN_VFI_MODELS` (21 files: RIFE, FILM, AMT, GIMM-VFI) | GitHub URL + HuggingFace; download interception handles caching |
+| ComfyUI-qwenmultiangle | High | Pass | Pass | xfail | Qwen model via transformers | Requires large Qwen model auto-download |
+| audio-separation-nodes-comfyui | High | Pass | Pass | Pass | Demucs from `dl.fbaipublicfiles.com` | torch.hub download interception handles caching |
+| ComfyUI_AudioTools | High | Pass | Pass | xfail | Audio models auto-download | Various audio processing models |
+| ComfyUI_Fill-Nodes | High | Pass | Pass | xfail | None (API-based) | Requires anthropic/openai API keys |
+| Bjornulf_custom_nodes | Mid | Pass | Pass | xfail | TTS models auto-download | Complex TTS dependencies |
+| ComfyUI-FlashVSR_Ultra_Fast | Mid | Pass | Pass | Pass | `KNOWN_FLASHVSR_MODELS` + WanVideo FlashVSR | From `JunhaoZhuang/FlashVSR-v1.1` + `Kijai/WanVideo_comfy` |
+
+### Model Source Summary
+
+| KNOWN_* Table | Folder | Count | HuggingFace Source | Used By |
+|---|---|---|---|---|
+| `KNOWN_SAM2_MODELS` | `sams` | 12 | `Kijai/sam2-safetensors` | segment-anything-2, Impact-Pack, LayerStyle |
+| `KNOWN_SAM_MODELS` | `sams` | 3 | Facebook direct URLs | Impact-Pack (SAM 1.x) |
+| `KNOWN_ULTRALYTICS_BBOX_MODELS` | `ultralytics` | 7 | `Bingsu/adetailer` | Impact-Pack (face/hand detection) |
+| `KNOWN_ULTRALYTICS_SEGM_MODELS` | `ultralytics` | 2 | `Bingsu/adetailer` | Impact-Pack (person/fashion segmentation) |
+| `KNOWN_DEPTH_MODELS` | `depthanything` | 8 | `Kijai/DepthAnythingV2-safetensors` | DepthAnythingV2 |
+| `KNOWN_IPADAPTER_MODELS` | `ipadapter` | 20 | `h94/IP-Adapter`, `h94/IP-Adapter-FaceID` | IPAdapter_plus |
+| `KNOWN_IPADAPTER_LORAS` | `loras` | 5 | `h94/IP-Adapter-FaceID` | IPAdapter_plus (FaceID LoRAs) |
+| `KNOWN_LOTUS_MODELS` | `diffusion_models` | 6 | `Kijai/lotus-comfyui` | Lotus |
+| `KNOWN_SEEDVR2_MODELS` | `SEEDVR2` | 8 | `numz/SeedVR2_comfyUI` | SeedVR2_VideoUpscaler |
+| `KNOWN_GGUF_MODELS` | `diffusion_models` | 6 | `city96/FLUX.*-gguf`, `city96/t5-*-gguf` | GGUF (redundant with native support) |
+| `KNOWN_POSE_DETECTION_MODELS` | `detection` | 1 | `JunkyByte/easy_ViTPose` | SCAIL-Pose |
+| `KNOWN_VFI_MODELS` | `vfi_models` | 21 | GitHub URLs (RIFE), `jkawamoto/frame-interpolation-pytorch` (FILM), `lalala125/AMT`, `Kijai/GIMM-VFI_safetensors` | Frame-Interpolation |
+| `KNOWN_FLASHVSR_MODELS` | `FlashVSR` | 3 | `JunhaoZhuang/FlashVSR-v1.1` | FlashVSR_Ultra_Fast |
+
+Total: **510 known model files** across 31 tables, covering the most common workflows from all 38 custom node packs.
+
+### GGUF Native Support (Sherlocked)
+
+This fork includes native GGUF model loading built into the core model loading pipeline. The `ComfyUI-GGUF` custom node by city96 is **fully compatible but redundant** -- you can:
+
+1. Place `.gguf` files directly in `models/diffusion_models/`, `models/text_encoders/`, `models/clip/`, or any folder where `.safetensors` works
+2. Select them from the standard model dropdowns (UNETLoader, CLIPLoader, etc.)
+3. No custom node installation required
+
+The native implementation supports the same quantization formats (Q4_K_M, Q8_0, etc.) and uses the same ggml tensor loading path. If you have `ComfyUI-GGUF` installed, it will still work -- the native loader takes precedence for standard node types, while the custom node's specialized loaders remain available for advanced use cases.
