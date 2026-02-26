@@ -130,7 +130,7 @@ def patch_folder_names_dict():
     original_setitem = FolderNames.__setitem__
 
     def _intercepted_setitem(self, key, value):
-        from ..cmd.folder_paths import add_model_folder_path
+        from ..cmd.folder_paths import add_model_folder_path  # pylint: disable=import-error
         if isinstance(value, (tuple, list)) and len(value) >= 2:
             paths, extensions = value[0], value[1]
             ext_set = set(extensions) if extensions else None

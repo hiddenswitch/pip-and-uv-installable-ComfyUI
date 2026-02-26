@@ -37,8 +37,8 @@ def _boot_nodes(**dir_kwargs):
     from ..execution_context import context_configuration
     from ..nodes.package import import_all_nodes_in_workspace
     with context_configuration(config):
-        import_all_nodes_in_workspace(raise_on_failure=False)
-    return config
+        exported_nodes = import_all_nodes_in_workspace(raise_on_failure=False)
+    return exported_nodes
 
 
 @nodes_app.callback(invoke_without_command=True, context_settings=_COMFYUI_ENV)
@@ -53,15 +53,13 @@ def nodes_default(
     """List installed node classes."""
     if ctx.invoked_subcommand is not None:
         return
-    _boot_nodes(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
-                extra_model_paths_config=extra_model_paths_config)
-
-    from ..nodes.package import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+    exported_nodes = _boot_nodes(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
+                                 extra_model_paths_config=extra_model_paths_config)
 
     rows = []
-    for cls_name in sorted(NODE_CLASS_MAPPINGS.keys()):
-        obj_class = NODE_CLASS_MAPPINGS[cls_name]
-        display = NODE_DISPLAY_NAME_MAPPINGS.get(cls_name, cls_name)
+    for cls_name in sorted(exported_nodes.NODE_CLASS_MAPPINGS.keys()):
+        obj_class = exported_nodes.NODE_CLASS_MAPPINGS[cls_name]
+        display = exported_nodes.NODE_DISPLAY_NAME_MAPPINGS.get(cls_name, cls_name)
         category = getattr(obj_class, "CATEGORY", "sd")
         output_types = ", ".join(getattr(obj_class, "RETURN_TYPES", []))
         rows.append((cls_name, display, category, output_types))
@@ -170,17 +168,15 @@ def nodes_info_cmd(
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
     """Show detailed info about a node class."""
-    _boot_nodes(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
-                extra_model_paths_config=extra_model_paths_config)
-
-    from ..nodes.package import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+    exported_nodes = _boot_nodes(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
+                                 extra_model_paths_config=extra_model_paths_config)
     from .node_info import node_info
 
-    if node_class not in NODE_CLASS_MAPPINGS:
+    if node_class not in exported_nodes.NODE_CLASS_MAPPINGS:
         typer.echo(f"Node class '{node_class}' not found.", err=True)
         raise typer.Exit(1)
 
-    info = node_info(node_class, NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS)
+    info = node_info(node_class, exported_nodes.NODE_CLASS_MAPPINGS, exported_nodes.NODE_DISPLAY_NAME_MAPPINGS)
 
     if format == "json":
         Console().print_json(json.dumps(info, default=str))
