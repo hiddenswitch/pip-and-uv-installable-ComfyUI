@@ -464,7 +464,7 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/stable-diffusion-3.5-fp8", "sd3.5_large_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/stable-diffusion-3.5-fp8", "sd3.5_medium_incl_clips_t5xxlfp8scaled.safetensors"),
     HuggingFile("fal/AuraFlow-v0.2", "aura_flow_0.2.safetensors"),
-    HuggingFile("lodestones/Chroma", "Chroma_v1.0.safetensors"),
+    HuggingFile("lodestones/Chroma1-Base", "Chroma1-Base.safetensors"),
     HuggingFile("Comfy-Org/mochi_preview_repackaged", "all_in_one/mochi_preview_fp8_scaled.safetensors"),
     HuggingFile("Lightricks/LTX-Video", "ltx-video-2b-v0.9.5.safetensors"),
     HuggingFile("Comfy-Org/ACE-Step_ComfyUI_repackaged", "all_in_one/ace_step_v1_3.5b.safetensors"),
