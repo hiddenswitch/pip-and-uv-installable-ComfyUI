@@ -303,6 +303,7 @@ def patch_pip_install_popen():
 def vanilla_environment_node_execution_hooks():
     # this handles activating the NODE_CLASS_MAPPINGS shim
     from comfy.execution_context import current_execution_context
+    from comfy.nodes.download_interception import patch_folder_paths_functions
     ctx = current_execution_context()
 
     if 'nodes' in sys.modules and isinstance(sys.modules['nodes'], _NodeShim):
@@ -312,6 +313,7 @@ def vanilla_environment_node_execution_hooks():
 
             block_installs = ctx and ctx.configuration and ctx.configuration.block_runtime_package_installation is True
             with (
+                patch_folder_paths_functions(),
                 patch_pip_install_subprocess_run() if block_installs else nullcontext(),
                 patch_pip_install_popen() if block_installs else nullcontext(),
             ):

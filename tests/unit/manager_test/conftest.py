@@ -39,6 +39,10 @@ def manager_tmp_base_dir() -> Generator[Path, Any, None]:
     """Create a temporary base directory for ComfyUI with manager enabled."""
     tmp = Path(tempfile.mkdtemp(prefix="comfyui-manager-tests-"))
     _make_base_dirs(tmp)
+    # Set manager to offline mode so it doesn't fetch the ComfyRegistry database
+    manager_dir = tmp / "user" / "__manager"
+    manager_dir.mkdir(parents=True, exist_ok=True)
+    (manager_dir / "config.ini").write_text("[default]\nnetwork_mode = offline\n")
     yield tmp
     with contextlib.suppress(Exception):
         for p in sorted(tmp.rglob("*"), reverse=True):
@@ -63,6 +67,7 @@ def manager_enabled_config(manager_tmp_base_dir: Path) -> Configuration:
     config.enable_manager = True
     config.disable_manager_ui = False
     config.disable_all_custom_nodes = True
+    config.disable_known_models = True
     config.output_directory = str(manager_tmp_base_dir / "output")
     config.input_directory = str(manager_tmp_base_dir / "input")
     return config
@@ -80,6 +85,7 @@ def manager_disabled_config(manager_tmp_base_dir: Path) -> Configuration:
     config.cpu = True
     config.enable_manager = False
     config.disable_all_custom_nodes = True
+    config.disable_known_models = True
     config.output_directory = str(manager_tmp_base_dir / "output")
     config.input_directory = str(manager_tmp_base_dir / "input")
     return config
@@ -123,6 +129,7 @@ def manager_with_disabled_custom_nodes_config(manager_tmp_base_dir: Path) -> Con
     config.cpu = True
     config.enable_manager = True
     config.disable_all_custom_nodes = True
+    config.disable_known_models = True
     config.output_directory = str(manager_tmp_base_dir / "output")
     config.input_directory = str(manager_tmp_base_dir / "input")
     return config

@@ -19,6 +19,7 @@ from .comfyui_v3_package_imports import _comfy_entrypoint_upstream_v3_imports
 from .download_interception import (
     patch_hf_hub_download,
     patch_snapshot_download,
+    patch_folder_paths_functions,
     patch_folder_names_dict,
     patch_torch_downloads,
 )
@@ -197,8 +198,7 @@ def _exec_mitigations(module: types.ModuleType, module_path: str) -> Generator[E
         # download interception — always active during custom node import
         patch_hf_hub_download(),
         patch_snapshot_download(),
-        # Note: folder_paths functions are permanently patched at startup via
-        # apply_folder_paths_patches(), not scoped to import time.
+        patch_folder_paths_functions(),
         patch_folder_names_dict(),
         patch_torch_downloads(),
         # pip blocking

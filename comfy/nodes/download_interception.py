@@ -112,6 +112,13 @@ def patch_folder_paths_functions():
     original_get_full_path_or_raise = folder_paths.get_full_path_or_raise
     original_get_filename_list = folder_paths.get_filename_list
 
+    # Set originals on model_downloader so it can call them without infinite recursion
+    # (model_downloader.get_or_download calls folder_paths.get_full_path internally)
+    prev_orig_full_path = getattr(model_downloader, '_original_get_full_path', None)
+    prev_orig_filename_list = getattr(model_downloader, '_original_get_filename_list', None)
+    model_downloader._original_get_full_path = original_get_full_path
+    model_downloader._original_get_filename_list = original_get_filename_list
+
     folder_paths.get_full_path = model_downloader.get_full_path
     folder_paths.get_full_path_or_raise = model_downloader.get_full_path_or_raise
     folder_paths.get_filename_list = model_downloader.get_filename_list
@@ -121,6 +128,8 @@ def patch_folder_paths_functions():
         folder_paths.get_full_path = original_get_full_path
         folder_paths.get_full_path_or_raise = original_get_full_path_or_raise
         folder_paths.get_filename_list = original_get_filename_list
+        model_downloader._original_get_full_path = prev_orig_full_path
+        model_downloader._original_get_filename_list = prev_orig_filename_list
 
 
 @contextmanager

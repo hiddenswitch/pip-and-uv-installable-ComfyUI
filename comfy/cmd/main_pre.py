@@ -233,7 +233,7 @@ _register_fsspec_fs()
 def _stub_soundfile():
     try:
         import soundfile  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
-    except OSError:
+    except (OSError, ImportError):
         import sys  # pylint: disable=import-outside-toplevel
         import types  # pylint: disable=import-outside-toplevel
         sf = types.ModuleType("soundfile")

@@ -123,12 +123,6 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
         _nodes_available_at_startup = _nodes_local.nodes = ExportedNodes()
     args = current_execution_context().configuration
 
-    # Ensure download-aware folder_paths patches are active (idempotent).
-    # This is critical for the embedded client / ProcessPoolExecutor path
-    # where main.py's startup code doesn't run.
-    from .download_interception import apply_folder_paths_patches
-    apply_folder_paths_patches()
-
     # todo: this is some truly braindead stuff
     register_versions([
         ComfyAPIWithVersion(

@@ -68,7 +68,7 @@ def vram_performance_warnings():
                 "Consider starting ComfyUI with --disable-pinned-memory to avoid swap thrashing."
             )
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and model_management.is_nvidia():
         from ..cli_args import PerformanceFeature
         device = model_management.get_torch_device()
         if hasattr(device, 'type') and device.type == 'cuda':
@@ -295,11 +295,6 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
 
     if args.external_address is not None:
         server.external_address = args.external_address
-
-    # Permanently replace folder_paths functions with download-aware versions
-    # so that custom node loaders get download-on-miss during validation and execution.
-    from ..nodes.download_interception import apply_folder_paths_patches
-    apply_folder_paths_patches()
 
     # at this stage, it's safe to import nodes
     hook_breaker_ac10a0.save_functions()
