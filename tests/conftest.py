@@ -62,6 +62,13 @@ def has_gpu() -> bool:
         import torch
         has_gpu = torch.backends.mps.is_available() and torch.device("mps") is not None
         if has_gpu:
+            # Probe: virtualized macOS runners (e.g. GitHub Actions) report
+            # MPS as available but cannot actually allocate GPU memory.
+            try:
+                torch.tensor([1.0], device="mps")
+            except RuntimeError:
+                has_gpu = False
+        if has_gpu:
             from comfy import model_management
             from comfy.model_management import CPUState
             model_management.cpu_state = CPUState.MPS
