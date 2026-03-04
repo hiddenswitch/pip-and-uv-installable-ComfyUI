@@ -468,6 +468,28 @@ pytest tests/ -k "my-workflow-a" -vv
 
 ---
 
+## Custom Node Example Workflow Tests
+
+The `tests/custom_nodes/` suite clones popular custom nodes, discovers their example workflows, and executes each one. This produces a report of which custom nodes ship example workflows and whether they run successfully.
+
+```shell
+pytest tests/custom_nodes/test_custom_node_execution.py::TestCustomNodeExecution::test_execute_example_workflows \
+  -v -s --log-cli-level=INFO --tb=short -m "slow and git_clone"
+```
+
+For each registered custom node the test:
+
+1. Scans for JSON files in `example_workflows/`, `examples/`, `workflows/`, etc.
+2. Applies cost reduction (2 steps, 256px resolution, 2 video frames).
+3. Substitutes `LoadImage`/`LoadAudio`/`LoadVideo` with stub data URIs.
+4. Queues the prompt and logs the full output dict.
+
+Nodes without example workflows are reported as `SKIPPED`. Missing-model errors are logged as warnings (expected in CI without large checkpoints); other failures are logged as errors and fail the test.
+
+Custom node installations are cached in `~/.cache/comfy-test/custom_nodes/` (override with `COMFY_TEST_CACHE_DIR`). Delete the `.installed` marker to force a fresh clone.
+
+---
+
 ## Playwright Frontend Parity Tests
 
 The `test_workflow_convert_playwright.py` test cross-validates the Python `convert_ui_to_api()` against the real frontend `graphToPrompt()`. It loads template workflows in a headless Chromium browser and compares the output.
