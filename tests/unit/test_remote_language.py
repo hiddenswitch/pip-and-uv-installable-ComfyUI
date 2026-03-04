@@ -7,6 +7,8 @@ import torch
 from comfy.language.language_types import ProcessorResult
 from comfy.language.remote_model import RemoteLanguageModel
 
+pydantic_ai = pytest.importorskip("pydantic_ai", reason="pydantic-ai not installed (requires Python >=3.11)")
+
 
 @pytest.fixture
 def model():

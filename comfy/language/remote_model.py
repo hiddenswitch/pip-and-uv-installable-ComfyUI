@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 import torch
 from PIL import Image
-from pydantic_ai import Agent  # pylint: disable=import-error
-from pydantic_ai.messages import BinaryContent, UserContent  # pylint: disable=import-error,no-name-in-module
-from pydantic_ai.settings import ModelSettings  # pylint: disable=import-error,no-name-in-module
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import BinaryContent, UserContent
+    from pydantic_ai.settings import ModelSettings
 
 from .language_types import (
     LanguageModel,
@@ -67,6 +69,14 @@ class RemoteLanguageModel(LanguageModel):
         sampler = sampler or {}
         inputs = tokens.get("inputs", [])
         images = tokens.get("images", None)
+
+        try:
+            from pydantic_ai import Agent
+            from pydantic_ai.messages import BinaryContent, UserContent
+            from pydantic_ai.settings import ModelSettings
+        except ImportError:
+            logger.warning("pydantic-ai is not installed; remote language models will not work. Install with: pip install pydantic-ai")
+            return ""
 
         system_prompt = None
         user_parts: list[UserContent] = []
