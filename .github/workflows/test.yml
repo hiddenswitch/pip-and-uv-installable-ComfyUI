@@ -235,7 +235,7 @@ jobs:
       - name: Install ComfyUI
         run: |
           uv venv --python 3.12
-          uv pip install --torch-backend=auto '.[mps,dev]' --inexact
+          uv pip install --torch-backend=auto '.[dev]' --inexact
       - name: Install VideoHelperSuite
         run: |
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
