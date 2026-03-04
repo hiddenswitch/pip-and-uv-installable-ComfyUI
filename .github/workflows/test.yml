@@ -239,3 +239,12 @@ jobs:
       - name: Install VideoHelperSuite
         run: |
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+      - name: Install Playwright browsers
+        run: |
+          playwright install --with-deps chromium
+      - name: Lint for errors
+        run: |
+          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+      - name: Run unit tests
+        run: |
+          pytest -v --tb=long --capture=no tests/unit
