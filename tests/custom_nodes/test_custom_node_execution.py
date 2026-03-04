@@ -374,10 +374,9 @@ class TestCustomNodeExecution:
                     outputs = await client.queue_prompt(data)
                     elapsed = time.monotonic() - start
                     executed += 1
-                    output_nodes = list(outputs.keys()) if outputs else []
                     logger.info(
-                        "%s/%s: executed in %.1fs, output nodes: %s",
-                        node_name, workflow_name, elapsed, output_nodes,
+                        "%s/%s: executed in %.1fs, outputs: %s",
+                        node_name, workflow_name, elapsed, outputs,
                     )
                 except Exception as e:
                     elapsed = time.monotonic() - start
