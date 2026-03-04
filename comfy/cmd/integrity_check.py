@@ -189,8 +189,8 @@ def _check_triton() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("triton runtime", None, "no GPU device (CUDA/ROCm)")
     try:
-        import triton  # noqa: F401
-        import triton.language as tl  # noqa: F401
+        import triton  # noqa: F401  # pylint: disable=import-error
+        import triton.language as tl  # noqa: F401  # pylint: disable=import-error
 
         @triton.jit
         def _add_kernel(x_ptr, y_ptr, out_ptr, n: tl.constexpr):

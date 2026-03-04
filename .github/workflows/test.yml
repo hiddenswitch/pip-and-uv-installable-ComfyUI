@@ -244,7 +244,7 @@ jobs:
           uv run playwright install --with-deps chromium
       - name: Lint for errors
         run: |
-          uv run pylint --disable=import-error comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          uv run pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
           uv run pytest -v --tb=long --capture=no tests/unit

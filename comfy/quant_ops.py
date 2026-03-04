@@ -27,7 +27,7 @@ try:
             logger.debug(f"You need pytorch with cu130 or higher to use optimized CUDA operations, found {torch.version.cuda}")
 
     try:
-        import triton
+        import triton  # pylint: disable=import-error
     except:
         logger.debug("Disabling triton support, it was not installed")
         ck.registry.disable("triton")
