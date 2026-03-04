@@ -40,6 +40,14 @@ _prompt_executor = threading.local()
 logger = logging.getLogger(__name__)
 
 
+def _add_node_site_to_path(configuration: Configuration | None) -> None:
+    """Ensure custom-node dependencies installed to ``node_site/`` are importable."""
+    if configuration is None or configuration.base_directory is None:
+        return
+    from ..component_model.site_packages import add_node_site
+    add_node_site(configuration.base_directory)
+
+
 def _execute_prompt(
         prompt: dict,
         prompt_id: str,
@@ -57,6 +65,10 @@ def _execute_prompt(
     if configuration is not None:
         from ..component_model.setup import setup_cuda_devices
         setup_cuda_devices(configuration)
+
+    # Ensure custom-node deps installed to node_site/ are importable in this
+    # worker (thread or spawned process).
+    _add_node_site_to_path(configuration)
 
     from ..execution_context import current_execution_context
     execution_context = current_execution_context()

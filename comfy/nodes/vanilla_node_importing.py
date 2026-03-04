@@ -89,12 +89,19 @@ class _PromptServerStub(ServerStub):
         self.on_prompt_handlers = []
         self.prompt_queue = _PromptQueueStub()
         self.number = 0
+        self._warned_events: set[str] = set()
 
     def add_on_prompt_handler(self, handler):
         # todo: these need to be added to a real prompt server if the loading order is behaving in a complex way
         self.on_prompt_handlers.append(handler)
 
     def send_sync(self, *args, **kwargs):
+        # Suppress repetitive monitor messages (e.g. crystools.monitor fires every second)
+        event_type = args[0] if args else None
+        if event_type and event_type in self._warned_events:
+            return
+        if event_type:
+            self._warned_events.add(event_type)
         logger.warning(f"Node tried to send a message over the websocket while importing, args={args} kwargs={kwargs}")
 
 

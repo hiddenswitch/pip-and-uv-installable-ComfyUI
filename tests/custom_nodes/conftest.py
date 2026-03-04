@@ -4,9 +4,15 @@ import logging
 from pathlib import Path
 
 from comfy.app.custom_node_manager import CustomNodeManager
-from .node_registry import CustomNodeSpec, CUSTOM_NODE_REGISTRY
+from comfy.component_model.site_packages import add_node_site
+from comfy.component_model.node_registry import CustomNodeSpec, CUSTOM_NODE_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+
+def add_node_site_to_path(base_dir: Path) -> None:
+    """Add the ``node_site`` directory to ``sys.path`` and ``PYTHONPATH``."""
+    add_node_site(base_dir)
 
 
 def install_custom_node_from_spec(spec: CustomNodeSpec, base_dir: Path) -> Path:

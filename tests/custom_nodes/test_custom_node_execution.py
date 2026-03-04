@@ -15,8 +15,9 @@ from comfy.cmd.workflow_templates import _collect_class_types
 from comfy.component_model.prompt_utils import replace_steps, replace_width, replace_height
 from comfy.component_model.workflow_convert import is_ui_workflow
 
-from .node_registry import CUSTOM_NODE_REGISTRY, get_spec
+from comfy.component_model.node_registry import CUSTOM_NODE_REGISTRY, get_spec
 from .conftest import (
+    add_node_site_to_path,
     install_all_nodes,
     make_base_dirs,
     build_config,
@@ -29,20 +30,10 @@ _CACHE_DIR = Path(os.environ.get(
     Path.home() / ".cache" / "comfy-test" / "custom_nodes",
 ))
 
-# 1×1 white PNG
-_STUB_IMAGE_URI = (
-    "data:image/png;base64,"
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/"
-    "AAX+Av4N70a4AAAAAElFTkSuQmCC"
-)
-# 100-sample silent WAV (8 kHz, 16-bit mono)
-_STUB_AUDIO_URI = (
-    "data:audio/wav;base64,"
-    "UklGRuwAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YcgAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-)
+_TEST_DATA_DIR = Path(__file__).resolve().parent / "test_data"
+_STUB_IMAGE_URI = str(_TEST_DATA_DIR / "president_official_portrait_hires2-1-1024x1024.jpg")
+_STUB_AUDIO_URI = str(_TEST_DATA_DIR / "test_audio.wav")
+_STUB_VIDEO_URI = str(_TEST_DATA_DIR / "test_video.mp4")
 
 _IMAGE_TO_URL: dict[str, str] = {
     "LoadImage": "LoadImageFromURL",
@@ -55,9 +46,12 @@ _AUDIO_TO_URL: dict[str, str] = {
 }
 # VHS_LoadVideo/VHS_LoadVideoPath output IMAGE frames, not VIDEO —
 # substituting with LoadVideoFromURL causes type mismatches.
+# Instead, we patch their "video" input field in _patch_vhs_video_inputs.
 _VIDEO_TO_URL: dict[str, str] = {
     "LoadVideo": "LoadVideoFromURL",
 }
+
+_VHS_VIDEO_CLASS_TYPES = frozenset({"VHS_LoadVideo", "VHS_LoadVideoPath"})
 
 _EXTRA_STEPS_CLASS_TYPES = frozenset({
     "WanVideoSampler",
@@ -85,30 +79,50 @@ _VIDEO_FRAME_CLASS_TYPES = frozenset({
     "WanVideoSampler",
 })
 
-_MODEL_MISSING_PATTERNS = (
-    "does not contain",
-    "FileNotFoundError",
-    "No such file",
-    "model not found",
-    "Could not find",
-    "not found in",
-    "Unable to find",
-    "Cannot find",
-    "Missing model",
-    "value_not_in_list",
-    "not in list",
-    "Value not in list",
-    "required input is missing",
-    "missing_node_type",
-    "not found. The custom node may not be installed",
-    "custom_validation_failed",
-    "Invalid image file",
-    "Invalid video file",
-    "Invalid audio file",
-    "has no attribute 'solutions'",
-    "VIDEO != IMAGE",
-    "MASK != INT",
-)
+_MODEL_MISSING_PATTERNS: tuple[str, ...] = ()
+
+# Segformer local paths → proper HuggingFace repo IDs.
+_SEGFORMER_REPO_MAP: dict[str, str] = {
+    "segformer_b3_clothes": "mattmdjaga/segformer_b3_clothes",
+    "segformer_b2_clothes": "mattmdjaga/segformer_b2_clothes",
+    "segformer_b3_fashion": "mattmdjaga/segformer_b3_fashion",
+}
+
+
+def _patch_vhs_video_inputs(workflow: dict) -> dict:
+    """Replace hardcoded video filenames in VHS_LoadVideo nodes with test video."""
+    if is_ui_workflow(workflow):
+        nodes = workflow.get("nodes")
+        if not isinstance(nodes, list):
+            return workflow
+        need_patch = any(
+            isinstance(n, dict) and n.get("type", "") in _VHS_VIDEO_CLASS_TYPES
+            for n in nodes
+        )
+        if not need_patch:
+            return workflow
+        workflow = copy.deepcopy(workflow)
+        for node in workflow["nodes"]:
+            if isinstance(node, dict) and node.get("type", "") in _VHS_VIDEO_CLASS_TYPES:
+                wv = node.get("widgets_values")
+                if isinstance(wv, list) and wv:
+                    wv[0] = _STUB_VIDEO_URI
+                elif isinstance(wv, dict) and "video" in wv:
+                    wv["video"] = _STUB_VIDEO_URI
+    else:
+        need_patch = any(
+            isinstance(n, dict) and n.get("class_type", "") in _VHS_VIDEO_CLASS_TYPES
+            for n in workflow.values()
+        )
+        if not need_patch:
+            return workflow
+        workflow = copy.deepcopy(workflow)
+        for node in workflow.values():
+            if isinstance(node, dict) and node.get("class_type", "") in _VHS_VIDEO_CLASS_TYPES:
+                inputs = node.get("inputs", {})
+                if "video" in inputs:
+                    inputs["video"] = _STUB_VIDEO_URI
+    return workflow
 
 
 def _substitute_media_nodes(workflow: dict) -> dict:
@@ -118,11 +132,13 @@ def _substitute_media_nodes(workflow: dict) -> dict:
     for src, dst in _AUDIO_TO_URL.items():
         _ALL_MEDIA[src] = (dst, _STUB_AUDIO_URI)
     for src, dst in _VIDEO_TO_URL.items():
-        _ALL_MEDIA[src] = (dst, _STUB_IMAGE_URI)
+        _ALL_MEDIA[src] = (dst, _STUB_VIDEO_URI)
 
     if is_ui_workflow(workflow):
-        return _substitute_media_nodes_ui(workflow, _ALL_MEDIA)
-    return _substitute_media_nodes_api(workflow, _ALL_MEDIA)
+        workflow = _substitute_media_nodes_ui(workflow, _ALL_MEDIA)
+    else:
+        workflow = _substitute_media_nodes_api(workflow, _ALL_MEDIA)
+    return _patch_vhs_video_inputs(workflow)
 
 
 def _substitute_media_nodes_api(
@@ -272,6 +288,35 @@ def _is_model_missing_error(error_msg: str) -> bool:
     return any(pattern.lower() in error_msg.lower() for pattern in _MODEL_MISSING_PATTERNS)
 
 
+def _install_segformer_monkeypatch():
+    """Monkeypatch segformer_ultra.py to use HuggingFace repo IDs instead of local paths."""
+    try:
+        import sys
+        for mod_name, mod in list(sys.modules.items()):
+            if "segformer_ultra" in mod_name and hasattr(mod, "get_segmentation"):
+                _orig_get_seg = mod.get_segmentation
+
+                def _patched_get_seg(tensor_image, model_name='segformer_b2_clothes', _orig=_orig_get_seg):
+                    import os
+                    import folder_paths
+                    # If the local model folder doesn't exist, rewrite the path to a HF repo ID
+                    model_folder_path = os.path.join(folder_paths.models_dir, model_name)
+                    if not os.path.isdir(model_folder_path) and model_name in _SEGFORMER_REPO_MAP:
+                        # Create the directory and download via HF hub
+                        from huggingface_hub import snapshot_download
+                        snapshot_download(
+                            _SEGFORMER_REPO_MAP[model_name],
+                            local_dir=model_folder_path,
+                        )
+                    return _orig(tensor_image, model_name)
+
+                mod.get_segmentation = _patched_get_seg
+                logger.info("Monkeypatched segformer_ultra.get_segmentation for HF repo IDs")
+                break
+    except Exception as e:
+        logger.warning("Failed to monkeypatch segformer_ultra: %s", e)
+
+
 def _collect_workflow_entries(base_dir):
     custom_nodes_root = str(base_dir / "custom_nodes")
     return CustomNodeManager.scan_example_workflows([custom_nodes_root])
@@ -293,6 +338,7 @@ def _get_shared_base_dir() -> Path:
             "nodes": sorted(installed.keys()),
         }))
 
+    add_node_site_to_path(base_dir)
     return base_dir
 
 
@@ -347,6 +393,7 @@ class TestCustomNodeExecution:
         real_errors = []
 
         async with Comfy(configuration=config) as client:
+            _install_segformer_monkeypatch()
             for node_name, workflow_name, filepath in node_entries:
                 with open(filepath, "r", encoding="utf-8") as f:
                     try:
@@ -412,6 +459,10 @@ class TestCustomNodeExecution:
                 node_id, len(real_errors), "\n  ".join(real_errors),
             )
 
-        assert executed > 0 or total_errors > 0, (
+        assert executed > 0 or len(model_errors) > 0, (
             f"{node_id}: no workflows were attempted"
+        )
+        assert len(real_errors) == 0, (
+            f"{node_id}: {len(real_errors)} workflow(s) had real execution errors:\n  "
+            + "\n  ".join(real_errors)
         )

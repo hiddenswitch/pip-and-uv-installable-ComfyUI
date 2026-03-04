@@ -961,6 +961,18 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
         class_inputs = obj_class.INPUT_TYPES()
         validate_function_name = "VALIDATE_INPUTS"
         validate_function = getattr(obj_class, validate_function_name, None)
+
+    # Custom nodes define AnyType(str) with __eq__ but no __hash__, making
+    # them unhashable.  Restore str.__hash__ so downstream set/dict ops work.
+    for _section in ('required', 'optional'):
+        _sd = class_inputs.get(_section, {})
+        if isinstance(_sd, dict):
+            for _entry in _sd.values():
+                if isinstance(_entry, (list, tuple)) and _entry:
+                    _tv = _entry[0]
+                    if isinstance(_tv, str) and type(_tv) is not str and getattr(type(_tv), '__hash__', None) is None:
+                        type(_tv).__hash__ = str.__hash__
+
     if validate_function is not None:
         argspec = inspect.getfullargspec(validate_function)
         validate_function_inputs = argspec.args

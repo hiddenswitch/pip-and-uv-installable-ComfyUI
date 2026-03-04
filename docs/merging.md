@@ -482,3 +482,89 @@ The `-k` flag matches test names containing the specified substrings. Common fil
 - Attention: `use_pytorch` or `sage_attention`
 
 Avoid running all test variations by being specific with filters.
+
+## Custom Nodes
+
+Custom node compatibility is tested via `tests/custom_nodes/test_custom_node_execution.py`. The test clones each registered custom node, installs its dependencies, boots ComfyUI with the nodes loaded, and runs their bundled example workflows.
+
+### Node Registry
+
+All tested custom nodes are declared in `comfy/component_model/node_registry.py` as `CustomNodeSpec` entries in `CUSTOM_NODE_REGISTRY`:
+
+```python
+CustomNodeSpec(
+    node_id="ComfyUI-Example-Node",
+    repo_url="https://github.com/author/ComfyUI-Example-Node",
+    display_name="ComfyUI-Example-Node",
+    depends_on=("ComfyUI-VideoHelperSuite",),  # installed first
+    priority="Mid",                              # "High" (default) or "Mid"
+    needs_submodules=True,                       # if repo uses git submodules
+    xfail=True,                                  # expected to fail
+    xfail_reason="requires API keys at runtime",
+)
+```
+
+Key fields:
+- **`depends_on`**: Other node IDs that must be installed before this one
+- **`xfail` / `xfail_reason`**: Mark nodes that cannot pass in CI (e.g., require API keys or auto-download large models at runtime)
+- **`skip_requirements`**: Package names to exclude from `pip install` (e.g., packages already in the main venv)
+- **`extra_requirements`**: Additional pip requirements not in the node's `requirements.txt`
+
+### Adding Models for Custom Node Workflows
+
+Custom node example workflows reference models by filename, often with subfolder prefixes (e.g., `sd1.5/dreamshaper_8.safetensors`). These must be present in `KNOWN_CHECKPOINTS` (or the appropriate known model list) in `comfy/model_downloader.py` so the download system can find and fetch them during test execution.
+
+#### Using `alternate_filenames`
+
+Community workflows may reference the same model under different paths depending on how the user organized their models folder. Use `alternate_filenames` on `HuggingFile` or `CivitFile` entries to register all known path variants:
+
+```python
+HuggingFile(
+    "Lykon/DreamShaper",
+    "DreamShaper_8_pruned.safetensors",
+    save_with_filename="dreamshaper_8.safetensors",
+    alternate_filenames=(
+        "DreamShaper_8_pruned.safetensors",
+        "sd1.5/dreamshaper_8.safetensors",   # subfolder-prefixed variant
+    ),
+),
+```
+
+How `alternate_filenames` works:
+- During **validation**, `DownloadableFileList.view_for_validation()` adds all `alternate_filenames` to the set of accepted values — so `sd1.5/dreamshaper_8.safetensors` passes the combo-box check
+- During **download**, `get_or_download()` matches the requested filename against `str(candidate)`, `candidate.filename`, `candidate.save_with_filename`, and all `candidate.alternate_filenames` — so any registered variant triggers the correct HuggingFace/CivitAI download
+
+When adding a new custom node whose workflows reference models not yet in the known lists:
+
+1. Run the test for that node and look for `value_not_in_list` errors — these show the exact filename the workflow expects
+2. Check if the model already exists in `KNOWN_CHECKPOINTS` (or `KNOWN_LORAS`, `KNOWN_CONTROLNETS`, etc.) under a different name
+3. If it exists, add the workflow's filename as an `alternate_filenames` entry
+4. If it doesn't exist, add a new `HuggingFile` or `CivitFile` entry with the correct repo/version info
+
+### Running Custom Node Tests
+
+Tests are marked with `slow` and `git_clone`. Run a single node:
+
+```bash
+pytest tests/custom_nodes/test_custom_node_execution.py::TestCustomNodeExecution::test_execute_example_workflows[ComfyUI-Prompt-Combinator] \
+  -v -s --log-cli-level=INFO --tb=short -m "slow and git_clone"
+```
+
+Run all custom node tests (slow, ~20 minutes):
+
+```bash
+pytest tests/custom_nodes/test_custom_node_execution.py -v -s --log-cli-level=INFO --tb=short -m "slow and git_clone"
+```
+
+The first run clones all nodes and installs dependencies into `~/.cache/comfy-test/custom_nodes/`. Subsequent runs reuse the cache. To force a fresh install:
+
+```bash
+rm -rf ~/.cache/comfy-test/custom_nodes/
+```
+
+### Test Infrastructure
+
+- **`tests/custom_nodes/conftest.py`** — `build_config()`, `install_all_nodes()`, `make_base_dirs()`
+- **`comfy/app/custom_node_manager.py`** — `CustomNodeManager.install_custom_node()` handles cloning and dependency installation
+- **`comfy/component_model/site_packages.py`** — `add_node_site()` adds the `node_site/` directory to `sys.path`
+- **`tests/custom_nodes/test_data/`** — Test media assets (image, audio, video) substituted into workflows during testing

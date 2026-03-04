@@ -95,6 +95,7 @@ class CivitFile:
     filename: str
     trigger_words: Optional[Sequence[str]] = dataclasses.field(default_factory=tuple)
     show_in_ui: Optional[bool] = True
+    alternate_filenames: Sequence[str] = dataclasses.field(default_factory=tuple)
 
     def __str__(self):
         return self.filename
@@ -102,10 +103,6 @@ class CivitFile:
     @property
     def save_with_filename(self):
         return self.filename
-
-    @property
-    def alternate_filenames(self):
-        return ()
 
 
 @dataclasses.dataclass(frozen=True)

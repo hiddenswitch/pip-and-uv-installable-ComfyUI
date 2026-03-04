@@ -406,30 +406,30 @@ class KnownDownloadables(collections.UserList[Downloadable]):
 
 
 KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors"),
-    HuggingFile("stabilityai/stable-diffusion-xl-refiner-1.0", "sd_xl_refiner_1.0.safetensors"),
+    HuggingFile("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_base_1.0.safetensors", "SDXL/sd_xl_base_1.0_0.9vae.safetensors", "sdxl/sd_xl_base_1.0.safetensors")),
+    HuggingFile("stabilityai/stable-diffusion-xl-refiner-1.0", "sd_xl_refiner_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_refiner_1.0.safetensors", "SDXL/sd_xl_refiner_1.0_0.9vae.safetensors", "sdxl/sd_xl_refiner_1.0.safetensors")),
     HuggingFile("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0_fp16.safetensors"),
     HuggingFile("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0.safetensors", show_in_ui=False),
     HuggingFile("stabilityai/stable-cascade", "comfyui_checkpoints/stable_cascade_stage_b.safetensors"),
     HuggingFile("stabilityai/stable-cascade", "comfyui_checkpoints/stable_cascade_stage_c.safetensors"),
     HuggingFile("stabilityai/stable-cascade", "comfyui_checkpoints/stage_a.safetensors", show_in_ui=False),
-    HuggingFile("Comfy-Org/stable-diffusion-v1-5-archive", "v1-5-pruned-emaonly.safetensors"),
-    HuggingFile("Comfy-Org/stable-diffusion-v1-5-archive", "v1-5-pruned-emaonly-fp16.safetensors"),
+    HuggingFile("Comfy-Org/stable-diffusion-v1-5-archive", "v1-5-pruned-emaonly.safetensors", alternate_filenames=("main/v1-5-pruned-emaonly.safetensors", "sd15/v1-5-pruned-emaonly.safetensors")),
+    HuggingFile("Comfy-Org/stable-diffusion-v1-5-archive", "v1-5-pruned-emaonly-fp16.safetensors", alternate_filenames=("main/v1-5-pruned-emaonly-fp16.safetensors", "sd15/v1-5-pruned-emaonly-fp16.safetensors")),
     # from https://github.com/comfyanonymous/ComfyUI_examples/tree/master/2_pass_txt2img
     HuggingFile("stabilityai/stable-diffusion-2-1", "v2-1_768-ema-pruned.ckpt", show_in_ui=False),
     HuggingFile("waifu-diffusion/wd-1-5-beta3", "wd-illusion-fp16.safetensors", show_in_ui=False),
     HuggingFile("jomcs/NeverEnding_Dream-Feb19-2023", "CarDos Anime/cardosAnime_v10.safetensors", show_in_ui=False),
     # from https://github.com/comfyanonymous/ComfyUI_examples/blob/master/area_composition/README.md
     HuggingFile("ckpt/anything-v3.0", "Anything-V3.0.ckpt", show_in_ui=False),
-    HuggingFile("stabilityai/cosxl", "cosxl.safetensors"),
-    HuggingFile("stabilityai/cosxl", "cosxl_edit.safetensors"),
+    HuggingFile("stabilityai/cosxl", "cosxl.safetensors", alternate_filenames=("cosxl/cosxl.safetensors",)),
+    HuggingFile("stabilityai/cosxl", "cosxl_edit.safetensors", alternate_filenames=("cosxl/cosxl_edit.safetensors",)),
     # latest, popular civitai models
-    CivitFile(133005, 357609, filename="juggernautXL_v9Rundiffusionphoto2.safetensors"),
+    CivitFile(133005, 357609, filename="juggernautXL_v9Rundiffusionphoto2.safetensors", alternate_filenames=("_SDXL_/juggernautXL_v9Rundiffusionphoto2.safetensors", "sdxl/juggernautXL_v9Rundiffusionphoto2.safetensors")),
     CivitFile(112902, 351306, filename="dreamshaperXL_v21TurboDPMSDE.safetensors"),
     CivitFile(139562, 344487, filename="realvisxlV40_v40Bakedvae.safetensors"),
     HuggingFile("SG161222/Realistic_Vision_V6.0_B1_noVAE", "Realistic_Vision_V6.0_NV_B1_fp16.safetensors"),
-    HuggingFile("SG161222/Realistic_Vision_V5.1_noVAE", "Realistic_Vision_V5.1_fp16-no-ema.safetensors"),
-    HuggingFile("Lykon/DreamShaper", "DreamShaper_8_pruned.safetensors", save_with_filename="dreamshaper_8.safetensors", alternate_filenames=("DreamShaper_8_pruned.safetensors",)),
+    HuggingFile("SG161222/Realistic_Vision_V5.1_noVAE", "Realistic_Vision_V5.1_fp16-no-ema.safetensors", alternate_filenames=("sd15/Realistic_Vision_V5.1_fp16-no-ema.safetensors",)),
+    HuggingFile("Lykon/DreamShaper", "DreamShaper_8_pruned.safetensors", save_with_filename="dreamshaper_8.safetensors", alternate_filenames=("DreamShaper_8_pruned.safetensors", "sd1.5/dreamshaper_8.safetensors")),
     CivitFile(7371, 425083, filename="revAnimated_v2Rebirth.safetensors"),
     CivitFile(4468, 57618, filename="counterfeitV30_v30.safetensors"),
     CivitFile(241415, 272376, filename="picxReal_10.safetensors"),
@@ -470,7 +470,7 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ACE-Step_ComfyUI_repackaged", "all_in_one/ace_step_v1_3.5b.safetensors"),
     CivitFile(8714, 13359, filename="AOM2-Hard.safetensors"),
     CivitFile(4291, 132454, filename="AOM3A3.safetensors"),
-    CivitFile(140737, 357037, filename="albedobaseXL_v21.safetensors"),
+    CivitFile(140737, 357037, filename="albedobaseXL_v21.safetensors", alternate_filenames=("sdxl/AlbedoBaseXL.safetensors", "sdxl/albedobaseXL_v21.safetensors")),
 ], folder_name="checkpoints")
 
 KNOWN_UNCLIP_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
@@ -500,7 +500,7 @@ KNOWN_GLIGEN_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 
 KNOWN_CLIP_VISION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("comfyanonymous/clip_vision_g", "clip_vision_g.safetensors"),
-    HuggingFile("Comfy-Org/sigclip_vision_384", "sigclip_vision_patch14_384.safetensors"),
+    HuggingFile("Comfy-Org/sigclip_vision_384", "sigclip_vision_patch14_384.safetensors", alternate_filenames=("main/sigclip_vision_patch14_384.safetensors",)),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/clip_vision/llava_llama3_vision.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/clip_vision/clip_vision_h.safetensors"),
     # WanVideoWrapper (Kijai) -- CLIP vision
@@ -700,9 +700,9 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/vae/hunyuan_video_vae_bf16.safetensors"),
     HuggingFile("comfyanonymous/cosmos_1.0_text_encoder_and_VAE_ComfyUI", "vae/cosmos_cv8x8x8_1.0.safetensors"),
     HuggingFile("Comfy-Org/Lumina_Image_2.0_Repackaged", "split_files/vae/ae.safetensors", save_with_filename="lumina_image_2.0-ae.safetensors"),
-    HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/vae/wan_2.1_vae.safetensors"),
+    HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/vae/wan_2.1_vae.safetensors", alternate_filenames=("vae/wan_2.1_vae.safetensors",)),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/vae/wan2.2_vae.safetensors"),
-    HuggingFile("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors", alternate_filenames=("vae/qwen_image_vae.safetensors",)),
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors"),
     # Z Image Turbo
@@ -757,11 +757,11 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("ByteDance/Hyper-SD", "Hyper-SDXL-1step-Unet-Comfyui.fp16.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.1-schnell", "flux1-schnell.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.1-dev", "flux1-dev.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.1-Fill-dev", "flux1-fill-dev.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.1-Canny-dev", "flux1-canny-dev.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.1-Depth-dev", "flux1-depth-dev.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.1-schnell", "flux1-schnell.safetensors", alternate_filenames=("main/flux1-schnell.safetensors",)),
+    HuggingFile("black-forest-labs/FLUX.1-dev", "flux1-dev.safetensors", alternate_filenames=("main/flux1-dev.safetensors",)),
+    HuggingFile("black-forest-labs/FLUX.1-Fill-dev", "flux1-fill-dev.safetensors", alternate_filenames=("main/flux1-fill-dev.safetensors",)),
+    HuggingFile("black-forest-labs/FLUX.1-Canny-dev", "flux1-canny-dev.safetensors", alternate_filenames=("main/flux1-canny-dev.safetensors",)),
+    HuggingFile("black-forest-labs/FLUX.1-Depth-dev", "flux1-depth-dev.safetensors", alternate_filenames=("main/flux1-depth-dev.safetensors",)),
     HuggingFile("black-forest-labs/FLUX.1-Kontext-dev", "flux1-kontext-dev.safetensors"),
     HuggingFile("Kijai/flux-fp8", "flux1-dev-fp8.safetensors"),
     HuggingFile("Kijai/flux-fp8", "flux1-schnell-fp8.safetensors"),
@@ -891,12 +891,12 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
     HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp16.safetensors"),
-    HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn.safetensors"),
+    HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn.safetensors", alternate_filenames=("main/t5xxl_fp8_e4m3fn.safetensors",)),
     HuggingFile("Comfy-Org/mochi_preview_repackaged", "split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/text_encoders/llava_llama3_fp16.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/text_encoders/llava_llama3_fp8_scaled.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "text_encoders/clip_g.safetensors"),
-    HuggingFile("comfyanonymous/flux_text_encoders", "clip_l.safetensors", save_with_filename="clip_l.safetensors"),
+    HuggingFile("comfyanonymous/flux_text_encoders", "clip_l.safetensors", save_with_filename="clip_l.safetensors", alternate_filenames=("main/clip_l.safetensors",)),
     # uses names from https://comfyanonymous.github.io/ComfyUI_examples/audio/
     HuggingFile("google-t5/t5-base", "model.safetensors", save_with_filename="t5_base.safetensors"),
     HuggingFile("zer0int/CLIP-GmP-ViT-L-14", "ViT-L-14-TEXT-detail-improved-hiT-GmP-TE-only-HF.safetensors"),
@@ -928,7 +928,7 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_names=["clip", "text_encoders"])
 
 KNOWN_STYLE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("black-forest-labs/FLUX.1-Redux-dev", "flux1-redux-dev.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.1-Redux-dev", "flux1-redux-dev.safetensors", alternate_filenames=("main/flux1-redux-dev.safetensors",)),
 ], folder_name="style_models")
 
 # WanVideoWrapper (Kijai) -- MMAudio models (Ovi audio generation)

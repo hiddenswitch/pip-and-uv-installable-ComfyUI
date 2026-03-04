@@ -75,11 +75,22 @@ def _is_widget_type(type_spec, opts=None) -> bool:
     return False
 
 
+def _fix_unhashable_str_subclass(val):
+    """Custom nodes define ``AnyType(str)`` with ``__eq__`` but no ``__hash__``,
+    which Python 3 makes unhashable.  Restore ``str.__hash__`` on the type."""
+    if isinstance(val, str) and type(val) is not str and getattr(type(val), '__hash__', None) is None:
+        type(val).__hash__ = str.__hash__
+
+
 def _input_type_and_opts(entry) -> tuple:
     if isinstance(entry, (list, tuple)):
+        if len(entry) == 0:
+            return None, {}
         type_spec = entry[0]
+        _fix_unhashable_str_subclass(type_spec)
         opts = entry[1] if len(entry) > 1 and isinstance(entry[1], dict) else {}
         return type_spec, opts
+    _fix_unhashable_str_subclass(entry)
     return entry, {}
 
 
@@ -334,6 +345,83 @@ def _resolve_source(
     return ("link", str(src_node_id), src_slot)
 
 
+def _convert_legacy_group_node(name: str, defn: dict) -> dict:
+    """Convert a legacy ``extra.groupNodes`` definition to modern subgraph format.
+
+    Legacy group nodes (``workflow>NAME``) store inner nodes with ``index``
+    instead of ``id``, and links as
+    ``[src_index, src_slot, dst_index, dst_slot, ???, type]``.
+    """
+    # Build nodes with ``id`` = ``index``
+    nodes = []
+    for inner in defn.get("nodes", []):
+        node = dict(inner)
+        if "index" in node and "id" not in node:
+            node["id"] = node["index"]
+        # Ensure inner nodes have proper inputs with link refs
+        nodes.append(node)
+
+    # Convert links: legacy format uses indices, not global IDs.
+    # Create proper LiteGraph link arrays: [link_id, src_id, src_slot, dst_id, dst_slot, type]
+    links = []
+    for link_id, raw_link in enumerate(defn.get("links", []), start=1):
+        if len(raw_link) >= 5:
+            src_index = raw_link[0]
+            src_slot = raw_link[1]
+            dst_index = raw_link[2]
+            dst_slot = raw_link[3]
+            link_type = raw_link[5] if len(raw_link) > 5 else None
+            links.append({
+                "id": link_id,
+                "origin_id": src_index,
+                "origin_slot": src_slot,
+                "target_id": dst_index,
+                "target_slot": dst_slot,
+                "type": link_type,
+            })
+
+    # Wire up link references on inner node inputs/outputs
+    for link_info in links:
+        src_id = link_info["origin_id"]
+        src_slot = link_info["origin_slot"]
+        dst_id = link_info["target_id"]
+        dst_slot = link_info["target_slot"]
+
+        # Add link ref to destination node's input
+        for node in nodes:
+            if node.get("id") == dst_id:
+                inputs = node.get("inputs", [])
+                # Find input at the correct slot, accounting for the legacy
+                # ``dst_slot`` which is relative to the total input count
+                # (including linked inputs from inner connections).
+                if isinstance(inputs, list):
+                    while len(inputs) <= dst_slot:
+                        inputs.append({"name": f"input_{len(inputs)}", "type": link_info.get("type", "*")})
+                    if inputs[dst_slot].get("link") is None:
+                        inputs[dst_slot]["link"] = link_info["id"]
+                node["inputs"] = inputs
+                break
+
+        # Add link ref to source node's output
+        for node in nodes:
+            if node.get("id") == src_id:
+                outputs = node.get("outputs", [])
+                if isinstance(outputs, list):
+                    while len(outputs) <= src_slot:
+                        outputs.append({"name": f"output_{len(outputs)}", "type": link_info.get("type", "*"), "links": []})
+                    if isinstance(outputs[src_slot].get("links"), list):
+                        outputs[src_slot]["links"].append(link_info["id"])
+                break
+
+    sg_id = f"workflow>{name}"
+    return {
+        "id": sg_id,
+        "name": name,
+        "nodes": nodes,
+        "links": links,
+    }
+
+
 def _collect_subgraph_defs(workflow: dict) -> dict[str, dict]:
     result: dict[str, dict] = {}
 
@@ -350,6 +438,17 @@ def _collect_subgraph_defs(workflow: dict) -> dict[str, dict]:
                 _search(v, depth + 1)
 
     _search(workflow)
+
+    # Also collect legacy group nodes from extra.groupNodes
+    extra = workflow.get("extra", {})
+    group_nodes = extra.get("groupNodes", {})
+    if isinstance(group_nodes, dict):
+        for name, defn in group_nodes.items():
+            if isinstance(defn, dict):
+                sg_id = f"workflow>{name}"
+                if sg_id not in result:
+                    result[sg_id] = _convert_legacy_group_node(name, defn)
+
     return result
 
 
@@ -908,7 +1007,9 @@ def convert_ui_to_api(workflow: dict) -> dict:
         _wv_consumed = 0
         if is_unknown:
             api_inputs = _map_unknown_widgets(widgets_values)
-            use_class_type = None
+            use_class_type = class_type
+            logger.warning("Unknown node type %r (id=%s); preserving in API output",
+                           class_type, node.get('id'))
         elif isinstance(widgets_values, list):
             api_inputs, _wv_consumed = _map_widgets(input_types, widgets_values)
             use_class_type = class_type

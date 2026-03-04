@@ -113,5 +113,21 @@ class PkgResourcesFileSystem(AbstractFileSystem):
             raise FileNotFoundError(f"Resource not found: {path}")
 
 
+def ensure_registered():
+    """(Re-)register the pkg:// filesystem with the currently active fsspec.
+
+    Custom-node site-packages may install a second copy of fsspec that shadows
+    the one from the main venv, losing our registration.  Calling this after
+    ``sys.path`` is updated ensures the protocol is available in whichever
+    fsspec copy is active.
+    """
+    import sys
+    # Register in every fsspec.registry module currently loaded — there may
+    # be two if node_site contains a second copy of fsspec.
+    for mod_name, mod in list(sys.modules.items()):
+        if mod_name == "fsspec.registry" and hasattr(mod, "_registry"):
+            mod._registry["pkg"] = PkgResourcesFileSystem
+
+
 # Register the filesystem with fsspec
 register_implementation(PkgResourcesFileSystem.protocol, PkgResourcesFileSystem)

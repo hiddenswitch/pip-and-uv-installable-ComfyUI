@@ -251,6 +251,24 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         display_name="ComfyUI-VideoHelperSuite",
         priority="Mid",
     ),
+    CustomNodeSpec(
+        node_id="ComfyUI-WD14-Tagger",
+        repo_url="https://github.com/pythongosssss/ComfyUI-WD14-Tagger",
+        display_name="ComfyUI-WD14-Tagger",
+        priority="Mid",
+    ),
+    CustomNodeSpec(
+        node_id="ComfyUI-Custom-Scripts",
+        repo_url="https://github.com/pythongosssss/ComfyUI-Custom-Scripts",
+        display_name="ComfyUI-Custom-Scripts",
+        priority="Mid",
+    ),
+    CustomNodeSpec(
+        node_id="ComfyUI-Kolors-MZ",
+        repo_url="https://github.com/MinusZoneAI/ComfyUI-Kolors-MZ",
+        display_name="ComfyUI-Kolors-MZ",
+        priority="Mid",
+    ),
 ]
 
 _SPEC_BY_ID: dict[str, CustomNodeSpec] = {s.node_id: s for s in CUSTOM_NODE_REGISTRY}
