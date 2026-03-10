@@ -124,6 +124,7 @@ class HuggingFile:
     force_save_in_repo_id: Optional[bool] = False
     repo_type: Optional[str] = 'model'
     revision: Optional[str] = None
+    companion_files: Sequence[str] = dataclasses.field(default_factory=tuple)
 
     def __str__(self):
         return self.save_with_filename or split(self.filename)[-1]

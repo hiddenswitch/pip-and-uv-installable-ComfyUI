@@ -307,6 +307,36 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
 
                     if not link_successful:
                         logger.error(f"Failed to link file with alternative download save name in a way that is compatible with Hugging Face caching {repr(known_file)}. If cache_hit={cache_hit} is True, the file was copied into the destination. exc_info={exc_info_link}")
+
+                    # Download companion files (e.g. ONNX external data files)
+                    if path is not None and hasattr(known_file, 'companion_files') and known_file.companion_files:
+                        for comp_filename in known_file.companion_files:
+                            comp_save = os.path.join(os.path.dirname(linked_filename), os.path.basename(comp_filename))
+                            comp_dest = Path(this_model_directory) / comp_save
+                            if comp_dest.is_file():
+                                continue
+                            try:
+                                comp_path = hf_hub_download(
+                                    repo_id=known_file.repo_id,
+                                    filename=comp_filename,
+                                    repo_type=known_file.repo_type,
+                                    revision=known_file.revision,
+                                    local_dir=hf_destination_dir if args.force_hf_local_dir_mode else None,
+                                    token=_get_hf_token(),
+                                )
+                                comp_dest.parent.mkdir(parents=True, exist_ok=True)
+                                try:
+                                    os.symlink(comp_path, comp_dest)
+                                except FileExistsError:
+                                    pass
+                                except OSError:
+                                    try:
+                                        os.link(comp_path, comp_dest)
+                                    except OSError:
+                                        shutil.copyfile(comp_path, str(comp_dest))
+                                logger.info(f"Downloaded companion file {comp_filename} for {known_file.filename}")
+                            except Exception as comp_exc:
+                                logger.warning(f"Failed to download companion file {comp_filename}: {comp_exc}")
                 else:
                     save_filename = known_file.save_with_filename or known_file.filename
                     destination_with_filename = join(this_model_directory, save_filename)
@@ -553,7 +583,7 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     # WanVideoWrapper -- reward LoRAs
     HuggingFile("Kijai/Wan2.1-Fun-Reward-LoRAs-comfy", "Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", save_with_filename="WanVid/funreward/Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", show_in_ui=False),
     # WanVideoWrapper -- control LoRAs
-    HuggingFile("spacepxl/Wan2.1-control-loras", "wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", save_with_filename="WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", alternate_filenames=("WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors",), show_in_ui=False),
+    HuggingFile("spacepxl/Wan2.1-control-loras", "1.3b/tile/wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors", save_with_filename="WanVid/wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors", alternate_filenames=("WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", "WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"), show_in_ui=False),
     # LeapFusion HunyuanVideo i2v LoRA
     HuggingFile("leapfusion-image2vid-test/image2vid-960x544", "img2vid544p.safetensors", save_with_filename="hyvid/musubi-tuner/img2vid544p.safetensors", show_in_ui=False),
 ], folder_name="loras")
@@ -719,7 +749,7 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy", "Wan2_1_VAE_bf16.safetensors", alternate_filenames=("wanvideo/Wan2_1_VAE_bf16.safetensors",)),
     HuggingFile("Kijai/WanVideo_comfy", "Wan2_2_VAE_bf16.safetensors", alternate_filenames=("wanvideo/Wan2_2_VAE_bf16.safetensors",)),
     HuggingFile("Kijai/WanVideo_comfy", "FlashVSR/Wan2_1_FlashVSR_TCDecoder_fp32.safetensors", save_with_filename="Wan2_1_FlashVSR_TCDecoder_fp32.safetensors", show_in_ui=False),
-    HuggingFile("Kijai/WanVideo_comfy", "MTVCrafter/MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", save_with_filename="wanvideo/MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "MTVCrafter/WanVideo_MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", save_with_filename="wanvideo/WanVideo_MTV_Crafter_4DMoT_VQVAE_fp32.safetensors", alternate_filenames=("wanvideo/MTV_Crafter_4DMoT_VQVAE_fp32.safetensors",), show_in_ui=False),
 ], folder_name="vae")
 
 KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
@@ -845,7 +875,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy", "wan2.1_t2v_1.3B_fp16.safetensors", save_with_filename="WanVideo/wan2.1_t2v_1.3B_fp16.safetensors"),
     HuggingFile("Kijai/WanVideo_comfy", "wan2.1_fun_control_1.3B_bf16.safetensors", save_with_filename="WanVideo/wan2.1_fun_control_1.3B_bf16.safetensors"),
     HuggingFile("Kijai/WanVideo_comfy", "Fun/Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors", save_with_filename="WanVideo/Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors"),
-    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-Wan-I2V-ATI-14B_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-Wan-I2V-ATI-14B_fp8_e4m3fn.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1-I2V-ATI-14B_fp8_e4m3fn.safetensors", save_with_filename="WanVideo/Wan2_1-I2V-ATI-14B_fp8_e4m3fn.safetensors", alternate_filenames=("WanVideo/Wan2_1-Wan-I2V-ATI-14B_fp8_e4m3fn.safetensors",), show_in_ui=False),
     # WanVideoWrapper -- specialty models
     HuggingFile("Kijai/WanVideo_comfy", "EchoShot/Wan2_1-T2V-1-3B-EchoShot_fp16.safetensors", save_with_filename="WanVideo/EchoShot/Wan2_1-T2V-1-3B-EchoShot_fp16.safetensors", show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy", "FantasyPortrait/Wan2_1_FantasyPortrait_fp16.safetensors", save_with_filename="WanVideo/FantasyPortrait/Wan2_1_FantasyPortrait_fp16.safetensors", show_in_ui=False),
@@ -881,10 +911,11 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "WanMove/Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors", save_with_filename="WanVideo/WanMove/Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors", show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="WanVideo/mocha/MoCha/Wan2_1_mocha-14B-preview_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy_fp8_scaled", "SkyReelsV3/Wan21-SkyReelsV3-A2V_fp8_scaled_mixed.safetensors", save_with_filename="WanVideo/SkyreelsV3/Wan21_SkyReelsV3-A2V_fp8_scaled_mixed.safetensors", alternate_filenames=("WanVideo/SkyreelsV3/Wan21-SkyReelsV3-A2V_fp8_scaled_mixed.safetensors",), show_in_ui=False),
-    # WanVideoWrapper -- Ovi models
-    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors", show_in_ui=False),
-    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_1_Ovi_audio_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_1_Ovi_audio_model_bf16.safetensors", show_in_ui=False),
-    HuggingFile("Kijai/WanVideo_comfy", "Ovi/model_960x960_10s.safetensors", save_with_filename="WanVideo/Ovi/model_960x960_10s.safetensors", show_in_ui=False),
+    # WanVideoWrapper -- Ovi models (repo updated from 2.1 to 2.2)
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_2_Ovi_video_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_2_Ovi_video_model_bf16.safetensors", alternate_filenames=("WanVideo/Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/Wan_2_2_Ovi_audio_model_bf16.safetensors", save_with_filename="WanVideo/Ovi/Wan_2_2_Ovi_audio_model_bf16.safetensors", alternate_filenames=("WanVideo/Ovi/Wan_2_1_Ovi_audio_model_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vae_16k_bf16.safetensors", save_with_filename="WanVideo/Ovi/mmaudio_vae_16k_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/WanVideo_comfy", "Ovi/mmaudio_vocoder_bigvgan_best_netG_bf16.safetensors", save_with_filename="WanVideo/Ovi/mmaudio_vocoder_bigvgan_best_netG_bf16.safetensors", show_in_ui=False),
     # WanVideoWrapper -- InfiniteTalk GGUF
     HuggingFile("Kijai/WanVideo_comfy", "InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", save_with_filename="WanVideo/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", show_in_ui=False),
     # WanVideoWrapper -- LongCat
@@ -1115,6 +1146,8 @@ KNOWN_CHATTERBOX_REPOS: Final[Set[str]] = {
 KNOWN_POSE_DETECTION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("JunkyByte/easy_ViTPose", "onnx/wholebody/vitpose-l-wholebody.onnx", save_with_filename="vitpose-l-wholebody.onnx"),
     HuggingFile("onnx-community/YOLOv10", "yolov10m.onnx", save_with_filename="onnx/yolov10m.onnx"),
+    HuggingFile("Kijai/vitpose_comfy", "onnx/vitpose_h_wholebody_model.onnx", save_with_filename="onnx/vitpose_h_wholebody_model.onnx", companion_files=("onnx/vitpose_h_wholebody_data.bin",)),
+    HuggingFile("Kijai/vitpose_comfy", "onnx/vitpose_h_wholebody_data.bin", save_with_filename="onnx/vitpose_h_wholebody_data.bin"),
 ], folder_name="detection")
 
 # ComfyUI-Frame-Interpolation -- VFI models
