@@ -33,6 +33,7 @@ _CACHE_DIR = Path(os.environ.get(
 _STUB_IMAGE_URI = "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
 _STUB_AUDIO_URI = "pkg://tests.custom_nodes.test_data/test_audio.wav"
 _STUB_VIDEO_URI = "pkg://tests.custom_nodes.test_data/test_video.mp4"
+_STUB_POSE_VIDEO_URI = "pkg://tests.custom_nodes.test_data/test_pose_video.mp4"
 
 _IMAGE_TO_URL: dict[str, str] = {
     "LoadImage": "LoadImageFromURL",
@@ -81,37 +82,43 @@ _VIDEO_FRAME_CLASS_TYPES = frozenset({
 _MODEL_MISSING_PATTERNS: tuple[str, ...] = tuple()
 
 # Workflows to skip: models removed from HuggingFace or never published.
-_SKIP_WORKFLOWS: dict[str, str] = {
+_XFAIL_WORKFLOWS: dict[str, str] = {
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_camera_example_01":
         "1.3B Fun Camera model removed from HuggingFace (only 14B exists)",
     "ComfyUI-WanVideoWrapper/wanvideo_2_2_5B_Ovi_image_to_video_audio_10_seconds_example_01":
         "Ovi model_960x960_10s.safetensors removed from HuggingFace",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_pusa_I2V_example_01":
         "14B Pusa model exceeds 24GB VRAM",
-    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyPortrait_example_01":
-        "FantasyPortrait face detector returns None for test image (needs specific face landmarks)",
-    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_MTV_Crafter_example_WIP":
-        "SMPL pose estimation returns empty tensors for test video",
-    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_OneToAllAnimation_pose_control_example_01":
-        "Workflow expects 228+ pose frames, test video has 180",
-    "ComfyUI-WanVideoWrapper/wanvideo_2_2_5B_T2V_controlnet_example":
-        "T2V controlnet temporal dimension mismatch: workflow latent vs test video frame count",
-    "ComfyUI-WanVideoWrapper/wanvideo_1_3B_control_lora_example_01":
-        "1.3B control lora inference exceeds 900s timeout on single GPU",
-    "ComfyUI-WanVideoWrapper/wanvideo_1_3B_FlashVSR_upscale_example":
-        "FlashVSR requires control video frame count to exactly match latent frame count",
-}
-
-# Segformer local paths → proper HuggingFace repo IDs.
-_SEGFORMER_REPO_MAP: dict[str, str] = {
-    "segformer_b3_clothes": "mattmdjaga/segformer_b3_clothes",
-    "segformer_b2_clothes": "mattmdjaga/segformer_b2_clothes",
-    "segformer_b3_fashion": "mattmdjaga/segformer_b3_fashion",
 }
 
 
-def _patch_vhs_video_inputs(workflow: dict) -> dict:
-    """Replace hardcoded video filenames in VHS_LoadVideo nodes with test video."""
+
+
+_STUB_VIDEO_FRAMES = 180  # must match test_video.mp4
+_STUB_POSE_VIDEO_FRAMES = 300  # must match test_pose_video.mp4
+
+# Workflows that need the longer pose video (full-body human with 300 frames).
+_POSE_VIDEO_WORKFLOWS: frozenset[str] = frozenset({
+    "OneToAllAnimation",
+    "MTV_Crafter",
+})
+
+
+def _select_video_for_workflow(workflow_name: str) -> tuple[str, int]:
+    """Return (video_uri, frame_count) appropriate for the workflow."""
+    for keyword in _POSE_VIDEO_WORKFLOWS:
+        if keyword in workflow_name:
+            return _STUB_POSE_VIDEO_URI, _STUB_POSE_VIDEO_FRAMES
+    return _STUB_VIDEO_URI, _STUB_VIDEO_FRAMES
+
+
+def _patch_vhs_video_inputs(workflow: dict, video_uri: str, video_frames: int) -> dict:
+    """Replace hardcoded video filenames in VHS_LoadVideo nodes with test video.
+
+    Also disconnects any links overriding ``frame_load_cap`` (so the widget
+    value is used) and caps ``frame_load_cap=0`` (unlimited) to the test
+    video's actual frame count, avoiding temporal-dimension mismatches.
+    """
     if is_ui_workflow(workflow):
         nodes = workflow.get("nodes")
         if not isinstance(nodes, list):
@@ -123,13 +130,27 @@ def _patch_vhs_video_inputs(workflow: dict) -> dict:
         if not need_patch:
             return workflow
         workflow = copy.deepcopy(workflow)
+        # Collect link IDs to remove (links overriding frame_load_cap)
+        remove_links: set[int] = set()
         for node in workflow["nodes"]:
-            if isinstance(node, dict) and node.get("type", "") in _VHS_VIDEO_CLASS_TYPES:
-                wv = node.get("widgets_values")
-                if isinstance(wv, list) and wv:
-                    wv[0] = _STUB_VIDEO_URI
-                elif isinstance(wv, dict) and "video" in wv:
-                    wv["video"] = _STUB_VIDEO_URI
+            if not isinstance(node, dict) or node.get("type", "") not in _VHS_VIDEO_CLASS_TYPES:
+                continue
+            wv = node.get("widgets_values")
+            if isinstance(wv, list) and wv:
+                wv[0] = video_uri
+            elif isinstance(wv, dict) and "video" in wv:
+                wv["video"] = video_uri
+                # Cap unlimited frame_load_cap to test video length
+                if wv.get("frame_load_cap", 0) == 0:
+                    wv["frame_load_cap"] = video_frames
+            # Remove links feeding into frame_load_cap
+            for inp in node.get("inputs", []):
+                if inp.get("name") == "frame_load_cap" and inp.get("link") is not None:
+                    remove_links.add(inp["link"])
+                    inp["link"] = None
+        if remove_links:
+            links = workflow.get("links", [])
+            workflow["links"] = [lk for lk in links if lk[0] not in remove_links]
     else:
         need_patch = any(
             isinstance(n, dict) and n.get("class_type", "") in _VHS_VIDEO_CLASS_TYPES
@@ -142,11 +163,16 @@ def _patch_vhs_video_inputs(workflow: dict) -> dict:
             if isinstance(node, dict) and node.get("class_type", "") in _VHS_VIDEO_CLASS_TYPES:
                 inputs = node.get("inputs", {})
                 if "video" in inputs:
-                    inputs["video"] = _STUB_VIDEO_URI
+                    inputs["video"] = video_uri
+                if inputs.get("frame_load_cap", 0) == 0:
+                    inputs["frame_load_cap"] = video_frames
+                # Remove linked frame_load_cap (it would be [node_id, slot])
+                if isinstance(inputs.get("frame_load_cap"), list):
+                    del inputs["frame_load_cap"]
     return workflow
 
 
-def _substitute_media_nodes(workflow: dict) -> dict:
+def _substitute_media_nodes(workflow: dict, workflow_name: str = "") -> dict:
     _ALL_MEDIA: dict[str, tuple[str, str]] = {}
     for src, dst in _IMAGE_TO_URL.items():
         _ALL_MEDIA[src] = (dst, _STUB_IMAGE_URI)
@@ -159,7 +185,8 @@ def _substitute_media_nodes(workflow: dict) -> dict:
         workflow = _substitute_media_nodes_ui(workflow, _ALL_MEDIA)
     else:
         workflow = _substitute_media_nodes_api(workflow, _ALL_MEDIA)
-    return _patch_vhs_video_inputs(workflow)
+    video_uri, video_frames = _select_video_for_workflow(workflow_name)
+    return _patch_vhs_video_inputs(workflow, video_uri, video_frames)
 
 
 def _substitute_media_nodes_api(
@@ -336,34 +363,6 @@ def _bypass_nodes(workflow: dict) -> dict:
     return workflow
 
 
-def _install_segformer_monkeypatch():
-    """Monkeypatch segformer_ultra.py to use HuggingFace repo IDs instead of local paths."""
-    try:
-        import sys
-        for mod_name, mod in list(sys.modules.items()):
-            if "segformer_ultra" in mod_name and hasattr(mod, "get_segmentation"):
-                _orig_get_seg = mod.get_segmentation
-
-                def _patched_get_seg(tensor_image, model_name='segformer_b2_clothes', _orig=_orig_get_seg):
-                    import os
-                    import folder_paths
-                    # If the local model folder doesn't exist, rewrite the path to a HF repo ID
-                    model_folder_path = os.path.join(folder_paths.models_dir, model_name)
-                    if not os.path.isdir(model_folder_path) and model_name in _SEGFORMER_REPO_MAP:
-                        # Create the directory and download via HF hub
-                        from huggingface_hub import snapshot_download
-                        snapshot_download(
-                            _SEGFORMER_REPO_MAP[model_name],
-                            local_dir=model_folder_path,
-                        )
-                    return _orig(tensor_image, model_name)
-
-                mod.get_segmentation = _patched_get_seg
-                logger.info("Monkeypatched segformer_ultra.get_segmentation for HF repo IDs")
-                break
-    except Exception as e:
-        logger.warning("Failed to monkeypatch segformer_ultra: %s", e)
-
 
 def _collect_workflow_entries(base_dir):
     custom_nodes_root = str(base_dir / "custom_nodes")
@@ -441,8 +440,8 @@ class TestCustomNodeExecution:
         from comfy.client.embedded_comfy_client import Comfy
 
         test_key = f"{node_id}/{workflow_name}"
-        if test_key in _SKIP_WORKFLOWS:
-            pytest.skip(_SKIP_WORKFLOWS[test_key])
+        if test_key in _XFAIL_WORKFLOWS:
+            pytest.xfail(_XFAIL_WORKFLOWS[test_key])
 
         spec = get_spec(node_id)
         if spec is not None and spec.xfail:
@@ -460,7 +459,7 @@ class TestCustomNodeExecution:
             pytest.skip(f"{node_id}/{workflow_name}: top-level is not a dict")
 
         data = _apply_cost_reduction(data)
-        data = _substitute_media_nodes(data)
+        data = _substitute_media_nodes(data, workflow_name)
         data = _bypass_nodes(data)
 
         class_types = _collect_class_types(data)
@@ -475,7 +474,6 @@ class TestCustomNodeExecution:
         config = build_config(base_dir, base_paths=[real_base])
 
         async with Comfy(configuration=config) as client:
-            _install_segformer_monkeypatch()
             start = time.monotonic()
             outputs = await client.queue_prompt(data)
             elapsed = time.monotonic() - start

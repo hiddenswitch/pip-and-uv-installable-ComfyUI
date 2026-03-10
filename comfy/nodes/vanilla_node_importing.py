@@ -193,6 +193,67 @@ _MITIGATED_MODULES = frozenset((
     "comfyui_custom_nodes_alekpet",
 ))
 
+# Map short model folder names to HuggingFace repo IDs.  Custom nodes often
+# pass ``os.path.join(folder_paths.models_dir, name)`` to ``from_pretrained``
+# which fails when the model isn't pre-downloaded.  We patch the call site to
+# resolve to the HF repo ID so ``from_pretrained`` downloads from HuggingFace.
+_MODEL_NAME_TO_HF_REPO: dict[str, str] = {
+    "segformer_b2_clothes": "mattmdjaga/segformer_b2_clothes",
+    "segformer_b3_clothes": "mattmdjaga/segformer_b3_clothes",
+    "segformer_b3_fashion": "mattmdjaga/segformer_b3_fashion",
+}
+
+
+def _apply_post_import_patches(module_name: str) -> None:
+    """Apply patches to custom-node submodules after they finish importing.
+
+    These patches fix cases where custom nodes construct local model paths
+    that may not exist, instead of using HuggingFace repo IDs that
+    ``from_pretrained`` can resolve and cache automatically.
+    """
+    _patch_segformer_model_resolution(module_name)
+
+
+def _patch_segformer_model_resolution(module_name: str) -> None:
+    """Patch segformer_ultra.get_segmentation to resolve model names to HF repos.
+
+    ComfyUI_LayerStyle's segformer_ultra builds a local path like
+    ``models/segformer_b2_clothes`` and passes it to ``from_pretrained``.
+    When the folder doesn't exist, we resolve the HuggingFace repo via
+    ``model_downloader`` so the model is fetched to the HF cache and
+    ``from_pretrained`` loads from the cached snapshot path.
+    """
+    if module_name.lower() != "comfyui_layerstyle":
+        return
+
+    for mod_name, mod in list(sys.modules.items()):
+        if "segformer_ultra" not in mod_name or not hasattr(mod, "get_segmentation"):
+            continue
+
+        _orig_get_seg = mod.get_segmentation
+
+        def _patched_get_seg(tensor_image, model_name='segformer_b2_clothes', _orig=_orig_get_seg):
+            hf_repo = _MODEL_NAME_TO_HF_REPO.get(model_name)
+            if hf_repo is not None:
+                # Check if the model already exists at the local path the node expects
+                try:
+                    resolved = os.path.normpath(folder_paths.folder_names_and_paths[model_name][0][0])
+                except Exception:
+                    resolved = os.path.join(folder_paths.models_dir, model_name)
+                if not os.path.isdir(resolved):
+                    # Use the project's download infrastructure to get the repo
+                    # into the HF cache; from_pretrained accepts the repo ID directly
+                    from .. import model_downloader
+                    logger.info("Model folder %s not found, resolving via model_downloader for %s", model_name, hf_repo)
+                    model_downloader.get_or_download_huggingface_repo(hf_repo)
+                    # Pass the HF repo ID so from_pretrained fetches from cache
+                    return _orig(tensor_image, hf_repo)
+            return _orig(tensor_image, model_name)
+
+        mod.get_segmentation = _patched_get_seg
+        logger.info("Patched segformer_ultra.get_segmentation to resolve model names to HuggingFace repos")
+        break
+
 
 @contextmanager
 def _protect_sys_path():
@@ -274,9 +335,27 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
         module = importlib.util.module_from_spec(module_spec)
         sys.modules[module_name] = module
 
+        if not isfile(module_path):
+            # Package modules loaded via spec_from_file_location may not bind
+            # submodule references to the parent namespace after
+            # ``from .sub import name``.  Install a __getattr__ (PEP 562) that
+            # falls back to sys.modules so that bare ``sub.func()`` calls work.
+            _mod_name = module_name
+
+            def _submodule_getattr(name, _prefix=_mod_name):
+                fullname = f'{_prefix}.{name}'
+                sub = sys.modules.get(fullname)
+                if sub is not None:
+                    return sub
+                raise AttributeError(f"module {_prefix!r} has no attribute {name!r}")
+
+            module.__getattr__ = _submodule_getattr
+
         with _exec_mitigations(module, module_path) as mitigated_exported_nodes, _stdout_intercept(module_name):
             module_spec.loader.exec_module(module)
             exported_nodes.update(mitigated_exported_nodes)
+
+        _apply_post_import_patches(module_name)
 
         if hasattr(module, "WEB_DIRECTORY") and getattr(module, "WEB_DIRECTORY") is not None:
             web_dir = abspath(join(module_dir, getattr(module, "WEB_DIRECTORY")))
