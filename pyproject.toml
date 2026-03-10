@@ -168,16 +168,12 @@ Homepage = "https://github.com/comfyanonymous/ComfyUI"
 Repository = "https://github.com/comfyanonymous/ComfyUI"
 
 [tool.pytest.ini_options]
-markers = [
-    "inference: mark as inference test (deselect with '-m \"not inference\"')",
-    "execution: mark as execution test (deselect with '-m \"not execution\"')",
-    "slow: mark as slow test (deselect with '-m \"not slow\"')",
-    "network: mark as test requiring network access (deselect with '-m \"not network\"')",
-    "git_clone: mark as test requiring git clone (deselect with '-m \"not git_clone\"')",
-]
 testpaths = ["tests"]
-addopts = "-m 'not slow and not git_clone and not inference and not execution'"
+addopts = "-W ignore --no-header -q -p no:logging"
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore",
+]
 
 [tool.ruff]
 lint.select = [

@@ -136,17 +136,22 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
             continue
 
         if idx < len(widgets_values):
-            result[name] = _wrap_value(widgets_values[idx])
+            val = widgets_values[idx]
+            # Coerce empty-string placeholders: some saved workflows write ""
+            # for INT/FLOAT fields that were left blank in the UI.  Fall back
+            # to the default so the prompt passes validation.
+            if val == "" and type_spec in ("INT", "FLOAT") and "default" in opts:
+                val = opts["default"]
+            result[name] = _wrap_value(val)
             idx += 1
+        elif "default" in opts:
+            result[name] = _wrap_value(opts["default"])
+        elif isinstance(type_spec, list) and type_spec:
+            result[name] = _wrap_value(type_spec[0])
+        elif type_spec == "COMBO" and opts.get("options"):
+            result[name] = _wrap_value(opts["options"][0])
         elif in_optional:
-            if "default" in opts:
-                result[name] = _wrap_value(opts["default"])
-            elif isinstance(type_spec, list) and type_spec:
-                result[name] = _wrap_value(type_spec[0])
-            elif type_spec == "COMBO" and opts.get("options"):
-                result[name] = _wrap_value(opts["options"][0])
-            else:
-                break
+            break
         else:
             break
 

@@ -88,25 +88,17 @@ def patch_snapshot_download():
         huggingface_hub.snapshot_download = original
 
 
-def apply_folder_paths_patches():
-    from ..cmd import folder_paths
-    from .. import model_downloader
-
-    if folder_paths.get_filename_list is model_downloader.get_filename_list:
-        return
-
-    model_downloader._original_get_filename_list = folder_paths.get_filename_list
-    model_downloader._original_get_full_path = folder_paths.get_full_path
-
-    folder_paths.get_full_path = model_downloader.get_full_path
-    folder_paths.get_full_path_or_raise = model_downloader.get_full_path_or_raise
-    folder_paths.get_filename_list = model_downloader.get_filename_list
-
-
 @contextmanager
 def patch_folder_paths_functions():
     from ..cmd import folder_paths
     from .. import model_downloader
+
+    # Reentrant: if already patched, just yield without double-patching
+    # (double-patching would set _original_get_filename_list to the patched
+    # version, causing infinite recursion)
+    if folder_paths.get_filename_list is model_downloader.get_filename_list:
+        yield
+        return
 
     original_get_full_path = folder_paths.get_full_path
     original_get_full_path_or_raise = folder_paths.get_full_path_or_raise

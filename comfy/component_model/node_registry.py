@@ -95,8 +95,17 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         node_id="ComfyUI_AudioTools",
         repo_url="https://github.com/lum3on/ComfyUI_AudioTools",
         display_name="ComfyUI_AudioTools",
-        xfail=True,
-        xfail_reason="audio processing models auto-download at runtime",
+    ),
+    CustomNodeSpec(
+        node_id="ComfyUI-AnimateDiff-Evolved",
+        repo_url="https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved",
+        display_name="ComfyUI-AnimateDiff-Evolved",
+        depends_on=("ComfyUI-Advanced-ControlNet",),
+    ),
+    CustomNodeSpec(
+        node_id="ComfyUI-MelBandRoFormer",
+        repo_url="https://github.com/kijai/ComfyUI-MelBandRoFormer",
+        display_name="ComfyUI-MelBandRoFormer",
     ),
     CustomNodeSpec(
         node_id="ComfyUI-segment-anything-2",

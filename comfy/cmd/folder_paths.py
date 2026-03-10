@@ -310,7 +310,39 @@ def annotated_filepath(name: str) -> tuple[str, str | None]:
     return name, base_dir
 
 
+def _is_fsspec_url(name: str) -> bool:
+    """Return True if *name* looks like an fsspec URL (e.g. ``pkg://…``, ``s3://…``)."""
+    return "://" in name and not name.startswith(("file://",))
+
+
+def _resolve_fsspec_path(name: str) -> str:
+    """Resolve an fsspec URL to a local filesystem path.
+
+    For ``pkg://`` URIs this returns the real path via ``importlib.resources``.
+    Other protocols are opened via fsspec and cached locally.
+    """
+    from ..component_model.package_filesystem import ensure_registered
+    ensure_registered()
+    import fsspec
+    fs, path = fsspec.core.url_to_fs(name)
+    # PkgResourcesFileSystem and local FS both have real paths
+    if hasattr(fs, "_resolve_path"):
+        resource = fs._resolve_path(name)
+        return str(resource)
+    # fallback: open and cache to a temp file
+    import tempfile
+    import shutil
+    with fs.open(path, "rb") as src:
+        suffix = os.path.splitext(path)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as dst:
+            shutil.copyfileobj(src, dst)
+            return dst.name
+
+
 def get_annotated_filepath(name, default_dir=None) -> str:
+    if _is_fsspec_url(name):
+        return _resolve_fsspec_path(name)
+
     name, base_dir = annotated_filepath(name)
 
     if base_dir is None:
@@ -323,6 +355,16 @@ def get_annotated_filepath(name, default_dir=None) -> str:
 
 
 def exists_annotated_filepath(name):
+    if _is_fsspec_url(name):
+        try:
+            from ..component_model.package_filesystem import ensure_registered
+            ensure_registered()
+            import fsspec
+            fs, path = fsspec.core.url_to_fs(name)
+            return fs.exists(path)
+        except Exception:
+            return False
+
     name, base_dir = annotated_filepath(name)
 
     if base_dir is None:

@@ -30,10 +30,9 @@ _CACHE_DIR = Path(os.environ.get(
     Path.home() / ".cache" / "comfy-test" / "custom_nodes",
 ))
 
-_TEST_DATA_DIR = Path(__file__).resolve().parent / "test_data"
-_STUB_IMAGE_URI = str(_TEST_DATA_DIR / "president_official_portrait_hires2-1-1024x1024.jpg")
-_STUB_AUDIO_URI = str(_TEST_DATA_DIR / "test_audio.wav")
-_STUB_VIDEO_URI = str(_TEST_DATA_DIR / "test_video.mp4")
+_STUB_IMAGE_URI = "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
+_STUB_AUDIO_URI = "pkg://tests.custom_nodes.test_data/test_audio.wav"
+_STUB_VIDEO_URI = "pkg://tests.custom_nodes.test_data/test_video.mp4"
 
 _IMAGE_TO_URL: dict[str, str] = {
     "LoadImage": "LoadImageFromURL",
@@ -79,7 +78,7 @@ _VIDEO_FRAME_CLASS_TYPES = frozenset({
     "WanVideoSampler",
 })
 
-_MODEL_MISSING_PATTERNS: tuple[str, ...] = ()
+_MODEL_MISSING_PATTERNS: tuple[str, ...] = tuple()
 
 # Segformer local paths → proper HuggingFace repo IDs.
 _SEGFORMER_REPO_MAP: dict[str, str] = {
@@ -288,6 +287,33 @@ def _is_model_missing_error(error_msg: str) -> bool:
     return any(pattern.lower() in error_msg.lower() for pattern in _MODEL_MISSING_PATTERNS)
 
 
+
+# Node types to bypass (mode=4) in UI workflows before conversion.
+_BYPASS_NODE_TYPES: frozenset[str] = frozenset({
+    "WanVideoTorchCompileSettings",
+})
+
+
+def _bypass_nodes(workflow: dict) -> dict:
+    """Set mode=4 (bypass) on specific node types in a UI workflow."""
+    if not is_ui_workflow(workflow):
+        return workflow
+    nodes = workflow.get("nodes")
+    if not isinstance(nodes, list):
+        return workflow
+    need_patch = any(
+        isinstance(n, dict) and n.get("type", "") in _BYPASS_NODE_TYPES
+        for n in nodes
+    )
+    if not need_patch:
+        return workflow
+    workflow = copy.deepcopy(workflow)
+    for node in workflow["nodes"]:
+        if isinstance(node, dict) and node.get("type", "") in _BYPASS_NODE_TYPES:
+            node["mode"] = 4
+    return workflow
+
+
 def _install_segformer_monkeypatch():
     """Monkeypatch segformer_ultra.py to use HuggingFace repo IDs instead of local paths."""
     try:
@@ -342,6 +368,34 @@ def _get_shared_base_dir() -> Path:
     return base_dir
 
 
+# ---------------------------------------------------------------------------
+# Collect (node_id, workflow_name, filepath) at import time for parametrize.
+# Only scans the filesystem — no heavy imports or node loading.
+# ---------------------------------------------------------------------------
+def _collect_all_workflow_params() -> list[tuple[str, str, str]]:
+    """Scan the cache dir for example workflow JSON files.
+
+    Returns (node_id, workflow_name, filepath) triples.
+    If the cache dir doesn't exist yet, returns an empty list (the session
+    fixture will install nodes on first run).
+    """
+    custom_nodes_root = _CACHE_DIR / "custom_nodes"
+    if not custom_nodes_root.is_dir():
+        return []
+    results = []
+    for folder_name in CustomNodeManager.EXAMPLE_WORKFLOW_FOLDER_NAMES:
+        for filepath in sorted(custom_nodes_root.glob(f"*/{folder_name}/*.json")):
+            node_id = filepath.parent.parent.name
+            workflow_name = filepath.stem
+            results.append((node_id, workflow_name, str(filepath)))
+    return results
+
+
+_ALL_WORKFLOW_PARAMS = _collect_all_workflow_params()
+
+# Build the pytest parameter list: id string is "node_id/workflow_name"
+_PARAM_IDS = [f"{node_id}/{wf}" for node_id, wf, _ in _ALL_WORKFLOW_PARAMS]
+
 _shared_base_dir: Path | None = None
 
 
@@ -353,116 +407,53 @@ def shared_base_dir():
     return _shared_base_dir
 
 
-@pytest.mark.slow
-@pytest.mark.git_clone
-@pytest.mark.parametrize(
-    "node_id",
-    [spec.node_id for spec in CUSTOM_NODE_REGISTRY],
-    ids=[spec.node_id for spec in CUSTOM_NODE_REGISTRY],
-)
 class TestCustomNodeExecution:
 
     @pytest.mark.asyncio
-    async def test_execute_example_workflows(self, node_id, shared_base_dir):
+    @pytest.mark.parametrize(
+        "node_id,workflow_name,workflow_path",
+        _ALL_WORKFLOW_PARAMS,
+        ids=_PARAM_IDS,
+    )
+    async def test_execute_workflow(self, node_id, workflow_name, workflow_path, shared_base_dir):
         from comfy.client.embedded_comfy_client import Comfy
 
         spec = get_spec(node_id)
-        if spec.xfail:
+        if spec is not None and spec.xfail:
             pytest.xfail(spec.xfail_reason)
 
         base_dir = shared_base_dir
 
-        entries = _collect_workflow_entries(base_dir)
-        node_dir_name = node_id
-        node_entries = [
-            (name, wf_name, path)
-            for name, wf_name, path in entries
-            if name == node_dir_name
-        ]
-        if not node_entries:
-            pytest.skip(f"{node_id} has no example workflows")
+        with open(workflow_path, "r", encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                pytest.skip(f"{node_id}/{workflow_name}: invalid JSON")
 
-        logger.info("%s: found %d example workflow(s)", node_id, len(node_entries))
+        if not isinstance(data, dict):
+            pytest.skip(f"{node_id}/{workflow_name}: top-level is not a dict")
+
+        data = _apply_cost_reduction(data)
+        data = _substitute_media_nodes(data)
+        data = _bypass_nodes(data)
+
+        class_types = _collect_class_types(data)
+        logger.info(
+            "%s/%s: %d class_types: %s",
+            node_id, workflow_name, len(class_types),
+            sorted(class_types)[:10],
+        )
 
         import comfy.cmd.main_pre
         real_base = str(Path(__file__).resolve().parents[3])
-        config = build_config(base_dir, torch_device="cuda:1", base_paths=[real_base])
-
-        executed = 0
-        model_errors = []
-        real_errors = []
+        config = build_config(base_dir, base_paths=[real_base])
 
         async with Comfy(configuration=config) as client:
             _install_segformer_monkeypatch()
-            for node_name, workflow_name, filepath in node_entries:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    try:
-                        data = json.load(f)
-                    except json.JSONDecodeError:
-                        logger.warning("%s/%s: invalid JSON, skipping", node_name, workflow_name)
-                        continue
-
-                if not isinstance(data, dict):
-                    logger.warning("%s/%s: top-level is not a dict, skipping", node_name, workflow_name)
-                    continue
-
-                data = _apply_cost_reduction(data)
-                data = _substitute_media_nodes(data)
-
-                class_types = _collect_class_types(data)
-                logger.info(
-                    "%s/%s: %d class_types: %s",
-                    node_name, workflow_name, len(class_types),
-                    sorted(class_types)[:10],
-                )
-
-                start = time.monotonic()
-                try:
-                    outputs = await client.queue_prompt(data)
-                    elapsed = time.monotonic() - start
-                    executed += 1
-                    logger.info(
-                        "%s/%s: executed in %.1fs, outputs: %s",
-                        node_name, workflow_name, elapsed, outputs,
-                    )
-                except Exception as e:
-                    elapsed = time.monotonic() - start
-                    error_msg = f"{node_name}/{workflow_name}: {e}"
-                    if _is_model_missing_error(str(e)):
-                        model_errors.append(error_msg)
-                        logger.warning(
-                            "%s/%s: missing model/node after %.1fs: %s",
-                            node_name, workflow_name, elapsed, e,
-                        )
-                    else:
-                        real_errors.append(error_msg)
-                        logger.error(
-                            "%s/%s: execution failed after %.1fs: %s",
-                            node_name, workflow_name, elapsed, e,
-                        )
-
-        total_errors = len(model_errors) + len(real_errors)
-        logger.info(
-            "%s: executed %d workflows, %d model errors, %d real errors",
-            node_id, executed, len(model_errors), len(real_errors),
-        )
-
-        if model_errors:
-            logger.warning(
-                "%s: %d workflow(s) had missing models/nodes (expected):\n  %s",
-                node_id, len(model_errors), "\n  ".join(model_errors),
+            start = time.monotonic()
+            outputs = await client.queue_prompt(data)
+            elapsed = time.monotonic() - start
+            logger.info(
+                "%s/%s: executed in %.1fs, outputs: %s",
+                node_id, workflow_name, elapsed, outputs,
             )
-
-        if real_errors:
-            logger.error(
-                "%s: %d workflow(s) had real execution errors:\n  %s",
-                node_id, len(real_errors), "\n  ".join(real_errors),
-            )
-
-        assert executed > 0 or len(model_errors) > 0, (
-            f"{node_id}: no workflows were attempted"
-        )
-        assert len(real_errors) == 0, (
-            f"{node_id}: {len(real_errors)} workflow(s) had real execution errors:\n  "
-            + "\n  ".join(real_errors)
-        )

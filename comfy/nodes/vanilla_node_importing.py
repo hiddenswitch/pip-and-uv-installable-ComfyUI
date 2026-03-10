@@ -195,6 +195,22 @@ _MITIGATED_MODULES = frozenset((
 
 
 @contextmanager
+def _protect_sys_path():
+    """Snapshot and restore sys.path after custom node import.
+
+    Custom nodes often call ``sys.path.insert(0, ...)`` during import to make
+    sibling modules importable.  We allow mutations during import (some nodes
+    need them for intra-package imports) but restore the original path list
+    afterward so that one node's path additions don't leak to later nodes.
+    """
+    snapshot = list(sys.path)
+    try:
+        yield
+    finally:
+        sys.path[:] = snapshot
+
+
+@contextmanager
 def _exec_mitigations(module: types.ModuleType, module_path: str) -> Generator[ExportedNodes, Any, None]:
     config = current_execution_context()
     block_installation = config and config.configuration and config.configuration.block_runtime_package_installation
@@ -211,6 +227,8 @@ def _exec_mitigations(module: types.ModuleType, module_path: str) -> Generator[E
         # pip blocking
         patch_pip_install_subprocess_run() if block_installation else nullcontext(),
         patch_pip_install_popen() if block_installation else nullcontext(),
+        # sys.path protection — prevent custom nodes from polluting the path
+        _protect_sys_path(),
     ):
         if needs_file_mitigation:
             from ..cmd import folder_paths

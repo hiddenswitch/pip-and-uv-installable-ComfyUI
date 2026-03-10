@@ -434,6 +434,8 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     CivitFile(4468, 57618, filename="counterfeitV30_v30.safetensors"),
     CivitFile(241415, 272376, filename="picxReal_10.safetensors"),
     CivitFile(23900, 95489, filename="anyloraCheckpoint_bakedvaeBlessedFp16.safetensors"),
+    CivitFile(132803, 146134, filename="fantexiRealistic_v10.safetensors", alternate_filenames=("SD1.5/fantexiRealistic_v10.safetensors",)),
+    CivitFile(36538, 265285, filename="noosphere_v42.safetensors", alternate_filenames=("SD1.5/noosphere_v42.safetensors",)),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium_incl_clips.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium_incl_clips_t5xxlfp8.safetensors"),
@@ -487,6 +489,7 @@ KNOWN_IMAGE_ONLY_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
 
 KNOWN_UPSCALERS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("lllyasviel/Annotators", "RealESRGAN_x4plus.pth"),
+    HuggingFile("Kallamamran/best_upscaler_models", "4xNomos8k_atd_jpg.pth"),
 ], folder_name="upscale_models")
 
 KNOWN_LATENT_UPSCALE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -546,11 +549,13 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan22-Lightning/old/Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors", save_with_filename="WanVideo/Wan22-Lightning/Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors", show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0_fp16.safetensors", save_with_filename="WanVideo/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0.safetensors", alternate_filenames=("WanVideo/Stand-In/Stand-In_wan2.1_T2V_14B_ver1.0_fp16.safetensors",), show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy", "LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors", save_with_filename="WanVideo/WanAnimate_relight_lora_fp16.safetensors", show_in_ui=False),
-    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat_distill_lora_rank128_bf16.safetensors", save_with_filename="LongCat_distill_lora_rank128_bf16.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/LongCat-Video_comfy", "LongCat_distill_lora_alpha64_bf16.safetensors", save_with_filename="LongCat_distill_lora_alpha64_bf16.safetensors", alternate_filenames=("LongCat_distill_lora_rank128_bf16.safetensors",), show_in_ui=False),
     # WanVideoWrapper -- reward LoRAs
     HuggingFile("Kijai/Wan2.1-Fun-Reward-LoRAs-comfy", "Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", save_with_filename="WanVid/funreward/Wan2.1-Fun-1.3B-InP-MPS_reward_lora_comfy.safetensors", show_in_ui=False),
     # WanVideoWrapper -- control LoRAs
     HuggingFile("spacepxl/Wan2.1-control-loras", "wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", save_with_filename="WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", alternate_filenames=("WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors",), show_in_ui=False),
+    # LeapFusion HunyuanVideo i2v LoRA
+    HuggingFile("leapfusion-image2vid-test/image2vid-960x544", "img2vid544p.safetensors", save_with_filename="hyvid/musubi-tuner/img2vid544p.safetensors", show_in_ui=False),
 ], folder_name="loras")
 
 KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -697,7 +702,7 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     # this is the flux VAE
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/vae/ae.safetensors"),
     HuggingFile("Comfy-Org/mochi_preview_repackaged", "split_files/vae/mochi_vae.safetensors"),
-    HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/vae/hunyuan_video_vae_bf16.safetensors"),
+    HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/vae/hunyuan_video_vae_bf16.safetensors", alternate_filenames=("hyvid/hunyuan_video_vae_bf16.safetensors",)),
     HuggingFile("comfyanonymous/cosmos_1.0_text_encoder_and_VAE_ComfyUI", "vae/cosmos_cv8x8x8_1.0.safetensors"),
     HuggingFile("Comfy-Org/Lumina_Image_2.0_Repackaged", "split_files/vae/ae.safetensors", save_with_filename="lumina_image_2.0-ae.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/vae/wan_2.1_vae.safetensors", alternate_filenames=("vae/wan_2.1_vae.safetensors",)),
@@ -767,7 +772,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/flux-fp8", "flux1-schnell-fp8.safetensors"),
     HuggingFile("Comfy-Org/mochi_preview_repackaged", "split_files/diffusion_models/mochi_preview_bf16.safetensors"),
     HuggingFile("Comfy-Org/mochi_preview_repackaged", "split_files/diffusion_models/mochi_preview_fp8_scaled.safetensors"),
-    HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/diffusion_models/hunyuan_video_t2v_720p_bf16.safetensors"),
+    HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/diffusion_models/hunyuan_video_t2v_720p_bf16.safetensors", alternate_filenames=("hyvideo/hunyuan_video_720_bf16.safetensors",)),
+    HuggingFile("Kijai/HunyuanVideo_comfy", "hunyuan_video_720_cfgdistill_fp8_e4m3fn.safetensors", save_with_filename="hunyuan_video_720_fp8_e4m3fn.safetensors", alternate_filenames=("hyvideo/hunyuan_video_720_fp8_e4m3fn.safetensors",), show_in_ui=False),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/diffusion_models/hunyuan_video_image_to_video_720p_bf16.safetensors"),
     HuggingFile("mcmonkey/cosmos-1.0", "Cosmos-1_0-Diffusion-14B-Text2World.safetensors"),
     HuggingFile("mcmonkey/cosmos-1.0", "Cosmos-1_0-Diffusion-14B-Video2World.safetensors"),
@@ -882,11 +888,14 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # WanVideoWrapper -- InfiniteTalk GGUF
     HuggingFile("Kijai/WanVideo_comfy", "InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", save_with_filename="WanVideo/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf", show_in_ui=False),
     # WanVideoWrapper -- LongCat
-    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat-Avatar_bf16.safetensors", save_with_filename="LongCat/LongCat-Avatar_bf16.safetensors", show_in_ui=False),
-    HuggingFile("Kijai/WanVideo_comfy", "LongCat/LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="LongCat/LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
+    HuggingFile("Kijai/LongCat-Video_comfy", "Avatar/LongCat-Avatar_comfy_bf16.safetensors", save_with_filename="LongCat/LongCat-Avatar_comfy_bf16.safetensors", alternate_filenames=("LongCat/LongCat-Avatar_bf16.safetensors",), show_in_ui=False),
+    HuggingFile("Kijai/LongCat-Video_comfy", "LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", save_with_filename="LongCat/LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors", show_in_ui=False),
     # WanVideoWrapper -- MelBandRoFormer (audio separation)
     HuggingFile("Kijai/WanVideo_comfy", "MelBandRoFormer/MelBandRoformer_fp16.safetensors", save_with_filename="MelBandRoFormer/MelBandRoformer_fp16.safetensors", show_in_ui=False),
     HuggingFile("Kijai/WanVideo_comfy", "MelBandRoFormer/MelBandRoformer_fp32.safetensors", save_with_filename="MelBandRoformer_fp32.safetensors", show_in_ui=False),
+    # ComfyUI-Lotus -- depth/normal estimation
+    HuggingFile("Kijai/lotus-comfyui", "lotus-depth-g-v1-0-fp16.safetensors"),
+    HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
@@ -900,6 +909,7 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # uses names from https://comfyanonymous.github.io/ComfyUI_examples/audio/
     HuggingFile("google-t5/t5-base", "model.safetensors", save_with_filename="t5_base.safetensors"),
     HuggingFile("zer0int/CLIP-GmP-ViT-L-14", "ViT-L-14-TEXT-detail-improved-hiT-GmP-TE-only-HF.safetensors"),
+    HuggingFile("zer0int/CLIP-GmP-ViT-L-14", "ViT-L-14-BEST-smooth-GmP-TE-only-HF-format.safetensors"),
     HuggingFile("comfyanonymous/cosmos_1.0_text_encoder_and_VAE_ComfyUI", "text_encoders/oldt5_xxl_fp16.safetensors"),
     HuggingFile("comfyanonymous/cosmos_1.0_text_encoder_and_VAE_ComfyUI", "text_encoders/oldt5_xxl_fp8_e4m3fn_scaled.safetensors"),
     HuggingFile("Comfy-Org/Lumina_Image_2.0_Repackaged", "split_files/text_encoders/gemma_2_2b_fp16.safetensors"),
@@ -976,19 +986,20 @@ KNOWN_SAM_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 
 # Impact-Pack -- Ultralytics YOLO detection models
 KNOWN_ULTRALYTICS_BBOX_MODELS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("Bingsu/adetailer", "face_yolov8m.pt"),
-    HuggingFile("Bingsu/adetailer", "face_yolov8n.pt"),
-    HuggingFile("Bingsu/adetailer", "face_yolov8n_v2.pt"),
-    HuggingFile("Bingsu/adetailer", "face_yolov8s.pt"),
-    HuggingFile("Bingsu/adetailer", "face_yolov9c.pt"),
-    HuggingFile("Bingsu/adetailer", "hand_yolov8n.pt"),
-    HuggingFile("Bingsu/adetailer", "hand_yolov8s.pt"),
-], folder_names=["ultralytics", "ultralytics/bbox"])
+    HuggingFile("Bingsu/adetailer", "face_yolov8m.pt", alternate_filenames=("bbox/face_yolov8m.pt",)),
+    HuggingFile("Bingsu/adetailer", "face_yolov8n.pt", alternate_filenames=("bbox/face_yolov8n.pt",)),
+    HuggingFile("Bingsu/adetailer", "face_yolov8n_v2.pt", alternate_filenames=("bbox/face_yolov8n_v2.pt",)),
+    HuggingFile("Bingsu/adetailer", "face_yolov8s.pt", alternate_filenames=("bbox/face_yolov8s.pt",)),
+    HuggingFile("Bingsu/adetailer", "face_yolov9c.pt", alternate_filenames=("bbox/face_yolov9c.pt",)),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8n.pt", alternate_filenames=("bbox/hand_yolov8n.pt",)),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8s.pt", alternate_filenames=("bbox/hand_yolov8s.pt",)),
+], folder_names=["ultralytics", "ultralytics/bbox", "ultralytics_bbox"])
 
 KNOWN_ULTRALYTICS_SEGM_MODELS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("Bingsu/adetailer", "deepfashion2_yolov8s-seg.pt"),
-    HuggingFile("Bingsu/adetailer", "person_yolov8n-seg.pt"),
-], folder_names=["ultralytics", "ultralytics/segm"])
+    HuggingFile("Bingsu/adetailer", "deepfashion2_yolov8s-seg.pt", alternate_filenames=("segm/deepfashion2_yolov8s-seg.pt",)),
+    HuggingFile("Bingsu/adetailer", "person_yolov8m-seg.pt", alternate_filenames=("segm/person_yolov8m-seg.pt",)),
+    HuggingFile("Bingsu/adetailer", "person_yolov8n-seg.pt", alternate_filenames=("segm/person_yolov8n-seg.pt",)),
+], folder_names=["ultralytics", "ultralytics/segm", "ultralytics_segm"])
 
 # ComfyUI-DepthAnythingV2 -- depth estimation models
 KNOWN_DEPTH_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -1086,13 +1097,13 @@ KNOWN_FLORENCE2_REPOS: Final[Set[str]] = {
 KNOWN_GGUF_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # Flux GGUF
     HuggingFile("city96/FLUX.1-dev-gguf", "flux1-dev-Q4_K_S.gguf"),
-    HuggingFile("city96/FLUX.1-dev-gguf", "flux1-dev-Q8_0.gguf"),
+    HuggingFile("city96/FLUX.1-dev-gguf", "flux1-dev-Q8_0.gguf", alternate_filenames=("flux/flux1-dev-Q8_0.gguf",)),
     HuggingFile("city96/FLUX.1-schnell-gguf", "flux1-schnell-Q4_K_S.gguf"),
     HuggingFile("city96/FLUX.1-schnell-gguf", "flux1-schnell-Q8_0.gguf"),
     # T5 text encoder GGUF
     HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q4_K_M.gguf"),
     HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q8_0.gguf"),
-], folder_names=["diffusion_models", "unet", "clip", "text_encoders"])
+], folder_names=["diffusion_models", "unet", "unet_gguf", "clip", "clip_gguf", "text_encoders"])
 
 # ComfyUI_Fill-ChatterBox -- ChatterBox TTS models (downloaded as full repo)
 KNOWN_CHATTERBOX_REPOS: Final[Set[str]] = {
@@ -1103,6 +1114,7 @@ KNOWN_CHATTERBOX_REPOS: Final[Set[str]] = {
 # ComfyUI-SCAIL-Pose -- pose detection models
 KNOWN_POSE_DETECTION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("JunkyByte/easy_ViTPose", "onnx/wholebody/vitpose-l-wholebody.onnx", save_with_filename="vitpose-l-wholebody.onnx"),
+    HuggingFile("onnx-community/YOLOv10", "yolov10m.onnx", save_with_filename="onnx/yolov10m.onnx"),
 ], folder_name="detection")
 
 # ComfyUI-Frame-Interpolation -- VFI models

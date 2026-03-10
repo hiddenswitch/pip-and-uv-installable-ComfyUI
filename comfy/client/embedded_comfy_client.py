@@ -117,7 +117,8 @@ async def ___execute_prompt(
             prompt_executor.raise_exceptions = True
             _prompt_executor.executor = prompt_executor
 
-    with tracer.start_as_current_span("Execute Prompt", context=span_context) as span:
+    from ..nodes.download_interception import patch_folder_paths_functions
+    with tracer.start_as_current_span("Execute Prompt", context=span_context) as span, patch_folder_paths_functions():
         try:
             prompt_mut = make_mutable(prompt)
             from ..cmd.execution import validate_prompt
@@ -481,7 +482,11 @@ class Comfy:
             )
 
             fut = concurrent.futures.Future()
-            fut.set_result(TaskInvocation(prompt_id, copy.deepcopy(outputs), ExecutionStatus('success', True, [])))
+            try:
+                outputs_copy = copy.deepcopy(outputs)
+            except Exception:
+                outputs_copy = outputs
+            fut.set_result(TaskInvocation(prompt_id, outputs_copy, ExecutionStatus('success', True, [])))
             self._history.put(QueueItem(queue_tuple=QueueTuple(float(self._task_count), prompt_id, prompt, ExtraData(), [], {}), completed=fut), outputs, ExecutionStatus('success', True, []))
             return outputs
         except Exception as exc_info:

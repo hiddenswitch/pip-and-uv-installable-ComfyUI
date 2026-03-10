@@ -56,6 +56,7 @@ from ..component_model.executor_types import ExecutorToClientProgress, Validatio
     RecursiveExecutionErrorDetails, RecursiveExecutionErrorDetailsInterrupted, ExecutionResult, HistoryResultDict, \
     ExecutionErrorMessage, ExecutionInterruptedMessage, ComboOptions
 from ..component_model.files import canonicalize_path
+from ..component_model.node_traceback import format_node_exception, filter_traceback, suppress_error_stack_trace
 from ..component_model.module_property import create_module_properties
 from ..component_model.queue_types import QueueTuple, HistoryEntry, QueueItem, MAXIMUM_HISTORY_SIZE, ExecutionStatus, \
     ExecutionStatusAsDict, AbstractPromptQueueGetCurrentQueueItems
@@ -505,6 +506,7 @@ async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, ca
     """
     with (
         context_execute_node(node_id),
+        suppress_error_stack_trace(),
         vanilla_environment_node_execution_hooks(),
         use_requests_caching(),
     ):
@@ -718,19 +720,18 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
             for name, inputs in input_data_all.items():
                 input_data_formatted[name] = [format_value(x) for x in inputs]
 
-        logger.error("An error occurred while executing a workflow", exc_info=ex)
-        logger.error(traceback.format_exc())
-        tips = ""
+        logger.error(format_node_exception(ex, tb, node_id=real_node_id, class_type=class_type, input_data_formatted=input_data_formatted), exc_info=False)
 
         if isinstance(ex, model_management.OOM_EXCEPTION):
             logger.error(f"Got an OOM, unloading all loaded models: {model_management.debug_memory_summary()}")
             model_management.unload_all_models()
 
+        filtered_tb = traceback.format_list(filter_traceback(tb))
         error_details: RecursiveExecutionErrorDetails = {
             "node_id": real_node_id,
-            "exception_message": "{}\n{}".format(ex, tips),
+            "exception_message": str(ex),
             "exception_type": exception_type,
-            "traceback": traceback.format_tb(tb),
+            "traceback": filtered_tb,
             "current_inputs": input_data_formatted
         }
 
@@ -1141,6 +1142,16 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                     if all(isinstance(item, (str, PathLike)) for item in combo_options):
                         combo_options = [canonicalize_path(item) for item in combo_options]
                     if val not in combo_options:
+                        # Fallback: when a workflow value includes a subfolder prefix
+                        # (e.g. "flux/flux1-dev-Q8_0.gguf") but the node's combo list
+                        # only contains the basename (e.g. "flux1-dev-Q8_0.gguf"),
+                        # accept the value if basename matches. This handles nodes that
+                        # convert DownloadableFileList to plain list via comprehension.
+                        if isinstance(val, str) and "/" in val:
+                            from os.path import basename as _basename
+                            if _basename(val) in combo_options:
+                                continue
+
                         input_config = info
                         list_info = ""
 

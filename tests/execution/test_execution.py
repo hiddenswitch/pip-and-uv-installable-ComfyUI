@@ -940,9 +940,9 @@ class TestExecution:
         assert job["id"] == prompt_id, "Job ID should match"
         assert "outputs" in job, "Single job should include outputs"
 
-    def test_get_job_not_found(
+    async def test_get_job_not_found(
         self, client: ComfyClient, builder: GraphBuilder
     ):
         """Test getting a non-existent job returns 404"""
-        job = client.get_job("nonexistent-job-id")
+        job = await client.get_job("nonexistent-job-id")
         assert job is None, "Non-existent job should return None"

@@ -179,6 +179,17 @@ class CustomNodeManager:
             finally:
                 os.unlink(constraints_path)
 
+        # Clean up badly-packaged top-level directories that shadow real
+        # packages when node_site is on sys.path.  For example, color_matcher
+        # installs its test suite as a bare ``tests/`` package.
+        _BANNED_TOPLEVEL = ("tests", "test", "examples", "example", "docs", "doc")
+        for name in _BANNED_TOPLEVEL:
+            bad_dir = install_target / name
+            if bad_dir.is_dir():
+                import shutil
+                logger.info("Removing badly-packaged top-level directory from node_site: %s", bad_dir)
+                shutil.rmtree(bad_dir, ignore_errors=True)
+
         return repo_path
 
     def __init__(self):

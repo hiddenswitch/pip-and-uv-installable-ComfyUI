@@ -5,6 +5,8 @@ import threading
 from collections import deque
 from datetime import datetime
 
+from ..component_model.node_traceback import NodeExecutionErrorFilter
+
 # initialize with sane defaults
 logs = deque(maxlen=1000)
 stdout_interceptor = sys.stdout
@@ -63,11 +65,7 @@ def on_flush(callback):
 
 
 class StackTraceLogger(logging.Logger):
-    def _log(self, level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1):
-        if not stack_info and level >= logging.ERROR and exc_info is None:
-            # create a stack even when there is no exception
-            stack_info = True
-        super()._log(level, msg, args, exc_info, extra, stack_info, stacklevel=stacklevel + 1)
+    pass
 
 
 def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool = False):
@@ -93,11 +91,14 @@ def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool 
     logger = logging.getLogger()
     logger.setLevel(log_level)
 
+    node_error_filter = NodeExecutionErrorFilter()
+
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter(
         "%(asctime)s [%(levelname)s] [%(name)s] [%(filename)s:%(lineno)d] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     ))
+    stream_handler.addFilter(node_error_filter)
 
     if use_stdout:
         # Only errors and critical to stderr
@@ -107,9 +108,27 @@ def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool 
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setFormatter(logging.Formatter("%(message)s"))
         stdout_handler.addFilter(lambda record: record.levelno < logging.ERROR)
+        stdout_handler.addFilter(node_error_filter)
         logger.addHandler(stdout_handler)
 
     logger.addHandler(stream_handler)
+
+    _patch_tqdm_write()
+
+
+def _patch_tqdm_write():
+    try:
+        import tqdm
+        _original_write = tqdm.tqdm.write
+
+        @staticmethod
+        def _logging_write(s, file=None, end="\n", nolock=False):
+            if s:
+                logging.getLogger("tqdm").info(s)
+
+        tqdm.tqdm.write = _logging_write
+    except ImportError:
+        pass
 
 
 STARTUP_WARNINGS = []

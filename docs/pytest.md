@@ -52,6 +52,16 @@ python -m pytest tests/unit/ -k "test_fast" -x
 python -m pytest tests/unit/test_cli*.py -x
 ```
 
+## Running a Single Test
+
+When running a single test, read all the output directly. Never pipe through `head`, `tail`, or `grep` — the full output contains the error details you need:
+
+```bash
+python -m pytest tests/custom_nodes/test_custom_node_execution.py::TestCustomNodeExecution::test_execute_workflow[ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_T2V_example_03]
+```
+
+Do not add `--override-ini`, `--tb=short`, `--log-cli-level`, or other flags that hide output. The `pyproject.toml` already has the correct defaults.
+
 ## Parallel Execution
 
 ```bash
