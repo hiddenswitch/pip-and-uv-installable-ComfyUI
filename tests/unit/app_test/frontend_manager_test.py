@@ -52,8 +52,7 @@ def mock_provider(mock_releases):
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    import utils.install_util
-    utils.install_util.PACKAGE_VERSIONS = {}
+    FrontendManager.PROVIDERS = []
 
 
 def test_get_release(mock_provider, mock_releases):
@@ -178,6 +177,12 @@ def test_init_frontend_fallback_on_error():
     # Assert
     assert frontend_path == "/default/path"
     mock_check.assert_called_once()
+
+
+def test_required_frontend_and_templates_fallback_versions():
+    with patch("comfy.app.frontend_management.importlib.metadata.version", side_effect=Exception("missing")):
+        assert FrontendManager.get_required_frontend_version() == "1.39.19"
+    assert FrontendManager.get_required_templates_version() == "0.9.18"
 
 @pytest.mark.skip("not used in this fork")
 def test_get_frontend_version():

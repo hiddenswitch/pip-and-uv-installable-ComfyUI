@@ -1907,7 +1907,6 @@ class ModelPatcherDynamic(ModelPatcher):
         return model_patcher
 
 
-# todo: needs merge, requires the keyword arg that allows disabling
 def get_model_patcher_class(disable_dynamic: bool = False) -> type[ModelPatcher]:
     """
     Returns the appropriate ModelPatcher class based on current configuration.
@@ -1916,7 +1915,6 @@ def get_model_patcher_class(disable_dynamic: bool = False) -> type[ModelPatcher]
     otherwise falls back to the standard ModelPatcher.
     """
     from . import memory_management
-    # todo: should check if dynamic vram is enabled or if disable dynamic is set to true
     if not disable_dynamic and memory_management.aimdo_allocator is not None:
         return ModelPatcherDynamic
     return ModelPatcher

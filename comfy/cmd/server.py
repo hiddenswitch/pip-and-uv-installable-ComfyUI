@@ -716,10 +716,6 @@ class PromptServer(ExecutorToClientProgress):
 
         def node_info(node_class_name):
             from .node_info import node_info as _node_info
-            # todo: needs merge, add
-            #             if hasattr(obj_class, 'ESSENTIALS_CATEGORY'):
-            #                 info['essentials_category'] = obj_class.ESSENTIALS_CATEGORY
-            # to _node_info
             return _node_info(node_class_name, self.nodes.NODE_CLASS_MAPPINGS, self.nodes.NODE_DISPLAY_NAME_MAPPINGS)
 
         @routes.get("/object_info")

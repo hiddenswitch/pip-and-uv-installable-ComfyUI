@@ -196,9 +196,15 @@ Our fork moves some top-level directories into `comfy/`. When upstream adds or m
 
 Example: `app/assets` → `comfy/app/assets`
 
+Also keep track of top-level modules we have relocated into `comfy/`. In particular, upstream `node_helpers.py` maps to `comfy/node_helpers.py` in this fork. Preserve that mapping explicitly during merges so upstream edits to `node_helpers.py` are surfaced and re-applied instead of showing up only as `Deleted by us`.
+
 You will also have to move `comfy_extras/nodes_*.py` from upstream into `comfy_extras/nodes/`, where they are scanned automatically, and fix their imports (see [Import Fixes](#import-fixes)] below).
 
 This two-step approach keeps git history cleaner and makes conflicts easier to resolve.
+
+Upstream may also still add tests under `tests-unit/`. Move those into `tests/unit/` in this fork, preserving the same relative structure.
+
+Example: `tests-unit/seeder_test/test_seeder.py` → `tests/unit/seeder_test/test_seeder.py`
 
 ## Import Fixes
 

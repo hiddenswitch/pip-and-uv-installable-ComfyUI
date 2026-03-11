@@ -43,5 +43,8 @@ def node_info(node_class: str, node_class_mappings: dict, node_display_name_mapp
     if hasattr(obj_class, 'API_NODE'):
         info['api_node'] = obj_class.API_NODE
 
+    if hasattr(obj_class, 'ESSENTIALS_CATEGORY'):
+        info['essentials_category'] = obj_class.ESSENTIALS_CATEGORY
+
     info['search_aliases'] = getattr(obj_class, 'SEARCH_ALIASES', [])
     return info

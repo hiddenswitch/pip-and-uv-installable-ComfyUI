@@ -246,7 +246,6 @@ class CLIP:
         model_management.archive_model_dtypes(self.cond_stage_model)
 
         self.tokenizer: "sd1_clip.SD1Tokenizer" = tokenizer(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data)
-        # todo: needs merge, add disable_dynamic to get_model_patcher_class
         self.patcher = get_model_patcher_class(disable_dynamic=disable_dynamic)(self.cond_stage_model, load_device=load_device, offload_device=offload_device)
         # Match torch.float32 hardcode upcast in TE implemention
         self.patcher.set_model_compute_dtype(torch.float32)
@@ -1252,8 +1251,18 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DI
         if model_options.get("custom_operations", None) is None:
             sd, metadata = utils.convert_old_quants(sd, model_prefix="", metadata=metadata)
         clip_data.append(sd)
-    clip = load_text_encoder_state_dicts(clip_data, embedding_directory=embedding_directory, clip_type=clip_type, model_options=model_options, disable_dynamic=disable_dynamic)
-    clip.patcher.cached_patcher_init = (load_clip_model_patcher, (ckpt_paths, embedding_directory, clip_type, model_options))
+    clip = load_text_encoder_state_dicts(
+        clip_data,
+        embedding_directory=embedding_directory,
+        clip_type=clip_type,
+        model_options=model_options,
+        textmodel_json_config=textmodel_json_config,
+        disable_dynamic=disable_dynamic,
+    )
+    clip.patcher.cached_patcher_init = (
+        load_clip_model_patcher,
+        (ckpt_paths, embedding_directory, clip_type, textmodel_json_config, model_options, disable_dynamic),
+    )
     return clip
 
 
@@ -1362,7 +1371,6 @@ def llama_detect(clip_data):
 
 
 # todo: investigate if this should stay a mutable array
-# todo: needs merge, disable_dynamic being propagated down in the right places
 def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}, textmodel_json_config=None,disable_dynamic=False):
     clip_data = state_dicts
 
@@ -1718,7 +1726,6 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     if output_model:
         inital_load_device = model_management.unet_initial_load_device(parameters, unet_dtype)
         model = model_config.get_model(sd, diffusion_model_prefix, device=inital_load_device)
-        # todo: needs merge, add disable_dynamic to get_model_patcher_class
         model_patcher = get_model_patcher_class(disable_dynamic=disable_dynamic)(model, load_device=load_device, offload_device=model_management.unet_offload_device())
         model.load_model_weights(sd, diffusion_model_prefix, assign=model_patcher.is_dynamic())
 
@@ -1869,12 +1876,11 @@ def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
     if model_options is None:
         model_options = {}
     sd, metadata = utils.load_torch_file(unet_path, return_metadata=True)
-    # todo: needs merge, propagate all this disable dynamic stuff
     model = load_diffusion_model_state_dict(sd, model_options=model_options, ckpt_path=unet_path, metadata=metadata, disable_dynamic=disable_dynamic)
     if model is None:
         logger.error("ERROR UNSUPPORTED DIFFUSION MODEL {}".format(unet_path))
         raise RuntimeError("ERROR: Could not detect model type of: {}\n{}".format(unet_path, model_detection_error_hint(unet_path, sd)))
-    model.cached_patcher_init = (load_diffusion_model, (unet_path, model_options))
+    model.cached_patcher_init = (load_diffusion_model, (unet_path, model_options, disable_dynamic))
     return model
 
 

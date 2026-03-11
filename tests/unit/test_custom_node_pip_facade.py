@@ -167,6 +167,7 @@ def test_node_info_python_module_falls_back_to_class_module():
     class ExampleNode:
         __module__ = "vendor.custom_scripts.nodes"
         RELATIVE_PYTHON_MODULE = None
+        ESSENTIALS_CATEGORY = "Tests"
         RETURN_TYPES = ("STRING",)
         FUNCTION = "run"
         CATEGORY = "tests"
@@ -178,3 +179,4 @@ def test_node_info_python_module_falls_back_to_class_module():
     info = node_info("ExampleNode", {"ExampleNode": ExampleNode}, {})
 
     assert info["python_module"] == "vendor.custom_scripts.nodes"
+    assert info["essentials_category"] == "Tests"
