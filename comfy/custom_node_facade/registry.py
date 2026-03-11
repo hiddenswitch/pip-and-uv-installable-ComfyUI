@@ -354,16 +354,16 @@ class FacadeRegistry:
                 ) as response:
                     response.raise_for_status()
                     payload = await response.json()
-            versions = [
-                FacadeVersion(
-                    version=item["version"],
-                    download_url=item["downloadUrl"],
-                    dependencies=tuple(item.get("dependencies") or ()),
-                    deprecated=bool(item.get("deprecated", False)),
-                )
-                for item in payload
-                if item.get("version") and item.get("downloadUrl")
-            ]
+                versions = [
+                    FacadeVersion(
+                        version=item["version"],
+                        download_url=item["downloadUrl"],
+                        dependencies=tuple(item.get("dependencies") or ()),
+                        deprecated=bool(item.get("deprecated", False)),
+                    )
+                    for item in payload
+                    if item.get("version") and item.get("downloadUrl")
+                ]
                 dropped_versions = len(versions)
                 versions = _filter_pep440_versions(versions)
                 dropped_versions -= len(versions)
