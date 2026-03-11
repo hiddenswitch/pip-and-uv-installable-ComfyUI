@@ -1,7 +1,9 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
 import re
+import sys
 
 from typer.testing import CliRunner
+import comfy.cmd.cli as cli_module
 from comfy.cmd.cli import app, _register_sub_apps
 
 _register_sub_apps()
@@ -76,8 +78,17 @@ def test_serve_pip_help():
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "--pip-facade-registry" in out
+    assert "--pip-facade-snapshot" in out
     assert "--pip-facade-cache" in out
     assert "--pip-facade-only-kno" in out
+
+
+def test_snapshot_pip_registry_help():
+    result = runner.invoke(app, ["snapshot-pip-registry", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "--pip-facade-registry" in out
+    assert "--pip-facade-snapshot" in out
 
 
 def test_models_help():
@@ -146,3 +157,36 @@ def test_serve_has_new_override_opts():
     assert "--batch-size" in out
     assert "--checkpoint" in out
     assert "--set" in out
+
+
+def test_entrypoint_defaults_to_serve_with_no_subcommand(monkeypatch):
+    called = []
+    monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
+    monkeypatch.setattr(cli_module, "app", lambda: called.append(list(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["comfyui"])
+
+    cli_module.entrypoint()
+
+    assert called == [["comfyui", "serve"]]
+
+
+def test_entrypoint_defaults_to_serve_when_first_arg_is_option(monkeypatch):
+    called = []
+    monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
+    monkeypatch.setattr(cli_module, "app", lambda: called.append(list(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["comfyui", "--listen", "0.0.0.0"])
+
+    cli_module.entrypoint()
+
+    assert called == [["comfyui", "serve", "--listen", "0.0.0.0"]]
+
+
+def test_entrypoint_does_not_rewrite_unknown_verbs(monkeypatch):
+    called = []
+    monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
+    monkeypatch.setattr(cli_module, "app", lambda: called.append(list(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["comfyui", "definitely-not-a-command"])
+
+    cli_module.entrypoint()
+
+    assert called == [["comfyui", "definitely-not-a-command"]]

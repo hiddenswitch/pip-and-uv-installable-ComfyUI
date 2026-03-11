@@ -1,4 +1,5 @@
 import json
+import types
 
 import pytest
 
@@ -7,7 +8,9 @@ from comfy.cmd.workflow_templates import (
     _collect_class_types,
     _detect_supported_params,
     _build_example_invocation,
+    _facade_custom_node_roots,
     _populate_supported_params,
+    _templates_from_custom_nodes,
 )
 
 
@@ -218,3 +221,63 @@ class TestFiltering:
             TemplateInfo(name="api_one", source="package", tags=["API"]),
         ]
         assert len(templates) == 2
+
+
+class TestCustomNodeWorkflowDiscovery:
+    def test_facade_custom_node_roots_from_entrypoints(self, tmp_path, monkeypatch):
+        vendor_root = tmp_path / "_vendor"
+        vendor_root.mkdir()
+
+        module = types.ModuleType("_appmana_facade_test.entrypoint")
+        module.COMFYUI_VANILLA_NODE_PATHS = [str(vendor_root)]
+
+        class FakeEntryPoint:
+            name = "comfyui-custom-scripts"
+
+            @staticmethod
+            def load():
+                return module
+
+        class FakeEntryPoints:
+            @staticmethod
+            def select(**kwargs):
+                assert kwargs == {"group": "comfyui.custom_nodes"}
+                return [FakeEntryPoint()]
+
+        monkeypatch.setattr("comfy.cmd.workflow_templates.entry_points", lambda: FakeEntryPoints())
+
+        assert _facade_custom_node_roots() == [str(vendor_root.resolve())]
+
+    def test_templates_from_custom_nodes_includes_facade_installs(self, tmp_path, monkeypatch):
+        vendor_root = tmp_path / "_vendor"
+        workflow_dir = vendor_root / "ComfyUI-Custom-Scripts" / "examples"
+        workflow_dir.mkdir(parents=True)
+        workflow_path = workflow_dir / "show_text.json"
+        workflow_path.write_text(json.dumps(_ui_workflow("ShowText|pysssss")), encoding="utf-8")
+
+        module = types.ModuleType("_appmana_facade_test.entrypoint")
+        module.COMFYUI_VANILLA_NODE_PATHS = [str(vendor_root)]
+
+        class FakeEntryPoint:
+            name = "comfyui-custom-scripts"
+
+            @staticmethod
+            def load():
+                return module
+
+        class FakeEntryPoints:
+            @staticmethod
+            def select(**kwargs):
+                assert kwargs == {"group": "comfyui.custom_nodes"}
+                return [FakeEntryPoint()]
+
+        monkeypatch.setattr("comfy.cmd.workflow_templates.entry_points", lambda: FakeEntryPoints())
+        monkeypatch.setattr("comfy.cmd.folder_paths.get_folder_paths", lambda folder: [])
+
+        templates = _templates_from_custom_nodes()
+
+        assert len(templates) == 1
+        template = templates[0]
+        assert template.name == "show_text"
+        assert template.source == "custom_node:ComfyUI-Custom-Scripts"
+        assert template.path == str(workflow_path)

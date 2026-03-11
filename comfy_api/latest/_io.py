@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 from comfy_api.internal import (_ComfyNodeInternal, _NodeOutputInternal, classproperty, copy_class, first_real_override, is_class,
     prune_dict, shallow_clone_class)
 from comfy_execution.graph_utils import ExecutionBlocker
+from comfy.nodes.python_module_metadata import resolve_python_module_name
 from ._util import MESH, VOXEL, SVG as _SVG, File3D
 
 
@@ -1534,7 +1535,7 @@ class Schema:
             experimental=self.is_experimental,
             dev_only=self.is_dev_only,
             api_node=self.is_api_node,
-            python_module=getattr(cls, "RELATIVE_PYTHON_MODULE", "nodes"),
+            python_module=resolve_python_module_name(cls),
             price_badge=self.price_badge.as_dict(self.inputs) if self.price_badge is not None else None,
             search_aliases=self.search_aliases if self.search_aliases else None,
         )

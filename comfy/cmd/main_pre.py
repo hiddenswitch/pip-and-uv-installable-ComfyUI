@@ -13,12 +13,10 @@ import logging
 import os
 import shutil
 import warnings
-import fsspec
 
 from .. import options
 from ..app import logger
 from ..cli_args_types import Configuration
-from ..component_model import package_filesystem
 
 os.environ['TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'] = '1'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -217,17 +215,10 @@ def _configure_logging():
     logging_level = args.logging_level
     logger.setup_logger(logging_level)
 
-def _register_fsspec_fs():
-    fsspec.register_implementation(
-        package_filesystem.PkgResourcesFileSystem.protocol,
-        package_filesystem.PkgResourcesFileSystem,
-    )
-
 args: Configuration
 
 _configure_logging()
 _fix_pytorch_240()
-_register_fsspec_fs()
 
 
 def _stub_soundfile():

@@ -24,12 +24,18 @@ from .download_interception import (
     patch_torch_downloads,
 )
 from .package_typing import ExportedNodes
+from .python_module_metadata import resolve_python_module_name
 from ..cmd import folder_paths
 from ..component_model.plugins import prompt_server_instance_routes
 from ..distributed.server_stub import ServerStub
 from ..execution_context import current_execution_context
 
 logger = logging.getLogger(__name__)
+
+
+def _stamp_relative_python_modules(node_class_mappings: dict[str, type]) -> None:
+    for node_class in node_class_mappings.values():
+        node_class.RELATIVE_PYTHON_MODULE = resolve_python_module_name(node_class)
 
 
 class StreamToLogger:
@@ -363,6 +369,7 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
                 exported_nodes.EXTENSION_WEB_DIRS[module_name] = web_dir
 
         if hasattr(module, "NODE_CLASS_MAPPINGS") and getattr(module, "NODE_CLASS_MAPPINGS") is not None:
+            _stamp_relative_python_modules(module.NODE_CLASS_MAPPINGS)
             for name in module.NODE_CLASS_MAPPINGS:
                 if name not in ignore:
                     exported_nodes.NODE_CLASS_MAPPINGS[name] = module.NODE_CLASS_MAPPINGS[name]

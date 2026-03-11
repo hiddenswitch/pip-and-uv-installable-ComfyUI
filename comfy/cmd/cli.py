@@ -166,6 +166,13 @@ _PIP_FACADE_OPTS: list[tuple] = [
     ("pip_facade_registry_base_url", str, typer.Option("https://api.comfy.org", "--pip-facade-registry-base-url", help="Base URL for the Comfy registry API used to resolve custom node versions.")),
     ("pip_facade_cache_prefix", Optional[str], typer.Option(None, "--pip-facade-cache-prefix", help="Writable fsspec URI prefix where generated facade wheels are cached, e.g. /var/cache/comfyui, file:///var/cache/comfyui, or s3://bucket/prefix.")),
     ("pip_facade_only_known_nodes", bool, typer.Option(False, "--pip-facade-only-known-nodes", help="Only expose nodes covered by the local custom node compatibility registry.")),
+    ("pip_facade_snapshot_uri", Optional[str], typer.Option(None, "--pip-facade-snapshot-uri", help="Read facade registry metadata from this fsspec URI instead of querying the live registry API, e.g. file:///data/registry.sqlite.xz, s3://bucket/registry.sqlite.xz, or pkg://comfy.custom_nodes/pip_facade_registry_snapshot.sqlite.xz.")),
+]
+
+_PIP_FACADE_SNAPSHOT_OPTS: list[tuple] = [
+    ("pip_facade_snapshot_output", str, typer.Argument(..., help="Output snapshot path. Use a .xz suffix or --pip-facade-snapshot-compression=xz for a compressed archive.")),
+    ("pip_facade_snapshot_compression", str, typer.Option("auto", "--pip-facade-snapshot-compression", click_type=click.Choice(["auto", "none", "xz"]), help="Snapshot compression mode. 'auto' uses the output suffix.")),
+    ("pip_facade_snapshot_overwrite", bool, typer.Option(False, "--pip-facade-snapshot-overwrite", help="Overwrite an existing snapshot output file.")),
 ]
 
 _MISC_OPTS: list[tuple] = [
@@ -666,6 +673,21 @@ def serve_pip(
     run_serve_pip(config)
 
 
+@app.command(name="snapshot-pip-registry")
+@_with_options(_LOGGING_OPTS, _PIP_FACADE_OPTS, _PIP_FACADE_SNAPSHOT_OPTS)
+def snapshot_pip_registry(**kwargs):
+    """Snapshot the resolved facade registry into a compact SQLite artifact."""
+    from ..component_model.setup import setup_pre_torch
+
+    params = _collect_params(locals(), kwargs)
+    config = _build_config(params)
+    setup_pre_torch(config)
+    _set_config_context(config)
+
+    from .snapshot_pip_registry import run_snapshot_pip_registry
+    run_snapshot_pip_registry(config)
+
+
 @app.command(name="stop")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
@@ -750,6 +772,7 @@ _KNOWN_COMMANDS = frozenset({
     "models", "workflows", "nodes", "jobs", "env",
     "post-workflow", "list-workflow-templates",
     "list-models", "create-directories", "integrity-check",
+    "snapshot-pip-registry",
 })
 
 
@@ -759,7 +782,7 @@ def entrypoint():
 
     if len(sys.argv) <= 1:
         sys.argv.insert(1, "serve")
-    elif sys.argv[1] not in _KNOWN_COMMANDS and sys.argv[1] not in ("--help", "-h"):
+    elif sys.argv[1].startswith("-") and sys.argv[1] not in ("--help", "-h"):
         sys.argv.insert(1, "serve")
 
     app()

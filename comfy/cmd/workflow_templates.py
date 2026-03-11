@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field, asdict
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Final, Optional
 
 from comfyui_workflow_templates import get_asset_path, iter_templates
 from rich.console import Console
 from rich.table import Table
+from ..nodes.package import _extract_vanilla_custom_node_roots
 from ..component_model.workflow_convert import convert_ui_to_api
 from ..component_model.prompt_utils import (
     _TEXT_ENCODE_FIELDS,
@@ -86,11 +88,38 @@ def _templates_from_custom_nodes() -> list[TemplateInfo]:
     from .folder_paths import get_folder_paths  # pylint: disable=import-error
     from ..app.custom_node_manager import CustomNodeManager
 
+    custom_node_roots = list(get_folder_paths("custom_nodes"))
+    custom_node_roots.extend(_facade_custom_node_roots())
+
     return [
         TemplateInfo(name=wf_name, source=f"custom_node:{node_name}", path=filepath)
         for node_name, wf_name, filepath
-        in CustomNodeManager.scan_example_workflows(get_folder_paths("custom_nodes"))
+        in CustomNodeManager.scan_example_workflows(_dedupe_paths(custom_node_roots))
     ]
+
+
+def _facade_custom_node_roots() -> list[str]:
+    roots: list[str] = []
+    for entry_point in entry_points().select(group="comfyui.custom_nodes"):
+        try:
+            module = entry_point.load()
+        except Exception as exc:
+            logger.debug("Failed to inspect custom-node entry point %s for workflows", entry_point, exc_info=exc)
+            continue
+        roots.extend(_extract_vanilla_custom_node_roots(module))
+    return roots
+
+
+def _dedupe_paths(paths: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        normalized = str(Path(path).resolve())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
 
 
 def _templates_from_dirs(dirs: list[str]) -> list[TemplateInfo]:

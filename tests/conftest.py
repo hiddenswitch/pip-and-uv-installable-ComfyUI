@@ -23,14 +23,7 @@ os.environ["TC_HOST"] = "localhost"
 
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import Configuration
-
-# Register the pkg:// filesystem for fsspec (same as main_pre.py does at startup)
-from comfy.component_model import package_filesystem
-if "pkg" not in fsspec.available_protocols():
-    fsspec.register_implementation(
-        package_filesystem.PkgResourcesFileSystem.protocol,
-        package_filesystem.PkgResourcesFileSystem,
-    )
+assert "pkg" in fsspec.available_protocols()
 
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)

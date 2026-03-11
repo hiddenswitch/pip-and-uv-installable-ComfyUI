@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from comfy_api.internal import _ComfyNodeInternal
+from ..nodes.python_module_metadata import resolve_python_module_name
 
 
 def node_info(node_class: str, node_class_mappings: dict, node_display_name_mappings: dict) -> dict:
@@ -19,7 +20,7 @@ def node_info(node_class: str, node_class_mappings: dict, node_display_name_mapp
     info['name'] = node_class
     info['display_name'] = node_display_name_mappings.get(node_class, node_class)
     info['description'] = obj_class.DESCRIPTION if hasattr(obj_class, 'DESCRIPTION') else ''
-    info['python_module'] = getattr(obj_class, "RELATIVE_PYTHON_MODULE", "nodes")
+    info['python_module'] = resolve_python_module_name(obj_class)
     info['category'] = 'sd'
     if hasattr(obj_class, 'OUTPUT_NODE') and obj_class.OUTPUT_NODE is True:
         info['output_node'] = True

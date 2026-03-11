@@ -19,9 +19,16 @@ from pathlib import Path
 import aiohttp
 import fsspec
 
-from .registry import FacadeProject, FacadeRegistry, FacadeVersion, canonicalize_project_name
+from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
+_FACADE_ALWAYS_SKIPPED_DEPENDENCIES = frozenset({
+    "numpy",
+    "opencv-contrib-python",
+    "opencv-contrib-python-headless",
+    "opencv-python",
+    "opencv-python-headless",
+})
 
 
 def _wheel_distribution_name(name: str) -> str:
@@ -155,7 +162,7 @@ class FacadeWheelBuilder:
     def __init__(
         self,
         session: aiohttp.ClientSession,
-        registry: FacadeRegistry,
+        registry: FacadeRegistryProtocol,
         *,
         cache_prefix: str | os.PathLike[str],
     ) -> None:
@@ -253,6 +260,7 @@ class FacadeWheelBuilder:
         filtered: list[str] = []
         seen: set[str] = set()
         skipped = {canonicalize_project_name(item) for item in project.skip_requirements}
+        skipped.update(_FACADE_ALWAYS_SKIPPED_DEPENDENCIES)
         for dependency in dependencies:
             stripped = dependency.strip()
             if not stripped:

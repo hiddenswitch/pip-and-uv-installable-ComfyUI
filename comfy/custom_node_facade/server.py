@@ -13,7 +13,7 @@ from aiohttp import web
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
 from .builder import FacadeWheelBuilder
-from .registry import FacadeRegistry
+from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ def create_facade_app(
     configuration: Configuration,
 ) -> web.Application:
     app = web.Application()
+    app["facade_ready"] = False
     cache_prefix = configuration.pip_facade_cache_prefix
     if cache_prefix is None:
         cache_prefix = os.path.join(user_cache_dir(appname="comfyui"), "pip_facade")
@@ -38,27 +39,43 @@ def create_facade_app(
             span.set_attribute("facade.cache_prefix", str(cache_prefix))
             timeout = aiohttp.ClientTimeout(total=10 * 60.0, connect=60.0)
             session = aiohttp.ClientSession(timeout=timeout)
-            registry = FacadeRegistry(
-                session,
-                base_url=configuration.pip_facade_registry_base_url,
-                only_known_nodes=configuration.pip_facade_only_known_nodes,
-            )
+            registry: FacadeRegistryProtocol
+            if configuration.pip_facade_snapshot_uri:
+                registry = SnapshotFacadeRegistry(snapshot_uri=configuration.pip_facade_snapshot_uri)
+                span.set_attribute("facade.snapshot_uri", configuration.pip_facade_snapshot_uri)
+            else:
+                registry = FacadeRegistry(
+                    session,
+                    base_url=configuration.pip_facade_registry_base_url,
+                    only_known_nodes=configuration.pip_facade_only_known_nodes,
+                )
+                span.set_attribute("facade.registry_base_url", configuration.pip_facade_registry_base_url)
             builder = FacadeWheelBuilder(session, registry, cache_prefix=cache_prefix)
             application["facade_session"] = session
             application["facade_registry"] = registry
             application["facade_builder"] = builder
+            with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
+                projects = await registry.list_projects()
+                warmup_span.set_attribute("facade.project_count", len(projects))
+            application["facade_ready"] = True
 
     async def on_cleanup(application: web.Application) -> None:
+        application["facade_ready"] = False
         session: aiohttp.ClientSession | None = application.get("facade_session")
         if session is not None:
             await session.close()
 
-    async def health(_: web.Request) -> web.Response:
-        return web.json_response({"ok": True})
+    async def liveness(_: web.Request) -> web.Response:
+        return web.json_response({"ok": True, "live": True, "ready": bool(app.get("facade_ready"))})
+
+    async def readiness(_: web.Request) -> web.Response:
+        ready = bool(app.get("facade_ready"))
+        status = 200 if ready else 503
+        return web.json_response({"ok": ready, "live": True, "ready": ready}, status=status)
 
     async def index(_: web.Request) -> web.Response:
         with tracer.start_as_current_span("Serve Pip Facade Index") as span:
-            registry: FacadeRegistry = app["facade_registry"]
+            registry: FacadeRegistryProtocol = app["facade_registry"]
             projects = await registry.list_projects()
             span.set_attribute("facade.project_count", len(projects))
             links = "\n".join(
@@ -69,7 +86,7 @@ def create_facade_app(
 
     async def project_page(request: web.Request) -> web.Response:
         with tracer.start_as_current_span("Serve Pip Facade Project Index") as span:
-            registry: FacadeRegistry = app["facade_registry"]
+            registry: FacadeRegistryProtocol = app["facade_registry"]
             builder: FacadeWheelBuilder = app["facade_builder"]
             project = await registry.get_project(request.match_info["project"])
             if project is None:
@@ -91,7 +108,7 @@ def create_facade_app(
 
     async def package_download(request: web.Request) -> web.StreamResponse:
         with tracer.start_as_current_span("Serve Pip Facade Wheel") as span:
-            registry: FacadeRegistry = app["facade_registry"]
+            registry: FacadeRegistryProtocol = app["facade_registry"]
             builder: FacadeWheelBuilder = app["facade_builder"]
 
             project = await registry.get_project(request.match_info["project"])
@@ -121,7 +138,9 @@ def create_facade_app(
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/", index)
-    app.router.add_get("/healthz", health)
+    app.router.add_get("/livez", liveness)
+    app.router.add_get("/readyz", readiness)
+    app.router.add_get("/healthz", readiness)
     app.router.add_get("/simple", index)
     app.router.add_get("/simple/", index)
     app.router.add_get("/simple/{project}/", project_page)

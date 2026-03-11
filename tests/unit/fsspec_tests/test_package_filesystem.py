@@ -1,5 +1,7 @@
 import pytest
 import fsspec
+import importlib
+import importlib.metadata as metadata
 from comfy.component_model import package_filesystem
 import os
 
@@ -7,18 +9,46 @@ import os
 # Ensure the filesystem is registered once for all tests
 @pytest.fixture(scope="module", autouse=True)
 def setup_package_filesystem():
-    if "pkg" not in fsspec.available_protocols():
-        fsspec.register_implementation(
-            package_filesystem.PkgResourcesFileSystem.protocol,
-            package_filesystem.PkgResourcesFileSystem,
-        )
-    # Yield to allow tests to run, then teardown if necessary (though not needed here)
+    assert "pkg" in fsspec.available_protocols()
     yield
 
 
 @pytest.fixture
 def pkg_fs():
     return fsspec.filesystem("pkg")
+
+
+def test_pkg_filesystem_entrypoint_registered():
+    """Test that the pkg filesystem is exported through fsspec's entry-point group."""
+    entry_points = metadata.entry_points()
+    if hasattr(entry_points, "select"):
+        specs = entry_points.select(group="fsspec.specs")
+    else:
+        specs = entry_points["fsspec.specs"] if "fsspec.specs" in entry_points else []
+
+    pkg_entry_points = [entry_point for entry_point in specs if entry_point.name == "pkg"]
+    assert pkg_entry_points
+    assert pkg_entry_points[0].value == "comfy.component_model.package_filesystem:PkgResourcesFileSystem"
+
+
+def test_pkg_filesystem_autodiscovered_from_entrypoint():
+    """Test that fsspec can repopulate the pkg filesystem from package metadata."""
+    registry_module = importlib.import_module("fsspec.registry")
+    original_registry = dict(registry_module._registry)
+    original_known_implementations = dict(registry_module.known_implementations)
+
+    try:
+        registry_module._registry.pop("pkg", None)
+        registry_module.known_implementations.pop("pkg", None)
+        fsspec.process_entries()
+        filesystem_class = fsspec.get_filesystem_class("pkg")
+    finally:
+        registry_module._registry.clear()
+        registry_module._registry.update(original_registry)
+        registry_module.known_implementations.clear()
+        registry_module.known_implementations.update(original_known_implementations)
+
+    assert filesystem_class is package_filesystem.PkgResourcesFileSystem
 
 
 def test_open_file_in_package(pkg_fs):

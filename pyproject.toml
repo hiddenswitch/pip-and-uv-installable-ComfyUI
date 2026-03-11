@@ -163,6 +163,9 @@ comfyui = "comfy.cmd.cli:entrypoint"
 comfyui-worker = "comfy.entrypoints.worker:entrypoint"
 comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
 
+[project.entry-points."fsspec.specs"]
+pkg = "comfy.component_model.package_filesystem:PkgResourcesFileSystem"
+
 [project.urls]
 Homepage = "https://github.com/comfyanonymous/ComfyUI"
 Repository = "https://github.com/comfyanonymous/ComfyUI"

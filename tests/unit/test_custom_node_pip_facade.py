@@ -7,7 +7,9 @@ from pathlib import Path
 
 from comfy.custom_node_facade.builder import FacadeWheelBuilder
 from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
+from comfy.cmd.node_info import node_info
 from comfy.nodes.package import _extract_vanilla_custom_node_roots
+from comfy.nodes.vanilla_node_importing import _stamp_relative_python_modules
 
 
 def _make_zip_bytes(files: dict[str, bytes]) -> bytes:
@@ -55,7 +57,7 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
     version = FacadeVersion(
         version="3.3.3",
         download_url="https://example.invalid/node.zip",
-        dependencies=("requests>=2", "torch"),
+        dependencies=("requests>=2", "torch", "numpy<2", "opencv-python-headless==4.7.0.72"),
         deprecated=False,
     )
     archive_bytes = _make_zip_bytes(
@@ -95,6 +97,8 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
         assert "Requires-Dist: mediapipe<=0.10.21" in metadata
         assert "Requires-Dist: comfyui-kjnodes" in metadata
         assert "Requires-Dist: torch" not in metadata
+        assert "Requires-Dist: numpy<2" not in metadata
+        assert "Requires-Dist: opencv-python-headless==4.7.0.72" not in metadata
 
         entry_points = wheel.read(entry_points_name).decode("utf-8")
         assert "[comfyui.custom_nodes]" in entry_points
@@ -141,3 +145,36 @@ def test_build_wheel_to_memory_fs_prefix(tmp_path: Path):
     payload = builder._cache.read_bytes(wheel.cache_path)  # type: ignore[attr-defined]
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         assert "_appmana_facade_comfyui_custom_scripts/entrypoint.py" in archive.namelist()
+
+
+def test_stamp_relative_python_modules_uses_class_module():
+    class ExampleNode:
+        __module__ = "vendor.custom_scripts.nodes"
+        RETURN_TYPES = ("STRING",)
+        FUNCTION = "run"
+        CATEGORY = "tests"
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {"required": {}}
+
+    _stamp_relative_python_modules({"ExampleNode": ExampleNode})
+
+    assert getattr(ExampleNode, "RELATIVE_PYTHON_MODULE", None) == "vendor.custom_scripts.nodes"
+
+
+def test_node_info_python_module_falls_back_to_class_module():
+    class ExampleNode:
+        __module__ = "vendor.custom_scripts.nodes"
+        RELATIVE_PYTHON_MODULE = None
+        RETURN_TYPES = ("STRING",)
+        FUNCTION = "run"
+        CATEGORY = "tests"
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {"required": {}}
+
+    info = node_info("ExampleNode", {"ExampleNode": ExampleNode}, {})
+
+    assert info["python_module"] == "vendor.custom_scripts.nodes"

@@ -206,9 +206,13 @@ class Configuration(dict):
         default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
         block_runtime_package_installation (Optional[bool]): When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental).
         enable_eval (Optional[bool]): Enable nodes that can evaluate Python code in workflows.
-        pip_facade_registry_base_url (str): Base URL for the Comfy registry API used by the `serve-pip` facade.
+        pip_facade_registry_base_url (str): Base URL for the Comfy registry API used by the `serve-pip` facade when no snapshot URI is provided.
         pip_facade_cache_prefix (Optional[str]): Writable fsspec URI prefix where `serve-pip` caches generated wheels.
         pip_facade_only_known_nodes (bool): Only expose nodes present in this repository's local compatibility registry.
+        pip_facade_snapshot_uri (Optional[str]): Read a pip-facade registry snapshot from this fsspec URI instead of querying the live registry API.
+        pip_facade_snapshot_output (Optional[str]): Output path for `snapshot-pip-registry`. Use a `.xz` suffix or `--pip-facade-snapshot-compression=xz` for a compressed archive.
+        pip_facade_snapshot_compression (str): Snapshot compression mode for `snapshot-pip-registry`. One of `auto`, `none`, or `xz`.
+        pip_facade_snapshot_overwrite (bool): Overwrite an existing snapshot output file.
     """
 
     def __init__(self, **kwargs):
@@ -357,6 +361,10 @@ class Configuration(dict):
         self.pip_facade_registry_base_url: str = "https://api.comfy.org"
         self.pip_facade_cache_prefix: Optional[str] = None
         self.pip_facade_only_known_nodes: bool = False
+        self.pip_facade_snapshot_uri: Optional[str] = None
+        self.pip_facade_snapshot_output: Optional[str] = None
+        self.pip_facade_snapshot_compression: str = "auto"
+        self.pip_facade_snapshot_overwrite: bool = False
 
         self.cfg: Optional[float] = None
         self.sampler: Optional[str] = None

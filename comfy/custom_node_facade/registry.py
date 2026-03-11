@@ -7,13 +7,17 @@ import json
 import logging
 import platform
 import re
+import shutil
+import sqlite3
+import tempfile
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import aiohttp
+import fsspec
 
 from ..app.custom_node_manager import CustomNodeManager
 from ..component_model.node_registry import CUSTOM_NODE_REGISTRY, CustomNodeSpec
@@ -53,11 +57,29 @@ def _sort_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
         from packaging.version import Version
     except Exception:
         return sorted(versions, key=lambda item: item.version, reverse=True)
-    return sorted(
-        versions,
-        key=lambda item: Version(item.version),
-        reverse=True,
-    )
+    valid: list[tuple[object, FacadeVersion]] = []
+    invalid: list[FacadeVersion] = []
+    for item in versions:
+        try:
+            valid.append((Version(item.version), item))
+        except Exception:
+            invalid.append(item)
+    valid_sorted = [item for _, item in sorted(valid, key=lambda pair: pair[0], reverse=True)]
+    invalid_sorted = sorted(invalid, key=lambda item: item.version, reverse=True)
+    return valid_sorted + invalid_sorted
+
+
+def _is_pep440_version(version: str) -> bool:
+    try:
+        from packaging.version import Version
+        Version(version)
+        return True
+    except Exception:
+        return False
+
+
+def _filter_pep440_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
+    return [item for item in versions if _is_pep440_version(item.version)]
 
 
 def _manager_registry_path() -> Path:
@@ -91,6 +113,158 @@ class FacadeProject:
     skip_requirements: frozenset[str]
     depends_on: tuple[str, ...]
     latest_version: str | None = None
+
+
+class FacadeRegistryProtocol(Protocol):
+    async def list_projects(self) -> list["FacadeProject"]:
+        ...
+
+    async def get_project(self, name: str) -> "FacadeProject | None":
+        ...
+
+    async def list_versions(self, project: "FacadeProject | str") -> list["FacadeVersion"]:
+        ...
+
+    async def get_version(self, project: "FacadeProject | str", version: str) -> "FacadeVersion | None":
+        ...
+
+    async def dependency_project_name(self, dependency_id: str) -> str:
+        ...
+
+
+class SnapshotFacadeRegistry:
+    def __init__(self, *, snapshot_uri: str) -> None:
+        self._snapshot_uri = snapshot_uri
+        self._project_cache: list[FacadeProject] | None = None
+        self._alias_cache: dict[str, str] = {}
+        self._versions_cache: dict[str, list[FacadeVersion]] = {}
+        self._projects_lock = asyncio.Lock()
+
+    async def list_projects(self) -> list[FacadeProject]:
+        if self._project_cache is not None:
+            return self._project_cache
+        async with self._projects_lock:
+            if self._project_cache is not None:
+                return self._project_cache
+            with tracer.start_as_current_span("Load Facade Snapshot Registry") as span:
+                span.set_attribute("facade.snapshot_uri", self._snapshot_uri)
+                projects, aliases, versions_cache = await asyncio.to_thread(self._load_snapshot_sync)
+                span.set_attribute("facade.project_count", len(projects))
+                span.set_attribute("facade.version_count", sum(len(items) for items in versions_cache.values()))
+            self._project_cache = projects
+            self._alias_cache = aliases
+            self._versions_cache = versions_cache
+            return projects
+
+    async def get_project(self, name: str) -> FacadeProject | None:
+        canonical = canonicalize_project_name(name)
+        projects = await self.list_projects()
+        target = self._alias_cache.get(canonical, canonical)
+        for project in projects:
+            if project.canonical_name == target:
+                return project
+        return None
+
+    async def list_versions(self, project: FacadeProject | str) -> list[FacadeVersion]:
+        resolved = await self.get_project(project) if isinstance(project, str) else project
+        if resolved is None:
+            return []
+        await self.list_projects()
+        return self._versions_cache.get(resolved.node_id, [])
+
+    async def get_version(self, project: FacadeProject | str, version: str) -> FacadeVersion | None:
+        for item in await self.list_versions(project):
+            if item.version == version:
+                return item
+        return None
+
+    async def dependency_project_name(self, dependency_id: str) -> str:
+        project = await self.get_project(dependency_id)
+        if project is not None:
+            return project.canonical_name
+        return canonicalize_project_name(dependency_id)
+
+    def _load_snapshot_sync(
+        self,
+    ) -> tuple[list[FacadeProject], dict[str, str], dict[str, list[FacadeVersion]]]:
+        temp_path = self._materialize_snapshot()
+        try:
+            with sqlite3.connect(temp_path) as connection:
+                connection.row_factory = sqlite3.Row
+                metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+                if metadata.get("format") != "appmana-comfyui-pip-facade-registry-snapshot":
+                    raise ValueError(f"Unsupported facade snapshot format in {self._snapshot_uri}")
+
+                projects = [
+                    FacadeProject(
+                        canonical_name=row["canonical_name"],
+                        display_name=row["display_name"],
+                        node_id=row["node_id"],
+                        repo_url=row["repo_url"],
+                        repo_name=row["repo_name"],
+                        description=row["description"],
+                        aliases=tuple(json.loads(row["aliases_json"])),
+                        extra_requirements=tuple(json.loads(row["extra_requirements_json"])),
+                        skip_requirements=frozenset(json.loads(row["skip_requirements_json"])),
+                        depends_on=tuple(json.loads(row["depends_on_json"])),
+                        latest_version=row["latest_version"],
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT canonical_name, display_name, node_id, repo_url, repo_name, description,
+                               aliases_json, extra_requirements_json, skip_requirements_json,
+                               depends_on_json, latest_version
+                        FROM projects
+                        ORDER BY canonical_name
+                        """,
+                    )
+                ]
+                raw_versions: dict[str, list[FacadeVersion]] = {}
+                for row in connection.execute(
+                    """
+                    SELECT node_id, version, download_url, dependencies_json, deprecated
+                    FROM versions
+                    ORDER BY node_id, version
+                    """,
+                ):
+                    raw_versions.setdefault(row["node_id"], []).append(
+                        FacadeVersion(
+                            version=row["version"],
+                            download_url=row["download_url"],
+                            dependencies=tuple(json.loads(row["dependencies_json"])),
+                            deprecated=bool(row["deprecated"]),
+                        ),
+                    )
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        versions_cache: dict[str, list[FacadeVersion]] = {}
+        for node_id, versions in raw_versions.items():
+            filtered_versions = _filter_pep440_versions(versions)
+            if filtered_versions:
+                versions_cache[node_id] = _sort_versions(filtered_versions)
+        aliases: dict[str, str] = {}
+        for project in projects:
+            for alias in project.aliases:
+                aliases[alias] = project.canonical_name
+        return projects, aliases, versions_cache
+
+    def _materialize_snapshot(self) -> str:
+        with tempfile.NamedTemporaryFile(
+            prefix="comfyui_facade_snapshot_",
+            suffix=".sqlite",
+            delete=False,
+        ) as temp_file:
+            temp_path = temp_file.name
+
+        try:
+            with fsspec.open(self._snapshot_uri, mode="rb", compression="infer") as source:
+                with open(temp_path, "wb") as destination:
+                    shutil.copyfileobj(source, destination)
+        except Exception:
+            Path(temp_path).unlink(missing_ok=True)
+            raise
+        return temp_path
 
 
 class _OverlayIndex:
@@ -190,6 +364,11 @@ class FacadeRegistry:
                 for item in payload
                 if item.get("version") and item.get("downloadUrl")
             ]
+                dropped_versions = len(versions)
+                versions = _filter_pep440_versions(versions)
+                dropped_versions -= len(versions)
+                if dropped_versions:
+                    span.set_attribute("facade.dropped_non_pep440_versions", dropped_versions)
             self._versions_cache[resolved.node_id] = _sort_versions(versions)
             return self._versions_cache[resolved.node_id]
 
