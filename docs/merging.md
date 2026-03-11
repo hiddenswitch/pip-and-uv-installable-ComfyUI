@@ -126,6 +126,44 @@ grep -oP '(?<=typer\.Option\()[^)]+' comfy/cmd/cli.py | sort > /tmp/typer_args.t
 diff /tmp/stub_args.txt /tmp/types.txt
 ```
 
+## Git Merge Configuration
+
+This fork frequently moves upstream top-level paths into `comfy/`, so plain Git defaults produce too much rename noise during upstream merges.
+
+Configure Git once before merging upstream:
+
+```bash
+git config --global merge.renames true
+git config --global merge.directoryRenames true
+git config --global merge.renameLimit 999999
+git config --global diff.renameLimit 999999
+git config --global rerere.enabled true
+git config --global rerere.autoUpdate true
+git config --global merge.conflictStyle zdiff3
+```
+
+What these do:
+
+- `merge.directoryRenames=true` tells Git to automatically follow directory moves like `app/assets -> comfy/app/assets` instead of leaving them as `CONFLICT (file location)`.
+- `merge.renameLimit` and `diff.renameLimit` raise the rename detection ceiling so large upstream changes still get matched.
+- `rerere.enabled=true` and `rerere.autoUpdate=true` record your conflict resolutions and replay them on later merges.
+- `merge.conflictStyle=zdiff3` makes the remaining real conflicts much easier to inspect.
+
+If a merge was already started with the wrong settings, abort and retry so Git recomputes the merge:
+
+```bash
+git merge --abort
+git pull comfyui master
+```
+
+If upstream both moved and heavily edited files, you can retry with a lower rename similarity threshold:
+
+```bash
+git pull -s ort -Xfind-renames=30% comfyui master
+```
+
+Use the lower threshold only when needed; it can create false rename matches.
+
 ## Version String
 
 Upstream uses `comfyui_version.py` at the repository root. We deleted this file and moved the version string to `comfy/__init__.py`.
