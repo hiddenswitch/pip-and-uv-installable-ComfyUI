@@ -26,6 +26,51 @@ _nodes_local = threading.local()
 logger = logging.getLogger(__name__)
 
 
+def _extract_vanilla_custom_node_roots(module: types.ModuleType) -> list[str]:
+    """Return extra vanilla custom-node root directories exposed by a module.
+
+    Facade-installed custom nodes use a lightweight entry-point module that
+    advertises one or more directories containing vanilla-style custom node
+    repositories. Those repositories are then imported through the existing
+    mitigation layer instead of being treated as packaged extensions.
+    """
+    roots: list[str] = []
+
+    single = getattr(module, "COMFYUI_VANILLA_NODE_PATH", None)
+    if isinstance(single, str) and single:
+        roots.append(single)
+
+    multiple = getattr(module, "COMFYUI_VANILLA_NODE_PATHS", None)
+    if isinstance(multiple, (list, tuple, set)):
+        for entry in multiple:
+            if isinstance(entry, str) and entry:
+                roots.append(entry)
+
+    getter = getattr(module, "get_vanilla_custom_node_paths", None)
+    if callable(getter):
+        try:
+            dynamic_roots = getter()
+        except Exception as exc:
+            logger.error("Failed to resolve facade custom node roots from %s", module.__name__, exc_info=exc)
+        else:
+            if isinstance(dynamic_roots, str) and dynamic_roots:
+                roots.append(dynamic_roots)
+            elif isinstance(dynamic_roots, (list, tuple, set)):
+                for entry in dynamic_roots:
+                    if isinstance(entry, str) and entry:
+                        roots.append(entry)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        normalized = os.path.abspath(root)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
 def _import_nodes_in_module(module: types.ModuleType) -> ExportedNodes:
     node_class_mappings = getattr(module, 'NODE_CLASS_MAPPINGS', None)
     node_display_names = getattr(module, 'NODE_DISPLAY_NAME_MAPPINGS', None)
@@ -148,6 +193,7 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
                             ]),
                             ExportedNodes())
     custom_nodes_mappings = ExportedNodes()
+    extra_vanilla_node_roots: list[str] = []
 
     if args.disable_all_custom_nodes:
         logger.info("Loading custom nodes was disabled, only base and extra nodes were loaded")
@@ -165,12 +211,16 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
 
         # Ensure that what we've loaded is indeed a module
         if isinstance(module, types.ModuleType):
+            vanilla_roots = _extract_vanilla_custom_node_roots(module)
+            if vanilla_roots:
+                extra_vanilla_node_roots.extend(vanilla_roots)
+                continue
             custom_nodes_mappings.update(
                 _import_and_enumerate_nodes_in_module(module, print_import_times=True))
 
     # load the vanilla custom nodes last
     if vanilla_custom_nodes:
-        custom_nodes_mappings += mitigated_import_of_vanilla_custom_nodes()
+        custom_nodes_mappings += mitigated_import_of_vanilla_custom_nodes(extra_vanilla_node_roots)
 
     # don't allow custom nodes to overwrite base nodes
     custom_nodes_mappings -= base_and_extra

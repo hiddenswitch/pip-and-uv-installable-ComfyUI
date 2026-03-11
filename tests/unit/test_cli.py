@@ -71,6 +71,15 @@ def test_logs_help():
     assert "--follow" in out or "-f" in out
 
 
+def test_serve_pip_help():
+    result = runner.invoke(app, ["serve-pip", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "--pip-facade-registry" in out
+    assert "--pip-facade-cache" in out
+    assert "--pip-facade-only-kno" in out
+
+
 def test_models_help():
     result = runner.invoke(app, ["models", "--help"])
     assert result.exit_code == 0

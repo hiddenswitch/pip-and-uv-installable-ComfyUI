@@ -162,6 +162,12 @@ _LOGGING_OPTS: list[tuple] = [
     ("logging_level", str, typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Specifies the logging level.")),
 ]
 
+_PIP_FACADE_OPTS: list[tuple] = [
+    ("pip_facade_registry_base_url", str, typer.Option("https://api.comfy.org", "--pip-facade-registry-base-url", help="Base URL for the Comfy registry API used to resolve custom node versions.")),
+    ("pip_facade_cache_prefix", Optional[str], typer.Option(None, "--pip-facade-cache-prefix", help="Writable fsspec URI prefix where generated facade wheels are cached, e.g. /var/cache/comfyui, file:///var/cache/comfyui, or s3://bucket/prefix.")),
+    ("pip_facade_only_known_nodes", bool, typer.Option(False, "--pip-facade-only-known-nodes", help="Only expose nodes covered by the local custom node compatibility registry.")),
+]
+
 _MISC_OPTS: list[tuple] = [
     ("guess_settings", bool, typer.Option(False, "--guess-settings", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.).")),
     ("database_url", Optional[str], typer.Option(None, "--database-url", help="Specify the database URL, e.g. 'sqlite:///:memory:'.")),
@@ -640,6 +646,26 @@ def integrity_check(
     run_integrity_check(config)
 
 
+@app.command(name="serve-pip")
+@_with_options(_LOGGING_OPTS, _PIP_FACADE_OPTS)
+def serve_pip(
+    listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on."),
+    port: int = typer.Option(8190, help="Set the listen port."),
+    **kwargs,
+):
+    """Serve a PEP 503 simple index for facade-packaged custom nodes."""
+    from ..component_model.setup import setup_pre_torch, setup_post_torch
+
+    params = _collect_params(locals(), kwargs)
+    config = _build_config(params)
+    setup_pre_torch(config)
+    _set_config_context(config)
+    setup_post_torch(config)
+
+    from .serve_pip import run_serve_pip
+    run_serve_pip(config)
+
+
 @app.command(name="stop")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
@@ -720,7 +746,7 @@ def _register_sub_apps():
 
 
 _KNOWN_COMMANDS = frozenset({
-    "serve", "worker", "stop", "logs",
+    "serve", "serve-pip", "worker", "stop", "logs",
     "models", "workflows", "nodes", "jobs", "env",
     "post-workflow", "list-workflow-templates",
     "list-models", "create-directories", "integrity-check",

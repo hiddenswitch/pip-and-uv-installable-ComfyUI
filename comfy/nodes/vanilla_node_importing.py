@@ -423,7 +423,7 @@ def _vanilla_load_custom_nodes_2(node_paths: Iterable[str]) -> ExportedNodes:
     return exported_nodes
 
 
-def mitigated_import_of_vanilla_custom_nodes() -> ExportedNodes:
+def mitigated_import_of_vanilla_custom_nodes(extra_node_paths: Iterable[str] = ()) -> ExportedNodes:
     # only vanilla custom nodes will ever go into the custom_nodes directory
     # this mitigation puts files that custom nodes expects are at the root of the repository back where they should be
     # found. we're in the middle of executing the import of execution and server, in all likelihood, so like all things,
@@ -433,7 +433,8 @@ def mitigated_import_of_vanilla_custom_nodes() -> ExportedNodes:
     prepare_vanilla_environment()
 
     from ..cmd import folder_paths
-    node_paths = folder_paths.get_folder_paths("custom_nodes")
+    node_paths = list(folder_paths.get_folder_paths("custom_nodes"))
+    node_paths.extend(str(path) for path in extra_node_paths)
 
     potential_git_dir_parent = join(dirname(__file__), "..", "..")
     is_git_repository = exists(join(potential_git_dir_parent, ".git"))

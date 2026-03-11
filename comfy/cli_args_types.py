@@ -206,6 +206,9 @@ class Configuration(dict):
         default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
         block_runtime_package_installation (Optional[bool]): When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental).
         enable_eval (Optional[bool]): Enable nodes that can evaluate Python code in workflows.
+        pip_facade_registry_base_url (str): Base URL for the Comfy registry API used by the `serve-pip` facade.
+        pip_facade_cache_prefix (Optional[str]): Writable fsspec URI prefix where `serve-pip` caches generated wheels.
+        pip_facade_only_known_nodes (bool): Only expose nodes present in this repository's local compatibility registry.
     """
 
     def __init__(self, **kwargs):
@@ -351,6 +354,9 @@ class Configuration(dict):
         self.enable_video_to_image_fallback: bool = False
         self.disable_manager_model_fallback: bool = False
         self.refresh_manager_models: bool = False
+        self.pip_facade_registry_base_url: str = "https://api.comfy.org"
+        self.pip_facade_cache_prefix: Optional[str] = None
+        self.pip_facade_only_known_nodes: bool = False
 
         self.cfg: Optional[float] = None
         self.sampler: Optional[str] = None

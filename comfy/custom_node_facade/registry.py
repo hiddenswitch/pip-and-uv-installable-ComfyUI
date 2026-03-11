@@ -1,0 +1,390 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import platform
+import re
+from dataclasses import dataclass
+from importlib.resources import files
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+import aiohttp
+
+from ..app.custom_node_manager import CustomNodeManager
+from ..cmd.main_pre import tracer
+from ..component_model.node_registry import CUSTOM_NODE_REGISTRY, CustomNodeSpec
+from ..nodes.custom_node_dependencies import CUSTOM_NODE_RUNTIME_DEPS
+
+logger = logging.getLogger(__name__)
+
+_SIMPLE_NAME_RE = re.compile(r"[-_.]+")
+
+
+def canonicalize_project_name(name: str) -> str:
+    return _SIMPLE_NAME_RE.sub("-", name).strip("-").lower()
+
+
+def normalize_repo_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    scheme = parsed.scheme.lower() if parsed.scheme else "https"
+    netloc = parsed.netloc.lower()
+    return f"{scheme}://{netloc}{path.lower()}"
+
+
+def repo_basename(url: str) -> str:
+    path = urlparse(url).path.rstrip("/")
+    if not path:
+        return "custom-node"
+    name = path.rsplit("/", 1)[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or "custom-node"
+
+
+def _sort_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
+    try:
+        from packaging.version import Version
+    except Exception:
+        return sorted(versions, key=lambda item: item.version, reverse=True)
+    return sorted(
+        versions,
+        key=lambda item: Version(item.version),
+        reverse=True,
+    )
+
+
+def _manager_registry_path() -> Path:
+    return Path(files("comfyui_manager").joinpath("custom-node-list.json"))
+
+
+def _load_manager_registry() -> list[dict[str, Any]]:
+    path = _manager_registry_path()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return list(data.get("custom_nodes", ()))
+
+
+@dataclass(frozen=True)
+class FacadeVersion:
+    version: str
+    download_url: str
+    dependencies: tuple[str, ...]
+    deprecated: bool
+
+
+@dataclass(frozen=True)
+class FacadeProject:
+    canonical_name: str
+    display_name: str
+    node_id: str
+    repo_url: str
+    repo_name: str
+    description: str
+    aliases: tuple[str, ...]
+    extra_requirements: tuple[str, ...]
+    skip_requirements: frozenset[str]
+    depends_on: tuple[str, ...]
+    latest_version: str | None = None
+
+
+class _OverlayIndex:
+    def __init__(self) -> None:
+        self._by_node_id: dict[str, CustomNodeSpec] = {}
+        self._by_repo: dict[str, CustomNodeSpec] = {}
+        for spec in CUSTOM_NODE_REGISTRY:
+            self._by_node_id[canonicalize_project_name(spec.node_id)] = spec
+            self._by_repo[normalize_repo_url(spec.repo_url)] = spec
+
+    def match(self, node_id: str | None, repo_url: str, repo_name: str, title: str) -> CustomNodeSpec | None:
+        keys = []
+        if node_id:
+            keys.append(canonicalize_project_name(node_id))
+        keys.extend(
+            canonicalize_project_name(value)
+            for value in (repo_name, title)
+            if value
+        )
+        for key in keys:
+            spec = self._by_node_id.get(key)
+            if spec is not None:
+                return spec
+        return self._by_repo.get(normalize_repo_url(repo_url))
+
+
+class FacadeRegistry:
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        *,
+        base_url: str = "https://api.comfy.org",
+        only_known_nodes: bool = False,
+    ) -> None:
+        self._session = session
+        self._base_url = base_url.rstrip("/")
+        self._only_known_nodes = only_known_nodes
+        self._overlay_index = _OverlayIndex()
+        self._project_cache: list[FacadeProject] | None = None
+        self._alias_cache: dict[str, str] = {}
+        self._versions_cache: dict[str, list[FacadeVersion]] = {}
+        self._projects_lock = asyncio.Lock()
+        self._versions_lock = asyncio.Lock()
+
+    async def list_projects(self) -> list[FacadeProject]:
+        if self._project_cache is not None:
+            return self._project_cache
+        async with self._projects_lock:
+            if self._project_cache is not None:
+                return self._project_cache
+            with tracer.start_as_current_span("List Facade Projects") as span:
+                span.set_attribute("facade.only_known_nodes", self._only_known_nodes)
+                span.set_attribute("facade.registry_base_url", self._base_url)
+                projects = await self._build_projects()
+                span.set_attribute("facade.project_count", len(projects))
+            self._project_cache = projects
+            return projects
+
+    async def get_project(self, name: str) -> FacadeProject | None:
+        canonical = canonicalize_project_name(name)
+        projects = await self.list_projects()
+        target = self._alias_cache.get(canonical, canonical)
+        for project in projects:
+            if project.canonical_name == target:
+                return project
+        return None
+
+    async def list_versions(self, project: FacadeProject | str) -> list[FacadeVersion]:
+        resolved = await self.get_project(project) if isinstance(project, str) else project
+        if resolved is None:
+            return []
+        if resolved.node_id in self._versions_cache:
+            return self._versions_cache[resolved.node_id]
+        async with self._versions_lock:
+            if resolved.node_id in self._versions_cache:
+                return self._versions_cache[resolved.node_id]
+            params = [
+                ("statuses", "NodeVersionStatusActive"),
+                ("statuses", "NodeVersionStatusPending"),
+            ]
+            with tracer.start_as_current_span("List Facade Project Versions") as span:
+                span.set_attribute("facade.project_name", resolved.canonical_name)
+                span.set_attribute("facade.node_id", resolved.node_id)
+                async with self._session.get(
+                    f"{self._base_url}/nodes/{resolved.node_id}/versions",
+                    params=params,
+                ) as response:
+                    response.raise_for_status()
+                    payload = await response.json()
+            versions = [
+                FacadeVersion(
+                    version=item["version"],
+                    download_url=item["downloadUrl"],
+                    dependencies=tuple(item.get("dependencies") or ()),
+                    deprecated=bool(item.get("deprecated", False)),
+                )
+                for item in payload
+                if item.get("version") and item.get("downloadUrl")
+            ]
+            self._versions_cache[resolved.node_id] = _sort_versions(versions)
+            return self._versions_cache[resolved.node_id]
+
+    async def get_version(self, project: FacadeProject | str, version: str) -> FacadeVersion | None:
+        for item in await self.list_versions(project):
+            if item.version == version:
+                return item
+        return None
+
+    async def dependency_project_name(self, dependency_id: str) -> str:
+        project = await self.get_project(dependency_id)
+        if project is not None:
+            return project.canonical_name
+        return canonicalize_project_name(dependency_id)
+
+    async def _build_projects(self) -> list[FacadeProject]:
+        with tracer.start_as_current_span("Build Facade Project Registry") as span:
+            manager_nodes = _load_manager_registry()
+            span.set_attribute("facade.manager_registry_items", len(manager_nodes))
+            cnr_nodes = await self._fetch_cnr_nodes()
+            span.set_attribute("facade.cnr_nodes", len(cnr_nodes))
+        repo_to_cnr = {
+            normalize_repo_url(node["repository"]): node
+            for node in cnr_nodes
+            if node.get("repository")
+        }
+
+        projects_by_name: dict[str, FacadeProject] = {}
+
+        for item in manager_nodes:
+            repo_url = self._extract_repo_url(item)
+            if repo_url is None:
+                continue
+            cnr = repo_to_cnr.get(normalize_repo_url(repo_url))
+            if cnr is None:
+                continue
+            project = self._build_project(item, cnr, repo_url)
+            if project is None:
+                continue
+            projects_by_name[project.canonical_name] = project
+
+        for spec in CUSTOM_NODE_REGISTRY:
+            cnr = repo_to_cnr.get(normalize_repo_url(spec.repo_url))
+            if cnr is None:
+                continue
+            item = {
+                "title": spec.display_name,
+                "reference": spec.repo_url,
+                "description": "",
+            }
+            project = self._build_project(item, cnr, spec.repo_url)
+            if project is None:
+                continue
+            projects_by_name.setdefault(project.canonical_name, project)
+
+        projects = sorted(projects_by_name.values(), key=lambda project: project.canonical_name)
+        self._alias_cache = {}
+        for project in projects:
+            for alias in project.aliases:
+                self._alias_cache[alias] = project.canonical_name
+        return projects
+
+    async def _fetch_cnr_nodes(self) -> list[dict[str, Any]]:
+        nodes: list[dict[str, Any]] = []
+        page = 1
+        total_pages = 1
+        with tracer.start_as_current_span("Fetch CNR Nodes") as span:
+            span.set_attribute("facade.registry_base_url", self._base_url)
+            span.set_attribute("facade.form_factor", self._form_factor())
+            while page <= total_pages:
+                params = {
+                    "page": page,
+                    "limit": 100,
+                    "comfyui_version": "unknown",
+                    "form_factor": self._form_factor(),
+                }
+                async with self._session.get(f"{self._base_url}/nodes", params=params) as response:
+                    response.raise_for_status()
+                    payload = await response.json()
+                total_pages = int(payload.get("totalPages", 1))
+                nodes.extend(payload.get("nodes") or ())
+                page += 1
+            span.set_attribute("facade.cnr_node_count", len(nodes))
+        return nodes
+
+    def _build_project(self, item: dict[str, Any], cnr: dict[str, Any], repo_url: str) -> FacadeProject | None:
+        repo_name = repo_basename(repo_url)
+        overlay = self._overlay_index.match(
+            cnr.get("id"),
+            repo_url,
+            repo_name,
+            item.get("title") or cnr.get("name") or repo_name,
+        )
+        if self._only_known_nodes and overlay is None:
+            return None
+
+        canonical_name = canonicalize_project_name(
+            overlay.node_id if overlay is not None else repo_name
+        )
+        aliases = {
+            canonical_name,
+            canonicalize_project_name(cnr["id"]),
+            canonicalize_project_name(repo_name),
+        }
+        if title := item.get("title"):
+            aliases.add(canonicalize_project_name(title))
+
+        extra_requirements = list(self._runtime_dependencies(overlay, cnr["id"], repo_name))
+        skip_requirements = set(CustomNodeManager.DEFAULT_SKIP)
+        depends_on: tuple[str, ...] = ()
+        display_name = item.get("title") or cnr.get("name") or repo_name
+        description = cnr.get("description") or item.get("description") or ""
+        if overlay is not None:
+            display_name = overlay.display_name
+            extra_requirements.extend(overlay.extra_requirements)
+            skip_requirements.update(overlay.skip_requirements)
+            depends_on = tuple(overlay.depends_on)
+
+        deduped_requirements: list[str] = []
+        seen_requirements: set[str] = set()
+        for requirement in extra_requirements:
+            normalized = requirement.strip()
+            if not normalized or normalized in seen_requirements:
+                continue
+            seen_requirements.add(normalized)
+            deduped_requirements.append(normalized)
+
+        latest_version = None
+        latest = cnr.get("latest_version")
+        if isinstance(latest, dict):
+            latest_version = latest.get("version")
+
+        return FacadeProject(
+            canonical_name=canonical_name,
+            display_name=display_name,
+            node_id=cnr["id"],
+            repo_url=repo_url,
+            repo_name=repo_name,
+            description=description,
+            aliases=tuple(sorted(aliases)),
+            extra_requirements=tuple(deduped_requirements),
+            skip_requirements=frozenset(skip_requirements),
+            depends_on=depends_on,
+            latest_version=latest_version,
+        )
+
+    def _runtime_dependencies(
+        self,
+        overlay: CustomNodeSpec | None,
+        node_id: str,
+        repo_name: str,
+    ) -> tuple[str, ...]:
+        keys = {
+            node_id,
+            canonicalize_project_name(node_id),
+            repo_name,
+            canonicalize_project_name(repo_name),
+        }
+        if overlay is not None:
+            keys.update({
+                overlay.node_id,
+                canonicalize_project_name(overlay.node_id),
+                overlay.display_name,
+                canonicalize_project_name(overlay.display_name),
+            })
+
+        deps: list[str] = []
+        for candidate, requirements in CUSTOM_NODE_RUNTIME_DEPS.items():
+            normalized = canonicalize_project_name(candidate)
+            if candidate in keys or normalized in keys:
+                deps.extend(requirements)
+        return tuple(deps)
+
+    @staticmethod
+    def _extract_repo_url(item: dict[str, Any]) -> str | None:
+        candidate = item.get("reference") or item.get("repository")
+        if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+            return candidate
+
+        for entry in item.get("files") or ():
+            if not isinstance(entry, str):
+                continue
+            if not entry.startswith(("http://", "https://")):
+                continue
+            if entry.endswith((".py", ".js")):
+                continue
+            return entry
+        return None
+
+    @staticmethod
+    def _form_factor() -> str:
+        system = platform.system().lower()
+        if system == "windows":
+            return "git-windows"
+        if system == "darwin":
+            return "git-mac"
+        if system == "linux":
+            return "git-linux"
+        return "other"

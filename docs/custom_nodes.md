@@ -130,6 +130,94 @@ uv pip install -r custom_nodes/ComfyUI-Manager/requirements.txt
 
 Run `uv pip install "git+https://github.com/owner/repository"`, replacing the `git` repository with the installable custom nodes URL. This is just the GitHub URL.
 
+### Installing Custom Nodes Through `serve-pip`
+
+This repository can also expose a local HTTP package index that makes vanilla custom nodes look like normal Python packages. This is useful when you want `uv pip install` semantics, dependency metadata, and versioned installs, but you still want the nodes to execute through the fork's existing vanilla compatibility layer.
+
+The `serve-pip` command:
+
+- enumerates installable custom nodes from ComfyUI-Manager's registry data
+- resolves versions from the Comfy registry (`api.comfy.org`)
+- injects known missing dependencies from this fork's compatibility tables
+- builds wheels on demand
+- publishes `comfyui.custom_nodes` entry points that point back to vendored vanilla custom-node directories
+
+Those entry points are only used for discovery. The actual node code is still imported as a vanilla custom node, so the usual mitigations for `sys.path` pollution, download interception, and blocked runtime package installation still apply.
+
+#### Start the facade server
+
+```bash
+uv run --no-sync comfyui serve-pip --listen 127.0.0.1 --port 8190
+```
+
+Useful options:
+
+```bash
+# Only expose nodes that are in this repository's tested compatibility registry
+uv run --no-sync comfyui serve-pip --pip-facade-only-known-nodes
+
+# Override the Comfy registry API base URL
+uv run --no-sync comfyui serve-pip --pip-facade-registry-base-url=https://api.comfy.org
+
+# Choose where generated wheels are cached
+uv run --no-sync comfyui serve-pip --pip-facade-cache-prefix=/tmp/comfyui-pip-facade
+
+# Remote caches work too if fsspec can write to them
+uv run --no-sync comfyui serve-pip --pip-facade-cache-prefix=s3://my-bucket/comfyui/pip-facade
+```
+
+#### Install custom nodes from the facade
+
+Once the server is running, install nodes with `uv pip install --extra-index-url`:
+
+```bash
+uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-custom-scripts==1.2.5
+uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-detail-daemon
+uv pip install --extra-index-url http://127.0.0.1:8190/simple/ "comfyui-wanvideowrapper>=3.3.3"
+```
+
+If you want to install into a separate target directory instead of the active environment:
+
+```bash
+uv pip install \
+  --python .venv/bin/python \
+  --target ./node_site \
+  --extra-index-url http://127.0.0.1:8190/simple/ \
+  comfyui-custom-scripts==1.2.5
+```
+
+#### What gets installed
+
+Each generated wheel contains:
+
+- the upstream custom node repository contents
+- generated `METADATA` dependencies merged from registry metadata and this fork's extra dependency table
+- a generated `comfyui.custom_nodes` entry point
+
+At runtime, the entry point advertises the vendored custom-node directory to `comfy.nodes.package`, and ComfyUI imports the vendored repo through the vanilla custom-node importer. This means facade-installed nodes behave like ecosystem custom nodes, not like native packaged extensions.
+
+#### Example workflow
+
+1. Start the facade server:
+
+   ```bash
+   uv run --no-sync comfyui serve-pip --listen 127.0.0.1 --port 8190 --pip-facade-only-known-nodes
+   ```
+
+2. Install one node into your environment:
+
+   ```bash
+   uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-custom-scripts==1.2.5
+   ```
+
+3. Start ComfyUI normally:
+
+   ```bash
+   uv run --no-sync comfyui --guess-settings
+   ```
+
+4. The node package will be discovered through its entry point, but loaded with the same vanilla compatibility layer used for cloned custom nodes.
+
 ---
 
 ## Programmatic Custom Node Management
