@@ -166,10 +166,12 @@ jobs:
             container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
     steps:
       - run: |
+          export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y software-properties-common curl
           add-apt-repository -y ppa:deadsnakes/ppa
           apt-get update
+          apt-get purge -y python3.11 python3.11-minimal libpython3.11 libpython3.11-minimal libpython3.11-stdlib
           apt-get install -y python3.11 python3.11-venv python3.11-dev libpython3.11
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
