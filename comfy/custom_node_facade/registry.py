@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..cmd.main_pre import tracer
+
 import asyncio
 import json
 import logging
@@ -14,7 +16,6 @@ from urllib.parse import urlparse
 import aiohttp
 
 from ..app.custom_node_manager import CustomNodeManager
-from ..cmd.main_pre import tracer
 from ..component_model.node_registry import CUSTOM_NODE_REGISTRY, CustomNodeSpec
 from ..nodes.custom_node_dependencies import CUSTOM_NODE_RUNTIME_DEPS
 

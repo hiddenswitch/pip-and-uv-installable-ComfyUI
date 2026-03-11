@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..cmd.main_pre import tracer
+
 import asyncio
 import html
 import logging
@@ -8,7 +10,6 @@ import os
 import aiohttp
 from aiohttp import web
 
-from ..cmd.main_pre import tracer
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
 from .builder import FacadeWheelBuilder

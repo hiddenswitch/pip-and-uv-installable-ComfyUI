@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..cmd.main_pre import tracer
+
 import asyncio
 import base64
 import csv
@@ -17,7 +19,6 @@ from pathlib import Path
 import aiohttp
 import fsspec
 
-from ..cmd.main_pre import tracer
 from .registry import FacadeProject, FacadeRegistry, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
