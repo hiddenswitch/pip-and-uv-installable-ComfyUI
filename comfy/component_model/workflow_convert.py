@@ -144,14 +144,6 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
                 val = opts["default"]
             result[name] = _wrap_value(val)
             idx += 1
-        elif "default" in opts:
-            result[name] = _wrap_value(opts["default"])
-        elif isinstance(type_spec, list) and type_spec:
-            result[name] = _wrap_value(type_spec[0])
-        elif type_spec == "COMBO" and opts.get("options"):
-            result[name] = _wrap_value(opts["options"][0])
-        elif in_optional:
-            break
         else:
             break
 
@@ -204,8 +196,8 @@ def _consume_dynamic_combo_subwidgets(
             if idx < len(widgets_values):
                 result[dotted] = _wrap_value(widgets_values[idx])
                 idx += 1
-            elif "default" in sub_opts:
-                result[dotted] = _wrap_value(sub_opts["default"])
+            else:
+                return idx
 
             for extra_name in _extra_widgets_after(sub_opts):
                 if idx < len(widgets_values):
