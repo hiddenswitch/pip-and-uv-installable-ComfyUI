@@ -188,6 +188,11 @@ def test_disable_xformers():
     assert config.disable_xformers is True
 
 
+def test_disable_dynamic_vram():
+    config = _config_from(disable_dynamic_vram=True)
+    assert config.disable_dynamic_vram is True
+
+
 class TestFastArg:
     def test_not_provided(self):
         config = _config_from(fast=[])
@@ -302,6 +307,19 @@ def test_cli_args_enables_dynamic_vram():
     # With default config (no fast features), should return False
     result = enables_dynamic_vram()
     assert result is False
+
+
+def test_cli_args_enables_dynamic_vram_respects_disable_flag():
+    from comfy.cli_args import enables_dynamic_vram
+    from comfy.execution_context import context_configuration
+
+    with context_configuration(
+        Configuration(
+            fast={PerformanceFeature.DynamicVRAM},
+            disable_dynamic_vram=True,
+        ),
+    ):
+        assert enables_dynamic_vram() is False
 
 
 def test_cli_args_imports():

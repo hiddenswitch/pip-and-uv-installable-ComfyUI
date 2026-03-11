@@ -33,6 +33,7 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "novram",
     "highvram",
     "gpu_only",
+    "disable_dynamic_vram",
     "force_fp32",
     "force_fp16",
     "force_bf16",
@@ -69,8 +70,11 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
 def requires_process_pool_executor(configuration: Configuration | None) -> bool:
     if configuration is None:
         return False
-    
-    default = default_configuration()
+
+    from ..execution_context import current_execution_context
+
+    baseline = current_execution_context().configuration
+    default = baseline or default_configuration()
     for key in MODEL_MANAGEMENT_ARGS:
         # Check if key is in configuration and differs from default
         if key in configuration:

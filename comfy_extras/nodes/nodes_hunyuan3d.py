@@ -106,8 +106,8 @@ class VAEDecodeHunyuan3D(IO.ComfyNode):
             inputs=[
                 IO.Latent.Input("samples"),
                 IO.Vae.Input("vae"),
-                IO.Int.Input("num_chunks", default=8000, min=1000, max=500000),
-                IO.Int.Input("octree_resolution", default=256, min=16, max=512),
+                IO.Int.Input("num_chunks", default=8000, min=1000, max=500000, advanced=True),
+                IO.Int.Input("octree_resolution", default=256, min=16, max=512, advanced=True),
             ],
             outputs=[
                 IO.Voxel.Output(),
@@ -459,7 +459,7 @@ class VoxelToMesh(IO.ComfyNode):
             category="3d",
             inputs=[
                 IO.Voxel.Input("voxel"),
-                IO.Combo.Input("algorithm", options=["surface net", "basic"]),
+                IO.Combo.Input("algorithm", options=["surface net", "basic"], advanced=True),
                 IO.Float.Input("threshold", default=0.6, min=-1.0, max=1.0, step=0.01),
             ],
             outputs=[
@@ -623,16 +623,24 @@ class SaveGLB(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="SaveGLB",
+            display_name="Save 3D Model",
             search_aliases=["export 3d model", "save mesh"],
             category="3d",
+            essentials_category="Basics",
             is_output_node=True,
             inputs=[
                 IO.MultiType.Input(
                     IO.Mesh.Input("mesh"),
                     types=[
                         IO.File3DGLB,
+                        IO.File3DGLTF,
+                        IO.File3DOBJ,
+                        IO.File3DFBX,
+                        IO.File3DSTL,
+                        IO.File3DUSDZ,
+                        IO.File3DAny,
                     ],
-                    tooltip="Mesh or GLB file to save",
+                    tooltip="Mesh or 3D file to save",
                 ),
                 IO.String.Input("filename_prefix", default="mesh/ComfyUI"),
             ],
@@ -654,7 +662,8 @@ class SaveGLB(IO.ComfyNode):
 
         if isinstance(mesh, Types.File3D):
             # Handle File3D input - save BytesIO data to output folder
-            f = f"{filename}_{counter:05}_.glb"
+            ext = mesh.format or "glb"
+            f = f"{filename}_{counter:05}_.{ext}"
             mesh.save_to(os.path.join(full_output_folder, f))
             results.append({
                 "filename": f,

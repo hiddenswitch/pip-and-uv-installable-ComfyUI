@@ -442,8 +442,9 @@ class LatentOperationTonemapReinhard(io.ComfyNode):
             latent_vector_magnitude = (torch.linalg.vector_norm(latent, dim=(1)) + 0.0000000001)[:, None]
             normalized_latent = latent / latent_vector_magnitude
 
-            mean = torch.mean(latent_vector_magnitude, dim=(1, 2, 3), keepdim=True)
-            std = torch.std(latent_vector_magnitude, dim=(1, 2, 3), keepdim=True)
+            dims = list(range(1, latent_vector_magnitude.ndim))
+            mean = torch.mean(latent_vector_magnitude, dim=dims, keepdim=True)
+            std = torch.std(latent_vector_magnitude, dim=dims, keepdim=True)
 
             top = (std * 5 + mean) * multiplier
 
@@ -468,17 +469,17 @@ class LatentOperationSharpen(io.ComfyNode):
                 io.Int.Input("sharpen_radius", default=9,
                              min=1,
                              max=31,
-                             step=1),
+                             step=1, advanced=True),
                 io.Float.Input(
                     "sigma", default=1.0,
                     min=0.1,
                     max=10.0,
-                    step=0.1),
+                    step=0.1, advanced=True),
                 io.Float.Input(
                     "alpha", default=0.1,
                     min=0.0,
                     max=5.0,
-                    step=0.01),
+                    step=0.01, advanced=True),
             ],
             outputs=[
                 io.LatentOperation.Output(),

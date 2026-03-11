@@ -147,6 +147,7 @@ class FrontendManager:
             # this isn't used the way it says
             return importlib.metadata.version("comfyui_frontend_package")
         except Exception as exc_info:
+            # todo: requires merge, should be aligned with the actual required frontend version
             return "1.33.10"
 
     @classmethod
@@ -161,6 +162,7 @@ class FrontendManager:
     @classmethod
     def get_required_templates_version(cls) -> str:
         # returns a stub, since this isn't a helpful check in this environment
+        # todo: requires merge, should be aligned with the actual required templates version
         return "0.7.51"
 
     @classmethod

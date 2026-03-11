@@ -28,6 +28,7 @@ class APG(io.ComfyNode):
                     max=10.0,
                     step=0.01,
                     tooltip="Controls the scale of the parallel guidance vector. Default CFG behavior at a setting of 1.",
+                    advanced=True,
                 ),
                 io.Float.Input(
                     "norm_threshold",
@@ -36,6 +37,7 @@ class APG(io.ComfyNode):
                     max=50.0,
                     step=0.1,
                     tooltip="Normalize guidance vector to this value, normalization disable at a setting of 0.",
+                    advanced=True,
                 ),
                 io.Float.Input(
                     "momentum",
@@ -44,6 +46,7 @@ class APG(io.ComfyNode):
                     max=1.0,
                     step=0.01,
                     tooltip= "Controls a running average of guidance during diffusion, disabled at a setting of 0.",
+                    advanced=True,
                 ),
             ],
 

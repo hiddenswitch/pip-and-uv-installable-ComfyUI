@@ -1,5 +1,7 @@
 import pytest
 from comfy.client.embedded_comfy_client import Comfy
+from comfy.cli_args_types import Configuration
+from comfy.execution_context import context_configuration
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
 from comfy.distributed.executors import ContextVarExecutor
 
@@ -19,6 +21,25 @@ async def test_comfy_config_triggers_process_pool():
     client = Comfy(configuration={"lowvram": True})
     assert isinstance(client._executor, ProcessPoolExecutor)
     assert client._owns_executor
+
+
+@pytest.mark.asyncio
+async def test_comfy_disable_dynamic_vram_triggers_process_pool():
+    """Disabling dynamic VRAM changes model-management behavior."""
+    client = Comfy(configuration={"disable_dynamic_vram": True})
+    assert isinstance(client._executor, ProcessPoolExecutor)
+    assert client._owns_executor
+
+
+@pytest.mark.asyncio
+async def test_comfy_uses_current_context_as_process_pool_baseline():
+    """Comparisons should use the current execution context configuration."""
+    with context_configuration(Configuration(disable_dynamic_vram=True)):
+        matching_client = Comfy(configuration={"disable_dynamic_vram": True})
+        assert isinstance(matching_client._executor, ContextVarExecutor)
+
+        differing_client = Comfy(configuration={"disable_dynamic_vram": False})
+        assert isinstance(differing_client._executor, ProcessPoolExecutor)
 
 
 @pytest.mark.asyncio

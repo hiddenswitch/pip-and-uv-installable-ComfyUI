@@ -43,8 +43,6 @@ from ..app.frontend_management import FrontendManager
 from ..app.model_manager import ModelFileManager
 from ..app.subgraph_manager import SubgraphManager
 from ..app.user_manager import UserManager
-from ..app.assets.scanner import seed_assets
-from ..app.assets.api.routes import register_assets_system
 
 from ..cli_args import args
 from ..client.client_types import FileOutput
@@ -64,6 +62,9 @@ from ..middleware.cache_middleware import cache_control
 from ..model_management import get_torch_device, get_torch_device_name, get_total_memory, get_free_memory, torch_version
 from ..nodes.package_typing import ExportedNodes
 from ..progress_types import PreviewImageMetadata
+from ..app.assets.api.routes import register_assets_routes
+from ..app.node_replace_manager import NodeReplaceManager
+from ..app.assets.seeder import asset_seeder
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +76,6 @@ class HeuristicPath(NamedTuple):
 
 # todo: what is this really trying to do?
 LOADED_MODULE_DIRS = {}
-
-
-
 
 
 def _remove_sensitive_from_queue(queue: list) -> list:
@@ -259,15 +257,11 @@ class PromptServer(ExecutorToClientProgress):
         # todo: this really needs to be set up differently, because sometimes the prompt server will not be initialized
         PromptServer.instance = self
 
-        mimetypes.init()
-        mimetypes.add_type('application/javascript; charset=utf-8', '.js')
-        mimetypes.add_type('image/webp', '.webp')
-
-        self.address: str = "0.0.0.0"
         self.user_manager = UserManager()
         self.model_file_manager = ModelFileManager()
         self.custom_node_manager = CustomNodeManager()
         self.subgraph_manager = SubgraphManager()
+        self.node_replace_manager = NodeReplaceManager()
         self.internal_routes = InternalRoutes(self)
         # todo: this is probably read by custom nodes elsewhere
         self.supports: List[str] = ["custom_nodes_from_web"]
@@ -310,7 +304,11 @@ class PromptServer(ExecutorToClientProgress):
             else args.front_end_root
         )
         routes = web.RouteTableDef()
-        register_assets_system(self.app, self.user_manager)
+        if args.enable_assets:
+            register_assets_routes(self.app, self.user_manager)
+        else:
+            register_assets_routes(self.app)
+            asset_seeder.disable()
         self.routes: web.RouteTableDef = routes
         self.last_node_id = None
         self.last_prompt_id = None
@@ -718,15 +716,16 @@ class PromptServer(ExecutorToClientProgress):
 
         def node_info(node_class_name):
             from .node_info import node_info as _node_info
+            # todo: needs merge, add
+            #             if hasattr(obj_class, 'ESSENTIALS_CATEGORY'):
+            #                 info['essentials_category'] = obj_class.ESSENTIALS_CATEGORY
+            # to _node_info
             return _node_info(node_class_name, self.nodes.NODE_CLASS_MAPPINGS, self.nodes.NODE_DISPLAY_NAME_MAPPINGS)
 
         @routes.get("/object_info")
         async def get_object_info(request):
             # todo: what does this doozy do...
-            try:
-                seed_assets(["models"])
-            except Exception as e:
-                logger.debug("Failed to seed assets", exc_info=e)
+            asset_seeder.start(roots=("models", "input", "output"))
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:
@@ -916,6 +915,8 @@ class PromptServer(ExecutorToClientProgress):
                 partial_execution_targets = None
                 if "partial_execution_targets" in json_data:
                     partial_execution_targets = json_data["partial_execution_targets"]
+
+                self.node_replace_manager.apply_replacements(prompt)
 
                 valid = await execution.validate_prompt(prompt_id, prompt, partial_execution_targets)
                 extra_data = {}
@@ -1263,6 +1264,7 @@ class PromptServer(ExecutorToClientProgress):
         # todo: needs to use module directories
         self.custom_node_manager.add_routes(self.routes, self.app, {})
         self.subgraph_manager.add_routes(self.routes, LOADED_MODULE_DIRS.items())
+        self.node_replace_manager.add_routes(self.routes)
         self.app.add_subapp('/internal', self.internal_routes.get_app())
 
         # Prefix every route with /api for easier matching for delegation.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import glob
 import logging
+
 from typing import Optional
 import math
 import os
@@ -338,13 +339,12 @@ class VAEDecodeTiled:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"samples": ("LATENT",), "vae": ("VAE",),
-                             "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 32}),
-                             "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 32}),
+                             "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 32, "advanced": True}),
+                             "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 32, "advanced": True}),
                              }, "optional": {
-            "temporal_size": ("INT", {"default": 64, "min": 8, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to decode at a time."}),
-            "temporal_overlap": ("INT", {"default": 8, "min": 4, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to overlap."}),
+            "temporal_size": ("INT", {"default": 64, "min": 8, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to decode at a time.", "advanced": True}),
+            "temporal_overlap": ("INT", {"default": 8, "min": 4, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to overlap.", "advanced": True}),
         }}
-
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "decode"
 
@@ -393,12 +393,11 @@ class VAEEncodeTiled:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"pixels": ("IMAGE",), "vae": ("VAE",),
-                             "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 64}),
-                             "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 32}),
-                             "temporal_size": ("INT", {"default": 64, "min": 8, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to encode at a time."}),
-                             "temporal_overlap": ("INT", {"default": 8, "min": 4, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to overlap."}),
+                             "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 64, "advanced": True}),
+                             "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 32, "advanced": True}),
+                             "temporal_size": ("INT", {"default": 64, "min": 8, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to encode at a time.", "advanced": True}),
+                             "temporal_overlap": ("INT", {"default": 8, "min": 4, "max": 4096, "step": 4, "tooltip": "Only used for video VAEs: Amount of frames to overlap.", "advanced": True}),
                              }}
-
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "encode"
 
@@ -695,9 +694,8 @@ class CLIPSetLastLayer:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip": ("CLIP",),
-                             "stop_at_clip_layer": ("INT", {"default": -1, "min": -24, "max": -1, "step": 1}),
+                             "stop_at_clip_layer": ("INT", {"default": -1, "min": -24, "max": -1, "step": 1, "advanced": True}),
                              }}
-
     RETURN_TYPES = ("CLIP",)
     FUNCTION = "set_last_layer"
 
@@ -710,6 +708,8 @@ class CLIPSetLastLayer:
 
 
 class LoraLoader:
+    ESSENTIALS_CATEGORY = "Image Generation"
+
     def __init__(self):
         self.loaded_lora = None
 
@@ -1051,7 +1051,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip_name": (get_filename_list_with_downloadable("text_encoders", KNOWN_CLIP_MODELS),),
-                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis"],),
+                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1728,7 +1728,7 @@ class KSamplerAdvanced:
     def INPUT_TYPES(s):
         return {"required":
                     {"model": ("MODEL",),
-                     "add_noise": (["enable", "disable"],),
+                     "add_noise": (["enable", "disable"],{"advanced": True}),
                      "noise_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
                      "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
                      "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
@@ -1737,9 +1737,9 @@ class KSamplerAdvanced:
                      "positive": ("CONDITIONING",),
                      "negative": ("CONDITIONING",),
                      "latent_image": ("LATENT",),
-                     "start_at_step": ("INT", {"default": 0, "min": 0, "max": 10000}),
-                     "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000}),
-                     "return_with_leftover_noise": (["disable", "enable"],),
+                     "start_at_step": ("INT", {"default": 0, "min": 0, "max": 10000, "advanced": True}),
+                     "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000, "advanced": True}),
+                     "return_with_leftover_noise": (["disable", "enable"],{"advanced": True}),
                      }
                 }
 
@@ -1782,6 +1782,7 @@ class SaveImage:
     OUTPUT_NODE = True
 
     CATEGORY = "image"
+    ESSENTIALS_CATEGORY = "Basics"
     DESCRIPTION = "Saves the input images to your ComfyUI output directory."
     SEARCH_ALIASES = ["save", "save image", "export image", "output image", "write image", "download"]
 
@@ -1849,6 +1850,7 @@ class LoadImage:
         }
 
     CATEGORY = "image"
+    ESSENTIALS_CATEGORY = "Basics"
     SEARCH_ALIASES = ["load image", "open image", "import image", "image input", "upload image", "read image", "image loader"]
 
     RETURN_TYPES = ("IMAGE", "MASK")
@@ -2003,6 +2005,7 @@ class ImageScale:
     FUNCTION = "upscale"
 
     CATEGORY = "image/upscaling"
+    ESSENTIALS_CATEGORY = "Image Tools"
     SEARCH_ALIASES = ["resize", "resize image", "scale image", "image resize", "zoom", "zoom in", "change size"]
 
     def upscale(self, image: RGBImageBatch, upscale_method, width, height, crop) -> tuple[RGBImageBatch]:
@@ -2045,6 +2048,7 @@ class ImageScaleBy:
 
 class ImageInvert:
     SEARCH_ALIASES = ["reverse colors"]
+    ESSENTIALS_CATEGORY = "Image Tools"
 
     @classmethod
     def INPUT_TYPES(s):
@@ -2121,7 +2125,7 @@ class ImagePadForOutpaint:
                 "top": ("INT", {"default": 0, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
                 "right": ("INT", {"default": 0, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
                 "bottom": ("INT", {"default": 0, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
-                "feathering": ("INT", {"default": 40, "min": 0, "max": MAX_RESOLUTION, "step": 1}),
+                "feathering": ("INT", {"default": 40, "min": 0, "max": MAX_RESOLUTION, "step": 1, "advanced": True}),
             }
         }
 

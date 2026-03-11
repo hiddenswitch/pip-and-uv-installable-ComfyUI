@@ -268,13 +268,14 @@ class GGUFQuantization:
     mmap_released: bool = False
     patch_on_device: bool = False
 
-
+# todo: needs merge, update model manageable signatures and implementors
 class ModelPatcher(ModelManageable, PatchSupport):
     def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         self.size = size
         self.model: BaseModel | torch.nn.Module = model
         self.patches: dict[PatchDictKey, ModelPatchesDictValue] = {}
         self.backup = {}
+        self.backup_buffers = {}
         self.object_patches = {}
         self.object_patches_backup = {}
         self.weight_wrapper_patches = {}
@@ -306,6 +307,8 @@ class ModelPatcher(ModelManageable, PatchSupport):
         self.is_clip = False
         self.hook_mode = EnumHookMode.MaxSpeed
         self.gguf = GGUFQuantization()
+        self.cached_patcher_init: tuple[Callable, tuple] | None = None
+
         if isinstance(model, BaseModel) and model.operations == GGMLOps:
             self.gguf.loaded_from_gguf = True
 
@@ -372,10 +375,30 @@ class ModelPatcher(ModelManageable, PatchSupport):
         return self._memory_measurements.model_loaded_weight_memory
 
     def get_free_memory(self, device):
-        return model_management.get_free_memory(device)
+        # Prioritize batching (incl. CFG/conds etc) over keeping the model resident. In
+        # the vast majority of setups a little bit of offloading on the giant model more
+        # than pays for CFG. So return everything both torch and Aimdo could give us
+        aimdo_mem = 0
+        if memory_management.aimdo_enabled:
+            aimdo_mem = comfy_aimdo.model_vbar.vbars_analyze()
+        return model_management.get_free_memory(device) + aimdo_mem
 
-    def clone(self) -> "ModelPatcher":
-        n = self.__class__(self.model, self.load_device, self.offload_device, self.model_size(), weight_inplace_update=self.weight_inplace_update)
+    def get_clone_model_override(self):
+        return self.model, (self.backup, self.backup_buffers, self.object_patches_backup, self.pinned)
+
+    def clone(self, disable_dynamic=False, model_override=None) -> "ModelPatcher":
+        class_ = self.__class__
+        if self.is_dynamic() and disable_dynamic:
+            class_ = ModelPatcher
+            if model_override is None:
+                if self.cached_patcher_init is None:
+                    raise RuntimeError("Cannot create non-dynamic delegate: cached_patcher_init is not initialized.")
+                temp_model_patcher = self.cached_patcher_init[0](*self.cached_patcher_init[1], disable_dynamic=True)
+                model_override = temp_model_patcher.get_clone_model_override()
+        if model_override is None:
+            model_override = self.get_clone_model_override()
+
+        n = class_(model_override[0], self.load_device, self.offload_device, self.model_size(), weight_inplace_update=self.weight_inplace_update)
         n._memory_measurements = copy.copy(self._memory_measurements)
         n.ckpt_name = self.ckpt_name
         n.patches = {}
@@ -385,13 +408,12 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
         n.object_patches = self.object_patches.copy()
         n.weight_wrapper_patches = self.weight_wrapper_patches.copy()
-        n._model_options = copy.deepcopy(self.model_options)
-        n.backup = self.backup
-        n.object_patches_backup = self.object_patches_backup
+        n._model_options = utils.deepcopy_list_dict(self.model_options)
         n._parent = self
-        n.pinned = self.pinned
 
         n.force_cast_weights = self.force_cast_weights
+
+        n.backup, n.backup_buffers, n.object_patches_backup, n.pinned = model_override[1]
 
         # attachments
         n.attachments = {}
@@ -433,6 +455,8 @@ class ModelPatcher(ModelManageable, PatchSupport):
         n.gguf = copy.copy(self.gguf)
         # todo: when is this set back to False? when would it make sense to?
         n.gguf.mmap_released = False
+
+        n.cached_patcher_init = self.cached_patcher_init
 
         for callback in self.get_all_callbacks(CallbacksMP.ON_CLONE):
             callback(self, n)
@@ -480,13 +504,16 @@ class ModelPatcher(ModelManageable, PatchSupport):
             # todo: some other heuristic to determine memory required
             raise ValueError("unexpected call to memory required on object that doesn't have a BaseModel but is using ModelPatcher")
 
+    def disable_model_cfg1_optimization(self):
+        self.model_options["disable_cfg1_optimization"] = True
+
     def set_model_sampler_cfg_function(self, sampler_cfg_function, disable_cfg1_optimization=False):
         if len(inspect.signature(sampler_cfg_function).parameters) == 3:
             self.model_options["sampler_cfg_function"] = lambda args: sampler_cfg_function(args["cond"], args["uncond"], args["cond_scale"])  # Old way
         else:
             self.model_options["sampler_cfg_function"] = sampler_cfg_function
         if disable_cfg1_optimization:
-            self.model_options["disable_cfg1_optimization"] = True
+            self.disable_model_cfg1_optimization()
 
     def set_model_sampler_post_cfg_function(self, post_cfg_function, disable_cfg1_optimization=False):
         self.model_options = set_model_options_post_cfg_function(self.model_options, post_cfg_function, disable_cfg1_optimization)
@@ -658,6 +685,27 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
         return models
 
+    def model_patches_call_function(self, function_name="cleanup", arguments={}):
+        to = self.model_options["transformer_options"]
+        if "patches" in to:
+            patches = to["patches"]
+            for name in patches:
+                patch_list = patches[name]
+                for i in range(len(patch_list)):
+                    if hasattr(patch_list[i], function_name):
+                        getattr(patch_list[i], function_name)(**arguments)
+        if "patches_replace" in to:
+            patches = to["patches_replace"]
+            for name in patches:
+                patch_list = patches[name]
+                for k in patch_list:
+                    if hasattr(patch_list[k], function_name):
+                        getattr(patch_list[k], function_name)(**arguments)
+        if "model_function_wrapper" in self.model_options:
+            wrap_func = self.model_options["model_function_wrapper"]
+            if hasattr(wrap_func, function_name):
+                getattr(wrap_func, function_name)(**arguments)
+
     def model_dtype(self):
         # this pokes into the internals of diffusion model a little bit
         # todo: the base model isn't going to be aware that its diffusion model is patched this way
@@ -791,21 +839,19 @@ class ModelPatcher(ModelManageable, PatchSupport):
         for key in list(self.pinned):
             self.unpin_weight(key)
 
-    def _load_list(self, prio_comfy_cast_weights=False) -> list[LoadingListItem]:
+    def _load_list(self, for_dynamic=False, default_device=None) -> list[LoadingListItem]:
         loading = []
         for n, m in self.model.named_modules():
-            params = []
-            skip = False
-            for name, param in m.named_parameters(recurse=False):
-                params.append(name)
+            default = False
+            params = {name: param for name, param in m.named_parameters(recurse=False)}
             for name, param in m.named_parameters(recurse=True):
                 if name not in params:
-                    # Parameters under 'parametrizations.*' are from torch.nn.utils.parametrizations
-                    # (e.g., weight_norm) and should not trigger skip - they're still leaf modules
-                    if not name.startswith("parametrizations."):
-                        skip = True  # skip random weights in non leaf modules
-                        break
-            if not skip and (hasattr(m, "comfy_cast_weights") or len(params) > 0):
+                    default = True  # default random weights in non leaf modules
+                    break
+            if default and default_device is not None:
+                for param_name, param in params.items():
+                    param.data = param.data.to(device=default_device, dtype=getattr(m, param_name + "_comfy_model_dtype", None))
+            if not default and (hasattr(m, "comfy_cast_weights") or len(params) > 0):
                 module_mem = model_management.module_size(m)
                 module_offload_mem = module_mem
                 if hasattr(m, "comfy_cast_weights"):
@@ -816,16 +862,21 @@ class ModelPatcher(ModelManageable, PatchSupport):
                         weight, _, _ = get_key_weight(self.model, key)
                         if model_dtype is None or weight is None:
                             return 0
-                        if (weight.dtype != model_dtype or isinstance(weight, QuantizedTensor)):
+                        if weight.dtype != model_dtype or isinstance(weight, QuantizedTensor):
                             return weight.numel() * model_dtype.itemsize
                         return 0
 
                     module_offload_mem += check_module_offload_mem("{}.weight".format(n))
                     module_offload_mem += check_module_offload_mem("{}.bias".format(n))
-                # todo: wtf does this do? the prepend logic looks radioactive
-                # prepend = (not hasattr(m, "comfy_cast_weights"),) if prio_comfy_cast_weights else ()
-                prepend = not hasattr(m, "comfy_cast_weights") if prio_comfy_cast_weights else None
-                loading.append(LoadingListItem(prepend, module_offload_mem, module_mem, n, m, params))
+                # Dynamic: small weights (<64KB) first, then larger weights prioritized by size.
+                # Non-dynamic: prioritize by module offload cost.
+                if for_dynamic:
+                    sort_criteria = (module_offload_mem >= 64 * 1024, -module_offload_mem)
+                else:
+                    sort_criteria = (module_offload_mem,)
+                # todo: needs merge, migrate LoadingListItem to have sort_criteria instead of prepend
+                # todo: needs merge, migrate LoadingListItem params to be kwargs or any, really
+                loading.append(LoadingListItem(sort_criteria, module_offload_mem, module_mem, n, m, params))
         return loading
 
     def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False):
@@ -1218,6 +1269,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         return lora.calculate_weight(patches, weight, key, intermediate_dtype=intermediate_dtype)
 
     def cleanup(self):
+        self.model_patches_call_function(function_name="cleanup")
         self.clean_hooks()
         if hasattr(self.model, "current_patcher"):
             self.model.current_patcher = None
@@ -1588,7 +1640,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                 continue
             key = "diffusion_model." + k
             unet_state_dict[k] = LazyCastingParam(self, key, utils.get_attr(self.model, key))
-        return self.model.state_dict_for_saving(unet_state_dict)
+        return self.model.state_dict_for_saving(unet_state_dict, clip_state_dict=clip_state_dict, vae_state_dict=vae_state_dict, clip_vision_state_dict=clip_vision_state_dict)
 
     def __del__(self):
         self.unpin_all_weights()
@@ -1605,12 +1657,9 @@ class ModelPatcherDynamic(ModelPatcher):
 
     def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         super().__init__(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name)
-        # this is now way more dynamic and we dont support the same base model for both Dynamic
-        # and non-dynamic patchers.
-        if hasattr(self.model, "model_loaded_weight_memory"):
-            del self.model.model_loaded_weight_memory
         if not hasattr(self.model, "dynamic_vbars"):
             self.model.dynamic_vbars = {}
+        self.non_dynamic_delegate_model = None
         assert load_device is not None
 
     def is_dynamic(self):
@@ -1630,15 +1679,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
     def loaded_size(self):
         vbar = self._vbar_get()
-        if vbar is None:
-            return 0
-        return vbar.loaded_size()
-
-    def get_free_memory(self, device):
-        # NOTE: on high condition / batch counts, estimate should have already vacated
-        # all non-dynamic models so this is safe even if its not 100% true that this
-        # would all be avaiable for inference use.
-        return model_management.get_total_memory(device) - self.model_size()
+        return (vbar.loaded_size() if vbar is not None else 0) + self.model.model_loaded_weight_memory
 
     # Pinning is deferred to ops time. Assert against this API to avoid pin leaks.
 
@@ -1657,7 +1698,7 @@ class ModelPatcherDynamic(ModelPatcher):
         # use all ModelPatcherDynamic this is ignored and its all done dynamically.
         return super().memory_required(input_shape=input_shape) * 1.3 + (1024 ** 3)
 
-    def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False, dirty=False):
+    def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False, dirty=False) -> typing.Union[None, tuple[bool, int]]:
 
         # Force patching doesn't make sense in Dynamic loading, as you dont know what does and
         # doesn't need to be forced at this stage. The only thing you could do would be patch
@@ -1672,6 +1713,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
         num_patches = 0
         allocated_size = 0
+        self.model.model_loaded_weight_memory = 0
 
         with self.use_ejected():
             self.unpatch_hooks()
@@ -1682,11 +1724,12 @@ class ModelPatcherDynamic(ModelPatcher):
 
             # We have way more tools for acceleration on comfy weight offloading, so always
             # prioritize the non-comfy weights (note the order reverse).
-            loading = self._load_list(prio_comfy_cast_weights=True)
+            # todo: needs merge, update this relative to prev commit
+            loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 
             for x in loading:
-                _, _, _, _, n, m, params = x
+                *_, module_mem, n, m, params = x
 
                 def set_dirty(item, dirty):
                     if dirty or not hasattr(item, "_v_signature"):
@@ -1700,8 +1743,10 @@ class ModelPatcherDynamic(ModelPatcher):
 
                     weight, _, _ = get_key_weight(self.model, key)
                     if weight is None:
-                        return 0
+                        return (False, 0)
                     if key in self.patches:
+                        if lora.calculate_shape(self.patches[key], weight, key) != weight.shape:
+                            return (True, 0)
                         setattr(m, param_key + "_lowvram_function", LowVramPatch(key, self.patches))
                         num_patches += 1
                     else:
@@ -1712,10 +1757,19 @@ class ModelPatcherDynamic(ModelPatcher):
                     setattr(m, param_key + "_function", weight_function)
                     geometry = weight
                     if not isinstance(weight, QuantizedTensor):
-                        model_dtype = getattr(m, param_key + "_comfy_model_dtype", weight.dtype)
+                        model_dtype = getattr(m, param_key + "_comfy_model_dtype", None) or weight.dtype
                         weight._model_dtype = model_dtype
                         geometry = memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
-                    return memory_management.vram_aligned_size(geometry)
+                    return (False, memory_management.vram_aligned_size(geometry))
+
+                def force_load_param(self, param_key, device_to):
+                    key = key_param_name_to_key(n, param_key)
+                    if key in self.backup:
+                        utils.set_attr_param(self.model, key, self.backup[key].weight)
+                    self.patch_weight_to_device(key, device_to=device_to)
+                    weight, _, _ = get_key_weight(self.model, key)
+                    if weight is not None:
+                        self.model.model_loaded_weight_memory += weight.numel() * weight.element_size()
 
                 if hasattr(m, "comfy_cast_weights"):
                     m.comfy_cast_weights = True
@@ -1723,30 +1777,44 @@ class ModelPatcherDynamic(ModelPatcher):
                     m.seed_key = n
                     set_dirty(m, dirty)
 
-                    v_weight_size = 0
-                    v_weight_size += setup_param(self, m, n, "weight")
-                    v_weight_size += setup_param(self, m, n, "bias")
+                    force_load, v_weight_size = setup_param(self, m, n, "weight")
+                    force_load_bias, v_weight_bias = setup_param(self, m, n, "bias")
+                    force_load = force_load or force_load_bias
+                    v_weight_size += v_weight_bias
 
-                    if vbar is not None and not hasattr(m, "_v"):
-                        m._v = vbar.alloc(v_weight_size)
-                    allocated_size += v_weight_size
+                    if force_load:
+                        logging.info(f"Module {n} has resizing Lora - force loading")
+                        force_load_param(self, "weight", device_to)
+                        force_load_param(self, "bias", device_to)
+                    else:
+                        if vbar is not None and not hasattr(m, "_v"):
+                            m._v = vbar.alloc(v_weight_size)
+                        allocated_size += v_weight_size
 
                 else:
                     for param in params:
                         key = key_param_name_to_key(n, param)
                         weight, _, _ = get_key_weight(self.model, key)
-                        weight.seed_key = key
-                        set_dirty(weight, dirty)
-                        geometry = weight
-                        model_dtype = getattr(m, param + "_comfy_model_dtype", weight.dtype)
-                        geometry = memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
-                        weight_size = geometry.numel() * geometry.element_size()
-                        if vbar is not None and not hasattr(weight, "_v"):
-                            weight._v = vbar.alloc(weight_size)
-                            weight._model_dtype = model_dtype
-                        allocated_size += weight_size
+                        if key not in self.backup:
+                            self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight, False)
+                        model_dtype = getattr(m, param + "_comfy_model_dtype", None)
+                        casted_weight = weight.to(dtype=model_dtype, device=device_to)
+                        utils.set_attr_param(self.model, key, casted_weight)
+                        self.model.model_loaded_weight_memory += casted_weight.numel() * casted_weight.element_size()
 
-            logging.info(f"Model {self.model.__class__.__name__} prepared for dynamic VRAM loading. {allocated_size // (1024 ** 2)}MB Staged. {num_patches} patches attached.")
+                move_weight_functions(m, device_to)
+
+            for key, buf in self.model.named_buffers(recurse=True):
+                if key not in self.backup_buffers:
+                    self.backup_buffers[key] = buf
+                module, buf_name = utils.resolve_attr(self.model, key)
+                model_dtype = getattr(module, buf_name + "_comfy_model_dtype", None)
+                casted_buf = buf.to(dtype=model_dtype, device=device_to)
+                utils.set_attr_buffer(self.model, key, casted_buf)
+                self.model.model_loaded_weight_memory += casted_buf.numel() * casted_buf.element_size()
+
+            force_load_stat = f" Force pre-loaded {len(self.backup)} weights: {self.model.model_loaded_weight_memory // 1024} KB." if len(self.backup) > 0 else ""
+            logging.info(f"Model {self.model.__class__.__name__} prepared for dynamic VRAM loading. {allocated_size // (1024 ** 2)}MB Staged. {num_patches} patches attached.{force_load_stat}")
 
             self.model.device = device_to
             self.model.current_weight_patches_uuid = self.patches_uuid
@@ -1757,17 +1825,30 @@ class ModelPatcherDynamic(ModelPatcher):
 
             self.apply_hooks(self.forced_hooks, force_apply=True)
 
+            # todo: should this return something?
+
     def partially_unload(self, device_to, memory_to_free=0, force_patch_weights=False):
         assert not force_patch_weights  # See above
         assert self.load_device != torch.device("cpu")
 
         vbar = self._vbar_get()
-        return 0 if vbar is None else vbar.free_memory(memory_to_free)
+        freed = 0 if vbar is None else vbar.free_memory(memory_to_free)
+
+        if freed < memory_to_free:
+            for key in list(self.backup.keys()):
+                bk = self.backup.pop(key)
+                utils.set_attr_param(self.model, key, bk.weight)
+            for key in list(self.backup_buffers.keys()):
+                utils.set_attr_buffer(self.model, key, self.backup_buffers.pop(key))
+            freed += self.model.model_loaded_weight_memory
+            self.model.model_loaded_weight_memory = 0
+
+        return freed
 
     def partially_unload_ram(self, ram_to_unload):
-        loading = self._load_list(prio_comfy_cast_weights=True)
+        loading = self._load_list(for_dynamic=True, default_device=self.offload_device)
         for x in loading:
-            _, _, _, _, m, _ = x
+            *_, m, _ = x
             ram_to_unload -= pinned_memory.unpin_memory(m)
             if ram_to_unload <= 0:
                 return
@@ -1786,6 +1867,8 @@ class ModelPatcherDynamic(ModelPatcher):
         if unpatch_weights:
             self.partially_unload_ram(1e32)
             self.partially_unload(None, 1e32)
+            for m in self.model.modules():
+                move_weight_functions(m, device_to)
 
     def partially_load(self, device_to, extra_memory=0, force_patch_weights=False):
         assert not force_patch_weights  # See above
@@ -1818,8 +1901,14 @@ class ModelPatcherDynamic(ModelPatcher):
     def unpatch_hooks(self, whitelist_keys_set: set[str] = None) -> None:
         pass
 
+    def get_non_dynamic_delegate(self):
+        model_patcher = self.clone(disable_dynamic=True, model_override=self.non_dynamic_delegate_model)
+        self.non_dynamic_delegate_model = model_patcher.get_clone_model_override()
+        return model_patcher
 
-def get_model_patcher_class() -> type[ModelPatcher]:
+
+# todo: needs merge, requires the keyword arg that allows disabling
+def get_model_patcher_class(disable_dynamic: bool = False) -> type[ModelPatcher]:
     """
     Returns the appropriate ModelPatcher class based on current configuration.
 
@@ -1827,7 +1916,8 @@ def get_model_patcher_class() -> type[ModelPatcher]:
     otherwise falls back to the standard ModelPatcher.
     """
     from . import memory_management
-    if memory_management.aimdo_allocator is not None:
+    # todo: should check if dynamic vram is enabled or if disable dynamic is set to true
+    if not disable_dynamic and memory_management.aimdo_allocator is not None:
         return ModelPatcherDynamic
     return ModelPatcher
 
@@ -1837,6 +1927,7 @@ def get_model_patcher_class() -> type[ModelPatcher]:
 # returning the correct class (ModelPatcher or ModelPatcherDynamic) based on configuration.
 # See docs/merging.md for explanation of this pattern.
 from .component_model.module_property import create_module_properties
+
 _module_properties = create_module_properties()
 
 

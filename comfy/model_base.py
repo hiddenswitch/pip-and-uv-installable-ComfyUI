@@ -28,6 +28,7 @@ from . import model_management
 from . import ops
 from . import utils
 from .conds import CONDRegular, CONDConstant
+from .ldm.ace import ace_step15
 from .ldm.ace.model import ACEStepTransformer2DModel
 from .ldm.anima.model import Anima as AnimaModel
 from .ldm.audio.dit import AudioDiffusionTransformer
@@ -57,15 +58,17 @@ from .ldm.omnigen.omnigen2 import OmniGen2Transformer2DModel
 from .ldm.pixart.pixartms import PixArtMS
 from .ldm.kandinsky5 import model as kadinsky5_model
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
-from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel
+from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
 from .ldm.wan.model_animate import AnimateWanModel
 from .model_management_types import ModelManageable
+from .ldm.ace import ace_step15
 from .ldm.ace.ace_step15 import AceStepConditionGenerationModel
 from .model_sampling import CONST, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG
 from .model_sampling import StableCascadeSampling, COSMOS_RFLOW, ModelSamplingCosmosRFlow, V_PREDICTION, \
     ModelSamplingContinuousEDM, ModelSamplingDiscrete, EPS, EDM, ModelSamplingContinuousV
 from .ops import Operations
 from .patcher_extension import WrapperExecutor, WrappersMP, get_all_wrappers
+from .ldm.lumina.model import NextDiTPixelSpace
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,7 @@ class ModelType(Enum):
     FLUX = 8
     IMG_TO_IMG = 9
     FLOW_COSMOS = 10
+    IMG_TO_IMG_FLOW = 11
 
 
 def model_sampling(model_config, model_type):
@@ -114,6 +118,8 @@ def model_sampling(model_config, model_type):
     elif model_type == ModelType.FLOW_COSMOS:
         c = COSMOS_RFLOW
         s = ModelSamplingCosmosRFlow
+    elif model_type == ModelType.IMG_TO_IMG_FLOW:
+        c = model_sampling.IMG_TO_IMG_FLOW
 
     class ModelSampling(s, c):
         pass
@@ -161,14 +167,13 @@ class BaseModel(torch.nn.Module):
             self.diffusion_model.eval()
             if model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
-                logger.debug("using channels last mode for diffusion model")
-            logger.debug("model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype))
+                logging.debug("using channels last mode for diffusion model")
+            logging.info("model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype))
+            model_management.archive_model_dtypes(self.diffusion_model)
         else:
             self.operations = None
         self.model_type = model_type
         self.model_sampling = model_sampling(model_config, model_type)
-
-        model_management.archive_model_dtypes(self.diffusion_model)
 
         self.adm_channels = unet_config.get("adm_in_channels", None)
         if self.adm_channels is None:
@@ -197,10 +202,7 @@ class BaseModel(torch.nn.Module):
             xc = torch.cat([xc] + [model_management.cast_to_device(c_concat, xc.device, xc.dtype)], dim=1)
 
         context = c_crossattn
-        dtype = self.get_dtype()
-
-        if self.manual_cast_dtype is not None:
-            dtype = self.manual_cast_dtype
+        dtype = self.get_dtype_inference()
 
         xc = xc.to(dtype)
         device = xc.device
@@ -236,6 +238,13 @@ class BaseModel(torch.nn.Module):
 
     def get_dtype(self):
         return self.diffusion_model.dtype
+
+    def get_dtype_inference(self):
+        dtype = self.get_dtype()
+
+        if self.manual_cast_dtype is not None:
+            dtype = self.manual_cast_dtype
+        return dtype
 
     def encode_adm(self, **kwargs):
         return None
@@ -394,9 +403,7 @@ class BaseModel(torch.nn.Module):
                     input_shapes += shape
 
         if model_management.xformers_enabled() or model_management.pytorch_attention_flash_attention():
-            dtype = self.get_dtype()
-            if self.manual_cast_dtype is not None:
-                dtype = self.manual_cast_dtype
+            dtype = self.get_dtype_inference()
             # TODO: this needs to be tweaked
             area = sum(map(lambda input_shape: input_shape[0] * math.prod(input_shape[2:]), input_shapes))
             return (area * model_management.dtype_size(dtype) * 0.01 * self.memory_usage_factor) * (1024 * 1024)
@@ -958,6 +965,26 @@ class Flux(BaseModel):
         return out
 
 
+class LongCatImage(Flux):
+    def _apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
+        transformer_options = transformer_options.copy()
+        rope_opts = transformer_options.get("rope_options", {})
+        rope_opts = dict(rope_opts)
+        rope_opts.setdefault("shift_t", 1.0)
+        rope_opts.setdefault("shift_y", 512.0)
+        rope_opts.setdefault("shift_x", 512.0)
+        transformer_options["rope_options"] = rope_opts
+        return super()._apply_model(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
+
+    def encode_adm(self, **kwargs):
+        return None
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        out.pop('guidance', None)
+        return out
+
+
 class Flux2(Flux):
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
@@ -1009,6 +1036,10 @@ class LTXV(BaseModel):
         if keyframe_idxs is not None:
             out['keyframe_idxs'] = conds.CONDRegular(keyframe_idxs)
 
+        guide_attention_entries = kwargs.get("guide_attention_entries", None)
+        if guide_attention_entries is not None:
+            out['guide_attention_entries'] = conds.CONDConstant(guide_attention_entries)
+
         return out
 
     def process_timestep(self, timestep, x, denoise_mask=None, **kwargs):
@@ -1027,10 +1058,14 @@ class LTXAV(BaseModel):
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
         attention_mask = kwargs.get("attention_mask", None)
+        device = kwargs["device"]
+
         if attention_mask is not None:
             out['attention_mask'] = conds.CONDRegular(attention_mask)
         cross_attn = kwargs.get("cross_attn", None)
         if cross_attn is not None:
+            if hasattr(self.diffusion_model, "preprocess_text_embeds"):
+                cross_attn = self.diffusion_model.preprocess_text_embeds(cross_attn.to(device=device, dtype=self.get_dtype_inference()), unprocessed=kwargs.get("unprocessed_ltxav_embeds", False))
             out['c_crossattn'] = conds.CONDRegular(cross_attn)
 
         out['frame_rate'] = conds.CONDConstant(kwargs.get("frame_rate", 25))
@@ -1057,6 +1092,10 @@ class LTXAV(BaseModel):
         latent_shapes = kwargs.get("latent_shapes", None)
         if latent_shapes is not None:
             out['latent_shapes'] = conds.CONDConstant(latent_shapes)
+
+        guide_attention_entries = kwargs.get("guide_attention_entries", None)
+        if guide_attention_entries is not None:
+            out['guide_attention_entries'] = conds.CONDConstant(guide_attention_entries)
 
         return out
 
@@ -1206,12 +1245,16 @@ class Anima(BaseModel):
         device = kwargs["device"]
         if cross_attn is not None:
             if t5xxl_ids is not None:
-                cross_attn = self.diffusion_model.preprocess_text_embeds(cross_attn.to(device=device, dtype=self.get_dtype()), t5xxl_ids.unsqueeze(0).to(device=device))
                 if t5xxl_weights is not None:
-                    cross_attn *= t5xxl_weights.unsqueeze(0).unsqueeze(-1).to(cross_attn)
+                    t5xxl_weights = t5xxl_weights.unsqueeze(0).unsqueeze(-1).to(cross_attn)
+                t5xxl_ids = t5xxl_ids.unsqueeze(0)
 
-                if cross_attn.shape[1] < 512:
-                    cross_attn = torch.nn.functional.pad(cross_attn, (0, 0, 0, 512 - cross_attn.shape[1]))
+                if torch.is_inference_mode_enabled():  # if not we are training
+                    cross_attn = self.diffusion_model.preprocess_text_embeds(cross_attn.to(device=device, dtype=self.get_dtype_inference()), t5xxl_ids.to(device=device), t5xxl_weights=t5xxl_weights.to(device=device, dtype=self.get_dtype_inference()))
+                else:
+                    out['t5xxl_ids'] = conds.CONDRegular(t5xxl_ids)
+                    out['t5xxl_weights'] = conds.CONDRegular(t5xxl_weights)
+
             out['c_crossattn'] = conds.CONDRegular(cross_attn)
         return out
 
@@ -1268,6 +1311,12 @@ class Lumina2(BaseModel):
         if ref_latents is not None:
             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()[2:]), ref_latents))])
         return out
+
+
+class ZImagePixelSpace(Lumina2):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        BaseModel.__init__(self, model_config, model_type, device=device, unet_model=NextDiTPixelSpace)
+        self.memory_usage_factor_conds = ("ref_latents",)
 
 
 class WAN21(BaseModel):
@@ -1508,6 +1557,52 @@ class WAN22(WAN21):
         return latent_image
 
 
+class WAN21_FlowRVS(WAN21):
+    def __init__(self, model_config, model_type=ModelType.IMG_TO_IMG_FLOW, image_to_video=False, device=None):
+        model_config.unet_config["model_type"] = "t2v"
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=WanModel)
+        self.image_to_video = image_to_video
+
+
+class WAN21_SCAIL(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=SCAILWanModel)
+        self.memory_usage_factor_conds = ("reference_latent", "pose_latents")
+        self.memory_usage_shape_process = {"pose_latents": lambda shape: [shape[0], shape[1], 1.5, shape[-2], shape[-1]]}
+        self.image_to_video = image_to_video
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+
+        reference_latents = kwargs.get("reference_latents", None)
+        if reference_latents is not None:
+            ref_latent = self.process_latent_in(reference_latents[-1])
+            ref_mask = torch.ones_like(ref_latent[:, :4])
+            ref_latent = torch.cat([ref_latent, ref_mask], dim=1)
+            out['reference_latent'] = conds.CONDRegular(ref_latent)
+
+        pose_latents = kwargs.get("pose_video_latent", None)
+        if pose_latents is not None:
+            pose_latents = self.process_latent_in(pose_latents)
+            pose_mask = torch.ones_like(pose_latents[:, :4])
+            pose_latents = torch.cat([pose_latents, pose_mask], dim=1)
+            out['pose_latents'] = conds.CONDRegular(pose_latents)
+
+        return out
+
+    def extra_conds_shapes(self, **kwargs):
+        out = {}
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            out['reference_latent'] = list([1, 20, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
+
+        pose_latents = kwargs.get("pose_video_latent", None)
+        if pose_latents is not None:
+            out['pose_latents'] = [pose_latents.shape[0], 20, *pose_latents.shape[2:]]
+
+        return out
+
+
 class Hunyuan3Dv2(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=Hunyuan3Dv2Model)
@@ -1598,6 +1693,7 @@ class ACEStep(BaseModel):
         out['lyrics_strength'] = conds.CONDConstant(kwargs.get("lyrics_strength", 1.0))
         return out
 
+
 class ACEStep15(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=AceStepConditionGenerationModel)
@@ -1605,9 +1701,12 @@ class ACEStep15(BaseModel):
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
         device = kwargs["device"]
+        noise = kwargs["noise"]
 
         cross_attn = kwargs.get("cross_attn", None)
         if cross_attn is not None:
+            if torch.count_nonzero(cross_attn) == 0:
+                out['replace_with_null_embeds'] = conds.CONDConstant(True)
             out['c_crossattn'] = conds.CONDRegular(cross_attn)
 
         conditioning_lyrics = kwargs.get("conditioning_lyrics", None)
@@ -1616,27 +1715,26 @@ class ACEStep15(BaseModel):
 
         refer_audio = kwargs.get("reference_audio_timbre_latents", None)
         if refer_audio is None or len(refer_audio) == 0:
-            refer_audio = torch.tensor([[[-1.3672e-01, -1.5820e-01,  5.8594e-01, -5.7422e-01,  3.0273e-02,
-                                        2.7930e-01, -2.5940e-03, -2.0703e-01, -1.6113e-01, -1.4746e-01,
-                                        -2.7710e-02, -1.8066e-01, -2.9688e-01,  1.6016e+00, -2.6719e+00,
-                                        7.7734e-01, -1.3516e+00, -1.9434e-01, -7.1289e-02, -5.0938e+00,
-                                        2.4316e-01,  4.7266e-01,  4.6387e-02, -6.6406e-01, -2.1973e-01,
-                                        -6.7578e-01, -1.5723e-01,  9.5312e-01, -2.0020e-01, -1.7109e+00,
-                                        5.8984e-01, -5.7422e-01,  5.1562e-01,  2.8320e-01,  1.4551e-01,
-                                        -1.8750e-01, -5.9814e-02,  3.6719e-01, -1.0059e-01, -1.5723e-01,
-                                        2.0605e-01, -4.3359e-01, -8.2812e-01,  4.5654e-02, -6.6016e-01,
-                                        1.4844e-01,  9.4727e-02,  3.8477e-01, -1.2578e+00, -3.3203e-01,
-                                        -8.5547e-01,  4.3359e-01,  4.2383e-01, -8.9453e-01, -5.0391e-01,
-                                        -5.6152e-02, -2.9219e+00, -2.4658e-02,  5.0391e-01,  9.8438e-01,
-                                        7.2754e-02, -2.1582e-01,  6.3672e-01,  1.0000e+00]]], device=device).movedim(-1, 1).repeat(1, 1, 750)
+            refer_audio = ace_step15.get_silence_latent(noise.shape[2], device)
+            pass_audio_codes = True
         else:
-            refer_audio = refer_audio[-1]
+            refer_audio = refer_audio[-1][:, :, :noise.shape[2]]
+            out['is_covers'] = conds.CONDConstant(True)
+            pass_audio_codes = False
+
+        if pass_audio_codes:
+            audio_codes = kwargs.get("audio_codes", None)
+            if audio_codes is not None:
+                out['audio_codes'] = conds.CONDRegular(torch.tensor(audio_codes, device=device))
+                refer_audio = refer_audio[:, :, :750]
+            else:
+                out['is_covers'] = conds.CONDConstant(False)
+
+        if refer_audio.shape[2] < noise.shape[2]:
+            pad = ace_step15.get_silence_latent(noise.shape[2], device)
+            refer_audio = torch.cat([refer_audio.to(pad), pad[:, :, refer_audio.shape[2]:]], dim=2)
+
         out['refer_audio'] = conds.CONDRegular(refer_audio)
-
-        audio_codes = kwargs.get("audio_codes", None)
-        if audio_codes is not None:
-            out['audio_codes'] = conds.CONDRegular(torch.tensor(audio_codes, device=device))
-
         return out
 
 

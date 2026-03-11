@@ -10,7 +10,7 @@ class Mahiro(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Mahiro",
-            display_name="Mahiro CFG",
+            display_name="Positive-Biased Guidance",
             category="_for_testing",
             description="Modify the guidance to scale more on the 'direction' of the positive prompt rather than the difference between the negative prompt.",
             inputs=[
@@ -20,6 +20,12 @@ class Mahiro(io.ComfyNode):
                 io.Model.Output(display_name="patched_model"),
             ],
             is_experimental=True,
+            search_aliases=[
+                "mahiro",
+                "mahiro cfg",
+                "similarity-adaptive guidance",
+                "positive-biased cfg",
+            ],
         )
 
     @classmethod
@@ -27,9 +33,9 @@ class Mahiro(io.ComfyNode):
         m = model.clone()
 
         def mahiro_normd(args):
-            scale: float = args['cond_scale']
-            cond_p: torch.Tensor = args['cond_denoised']
-            uncond_p: torch.Tensor = args['uncond_denoised']
+            scale: float = args["cond_scale"]
+            cond_p: torch.Tensor = args["cond_denoised"]
+            uncond_p: torch.Tensor = args["uncond_denoised"]
             # naive leap
             leap = cond_p * scale
             # sim with uncond leap

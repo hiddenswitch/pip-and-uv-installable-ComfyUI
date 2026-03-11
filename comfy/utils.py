@@ -22,6 +22,7 @@ import contextvars
 import itertools
 import json
 import logging
+import time
 import math
 import mmap
 import os
@@ -42,12 +43,13 @@ import torch
 from PIL import Image
 from einops import rearrange
 from torch.nn.functional import interpolate
+from tqdm.auto import trange
 from tqdm import tqdm
 from typing_extensions import TypedDict, NotRequired
 
 from comfy_execution.progress import get_progress_state
-from . import interruption, checkpoint_pickle
-from .cli_args import args, enables_dynamic_vram
+from . import interruption, checkpoint_pickle, memory_management
+from .cli_args import args
 from .component_model import files
 from .component_model.deprecation import _deprecate_method
 from .component_model.executor_types import ExecutorToClientProgress, ProgressMessage
@@ -86,7 +88,13 @@ if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in 
         from numpy.dtypes import Float64DType  # pylint: disable=no-name-in-module,import-error
     except (ImportError, ModuleNotFoundError):
         Float64DType = np.float64
-    from _codecs import encode
+
+
+    def encode(*args, **kwargs):  # no longer necessary on newer torch
+        return None
+
+
+    encode.__module__ = "_codecs"
 
     torch.serialization.add_safe_globals([ModelCheckpoint, scalar, dtype, Float64DType, encode])
     ALWAYS_SAFE_LOAD = True
@@ -137,14 +145,12 @@ _TYPES = {
 def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
     f = open(ckpt, "rb")
     mapping = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    mv = memoryview(mapping)
 
     header_size = struct.unpack("<Q", mapping[:8])[0]
     header = json.loads(mapping[8:8 + header_size].decode("utf-8"))
 
-    with warnings.catch_warnings():
-        # We are working with read-only RAM by design
-        warnings.filterwarnings("ignore", message="The given buffer is not writable")
-        data_area = torch.frombuffer(mapping, dtype=torch.uint8)[8 + header_size:]
+    mv = mv[8 + header_size:]
 
     sd = {}
     for name, info in header.items():
@@ -152,7 +158,13 @@ def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
             continue
 
         start, end = info["data_offsets"]
-        sd[name] = data_area[start:end].view(_TYPES[info["dtype"]]).view(info["shape"])
+        if start == end:
+            sd[name] = torch.empty(info["shape"], dtype=_TYPES[info["dtype"]])
+        else:
+            with warnings.catch_warnings():
+                # We are working with read-only RAM by design
+                warnings.filterwarnings("ignore", message="The given buffer is not writable")
+                sd[name] = torch.frombuffer(mv[start:end], dtype=_TYPES[info["dtype"]]).view(info["shape"])
 
     return sd, header.get("__metadata__", {}),
 
@@ -166,7 +178,7 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
     sd: dict[str, torch.Tensor] = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
         try:
-            if enables_dynamic_vram():
+            if memory_management.aimdo_enabled:
                 sd, metadata = load_safetensors(ckpt)
                 if not return_metadata:
                     metadata = None
@@ -779,10 +791,10 @@ def flux_to_diffusers(mmdit_config, output_prefix=""):
             "ff_context.linear_in.bias": "txt_mlp.0.bias",
             "ff_context.linear_out.weight": "txt_mlp.2.weight",
             "ff_context.linear_out.bias": "txt_mlp.2.bias",
-            "attn.norm_q.weight": "img_attn.norm.query_norm.scale",
-            "attn.norm_k.weight": "img_attn.norm.key_norm.scale",
-            "attn.norm_added_q.weight": "txt_attn.norm.query_norm.scale",
-            "attn.norm_added_k.weight": "txt_attn.norm.key_norm.scale",
+            "attn.norm_q.weight": "img_attn.norm.query_norm.weight",
+            "attn.norm_k.weight": "img_attn.norm.key_norm.weight",
+            "attn.norm_added_q.weight": "txt_attn.norm.query_norm.weight",
+            "attn.norm_added_k.weight": "txt_attn.norm.key_norm.weight",
         }
 
         for k in block_map:
@@ -805,8 +817,8 @@ def flux_to_diffusers(mmdit_config, output_prefix=""):
             "norm.linear.bias": "modulation.lin.bias",
             "proj_out.weight": "linear2.weight",
             "proj_out.bias": "linear2.bias",
-            "attn.norm_q.weight": "norm.query_norm.scale",
-            "attn.norm_k.weight": "norm.key_norm.scale",
+            "attn.norm_q.weight": "norm.query_norm.weight",
+            "attn.norm_k.weight": "norm.key_norm.weight",
             "attn.to_qkv_mlp_proj.weight": "linear1.weight",  # Flux 2
             "attn.to_out.weight": "linear2.weight",  # Flux 2
         }
@@ -985,20 +997,33 @@ def safetensors_header(safetensors_path, max_size=100 * 1024 * 1024):
 ATTR_UNSET = {}
 
 
-def set_attr(obj, attr, value):
+def resolve_attr(obj, attr):
     attrs = attr.split(".")
     for name in attrs[:-1]:
         obj = getattr(obj, name)
-    prev = getattr(obj, attrs[-1], ATTR_UNSET)
+    return obj, attrs[-1]
+
+
+def set_attr(obj, attr, value):
+    obj, name = resolve_attr(obj, attr)
+    prev = getattr(obj, name, ATTR_UNSET)
     if value is ATTR_UNSET:
-        delattr(obj, attrs[-1])
+        delattr(obj, name)
     else:
-        setattr(obj, attrs[-1], value)
+        setattr(obj, name, value)
     return prev
 
 
 def set_attr_param(obj, attr, value):
     return set_attr(obj, attr, torch.nn.Parameter(value, requires_grad=False))
+
+
+def set_attr_buffer(obj, attr, value):
+    obj, name = resolve_attr(obj, attr)
+    prev = getattr(obj, name, ATTR_UNSET)
+    persistent = name not in getattr(obj, "_non_persistent_buffers_set", set())
+    obj.register_buffer(name, value, persistent=persistent)
+    return prev
 
 
 def copy_to_param(obj, attr, value):
@@ -1320,11 +1345,32 @@ class _DisabledProgressBar:
     def __init__(self, *args, **kwargs):
         pass
 
-    def update(self, *args, **kwargs):
-        pass
 
-    def update_absolute(self, *args, **kwargs):
-        pass
+def model_trange(*args, **kwargs):
+    if not memory_management.aimdo_enabled:
+        return trange(*args, **kwargs)
+
+    pbar = trange(*args, **kwargs, smoothing=1.0)
+    pbar._i = 0
+    pbar.set_postfix_str("  Model Initializing ...  ")
+
+    _update = pbar.update
+
+    def warmup_update(n=1):
+        pbar._i += 1
+        if pbar._i == 1:
+            pbar.i1_time = time.time()
+            pbar.set_postfix_str(" Model Initialization complete!  ")
+        elif pbar._i == 2:
+            # bring forward the effective start time based the the diff between first and second iteration
+            # to attempt to remove load overhead from the final step rate estimate.
+            pbar.start_t = pbar.i1_time - (time.time() - pbar.i1_time)
+            pbar.set_postfix_str("")
+
+        _update(n)
+
+    pbar.update = warmup_update
+    return pbar
 
 
 # Throttle settings for progress bar updates to reduce WebSocket flooding
@@ -1637,3 +1683,31 @@ def string_to_seed(data):
             else:
                 crc >>= 1
     return crc ^ 0xFFFFFFFF
+
+
+def deepcopy_list_dict(obj, memo=None):
+    if memo is None:
+        memo = {}
+
+    obj_id = id(obj)
+    if obj_id in memo:
+        return memo[obj_id]
+
+    if isinstance(obj, dict):
+        res = {deepcopy_list_dict(k, memo): deepcopy_list_dict(v, memo) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        res = [deepcopy_list_dict(i, memo) for i in obj]
+    else:
+        res = obj
+
+    memo[obj_id] = res
+    return res
+
+
+def normalize_image_embeddings(embeds, embeds_info, scale_factor):
+    """Normalize image embeddings to match text embedding scale"""
+    for info in embeds_info:
+        if info.get("type") == "image":
+            start_idx = info["index"]
+            end_idx = start_idx + info["size"]
+            embeds[:, start_idx:end_idx, :] /= scale_factor

@@ -20,7 +20,7 @@ tests/**/temp
 /.vs
 .vscode/
 .idea/
-venv/
+venv*/
 .venv/
 /web/extensions/*
 !/web/extensions/logging.js.example

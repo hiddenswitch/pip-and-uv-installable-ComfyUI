@@ -193,6 +193,7 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
                 io.Combo.Input(
                     "device",
                     options=["default", "cpu"],
+                    advanced=True,
                 )
             ],
             outputs=[io.Clip.Output()],

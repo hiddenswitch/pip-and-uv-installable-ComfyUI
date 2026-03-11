@@ -21,6 +21,7 @@ class Blend(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="ImageBlend",
+            display_name="Image Blend",
             category="image/postprocessing",
             inputs=[
                 io.Image.Input("image1"),
@@ -80,6 +81,7 @@ class Blur(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="ImageBlur",
+            display_name="Image Blur",
             category="image/postprocessing",
             inputs=[
                 io.Image.Input("image"),
@@ -186,9 +188,9 @@ class Sharpen(io.ComfyNode):
             category="image/postprocessing",
             inputs=[
                 io.Image.Input("image"),
-                io.Int.Input("sharpen_radius", default=1, min=1, max=31, step=1),
-                io.Float.Input("sigma", default=1.0, min=0.1, max=10.0, step=0.01),
-                io.Float.Input("alpha", default=1.0, min=0.0, max=5.0, step=0.01),
+                io.Int.Input("sharpen_radius", default=1, min=1, max=31, step=1, advanced=True),
+                io.Float.Input("sigma", default=1.0, min=0.1, max=10.0, step=0.01, advanced=True),
+                io.Float.Input("alpha", default=1.0, min=0.0, max=5.0, step=0.01, advanced=True),
             ],
             outputs=[
                 io.Image.Output(),
@@ -233,7 +235,7 @@ class ImageScaleToTotalPixels(io.ComfyNode):
                 io.Image.Input("image"),
                 io.Combo.Input("upscale_method", options=cls.upscale_methods),
                 io.Float.Input("megapixels", default=1.0, min=0.01, max=16.0, step=0.01),
-                io.Int.Input("resolution_steps", default=1, min=1, max=256, optional=True),
+                io.Int.Input("resolution_steps", default=1, min=1, max=256, optional=True, advanced=True),
             ],
             outputs=[
                 io.Image.Output(),
@@ -587,6 +589,7 @@ class BatchImagesNode(io.ComfyNode):
             node_id="BatchImagesNode",
             display_name="Batch Images",
             category="image",
+            essentials_category="Image Tools",
             search_aliases=["batch", "image batch", "batch images", "combine images", "merge images", "stack images"],
             inputs=[
                 io.Autogrow.Input("images", template=autogrow_template)

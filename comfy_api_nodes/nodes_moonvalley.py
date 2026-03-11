@@ -221,8 +221,8 @@ class MoonvalleyImg2VideoNode(IO.ComfyNode):
                 ),
                 IO.Int.Input(
                     "steps",
-                    default=33,
-                    min=1,
+                    default=80,
+                    min=75,  # steps should be greater or equal to cooldown_steps(75) + warmup_steps(0)
                     max=100,
                     step=1,
                     tooltip="Number of denoising steps",
@@ -342,8 +342,8 @@ class MoonvalleyVideo2VideoNode(IO.ComfyNode):
                 ),
                 IO.Int.Input(
                     "steps",
-                    default=33,
-                    min=1,
+                    default=60,
+                    min=60,  # steps should be greater or equal to cooldown_steps(36) + warmup_steps(24)
                     max=100,
                     step=1,
                     display_mode=IO.NumberDisplay.number,
@@ -372,7 +372,7 @@ class MoonvalleyVideo2VideoNode(IO.ComfyNode):
         video: Input.Video | None = None,
         control_type: str = "Motion Transfer",
         motion_intensity: int | None = 100,
-        steps=33,
+        steps=60,
         prompt_adherence=4.5,
     ) -> IO.NodeOutput:
         validated_video = validate_video_to_video_input(video)
@@ -467,8 +467,8 @@ class MoonvalleyTxt2VideoNode(IO.ComfyNode):
                 ),
                 IO.Int.Input(
                     "steps",
-                    default=33,
-                    min=1,
+                    default=80,
+                    min=75,  # steps should be greater or equal to cooldown_steps(75) + warmup_steps(0)
                     max=100,
                     step=1,
                     tooltip="Inference steps",

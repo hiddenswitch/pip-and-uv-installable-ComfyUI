@@ -109,6 +109,9 @@ def model_lora_keys_clip(model, key_map=None):
     for k in sdk:
         if k.endswith(".weight"):
             key_map["text_encoders.{}".format(k[:-len(".weight")])] = k  # generic lora format without any weird key names
+            tp = k.find(".transformer.") #also map without wrapper prefix for composite text encoder models
+            if tp > 0 and not k.startswith("clip_"):
+                key_map["text_encoders.{}".format(k[tp + 1:-len(".weight")])] = k
 
     text_model_lora_key = "lora_te_text_model_encoder_layers_{}_{}"
     clip_l_present = False
@@ -350,6 +353,7 @@ def model_lora_keys_unet(model, key_map=None):
             if k.startswith("diffusion_model.decoder.") and k.endswith(".weight"):
                 key_lora = k[len("diffusion_model.decoder."):-len(".weight")]
                 key_map["base_model.model.{}".format(key_lora)] = k  # Official base model loras
+                key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = k  # LyCORIS/LoKR format
 
     return key_map
 
@@ -387,6 +391,31 @@ def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: Union[list[int], torch.
 
     return padded_tensor
 
+
+def calculate_shape(patches, weight, key, original_weights=None):
+    current_shape = weight.shape
+
+    for p in patches:
+        v = p[1]
+        offset = p[3]
+
+        # Offsets restore the old shape; lists force a diff without metadata
+        if offset is not None or isinstance(v, list):
+            continue
+
+        if isinstance(v, weight_adapter.WeightAdapterBase):
+            adapter_shape = v.calculate_shape(key)
+            if adapter_shape is not None:
+                current_shape = adapter_shape
+            continue
+
+        # Standard diff logic with padding
+        if len(v) == 2:
+            patch_type, patch_data = v[0], v[1]
+            if patch_type == "diff" and len(patch_data) > 1 and patch_data[1]['pad_weight']:
+                current_shape = patch_data[0].shape
+
+    return current_shape
 
 def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_dtype=torch.float32, original_weights=None):
     for p in patches:

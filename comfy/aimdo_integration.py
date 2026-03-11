@@ -7,9 +7,12 @@ from . import model_patcher
 import comfy_aimdo.control
 import comfy_aimdo.torch
 
-from .cli_args import args, enables_dynamic_vram
+from .cli_args import args, dynamic_vram_requested, dynamic_vram_supported, enables_dynamic_vram
 
-if enables_dynamic_vram():
+if dynamic_vram_requested() and not dynamic_vram_supported():
+    logging.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
+    memory_management.aimdo_allocator = None
+elif enables_dynamic_vram():
     if comfy_aimdo.control.init_device(model_management.get_torch_device().index):
         if args.verbose == 'DEBUG':
             comfy_aimdo.control.set_log_debug()

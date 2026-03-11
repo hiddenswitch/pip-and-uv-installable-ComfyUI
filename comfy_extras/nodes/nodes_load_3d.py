@@ -32,6 +32,7 @@ class Load3D(IO.ComfyNode):
             node_id="Load3D",
             display_name="Load 3D & Animation",
             category="3d",
+            essentials_category="Basics",
             is_experimental=True,
             inputs=[
                 IO.Combo.Input("model_file", options=sorted(files), upload=IO.UploadType.model),
@@ -46,6 +47,7 @@ class Load3D(IO.ComfyNode):
                 IO.Image.Output(display_name="normal"),
                 IO.Load3DCamera.Output(display_name="camera_info"),
                 IO.Video.Output(display_name="recording_video"),
+                IO.File3DAny.Output(display_name="model_3d"),
             ],
         )
 
@@ -67,7 +69,8 @@ class Load3D(IO.ComfyNode):
 
             video = InputImpl.VideoFromFile(recording_video_path)
 
-        return IO.NodeOutput(output_image, output_mask, model_file, normal_image, image['camera_info'], video)
+        file_3d = Types.File3D(folder_paths.get_annotated_filepath(model_file))
+        return IO.NodeOutput(output_image, output_mask, model_file, normal_image, image['camera_info'], video, file_3d)
 
     process = execute  # TODO: remove
 
@@ -96,8 +99,8 @@ class Preview3D(IO.ComfyNode):
                     ],
                     tooltip="3D model file or path string",
                 ),
-                IO.Load3DCamera.Input("camera_info", optional=True),
-                IO.Image.Input("bg_image", optional=True),
+                IO.Load3DCamera.Input("camera_info", optional=True, advanced=True),
+                IO.Image.Input("bg_image", optional=True, advanced=True),
             ],
             outputs=[],
         )

@@ -16,7 +16,6 @@ from .layers import (
     SingleStreamBlock,
     timestep_embedding,
     Modulation,
-    RMSNorm
 )
 
 
@@ -82,7 +81,7 @@ class Flux(nn.Module):
         self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device)
 
         if params.txt_norm:
-            self.txt_norm = RMSNorm(params.context_in_dim, dtype=dtype, device=device, operations=operations)
+            self.txt_norm = operations.RMSNorm(params.context_in_dim, dtype=dtype, device=device)
         else:
             self.txt_norm = None
 
@@ -146,6 +145,8 @@ class Flux(nn.Module):
 
         if transformer_options is None:
             transformer_options = {}
+        else:
+            transformer_options = transformer_options.copy()
         patches = transformer_options.get("patches", {})
         patches_replace = transformer_options.get("patches_replace", {})
         if img.ndim != 3 or txt.ndim != 3:
@@ -173,7 +174,7 @@ class Flux(nn.Module):
 
         if "post_input" in patches:
             for p in patches["post_input"]:
-                out = p({"img": img, "txt": txt, "img_ids": img_ids, "txt_ids": txt_ids})
+                out = p({"img": img, "txt": txt, "img_ids": img_ids, "txt_ids": txt_ids, "transformer_options": transformer_options})
                 img = out["img"]
                 txt = out["txt"]
                 img_ids = out["img_ids"]
@@ -235,6 +236,7 @@ class Flux(nn.Module):
 
         transformer_options["total_blocks"] = len(self.single_blocks)
         transformer_options["block_type"] = "single"
+        transformer_options["img_slice"] = [txt.shape[1], img.shape[1]]
         for i, block in enumerate(self.single_blocks):
             transformer_options["block_index"] = i
             if ("single_block", i) in blocks_replace:

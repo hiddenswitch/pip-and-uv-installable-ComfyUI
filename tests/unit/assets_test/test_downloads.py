@@ -117,7 +117,7 @@ def test_download_missing_file_returns_404(
         assert body["error"]["code"] == "FILE_NOT_FOUND"
     finally:
         # Created without "unit-tests" tag, so autoclean won't handle it
-        http.delete(f"{api_base}/api/assets/{aid}", timeout=120)
+        http.delete(f"{api_base}/api/assets/{aid}?delete_content=true", timeout=120)
 
 
 @pytest.mark.skip(reason="Requires computing hashes of files in directories to deduplicate into multiple cache states")

@@ -71,6 +71,7 @@ _VRAM_OPTS: list[tuple] = [
     ("novram", bool, typer.Option(False, "--novram", help="Minimize VRAM usage.")),
     ("cpu", bool, typer.Option(False, "--cpu", help="Use CPU for processing.")),
     ("reserve_vram", float, typer.Option(0, "--reserve-vram", help="Set the amount of vram in GB you want to reserve for use by your OS/other software.")),
+    ("disable_dynamic_vram", bool, typer.Option(False, "--disable-dynamic-vram", help="Disable dynamic VRAM and use estimate based model loading.")),
 ]
 
 _PRECISION_OPTS: list[tuple] = [

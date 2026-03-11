@@ -12,8 +12,11 @@ cleanly because the stub silently accepts them. You must also:
 """
 from __future__ import annotations
 
-import enum
+import os
 import sys
+
+from packaging import version
+import torch
 
 from .cli_args_types import Configuration, LatentPreviewMethod, PerformanceFeature
 from .component_model.module_property import create_module_properties
@@ -142,12 +145,20 @@ vram_group.add_argument("--cpu", action="store_true", help="Use CPU for everythi
 parser.add_argument("--reserve-vram", type=float, default=0, help="VRAM to reserve in GB.")
 parser.add_argument("--async-offload", nargs='?', const=2, type=int, default=None, metavar="NUM_STREAMS", help="Use async weight offloading.")
 parser.add_argument("--disable-async-offload", action="store_true", help="Disable async weight offloading.")
+parser.add_argument("--disable-dynamic-vram", action="store_true", help="Disable dynamic VRAM and use estimate based model loading.")
+
 parser.add_argument("--force-non-blocking", action="store_true", help="Force non-blocking operations.")
 parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Hash function for comparisons.")
 parser.add_argument("--disable-smart-memory", action="store_true", help="Disable smart memory management.")
 parser.add_argument("--deterministic", action="store_true", help="Use deterministic algorithms.")
 
-parser.add_argument("--fast", nargs="*", type=PerformanceFeature, default=set(), help="Enable performance optimizations.")
+parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.")
+
+parser.add_argument("--disable-smart-memory", action="store_true", help="Force ComfyUI to agressively offload to regular ram instead of keeping models in vram when it can.")
+parser.add_argument("--deterministic", action="store_true", help="Make pytorch use slower deterministic algorithms when it can. Note that this might not make images deterministic in all cases.")
+
+parser.add_argument("--fast", nargs="*", type=PerformanceFeature, help="Enable some untested and potentially quality deteriorating optimizations. This is used to test new features so using it might crash your comfyui. --fast with no arguments enables everything. You can pass a list specific optimizations if you only want to enable specific ones. Current valid optimizations: {}".format(" ".join(map(lambda c: c.value, PerformanceFeature))))
+
 parser.add_argument("--disable-pinned-memory", action="store_true", help="Disable pinned memory use.")
 
 parser.add_argument("--mmap-torch-files", action="store_true", help="Use mmap for ckpt/pt files.")
@@ -239,6 +250,11 @@ def _args() -> Configuration:
 
 args: Configuration
 
+database_default_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "user", "comfyui.db")
+)
+parser.add_argument("--database-url", type=str, default=f"sqlite:///{database_default_path}", help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
+parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning on startup for database synchronization.")
 
 def default_configuration() -> Configuration:
     """Return a Configuration with all defaults (no CLI parsing)."""
@@ -254,6 +270,22 @@ def cli_args_configuration() -> Configuration:
     return Configuration()
 
 
+def dynamic_vram_requested() -> bool:
+    """Return whether the current configuration requests dynamic VRAM."""
+    configuration = _args()
+    return (
+        PerformanceFeature.DynamicVRAM in configuration.fast
+        and not configuration.highvram
+        and not configuration.gpu_only
+        and not configuration.disable_dynamic_vram
+    )
+
+
+def dynamic_vram_supported() -> bool:
+    """Return whether the current runtime supports dynamic VRAM."""
+    torch_version = version.parse(torch.__version__.split("+", maxsplit=1)[0])
+    return torch_version >= version.parse("2.8")
+
+
 def enables_dynamic_vram():
-    config = _args()
-    return PerformanceFeature.DynamicVRAM in config.fast and not config.highvram and not config.gpu_only
+    return dynamic_vram_requested() and dynamic_vram_supported()

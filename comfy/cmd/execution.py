@@ -10,6 +10,7 @@ import logging
 import threading
 import traceback
 import typing
+import comfy_aimdo
 from contextlib import nullcontext
 from enum import Enum
 from os import PathLike
@@ -626,17 +627,15 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                 # TODO - How to handle this with async functions without contextvars (which requires Python 3.12)?
                 GraphBuilder.set_default_prefix(unique_id, call_index, 0)
 
-            #Do comfy_aimdo mempool chunking here on the per-node level. Multi-model workflows
-            #will cause all sorts of incompatible memory shapes to fragment the pytorch alloc
-            #that we just want to cull out each model run.
-            allocator = memory_management.aimdo_allocator
-            with nullcontext() if allocator is None else torch.cuda.use_mem_pool(torch.cuda.MemPool(allocator.allocator())):
-                try:
-                    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, execution_list=execution_list, executed=executed, v3_data=v3_data)
-                finally:
-                    if allocator is not None:
-                        model_management.reset_cast_buffers()
-                        torch.cuda.synchronize()
+            try:
+                output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+            finally:
+                if memory_management.aimdo_enabled:
+                    # todo: need merge, this should be if the logging level is DEBUG
+                    # if args.verbose == "DEBUG":
+                    #     comfy_aimdo.control.analyze()
+                    model_management.reset_cast_buffers()
+                    comfy_aimdo.model_vbar.vbars_reset_watermark_limits()
 
             if has_pending_tasks:
                 pending_async_nodes[unique_id] = output_data
@@ -722,9 +721,11 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
 
         logger.error(format_node_exception(ex, tb, node_id=real_node_id, class_type=class_type, input_data_formatted=input_data_formatted), exc_info=False)
 
-        if isinstance(ex, model_management.OOM_EXCEPTION):
+        if model_management.is_oom(ex):
             logger.error(f"Got an OOM, unloading all loaded models: {model_management.debug_memory_summary()}")
             model_management.unload_all_models()
+        elif isinstance(ex, RuntimeError) and ("mat1 and mat2 shapes" in str(ex)) and "Sampler" in class_type:
+            logger.info("\n\nIf you have any \"Load CLIP\" or \"*CLIP Loader\" nodes in your workflow connected to this sampler node make sure the correct file(s) and type is selected.")
 
         filtered_tb = traceback.format_list(filter_traceback(tb))
         error_details: RecursiveExecutionErrorDetails = {
@@ -1065,12 +1066,14 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                 continue
         else:
             try:
-                # Unwraps values wrapped in __value__ key. This is used to pass
-                # list widget value to execution, as by default list value is
-                # reserved to represent the connection between nodes.
-                if isinstance(val, dict) and "__value__" in val:
-                    val = val["__value__"]
-                    inputs[x] = val
+                # Unwraps values wrapped in __value__ key or typed wrapper.
+                # This is used to pass list widget values to execution,
+                # as by default list value is reserved to represent the
+                # connection between nodes.
+                if isinstance(val, dict):
+                    if "__value__" in val:
+                        val = val["__value__"]
+                        inputs[x] = val
 
                 if input_type == "INT":
                     val = int(val)

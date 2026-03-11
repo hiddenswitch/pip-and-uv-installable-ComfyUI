@@ -15,20 +15,24 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
+
 import json
 import logging
-from typing import Optional, Type, Union
+from typing import Optional, Type
 
 import comfy_aimdo.model_vbar
 import comfy_aimdo.torch
 import torch
+import typing
 from torch import Tensor
 
+import comfy.float
+import comfy.model_management
 from . import memory_management
 from . import model_management, rmsnorm
 from . import pinned_memory
 from . import utils
-from .cli_args import args, PerformanceFeature, enables_dynamic_vram
+from .cli_args import args, PerformanceFeature
 from .execution_context import current_execution_context
 from .interruption import throw_exception_if_processing_interrupted
 
@@ -114,6 +118,8 @@ try:
             def _scaled_dot_product_attention_sdpa2(q, k, v, *args, **kwargs):
                 global _cudnn_attention_disabled
                 try:
+                    if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
+                        return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                     with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                 except RuntimeError as e:
@@ -155,17 +161,36 @@ def cast_to_input(weight, input, non_blocking=False, copy=True):
     return model_management.cast_to(weight, input.dtype, input.device, non_blocking=non_blocking, copy=copy)
 
 
-def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype):
+def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype, want_requant):
+
+    #vbar doesn't support CPU weights, but some custom nodes have weird paths
+    #that might switch the layer to the CPU and expect it to work. We have to take
+    #a clone conservatively as we are mmapped and some SFT files are packed misaligned
+    #If you are a custom node author reading this, please move your layer to the GPU
+    #or declare your ModelPatcher as CPU in the first place.
+    if comfy.model_management.is_device_cpu(device):
+        weight = s.weight.to(dtype=dtype, copy=True)
+        if isinstance(weight, QuantizedTensor):
+            weight = weight.dequantize()
+        bias = None
+        if s.bias is not None:
+            bias = s.bias.to(dtype=bias_dtype, copy=True)
+        return weight, bias, (None, None, None)
+
     offload_stream = None
     xfer_dest = None
-    cast_geometry = memory_management.tensors_to_geometries([ s.weight, s.bias ])
 
     signature = comfy_aimdo.model_vbar.vbar_fault(s._v)
-    if signature is not None:
-        xfer_dest = comfy_aimdo.torch.aimdo_to_tensor(s._v, device)
     resident = comfy_aimdo.model_vbar.vbar_signature_compare(signature, s._v_signature)
+    if signature is not None:
+        if resident:
+            weight = s._v_weight
+            bias = s._v_bias
+        else:
+            xfer_dest = comfy_aimdo.torch.aimdo_to_tensor(s._v, device)
 
     if not resident:
+        cast_geometry = comfy.memory_management.tensors_to_geometries([ s.weight, s.bias ])
         cast_dest = None
 
         xfer_source = [ s.weight, s.bias ]
@@ -215,9 +240,13 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
                     dst_tensor.copy_(src_tensor)
             xfer_dest = cast_dest
 
-    params = memory_management.interpret_gathered_like(cast_geometry, xfer_dest)
-    weight = params[0]
-    bias = params[1]
+        params = memory_management.interpret_gathered_like(cast_geometry, xfer_dest)
+        weight = params[0]
+        bias = params[1]
+        if signature is not None:
+            s._v_weight = weight
+            s._v_bias = bias
+        s._v_signature=signature
 
     def post_cast(s, param_key, x, dtype, resident, update_weight):
         lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
@@ -235,17 +264,15 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
             x = to_dequant(x, dtype)
         if not resident and lowvram_fn is not None:
             x = to_dequant(x, dtype if compute_dtype is None else compute_dtype)
-            #FIXME: this is not accurate, we need to be sensitive to the compute dtype
             x = lowvram_fn(x)
-            if (isinstance(orig, QuantizedTensor) and
-                (orig.dtype == dtype and len(fns) == 0 or update_weight)):
+            if (want_requant and len(fns) == 0 or update_weight):
                 seed = utils.string_to_seed(s.seed_key)
-                y = QuantizedTensor.from_float(x, s.layout_type, scale="recalculate", stochastic_rounding=seed)
-                if orig.dtype == dtype and len(fns) == 0:
-                    #The layer actually wants our freshly saved QT
-                    x = y
-            else:
-                y = x
+                if isinstance(orig, QuantizedTensor):
+                    y = QuantizedTensor.from_float(x, s.layout_type, scale="recalculate", stochastic_rounding=seed)
+                else:
+                    y = comfy.float.stochastic_rounding(x, orig.dtype, seed=seed)
+            if want_requant and len(fns) == 0:
+                x = y
             if update_weight:
                 orig.copy_(y)
         for f in fns:
@@ -257,13 +284,12 @@ def cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compu
     weight = post_cast(s, "weight", weight, dtype, resident, update_weight)
     if s.bias is not None:
         bias = post_cast(s, "bias", bias, bias_dtype, resident, update_weight)
-    s._v_signature=signature
 
     #FIXME: weird offload return protocol
     return weight, bias, (offload_stream, device if signature is not None else None, None)
 
 
-def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, offloadable=False, compute_dtype=None):
+def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, offloadable=False, compute_dtype=None, want_requant=False):
     # NOTE: offloadable=False is a legacy and if you are a custom node author reading this please pass
     # offloadable=True and call uncast_bias_weight() after your last usage of the weight/bias. This
     # will add async-offload support to your cast and improve performance.
@@ -281,7 +307,7 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
     non_blocking = model_management.device_supports_non_blocking(device)
 
     if hasattr(s, "_v"):
-        return cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype)
+        return cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype, want_requant)
 
     if offloadable and (device != s.weight.device or
                         (s.bias is not None and device != s.bias.device)):
@@ -340,8 +366,8 @@ def uncast_bias_weight(s, weight, bias, offload_stream):
         return
     os, weight_a, bias_a = offload_stream
     device=None
-    #FIXME: This is not good RTTI
-    if not isinstance(weight_a, torch.Tensor):
+    #FIXME: This is really bad RTTI
+    if weight_a is not None and not isinstance(weight_a, torch.Tensor):
         comfy_aimdo.model_vbar.vbar_unpin(s._v)
         device = weight_a
     if os is None:
@@ -412,7 +438,7 @@ class disable_weight_init:
     class Linear(torch.nn.Linear, CastWeightBiasOp):
 
         def __init__(self, in_features, out_features, bias=True, device=None, dtype=None):
-            if not model_management.WINDOWS or not enables_dynamic_vram():
+            if not model_management.WINDOWS or not comfy.memory_management.aimdo_enabled:
                 super().__init__(in_features, out_features, bias, device, dtype)
                 return
 
@@ -433,7 +459,7 @@ class disable_weight_init:
         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
                                 strict, missing_keys, unexpected_keys, error_msgs):
 
-            if not model_management.WINDOWS or not enables_dynamic_vram():
+            if not model_management.WINDOWS or not comfy.memory_management.aimdo_enabled:
                 return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                                      missing_keys, unexpected_keys, error_msgs)
             assign_to_params_buffers = local_metadata.get("assign_to_params_buffers", False)
@@ -733,7 +759,8 @@ def fp8_linear(self, input):
 
     if input.ndim != 2:
         return None
-    w, bias, offload_stream = cast_bias_weight(self, input, dtype=dtype, bias_dtype=input_dtype, offloadable=True)
+    lora_compute_dtype=comfy.model_management.lora_compute_dtype(input.device)
+    w, bias, offload_stream = cast_bias_weight(self, input, dtype=dtype, bias_dtype=input_dtype, offloadable=True, compute_dtype=lora_compute_dtype, want_requant=True)
     scale_weight = torch.ones((), device=input.device, dtype=torch.float32)
 
     scale_input = torch.ones((), device=input.device, dtype=torch.float32)
@@ -787,28 +814,35 @@ class scaled_fp8_op_base(manual_cast):
 
 CUBLAS_IS_AVAILABLE = False
 try:
-    from cublas_ops import CublasLinear
+    from cublas_ops import CublasLinear, cublas_half_matmul
 
     CUBLAS_IS_AVAILABLE = True
 except ImportError:
     pass
 
 if CUBLAS_IS_AVAILABLE:
-    class cublas_ops(disable_weight_init):
-        class Linear(CublasLinear, disable_weight_init.Linear):
+    class cublas_ops(manual_cast):
+        class Linear(CublasLinear, manual_cast.Linear):
             def reset_parameters(self):
                 return None
 
             def forward_comfy_cast_weights(self, input):
-                return super().forward(input)
+                weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
+                x = cublas_half_matmul(input, weight, bias, self._epilogue_str, self.has_bias)
+                uncast_bias_weight(self, weight, bias, offload_stream)
+                return x
 
             def forward(self, *args, **kwargs):
-                return super().forward(*args, **kwargs)
+                run_every_op()
+                if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                    return self.forward_comfy_cast_weights(*args, **kwargs)
+                else:
+                    return super().forward(*args, **kwargs)
 else:
     class cublas_ops(disable_weight_init):
         pass
 
-Operations = Type[Union[manual_cast, fp8_ops, disable_weight_init, skip_init, scaled_fp8_op_base]]
+Operations = typing.Type[typing.Union[manual_cast, fp8_ops, disable_weight_init, skip_init, scaled_fp8_op_base]]
 
 # ==============================================================================
 # Mixed Precision Operations
@@ -961,6 +995,10 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                 else:
                     sd = {}
 
+                if not hasattr(self, 'weight'):
+                    logging.warning("Warning: state dict on uninitialized op {}".format(prefix))
+                    return sd
+
                 if self.bias is not None:
                     sd["{}bias".format(prefix)] = self.bias  # pylint: disable=unsupported-assignment-operation
 
@@ -984,12 +1022,12 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
             def _forward(self, input, weight, bias):
                 return torch.nn.functional.linear(input, weight, bias)
 
-            def forward_comfy_cast_weights(self, input, compute_dtype=None):
+            def forward_comfy_cast_weights(self, input, compute_dtype=None, want_requant=False):
                 # todo: not sure why this looks the way it does in our fork
                 # if input.dtype == torch.float32 and (self.weight.dtype == torch.float16 or self.weight.dtype == torch.bfloat16):
                 #     input = input.to(self.weight.dtype)
                 # comfyui original:
-                weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True, compute_dtype=compute_dtype)
+                weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True, compute_dtype=compute_dtype, want_requant=want_requant)
                 x = self._forward(input, weight, bias)
                 uncast_bias_weight(self, weight, bias, offload_stream)
                 return x
@@ -1019,8 +1057,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                             scale = model_management.cast_to_device(scale, input.device, None)
                         input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
 
-
-                output = self.forward_comfy_cast_weights(input, compute_dtype)
+                output = self.forward_comfy_cast_weights(input, compute_dtype, want_requant=isinstance(input, QuantizedTensor))
 
                 # Reshape output back to 3D if input was 3D
                 if reshaped_3d:

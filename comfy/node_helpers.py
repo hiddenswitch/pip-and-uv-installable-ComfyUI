@@ -1,9 +1,13 @@
 import hashlib
+import logging
+
 from PIL import ImageFile, UnidentifiedImageError
 
 from comfy_api.latest import io
 from .component_model.files import get_package_as_path
 from .execution_context import current_execution_context
+
+logger = logging.getLogger(__name__)
 
 
 def conditioning_set_values(conditioning, values: dict = None, append=False) -> io.Conditioning.CondList:
@@ -22,6 +26,37 @@ def conditioning_set_values(conditioning, values: dict = None, append=False) -> 
             n[1][k] = val
         c.append(n)
 
+    return c
+
+
+def conditioning_set_values_with_timestep_range(conditioning, values={}, start_percent=0.0, end_percent=1.0):
+    """
+    Apply values to conditioning only during [start_percent, end_percent], keeping the
+    original conditioning active outside that range. Respects existing per-entry ranges.
+    """
+    if start_percent > end_percent:
+        logger.warning(f"start_percent ({start_percent}) must be <= end_percent ({end_percent})")
+        return conditioning
+
+    EPS = 1e-5  # the sampler gates entries with strict > / <, shift boundaries slightly to ensure only one conditioning is active per timestep
+    c = []
+    for t in conditioning:
+        cond_start = t[1].get("start_percent", 0.0)
+        cond_end = t[1].get("end_percent", 1.0)
+        intersect_start = max(start_percent, cond_start)
+        intersect_end = min(end_percent, cond_end)
+
+        if intersect_start >= intersect_end:  # no overlap: emit unchanged
+            c.append(t)
+            continue
+
+        if intersect_start > cond_start:  # part before the requested range
+            c.extend(conditioning_set_values([t], {"start_percent": cond_start, "end_percent": intersect_start - EPS}))
+
+        c.extend(conditioning_set_values([t], {**values, "start_percent": intersect_start, "end_percent": intersect_end}))
+
+        if intersect_end < cond_end:  # part after the requested range
+            c.extend(conditioning_set_values([t], {"start_percent": intersect_end + EPS, "end_percent": cond_end}))
     return c
 
 
