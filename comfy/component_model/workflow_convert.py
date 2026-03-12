@@ -144,6 +144,8 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
                 val = opts["default"]
             result[name] = _wrap_value(val)
             idx += 1
+        elif "default" in opts:
+            result[name] = _wrap_value(opts["default"])
         else:
             break
 
