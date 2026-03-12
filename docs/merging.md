@@ -217,7 +217,11 @@ Example: `tests-unit/seeder_test/test_seeder.py` → `tests/unit/seeder_test/tes
 
 ## Import Fixes
 
-After moving directories, fix absolute imports to use relative imports. Upstream uses absolute imports like:
+After moving directories, fix absolute imports to use relative imports whenever the target is inside the repo. Upstream uses absolute imports like:
+
+- `import folder_paths` -> `from comfy.cmd import folder_paths`
+- `import nodes` in moved node modules -> `from comfy.nodes import base_nodes as nodes`
+- internal package imports like `from comfy.cmd.server import PromptServer` inside `comfy_api/latest/__init__.py` should become relative imports such as `from ...cmd.server import PromptServer`
 
 ```python
 import app.assets.manager as manager

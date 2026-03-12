@@ -9,7 +9,7 @@ from typing import TypedDict
 import numpy as np
 import torch
 
-import nodes  # pylint: disable=import-error
+from comfy.nodes import base_nodes as nodes
 from comfy_api.latest import ComfyExtension, io, ui
 from typing_extensions import override
 
