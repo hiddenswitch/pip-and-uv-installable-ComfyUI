@@ -48,6 +48,96 @@ paths:
                 type: array
                 items:
                   type: string
+  /workflow_templates:
+    get:
+      summary: (UI) Get custom node workflow templates
+      operationId: get_workflow_templates_ui
+      responses:
+        '200':
+          description: Map of custom node package names to example workflow filenames.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowTemplatesMap"
+  /i18n:
+    get:
+      summary: (UI) Get custom node translations
+      operationId: get_i18n_ui
+      responses:
+        '200':
+          description: Translation payload merged from custom node locale files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomNodesI18n"
+  /models:
+    get:
+      summary: (UI) List model folders
+      operationId: list_models_ui
+      responses:
+        '200':
+          description: List of model folder keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /models/{folder}:
+    get:
+      summary: (UI) List model filenames in a folder
+      operationId: list_models_in_folder_ui
+      parameters:
+        - in: path
+          name: folder
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of model filenames.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '404':
+          description: Folder not found.
+  /experiment/models:
+    get:
+      summary: (UI) List model folders with backing paths
+      operationId: list_experiment_models_ui
+      responses:
+        '200':
+          description: List of model folder metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelFolderInfo"
+  /experiment/models/{folder}:
+    get:
+      summary: (UI) List detailed model files in a folder
+      operationId: list_experiment_models_in_folder_ui
+      parameters:
+        - in: path
+          name: folder
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed model file list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelFileInfo"
+        '404':
+          description: Folder not found.
   /upload/image:
     post:
       summary: (UI) Upload an image.
@@ -73,15 +163,37 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  name:
-                    description: |
-                      The name to use in a workflow.
-                    type: string
+                $ref: "#/components/schemas/UploadImageResponse"
         '400':
           description: |
             The request was missing an image upload.
+  /upload/mask:
+    post:
+      summary: (UI) Upload a mask
+      description: |
+        Uploads or updates a mask image derived from an existing output image.
+      operationId: upload_mask_ui
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                original_ref:
+                  type: string
+                  description: JSON-encoded original image reference.
+      responses:
+        '200':
+          description: Successful upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadImageResponse"
+        '400':
+          description: Invalid upload payload.
   /view:
     get:
       summary: (UI) View image
@@ -146,6 +258,112 @@ paths:
           description: Forbidden
         '404':
           description: Not Found
+  /view_metadata/{folder_name}:
+    get:
+      summary: (UI) View model metadata
+      operationId: view_metadata_ui
+      parameters:
+        - in: path
+          name: folder_name
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: filename
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Safetensors metadata payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArbitraryObject"
+        '404':
+          description: Metadata not found.
+  /system_stats:
+    get:
+      summary: (UI) Get system stats
+      operationId: get_system_stats_ui
+      responses:
+        '200':
+          description: Runtime system and device information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStats"
+  /features:
+    get:
+      summary: (UI) Get feature flags
+      operationId: get_features_ui
+      responses:
+        '200':
+          description: Server feature flags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArbitraryObject"
+  /logs:
+    get:
+      summary: (Internal UI) Get formatted server logs
+      description: |
+        Frontend-internal endpoint used by the log viewer. Not a stable public API.
+      operationId: get_logs_internal_ui
+      responses:
+        '200':
+          description: Concatenated log text.
+          content:
+            application/json:
+              schema:
+                type: string
+  /logs/raw:
+    get:
+      summary: (Internal UI) Get raw server logs
+      description: |
+        Frontend-internal endpoint used by the log viewer. Not a stable public API.
+      operationId: get_raw_logs_internal_ui
+      responses:
+        '200':
+          description: Raw terminal log entries and terminal size.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsRawResponse"
+  /logs/subscribe:
+    patch:
+      summary: (Internal UI) Subscribe to server logs
+      description: |
+        Frontend-internal endpoint used by the live log viewer. Not a stable public API.
+      operationId: subscribe_logs_internal_ui
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientId, enabled]
+              properties:
+                clientId:
+                  type: string
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Subscription updated.
+  /folder_paths:
+    get:
+      summary: (Internal UI) Get folder paths
+      description: |
+        Frontend-internal endpoint exposing configured search roots by model folder key.
+        Not a stable public API.
+      operationId: get_folder_paths_internal_ui
+      responses:
+        '200':
+          description: Folder keys mapped to search roots.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderPaths"
   /prompt:
     get:
       summary: (UI) Get queue info
@@ -342,6 +560,387 @@ paths:
               description: >-
                 A POST request to /free with: {"unload_models":true} will unload models from vram. 
                 A POST request to /free with: {"free_memory":true} will unload models and free all cached data from the last run workflow.
+  /users:
+    get:
+      summary: (UI) Get user configuration
+      operationId: get_users_ui
+      responses:
+        '200':
+          description: User mode and storage configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserConfig"
+    post:
+      summary: (UI) Create user
+      operationId: post_users_ui
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+      responses:
+        '200':
+          description: Created user ID.
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          description: Invalid or duplicate username.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /settings:
+    get:
+      summary: (UI) Get settings
+      operationId: get_settings_ui
+      responses:
+        '200':
+          description: User settings dictionary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        '401':
+          description: Unauthorized.
+    post:
+      summary: (UI) Store settings
+      operationId: post_settings_ui
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        '200':
+          description: Settings updated.
+  /settings/{id}:
+    get:
+      summary: (UI) Get setting
+      operationId: get_setting_ui
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Setting value.
+          content:
+            application/json:
+              schema: {}
+    post:
+      summary: (UI) Store setting
+      operationId: post_setting_ui
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+      responses:
+        '200':
+          description: Setting updated.
+        '400':
+          description: Missing setting ID.
+  /userdata:
+    get:
+      summary: (UI) List user data
+      operationId: list_userdata_ui
+      parameters:
+        - in: query
+          name: dir
+          schema:
+            type: string
+        - in: query
+          name: recurse
+          schema:
+            type: boolean
+        - in: query
+          name: full_info
+          schema:
+            type: boolean
+        - in: query
+          name: split
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: User data entries.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      type: string
+                  - type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/UserDataFileInfo"
+        '400':
+          description: Invalid directory parameter.
+        '403':
+          description: Invalid directory.
+        '404':
+          description: Directory not found.
+  /userdata/{file}:
+    get:
+      summary: (UI) Get user data file
+      operationId: get_userdata_ui
+      parameters:
+        - in: path
+          name: file
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid file parameter.
+        '403':
+          description: Invalid path.
+        '404':
+          description: File not found.
+    post:
+      summary: (UI) Store user data file
+      operationId: post_userdata_ui
+      parameters:
+        - in: path
+          name: file
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: overwrite
+          schema:
+            type: boolean
+        - in: query
+          name: full_info
+          schema:
+            type: boolean
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Stored file path or metadata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: string
+                  - $ref: "#/components/schemas/UserDataFileInfo"
+        '403':
+          description: Invalid path.
+        '409':
+          description: File exists and overwrite is false.
+    delete:
+      summary: (UI) Delete user data file
+      operationId: delete_userdata_ui
+      parameters:
+        - in: path
+          name: file
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+  /userdata/{file}/move/{dest}:
+    post:
+      summary: (UI) Move user data file
+      operationId: move_userdata_ui
+      parameters:
+        - in: path
+          name: file
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: dest
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: overwrite
+          schema:
+            type: boolean
+        - in: query
+          name: full_info
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Moved file path or metadata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: string
+                  - $ref: "#/components/schemas/UserDataFileInfo"
+        '404':
+          description: Source file not found.
+        '409':
+          description: Destination exists and overwrite is false.
+  /global_subgraphs:
+    get:
+      summary: (UI) List global subgraphs
+      operationId: list_global_subgraphs_ui
+      responses:
+        '200':
+          description: Available global subgraphs keyed by ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/GlobalSubgraphSummary"
+  /global_subgraphs/{id}:
+    get:
+      summary: (UI) Get global subgraph
+      operationId: get_global_subgraph_ui
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Global subgraph detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalSubgraphDetail"
+  /api/jobs:
+    get:
+      operationId: list_jobs
+      summary: (API) List jobs
+      description: |
+        Lists jobs across the queue and history, with filtering, sorting, and pagination.
+
+        The response shape matches the frontend jobs API types used by the queue panel.
+      parameters:
+        - in: query
+          name: status
+          description: Comma-separated job statuses to include.
+          schema:
+            type: string
+            example: completed,failed,cancelled
+        - in: query
+          name: workflow_id
+          description: Filter jobs by workflow ID extracted from `extra_pnginfo.workflow.id`.
+          schema:
+            type: string
+        - in: query
+          name: sort_by
+          description: Sort field.
+          schema:
+            type: string
+            enum: [created_at, execution_duration]
+            default: created_at
+        - in: query
+          name: sort_order
+          description: Sort direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: limit
+          description: Maximum jobs to return.
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: offset
+          description: Number of jobs to skip.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Jobs list response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsListResponse"
+        '400':
+          description: Invalid filter or pagination parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/jobs/{job_id}:
+    get:
+      operationId: get_job_detail
+      summary: (API) Get job detail
+      description: |
+        Returns a single job, including workflow and outputs when available.
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+          description: Job ID / prompt ID.
+      responses:
+        '200':
+          description: Job detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        '400':
+          description: Missing or invalid job ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '404':
+          description: Job not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
   /api/v1/prompts/{prompt_id}:
     get:
       operationId: get_prompt
@@ -849,6 +1448,339 @@ components:
           type: string
         abs_path:
           type: string
+    ArbitraryObject:
+      type: object
+      additionalProperties: true
+    UploadImageResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        subfolder:
+          type: string
+        type:
+          type: string
+    ModelFolderInfo:
+      type: object
+      required: [name, folders]
+      properties:
+        name:
+          type: string
+        folders:
+          type: array
+          items:
+            type: string
+    ModelFileInfo:
+      type: object
+      required: [name, pathIndex]
+      properties:
+        name:
+          type: string
+        pathIndex:
+          type: integer
+        modified:
+          type: number
+        created:
+          type: number
+        size:
+          type: integer
+    DeviceStats:
+      type: object
+      required: [name, type, index, vram_total, vram_free, torch_vram_total, torch_vram_free]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        index:
+          type: integer
+        vram_total:
+          type: number
+        vram_free:
+          type: number
+        torch_vram_total:
+          type: number
+        torch_vram_free:
+          type: number
+    SystemStats:
+      type: object
+      required: [system, devices]
+      properties:
+        system:
+          type: object
+          required: [os, python_version, embedded_python, comfyui_version, pytorch_version, argv, ram_total, ram_free]
+          properties:
+            os:
+              type: string
+            python_version:
+              type: string
+            embedded_python:
+              type: boolean
+            comfyui_version:
+              type: string
+            pytorch_version:
+              type: string
+            required_frontend_version:
+              type: string
+            comfyui_frontend_version:
+              type: string
+            workflow_templates_version:
+              type: string
+            installed_templates_version:
+              type: string
+            required_templates_version:
+              type: string
+            cloud_version:
+              type: string
+            argv:
+              type: array
+              items:
+                type: string
+            ram_total:
+              type: number
+            ram_free:
+              type: number
+          additionalProperties: true
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceStats"
+    UserConfig:
+      type: object
+      required: [storage]
+      properties:
+        storage:
+          type: string
+          enum: [server]
+        migrated:
+          type: boolean
+        users:
+          type: object
+          additionalProperties:
+            type: string
+    Settings:
+      type: object
+      additionalProperties: true
+    UserDataFileInfo:
+      type: object
+      required: [path, size, modified]
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+        modified:
+          type: number
+        created:
+          type: number
+    LogEntry:
+      type: object
+      required: [t, m]
+      properties:
+        t:
+          type: string
+        m:
+          type: string
+    TerminalSize:
+      type: object
+      required: [cols]
+      properties:
+        cols:
+          type: number
+        rows:
+          type: number
+        row:
+          type: number
+    LogsRawResponse:
+      type: object
+      required: [entries, size]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        size:
+          $ref: "#/components/schemas/TerminalSize"
+    FolderPaths:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+    GlobalSubgraphInfo:
+      type: object
+      properties:
+        node_pack:
+          type: string
+      additionalProperties: true
+    GlobalSubgraphSummary:
+      type: object
+      properties:
+        source:
+          type: string
+        name:
+          type: string
+        info:
+          $ref: "#/components/schemas/GlobalSubgraphInfo"
+      additionalProperties: true
+    GlobalSubgraphDetail:
+      allOf:
+        - $ref: "#/components/schemas/GlobalSubgraphSummary"
+        - type: object
+          properties:
+            data:
+              type: string
+          additionalProperties: true
+    WorkflowTemplatesMap:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+    CustomNodesI18n:
+      type: object
+      additionalProperties: true
+    PreviewOutput:
+      type: object
+      required:
+        - nodeId
+        - mediaType
+      properties:
+        filename:
+          type: string
+        subfolder:
+          type: string
+        type:
+          type: string
+          enum: [output, input, temp]
+        nodeId:
+          type: string
+        mediaType:
+          type: string
+        display_name:
+          type: string
+      additionalProperties: true
+    JobExecutionError:
+      type: object
+      required:
+        - node_id
+        - node_type
+        - exception_message
+        - exception_type
+        - traceback
+        - current_inputs
+        - current_outputs
+      properties:
+        prompt_id:
+          type: string
+        timestamp:
+          type: number
+        node_id:
+          type: string
+        node_type:
+          type: string
+        executed:
+          type: array
+          items:
+            type: string
+        exception_message:
+          type: string
+        exception_type:
+          type: string
+        traceback:
+          type: array
+          items:
+            type: string
+        current_inputs: {}
+        current_outputs: {}
+      additionalProperties: true
+    JobListItem:
+      type: object
+      required:
+        - id
+        - status
+        - create_time
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed, cancelled]
+        create_time:
+          type: number
+        execution_start_time:
+          type: number
+          nullable: true
+        execution_end_time:
+          type: number
+          nullable: true
+        preview_output:
+          allOf:
+            - $ref: "#/components/schemas/PreviewOutput"
+          nullable: true
+        outputs_count:
+          type: integer
+          nullable: true
+        execution_error:
+          allOf:
+            - $ref: "#/components/schemas/JobExecutionError"
+          nullable: true
+        workflow_id:
+          type: string
+          nullable: true
+        priority:
+          type: number
+      additionalProperties: true
+    JobWorkflowContainer:
+      type: object
+      properties:
+        prompt:
+          $ref: "#/components/schemas/Prompt"
+        extra_data:
+          $ref: "#/components/schemas/ExtraData"
+      additionalProperties: true
+    JobDetail:
+      allOf:
+        - $ref: "#/components/schemas/JobListItem"
+        - type: object
+          properties:
+            workflow:
+              $ref: "#/components/schemas/JobWorkflowContainer"
+            outputs:
+              $ref: "#/components/schemas/Outputs"
+            update_time:
+              type: number
+            execution_status: {}
+            execution_meta: {}
+          additionalProperties: true
+    PaginationInfo:
+      type: object
+      required:
+        - offset
+        - limit
+        - total
+        - has_more
+      properties:
+        offset:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        has_more:
+          type: boolean
+    JobsListResponse:
+      type: object
+      required:
+        - jobs
+        - pagination
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobListItem"
+        pagination:
+          $ref: "#/components/schemas/PaginationInfo"
     ValidationErrorDict:
       type: object
       properties:
