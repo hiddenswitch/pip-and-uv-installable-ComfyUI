@@ -39,7 +39,7 @@ class FileCounter:
         self._context_wrapper.ctr = self.decrement_and_get()
 
     def _read_and_write(self, operation):
-        lock = filelock.FileLock(f"{self.path}.lock")
+        lock = filelock.SoftFileLock(f"{self.path}.lock")
         with lock:
             count = 0
             try:

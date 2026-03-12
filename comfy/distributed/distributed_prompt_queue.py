@@ -293,6 +293,13 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
         if self._is_caller:
             await self._caller_progress_handlers.unregister_all()
 
+        # Purge the result queue before closing the RPC so that
+        # delete(if_empty=True) in RPC.close() does not fail with
+        # PRECONDITION_FAILED when leftover messages remain (e.g.
+        # dead-lettered messages or in-flight replies).
+        if self._rpc and hasattr(self._rpc, 'result_queue'):
+            await self._rpc.result_queue.purge()
+
         await self._rpc.close()
         await self._channel.close()
         await self._connection.close()
