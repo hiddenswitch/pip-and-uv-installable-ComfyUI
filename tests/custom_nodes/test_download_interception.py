@@ -11,7 +11,7 @@ from .conftest import (
     make_base_dirs,
     build_config,
 )
-from .node_registry import get_spec
+from comfy.component_model.node_registry import get_spec
 
 logger = logging.getLogger(__name__)
 

@@ -56,6 +56,32 @@ _OVERRIDDEN_MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = list(MODEL_FOR_CAUSAL_LM_MAPPING
 _DO_NOT_SKIP_SPECIAL_TOKENS = {'florence2', 'paligemma'}
 
 
+def _load_transformers_model_with_loader(
+        loader_class,
+        from_pretrained_kwargs: dict,
+        kwargses_to_try: tuple[dict, ...],
+        ckpt_name: str,
+) -> PreTrainedModel | None:
+    for i, kwargs_to_try in enumerate(kwargses_to_try):
+        try:
+            model = loader_class.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
+            if model is not None:
+                return model
+        except Exception as exc_info:
+            if i == len(kwargses_to_try) - 1:
+                raise exc_info
+            logger.warning(
+                "tried to import transformers model %s with %s but got exception when trying additional import args %s",
+                ckpt_name,
+                loader_class.__name__,
+                kwargs_to_try,
+                exc_info=exc_info,
+            )
+        finally:
+            torch.set_default_dtype(torch.float32)
+    return None
+
+
 class TransformersManagedModel(ModelManageableStub, LanguageModel):
     def __init__(
             self,
@@ -218,25 +244,34 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
                     logger.debug(f"while loading model {ckpt_name}, flash_attn was installed, so the flash_attention_2 implementation will be tried")
             except ImportError:
                 pass
-            for i, kwargs_to_try in enumerate(kwargses_to_try):
-                try:
-                    if AutoModelForImageTextToText is not None and (model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES or model_type in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES):
-                        model = AutoModelForImageTextToText.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
-                    elif model_type in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
-                        model = AutoModelForSeq2SeqLM.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
-                    elif model_type in _OVERRIDDEN_MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
-                        model = AutoModelForCausalLM.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
-                    else:
-                        model = AutoModel.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
-                    if model is not None:
+            if AutoModelForImageTextToText is not None and (model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES or model_type in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES):
+                primary_loader = AutoModelForImageTextToText
+            elif model_type in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
+                primary_loader = AutoModelForSeq2SeqLM
+            elif model_type in _OVERRIDDEN_MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
+                primary_loader = AutoModelForCausalLM
+            else:
+                primary_loader = AutoModel
+
+            model = _load_transformers_model_with_loader(primary_loader, from_pretrained_kwargs, kwargses_to_try, ckpt_name)
+
+            if model is not None and not hasattr(model, "generate"):
+                fallback_loaders = []
+                if AutoModelForImageTextToText is not None and primary_loader is not AutoModelForImageTextToText:
+                    fallback_loaders.append(AutoModelForImageTextToText)
+                if primary_loader is not AutoModelForSeq2SeqLM:
+                    fallback_loaders.append(AutoModelForSeq2SeqLM)
+                if primary_loader is not AutoModelForCausalLM:
+                    fallback_loaders.append(AutoModelForCausalLM)
+
+                for loader_class in fallback_loaders:
+                    try:
+                        fallback_model = _load_transformers_model_with_loader(loader_class, from_pretrained_kwargs, kwargses_to_try, ckpt_name)
+                    except Exception:
+                        continue
+                    if fallback_model is not None and hasattr(fallback_model, "generate"):
+                        model = fallback_model
                         break
-                except Exception as exc_info:
-                    if i == len(kwargses_to_try) - 1:
-                        raise exc_info
-                    else:
-                        logger.warning(f"tried to import transformers model {ckpt_name} but got exception when trying additional import args {kwargs_to_try}", exc_info=exc_info)
-                finally:
-                    torch.set_default_dtype(torch.float32)
 
             for i, kwargs_to_try in enumerate(kwargses_to_try):
                 try:
@@ -333,7 +368,11 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
         inputs = tokens
 
         # used to determine if text streaming is supported
-        num_beams = generate_kwargs.get("num_beams", None) or getattr(transformers_model.generation_config, "num_beams", 1) or 1
+        num_beams = generate_kwargs.get("num_beams")
+        if num_beams is None:
+            num_beams = getattr(getattr(transformers_model, "generation_config", None), "num_beams", None)
+        if num_beams is None:
+            num_beams = 1
 
         progress_bar: ProgressBar
         with comfy_progress(total=max_new_tokens) as progress_bar:

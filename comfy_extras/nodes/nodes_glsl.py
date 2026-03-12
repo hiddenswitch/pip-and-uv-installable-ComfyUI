@@ -9,12 +9,18 @@ from typing import TypedDict
 import numpy as np
 import torch
 
-import nodes
+import nodes  # pylint: disable=import-error
 from comfy_api.latest import ComfyExtension, io, ui
 from typing_extensions import override
-from utils.install_util import get_missing_requirements_message
 
 logger = logging.getLogger(__name__)
+
+
+def _get_missing_requirements_message() -> str:
+    return (
+        "Install the required OpenGL dependencies for the GLSL node: "
+        "`glfw` and `PyOpenGL`."
+    )
 
 
 def _check_opengl_availability():
@@ -33,7 +39,7 @@ def _check_opengl_availability():
 
     if missing:
         raise RuntimeError(
-            f"OpenGL dependencies not available.\n{get_missing_requirements_message()}\n"
+            f"OpenGL dependencies not available.\n{_get_missing_requirements_message()}\n"
         )
 
     # On Linux without display, check if headless backends are available
@@ -74,7 +80,7 @@ def _import_opengl():
     global gl
     if gl is None:
         logger.debug("_import_opengl: importing OpenGL.GL")
-        import OpenGL.GL as _gl
+        import OpenGL.GL as _gl  # pylint: disable=import-error
         gl = _gl
         logger.debug("_import_opengl: import completed")
     return gl
@@ -166,7 +172,7 @@ def _init_glfw():
         raise RuntimeError("GLFW backend not supported on macOS")
 
     logger.debug("_init_glfw: importing glfw module")
-    import glfw as _glfw
+    import glfw as _glfw  # pylint: disable=import-error
 
     logger.debug("_init_glfw: calling glfw.init()")
     if not _glfw.init():
@@ -197,8 +203,8 @@ def _init_glfw():
 def _init_egl():
     """Initialize EGL for headless rendering. Returns (display, context, surface, EGL_module). Raises RuntimeError on failure."""
     logger.debug("_init_egl: starting")
-    from OpenGL import EGL as _EGL
-    from OpenGL.EGL import (
+    from OpenGL import EGL as _EGL  # pylint: disable=import-error
+    from OpenGL.EGL import (  # pylint: disable=import-error
         eglGetDisplay, eglInitialize, eglChooseConfig, eglCreateContext,
         eglMakeCurrent, eglCreatePbufferSurface, eglBindAPI,
         eglTerminate, eglDestroyContext, eglDestroySurface,
@@ -286,8 +292,8 @@ def _init_osmesa():
     os.environ["PYOPENGL_PLATFORM"] = "osmesa"
 
     logger.debug("_init_osmesa: importing OpenGL.osmesa")
-    from OpenGL import GL as _gl
-    from OpenGL.osmesa import (
+    from OpenGL import GL as _gl  # pylint: disable=import-error
+    from OpenGL.osmesa import (  # pylint: disable=import-error
         OSMesaCreateContextExt, OSMesaMakeCurrent, OSMesaDestroyContext,
         OSMESA_RGBA,
     )
@@ -441,10 +447,10 @@ class GLContext:
         if self._backend == "glfw":
             glfw.make_context_current(self._window)
         elif self._backend == "egl":
-            from OpenGL.EGL import eglMakeCurrent
+            from OpenGL.EGL import eglMakeCurrent  # pylint: disable=import-error
             eglMakeCurrent(self._egl_display, self._egl_surface, self._egl_surface, self._egl_context)
         elif self._backend == "osmesa":
-            from OpenGL.osmesa import OSMesaMakeCurrent
+            from OpenGL.osmesa import OSMesaMakeCurrent  # pylint: disable=import-error
             OSMesaMakeCurrent(self._osmesa_ctx, self._osmesa_buffer, gl.GL_UNSIGNED_BYTE, 64, 64)
 
         if self._vao is not None:

@@ -112,11 +112,11 @@ class HeatmapHead(torch.nn.Module):
             iy1_     = hm_pad[index - 2 - W]
             dx = 0.5 * (ix1 - ix1_)
             dy = 0.5 * (iy1 - iy1_)
-            derivative = np.concatenate([dx, dy], axis=1).reshape(K, 2, 1)
+            derivative = np.concatenate([dx, dy], axis=1).reshape((K, 2, 1))
             dxx = ix1  - 2 * i_ + ix1_
             dyy = iy1  - 2 * i_ + iy1_
             dxy = 0.5 * (ix1y1 - ix1 - iy1 + i_ + i_ - ix1_ - iy1_ + ix1_y1_)
-            hessian = np.concatenate([dxx, dxy, dxy, dyy], axis=1).reshape(K, 2, 2)
+            hessian = np.concatenate([dxx, dxy, dxy, dyy], axis=1).reshape((K, 2, 2))
             hessian = np.linalg.inv(hessian + np.finfo(np.float32).eps * np.eye(2))
             keypoints -= np.einsum('imn,ink->imk', hessian, derivative).squeeze(axis=-1)
 

@@ -202,11 +202,11 @@ packages = ["comfy/", "comfy_extras/", "comfy_api/", "comfy_api_nodes/", "comfy_
 
 [tool.pylint.master]
 py-version = "3.10"
-extension-pkg-allow-list = ["pydantic", "cv2", "transformers"]
+extension-pkg-allow-list = ["pydantic", "cv2", "transformers", "av"]
 ignore-paths = ["^comfy/api/.*$", "^comfy/alembic_db/.*$"]
 ignored-modules = ["sentencepiece.*", "comfy.api", "comfy.cmd.folder_paths"]
 init-hook = 'import sys; sys.path.insert(0, ".")'
-load-plugins = ["tests.absolute_import_checker", "tests.main_pre_import_checker", "tests.missing_init", "tests.sd_clip_model_init_checker"]
+load-plugins = ["tests.absolute_import_checker", "tests.main_pre_import_checker", "tests.missing_init", "tests.root_comfy_extras_nodes_checker", "tests.sd_clip_model_init_checker"]
 persistent = true
 fail-under = 10
 jobs = 1

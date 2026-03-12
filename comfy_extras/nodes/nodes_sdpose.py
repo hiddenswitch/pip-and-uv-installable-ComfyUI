@@ -6,7 +6,8 @@ import colorsys
 from tqdm import tqdm
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
-from comfy_extras.nodes_lotus import LotusConditioning
+
+from .nodes_lotus import LotusConditioning
 
 
 def _preprocess_keypoints(kp_raw, sc_raw):
@@ -435,9 +436,8 @@ class SDPoseKeypointExtractor(io.ComfyNode):
 
     @classmethod
     def execute(cls, model, vae, image, batch_size, bboxes=None) -> io.NodeOutput:
-
         height, width = image.shape[-3], image.shape[-2]
-        context = LotusConditioning().execute().result[0]
+        context = LotusConditioning.execute()[0]
 
         # Use output_block_patch to capture the last 640-channel feature
         def output_patch(h, hsp, transformer_options):

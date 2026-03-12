@@ -198,7 +198,16 @@ Example: `app/assets` → `comfy/app/assets`
 
 Also keep track of top-level modules we have relocated into `comfy/`. In particular, upstream `node_helpers.py` maps to `comfy/node_helpers.py` in this fork. Preserve that mapping explicitly during merges so upstream edits to `node_helpers.py` are surfaced and re-applied instead of showing up only as `Deleted by us`.
 
-You will also have to move `comfy_extras/nodes_*.py` from upstream into `comfy_extras/nodes/`, where they are scanned automatically, and fix their imports (see [Import Fixes](#import-fixes)] below).
+You will also have to move upstream root-level `comfy_extras/nodes_*.py` files into `comfy_extras/nodes/`, where they are scanned automatically. Use `git mv` and do not leave these files at the `comfy_extras/` package root.
+
+Example:
+
+```bash
+git mv comfy_extras/nodes_math.py comfy_extras/nodes/nodes_math.py
+git mv comfy_extras/nodes_sdpose.py comfy_extras/nodes/nodes_sdpose.py
+```
+
+After moving them, fix their imports so they are valid from the `comfy_extras.nodes` package (see [Import Fixes](#import-fixes) below).
 
 This two-step approach keeps git history cleaner and makes conflicts easier to resolve.
 
@@ -223,6 +232,18 @@ from .. import manager
 from ..database.db import create_session
 from .helpers import some_function
 ```
+
+For optional dependencies like `torchaudio`, keep the established local-import pattern after the move:
+
+```python
+def some_audio_method(...):
+    try:
+        import torchaudio  # pylint: disable=import-error
+    except ImportError as exc:
+        raise TorchAudioNotFoundError("torchaudio is required") from exc
+```
+
+Do not introduce new top-level `import torchaudio` lines in moved modules.
 
 To reduce the impact of absolute to relative imports, sometimes it may make more sense to keep the module name:
 

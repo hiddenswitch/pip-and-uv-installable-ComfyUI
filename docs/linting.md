@@ -79,6 +79,36 @@ def process_audio(waveform):
     return torchaudio.functional.resample(waveform, 44100, 16000)
 ```
 
+If the code path should fail gracefully when the dependency is missing, follow the local import with a targeted `ImportError` handler and raise the repo’s domain-specific exception or skip path instead of crashing at import time.
+
+**Good:**
+```python
+def load_audio_backend():
+    try:
+        import torchaudio  # pylint: disable=import-error
+    except ImportError as exc:
+        raise TorchAudioNotFoundError("torchaudio is required for this node") from exc
+    return torchaudio
+```
+
+### W8002: Root-Level `comfy_extras/nodes_*.py` File
+
+**Rule:** `tests/root_comfy_extras_nodes_checker.py`
+
+Files matching `comfy_extras/nodes_*.py` must not live at the `comfy_extras/` package root. Move them into `comfy_extras/nodes/` with `git mv`.
+
+**Bad:**
+```text
+comfy_extras/nodes_math.py
+comfy_extras/nodes_sdpose.py
+```
+
+**Good:**
+```text
+comfy_extras/nodes/nodes_math.py
+comfy_extras/nodes/nodes_sdpose.py
+```
+
 ### Dynamic Attribute Access (E1101: no-member)
 
 When accessing attributes that are dynamically defined (e.g., in subclasses), use a pylint disable comment:

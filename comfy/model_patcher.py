@@ -378,7 +378,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         # the vast majority of setups a little bit of offloading on the giant model more
         # than pays for CFG. So return everything both torch and Aimdo could give us
         aimdo_mem = 0
-        if memory_management.aimdo_enabled:
+        if memory_management.aimdo_enabled():
             aimdo_mem = comfy_aimdo.model_vbar.vbars_analyze()
         return model_management.get_free_memory(device) + aimdo_mem
 

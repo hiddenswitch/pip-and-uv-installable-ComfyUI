@@ -925,7 +925,7 @@ class LTXBaseModel(torch.nn.Module, ABC):
         pe = self._prepare_positional_embeddings(pixel_coords, frame_rate, input_dtype)
 
         # Build self-attention mask for per-guide attenuation
-        self_attention_mask = self._build_guide_self_attention_mask(
+        self_attention_mask = self._build_guide_self_attention_mask(  # pylint: disable=assignment-from-none
             x, transformer_options, merged_args
         )
 

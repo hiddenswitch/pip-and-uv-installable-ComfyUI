@@ -21,7 +21,7 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 
-import comfy.model_management
+from .. import model_management
 from .base import WeightAdapterBase, WeightAdapterTrainBase
 from ..patcher_extension import PatcherInjection
 
@@ -185,7 +185,7 @@ class BypassForwardHook:
         # Move adapter weights to compute device (GPU)
         # Use get_torch_device() instead of module.weight.device because
         # with offloading, module weights may be on CPU while compute happens on GPU
-        device = comfy.model_management.get_torch_device()
+        device = model_management.get_torch_device()
 
         # Get dtype from module weight if available
         dtype = None

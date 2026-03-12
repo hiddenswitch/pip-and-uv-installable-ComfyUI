@@ -1779,20 +1779,20 @@ class SCAILWanModel(WanModel):
 
     def _forward(self, x, timestep, context, clip_fea=None, time_dim_concat=None, transformer_options={}, pose_latents=None, **kwargs):
         bs, c, t, h, w = x.shape
-        x = comfy.ldm.common_dit.pad_to_patch_size(x, self.patch_size)
+        x = pad_to_patch_size(x, self.patch_size)
 
         if pose_latents is not None:
-            pose_latents = comfy.ldm.common_dit.pad_to_patch_size(pose_latents, self.patch_size)
+            pose_latents = pad_to_patch_size(pose_latents, self.patch_size)
 
         t_len = t
         if time_dim_concat is not None:
-            time_dim_concat = comfy.ldm.common_dit.pad_to_patch_size(time_dim_concat, self.patch_size)
+            time_dim_concat = pad_to_patch_size(time_dim_concat, self.patch_size)
             x = torch.cat([x, time_dim_concat], dim=2)
             t_len = x.shape[2]
 
         reference_latent = None
         if "reference_latent" in kwargs:
-            reference_latent = comfy.ldm.common_dit.pad_to_patch_size(kwargs.pop("reference_latent"), self.patch_size)
+            reference_latent = pad_to_patch_size(kwargs.pop("reference_latent"), self.patch_size)
             t_len += reference_latent.shape[2]
 
         freqs = self.rope_encode(t_len, h, w, device=x.device, dtype=x.dtype, transformer_options=transformer_options, pose_latents=pose_latents, reference_latent=reference_latent)

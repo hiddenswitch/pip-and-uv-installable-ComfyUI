@@ -7,6 +7,7 @@ from importlib.abc import Traversable
 from typing import Any, AsyncGenerator
 
 import psutil
+import torch
 
 try:
     import pynvml
@@ -26,6 +27,7 @@ from comfy.cli_args import default_configuration
 from comfy.cli_args_types import PerformanceFeature
 
 logger = logging.getLogger(__name__)
+_LOCAL_TEST_IMAGE = "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
 
 
 class ResourceMonitor:
@@ -132,6 +134,18 @@ def _prepare_for_workflows() -> dict[str, Traversable]:
     return {f.name: f for f in importlib.resources.files(workflows).iterdir() if f.is_file() and f.name.endswith(".json")}
 
 
+def _replace_remote_media_inputs(workflow: dict) -> None:
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        value = inputs.get("value")
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            inputs["value"] = _LOCAL_TEST_IMAGE
+
+
 @pytest.mark.inference
 @pytest.mark.asyncio
 @pytest.mark.parametrize("workflow_name, workflow_file", _prepare_for_workflows().items())
@@ -145,6 +159,7 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
 
     workflow = json.loads(workflow_file.read_text(encoding="utf8"))
 
+    _replace_remote_media_inputs(workflow)
     prompt = Prompt.validate(workflow)
     # todo: add all the models we want to test a bit m2ore elegantly
     outputs = {}
@@ -156,6 +171,8 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
             outputs = await client.queue_prompt(prompt)
     except TorchAudioNotFoundError:
         pytest.skip("requires torchaudio")
+    except torch.OutOfMemoryError:
+        pytest.skip(f"insufficient VRAM for workflow {workflow_name}")
     finally:
         end_time = time.time()
         duration = end_time - start_time

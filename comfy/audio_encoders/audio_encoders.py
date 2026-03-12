@@ -2,6 +2,7 @@ import logging
 from .wav2vec2 import Wav2Vec2Model
 from .whisper import WhisperLargeV3
 
+from .. import model_management
 from ..model_management import text_encoder_offload_device, text_encoder_device, load_models_gpu, text_encoder_dtype
 from ..model_patcher import ModelPatcher, get_model_patcher_class
 from ..ops import manual_cast
@@ -30,7 +31,7 @@ class AudioEncoderModel:
         self.model.eval()
         self.patcher = get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device)
         self.model_sample_rate = 16000
-        comfy.model_management.archive_model_dtypes(self.model)
+        model_management.archive_model_dtypes(self.model)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())

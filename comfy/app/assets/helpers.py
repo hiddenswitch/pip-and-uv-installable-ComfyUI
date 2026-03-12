@@ -23,6 +23,18 @@ def select_best_live_path(states: Sequence) -> str:
     return alive[0].file_path
 
 
+def ensure_within_base(file_path: str, base_dir: str) -> None:
+    from .services.path_utils import validate_path_within_base
+
+    validate_path_within_base(file_path, base_dir)
+
+
+def resolve_destination_from_tags(tags: list[str]) -> tuple[str, list[str]]:
+    from .services.path_utils import resolve_destination_from_tags as _resolve_destination
+
+    return _resolve_destination(tags)
+
+
 def escape_sql_like_string(s: str, escape: str = "!") -> tuple[str, str]:
     """Escapes %, _ and the escape char in a LIKE prefix.
 

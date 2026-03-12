@@ -1132,12 +1132,12 @@ def convert_diffusers_mmdit(state_dict, output_prefix=""):
                         new[:old_weight.shape[0]] = old_weight
                         old_weight = new
 
-                    if old_weight is out_sd.get(t[0], None) and memory_management.aimdo_enabled:
+                    if old_weight is out_sd.get(t[0], None) and memory_management.aimdo_enabled():
                         old_weight = old_weight.clone()
 
                     w = old_weight.narrow(offset[0], offset[1], offset[2])
                 else:
-                    if memory_management.aimdo_enabled:
+                    if memory_management.aimdo_enabled():
                         weight = weight.clone()
                     old_weight = weight
                     w = weight

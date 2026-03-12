@@ -1015,7 +1015,7 @@ def unet_offload_device():
 
 def unet_initial_load_device(parameters, dtype):
     cpu_dev = torch.device("cpu")
-    if memory_management.aimdo_enabled:
+    if memory_management.aimdo_enabled():
         return cpu_dev
     torch_dev = get_torch_device()
     if vram_state == VRAMState.HIGH_VRAM or vram_state == VRAMState.SHARED:
@@ -1127,7 +1127,7 @@ def text_encoder_offload_device():
 def text_encoder_device():
     if args.gpu_only:
         return get_torch_device()
-    elif vram_state in (VRAMState.HIGH_VRAM, VRAMState.NORMAL_VRAM) or memory_management.aimdo_enabled:
+    elif vram_state in (VRAMState.HIGH_VRAM, VRAMState.NORMAL_VRAM) or memory_management.aimdo_enabled():
         if should_use_fp16(prioritize_performance=False):
             return get_torch_device()
         else:
@@ -1137,7 +1137,7 @@ def text_encoder_device():
 
 
 def text_encoder_initial_device(load_device, offload_device, model_size=0):
-    if memory_management.aimdo_enabled:
+    if memory_management.aimdo_enabled():
         return offload_device
 
     if load_device == offload_device or model_size <= 1024 * 1024 * 1024:

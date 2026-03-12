@@ -48,16 +48,17 @@ def _apply_rope(xq: Tensor, xk: Tensor, freqs_cis: Tensor):
 
 
 try:
-    import comfy.quant_ops
-    q_apply_rope = comfy.quant_ops.ck.apply_rope
-    q_apply_rope1 = comfy.quant_ops.ck.apply_rope1
+    from ... import quant_ops
+
+    q_apply_rope = quant_ops.ck.apply_rope
+    q_apply_rope1 = quant_ops.ck.apply_rope1
     def apply_rope(xq, xk, freqs_cis):
-        if comfy.model_management.in_training:
+        if model_management.in_training:
             return _apply_rope(xq, xk, freqs_cis)
         else:
             return apply_rope1(xq, freqs_cis), apply_rope1(xk, freqs_cis)
     def apply_rope1(x, freqs_cis):
-        if comfy.model_management.in_training:
+        if model_management.in_training:
             return _apply_rope1(x, freqs_cis)
         else:
             return q_apply_rope1(x, freqs_cis)

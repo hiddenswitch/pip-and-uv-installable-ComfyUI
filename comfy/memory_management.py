@@ -88,3 +88,7 @@ _module_properties = create_module_properties()
 @_module_properties.getter
 def _aimdo_enabled() -> bool:
     return aimdo_allocator is not None
+
+
+def aimdo_enabled() -> bool:
+    return _aimdo_enabled()

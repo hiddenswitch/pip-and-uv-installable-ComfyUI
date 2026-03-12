@@ -17,8 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from .models import Base
-# todo: this need merging
-import comfy.app.assets.database.models  # noqa: F401 — register models with Base.metadata
+from ..assets.database import models as _asset_models  # noqa: F401
 
 _DB_AVAILABLE = True
 

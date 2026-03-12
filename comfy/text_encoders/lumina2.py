@@ -1,8 +1,8 @@
-from .llama import Gemma2_2B, Gemma3_4B
+from .llama import Gemma2_2B, Gemma3_4B, Gemma3_4B_Vision
 from .spiece_tokenizer import SPieceTokenizer
 from .. import sd1_clip
-from comfy.text_encoders.lt import Gemma3_Tokenizer
-import comfy.utils
+from .lt import Gemma3_Tokenizer
+from .. import utils
 
 class Gemma2BTokenizer(sd1_clip.SDTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data=None):
@@ -57,17 +57,19 @@ class Gemma3_4BModel(sd1_clip.SDClipModel):
         super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=Gemma3_4B, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 class Gemma3_4B_Vision_Model(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="hidden", layer_idx=-2, dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", layer="hidden", layer_idx=-2, dtype=None, attention_mask=True, model_options={}, textmodel_json_config=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         llama_quantization_metadata = model_options.get("llama_quantization_metadata", None)
         if llama_quantization_metadata is not None:
             model_options = model_options.copy()
             model_options["quantization_metadata"] = llama_quantization_metadata
 
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=comfy.text_encoders.llama.Gemma3_4B_Vision, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=Gemma3_4B_Vision, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
     def process_tokens(self, tokens, device):
         embeds, _, _, embeds_info = super().process_tokens(tokens, device)
-        comfy.utils.normalize_image_embeddings(embeds, embeds_info, self.transformer.model.config.hidden_size ** 0.5)
+        utils.normalize_image_embeddings(embeds, embeds_info, self.transformer.model.config.hidden_size ** 0.5)
         return embeds
 
 class LuminaModel(sd1_clip.SD1ClipModel):

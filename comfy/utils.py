@@ -178,7 +178,7 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
     sd: dict[str, torch.Tensor] = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
         try:
-            if memory_management.aimdo_enabled:
+            if memory_management.aimdo_enabled():
                 sd, metadata = load_safetensors(ckpt)
                 if not return_metadata:
                     metadata = None
@@ -1353,7 +1353,7 @@ class _DisabledProgressBar:
 
 
 def model_trange(*args, **kwargs):
-    if not memory_management.aimdo_enabled:
+    if not memory_management.aimdo_enabled():
         return trange(*args, **kwargs)
 
     pbar = trange(*args, **kwargs, smoothing=1.0)

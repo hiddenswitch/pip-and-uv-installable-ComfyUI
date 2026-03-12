@@ -818,6 +818,8 @@ class BaseLlama:
         return self.model(input_ids, *args, **kwargs)
 
 class BaseGenerate:
+    model: torch.nn.Module
+
     def logits(self, x):
         input = x[:, -1:]
         if hasattr(self.model, "lm_head"):

@@ -1,4 +1,5 @@
 import os
+from typing import cast
 from pathlib import Path
 from typing import Literal
 
@@ -137,11 +138,12 @@ def get_asset_category_and_relative_path(
             if not _check_is_within(fp_abs, base_abs):
                 continue
             cand = (len(base_abs), bucket, _compute_relative(fp_abs, base_abs))
-            if best is None or cand[0] > best[0]:
+            best_len = best[0] if best is not None else -1
+            if cand[0] > best_len:
                 best = cand
 
     if best is not None:
-        _, bucket, rel_inside = best
+        _, bucket, rel_inside = cast(tuple[int, str, str], best)
         combined = os.path.join(bucket, rel_inside)
         return "models", os.path.relpath(os.path.join(os.sep, combined), os.sep)
 

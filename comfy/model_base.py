@@ -119,7 +119,7 @@ def model_sampling(model_config, model_type):
         c = COSMOS_RFLOW
         s = ModelSamplingCosmosRFlow
     elif model_type == ModelType.IMG_TO_IMG_FLOW:
-        c = model_sampling.IMG_TO_IMG_FLOW
+        c = model_sampling.IMG_TO_IMG_FLOW  # pylint: disable=no-member
 
     class ModelSampling(s, c):
         pass

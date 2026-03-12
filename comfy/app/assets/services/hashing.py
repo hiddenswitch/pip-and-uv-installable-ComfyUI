@@ -97,3 +97,10 @@ def compute_blake3_hash(
             bytes_processed += len(chunk)
 
         return h.hexdigest(), None
+
+
+def blake3_hash(fp: str | IO[bytes]) -> str:
+    digest, checkpoint = compute_blake3_hash(fp)
+    if digest is None or checkpoint is not None:
+        raise RuntimeError("hash computation was interrupted")
+    return digest

@@ -29,7 +29,7 @@ class ComfyAPI_latest(ComfyAPIBase):
     class NodeReplacement(ProxiedSingleton):
         async def register(self, node_replace: io.NodeReplace) -> None:
             """Register a node replacement mapping."""
-            from server import PromptServer
+            from server import PromptServer  # pylint: disable=import-error
             PromptServer.instance.node_replace_manager.register(node_replace)
 
     class Execution(ProxiedSingleton):

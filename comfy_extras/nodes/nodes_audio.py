@@ -745,6 +745,8 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
     @classmethod
     def execute(cls, audio, low_gain_dB, low_freq, mid_gain_dB, mid_freq, mid_q, high_gain_dB, high_freq) -> IO.NodeOutput:
+        import torchaudio  # pylint: disable=import-error
+
         waveform = audio["waveform"]
         sample_rate = audio["sample_rate"]
         eq_waveform = waveform.clone()

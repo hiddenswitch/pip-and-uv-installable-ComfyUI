@@ -33,6 +33,8 @@ def ltxv_te(*args, **kwargs):
 
 
 class Gemma3_Tokenizer():
+    tokenizer: SPieceTokenizer
+
     def state_dict(self):
         return {"spiece_model": self.tokenizer.serialize_model()}
 
@@ -67,7 +69,7 @@ class Gemma3_Tokenizer():
             else:
                 llama_text = llama_template.format(text)
 
-        text_tokens = super().tokenize_with_weights(llama_text, return_word_ids)
+        text_tokens = super().tokenize_with_weights(llama_text, return_word_ids)  # pylint: disable=no-member
 
         if len(images) > 0:
             embed_count = 0
@@ -143,7 +145,7 @@ class LTXAVTEModel(torch.nn.Module):
 
 
     def enable_compat_mode(self):  # TODO: remove
-        from comfy.ldm.lightricks.embeddings_connector import Embeddings1DConnector
+        from ..ldm.lightricks.embeddings_connector import Embeddings1DConnector
         operations = self.gemma3_12b.operations
         dtype = self.text_embedding_projection.weight.dtype
         device = self.text_embedding_projection.weight.device

@@ -9,7 +9,7 @@ mock_nodes.MAX_RESOLUTION = 16384
 mock_server = MagicMock()
 
 with patch.dict("sys.modules", {"nodes": mock_nodes, "server": mock_server}):
-    from comfy_extras.nodes_math import MathExpressionNode
+    from comfy_extras.nodes.nodes_math import MathExpressionNode
 
 
 class TestMathExpressionExecute:

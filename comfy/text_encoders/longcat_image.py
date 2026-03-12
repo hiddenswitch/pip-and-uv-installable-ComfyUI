@@ -1,9 +1,10 @@
 import re
 import numbers
 import torch
-from comfy import sd1_clip
-from comfy.text_encoders.qwen_image import Qwen25_7BVLITokenizer, Qwen25_7BVLIModel
 import logging
+
+from .. import sd1_clip
+from .qwen_image import Qwen25_7BVLITokenizer, Qwen25_7BVLIModel
 
 logger = logging.getLogger(__name__)
 
