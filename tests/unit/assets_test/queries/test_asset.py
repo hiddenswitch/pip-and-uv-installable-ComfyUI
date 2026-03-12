@@ -3,9 +3,9 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.helpers import get_utc_now
-from app.assets.database.models import Asset
-from app.assets.database.queries import (
+from comfy.app.assets.helpers import get_utc_now
+from comfy.app.assets.database.models import Asset
+from comfy.app.assets.database.queries import (
     asset_exists_by_hash,
     get_asset_by_hash,
     upsert_asset,

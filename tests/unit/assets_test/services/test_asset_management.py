@@ -2,10 +2,10 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference
-from app.assets.database.queries import ensure_tags_exist, add_tags_to_reference
-from app.assets.helpers import get_utc_now
-from app.assets.services import (
+from comfy.app.assets.database.models import Asset, AssetReference
+from comfy.app.assets.database.queries import ensure_tags_exist, add_tags_to_reference
+from comfy.app.assets.helpers import get_utc_now
+from comfy.app.assets.services import (
     get_asset_detail,
     update_asset_metadata,
     delete_asset_reference,

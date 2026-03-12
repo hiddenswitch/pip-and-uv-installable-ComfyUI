@@ -275,7 +275,7 @@ def test_get_installed_templates_version():
     expected_version = "0.1.40"
 
     # Act
-    with patch("app.frontend_management.version", return_value=expected_version):
+    with patch("comfy.app.frontend_management.version", return_value=expected_version):
         version = FrontendManager.get_installed_templates_version()
 
     # Assert
@@ -284,7 +284,7 @@ def test_get_installed_templates_version():
 @pytest.mark.skip("not used in this fork")
 def test_get_installed_templates_version_not_installed():
     # Act
-    with patch("app.frontend_management.version", side_effect=Exception("Package not found")):
+    with patch("comfy.app.frontend_management.version", side_effect=Exception("Package not found")):
         version = FrontendManager.get_installed_templates_version()
 
     # Assert

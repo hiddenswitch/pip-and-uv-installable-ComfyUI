@@ -1,5 +1,6 @@
 """Background asset seeder with thread management and cancellation support."""
 
+import contextvars
 import logging
 import os
 import threading
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
-from app.assets.scanner import (
+from .scanner import (
     ENRICHMENT_METADATA,
     ENRICHMENT_STUB,
     RootType,
@@ -22,7 +23,7 @@ from app.assets.scanner import (
     mark_missing_outside_prefixes_safely,
     sync_root_safely,
 )
-from app.database.db import dependencies_available
+from ..database.db import dependencies_available
 
 
 class ScanInProgressError(Exception):
@@ -140,8 +141,9 @@ class _AssetSeeder:
             self._progress_callback = progress_callback
             self._cancel_event.clear()
             self._run_gate.set()  # Ensure unpaused when starting
+            ctx = contextvars.copy_context()
             self._thread = threading.Thread(
-                target=self._run_scan,
+                target=lambda: ctx.run(self._run_scan),
                 name="_AssetSeeder",
                 daemon=True,
             )
@@ -417,7 +419,7 @@ class _AssetSeeder:
     def _emit_event(self, event_type: str, data: dict) -> None:
         """Emit a WebSocket event if server is available."""
         try:
-            from server import PromptServer
+            from ...cmd.server import PromptServer
 
             if hasattr(PromptServer, "instance") and PromptServer.instance:
                 PromptServer.instance.send_sync(event_type, data)
@@ -471,7 +473,7 @@ class _AssetSeeder:
 
     def _log_scan_config(self, roots: tuple[RootType, ...]) -> None:
         """Log the directories that will be scanned."""
-        import folder_paths
+        from ...cmd import folder_paths
 
         for root in roots:
             if root == "models":

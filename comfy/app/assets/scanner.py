@@ -37,12 +37,11 @@ from .services.file_utils import (
 )
 from .services.hashing import HashCheckpoint, compute_blake3_hash
 from .services.metadata_extract import extract_file_metadata
-from services.path_utils import (
+from .services.path_utils import (
     compute_relative_filename,
     get_comfy_models_folders,
     get_name_and_tags_from_asset_path,
 )
-from .database.tags import add_missing_tag_for_asset_id, ensure_tags_exist, remove_missing_tag_for_asset_id
 
 
 class _RefInfo(TypedDict):

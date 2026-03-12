@@ -3,8 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference
-from app.assets.database.queries.common import MAX_BIND_PARAMS, calculate_rows_per_statement, iter_chunks
+from ..models import Asset, AssetReference
+from .common import MAX_BIND_PARAMS, calculate_rows_per_statement, iter_chunks
 
 
 def asset_exists_by_hash(

@@ -1132,7 +1132,6 @@ def convert_diffusers_mmdit(state_dict, output_prefix=""):
                         new[:old_weight.shape[0]] = old_weight
                         old_weight = new
 
-                    # todo: needs merge, memory_management.aimdo_enabled should be a module level property and reads the state appropriately
                     if old_weight is out_sd.get(t[0], None) and memory_management.aimdo_enabled:
                         old_weight = old_weight.clone()
 

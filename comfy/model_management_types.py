@@ -429,16 +429,16 @@ class ModelOptions(TypedDict, total=False):
 
 
 class LoadingListItem(NamedTuple):
-    not_comfy_cast_weights: Optional[bool]
+    sort_criteria: Any | None
     module_offload_mem: int
     module_size: int
     name: str
     module: torch.nn.Module
-    params: list[str]
+    params: dict[str, torch.nn.Parameter]
 
 
 def sort_loading_list_in_place(loading_list: list[LoadingListItem], reverse=False):
     def key_func(x: LoadingListItem):
-        return x.not_comfy_cast_weights if x.not_comfy_cast_weights is not None else x.module_offload_mem
+        return x.sort_criteria if x.sort_criteria is not None else x.module_offload_mem
 
     loading_list.sort(key=key_func, reverse=reverse)

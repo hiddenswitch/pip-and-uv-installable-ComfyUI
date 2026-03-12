@@ -5,8 +5,8 @@ from typing import Iterable
 
 import sqlalchemy as sa
 
-from app.assets.database.models import AssetReference
-from app.assets.helpers import escape_sql_like_string
+from ..models import AssetReference
+from ...helpers import escape_sql_like_string
 
 MAX_BIND_PARAMS = 800
 

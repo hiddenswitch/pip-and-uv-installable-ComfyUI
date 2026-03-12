@@ -150,6 +150,7 @@ _NODE_OPTS: list[tuple] = [
     ("enable_eval", bool, typer.Option(False, "--enable-eval", help="Enable nodes that can evaluate Python code in workflows.")),
     ("enable_video_to_image_fallback", bool, typer.Option(False, "--enable-video-to-image-fallback", help="Enable video-to-image fallback.")),
     ("disable_known_models", bool, typer.Option(False, "--disable-known-models", help="Disables automatic downloads of known models.")),
+    ("enable_assets", bool, typer.Option(False, "--enable-assets", help="Enable the assets API and asset management features.")),
     ("disable_assets_autoscan", bool, typer.Option(False, "--disable-assets-autoscan", help="Disable asset scanning on startup for database synchronization.")),
 ]
 

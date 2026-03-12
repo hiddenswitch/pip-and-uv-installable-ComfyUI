@@ -3,8 +3,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference
-from app.assets.scanner import (
+from comfy.app.assets.database.models import Asset, AssetReference
+from comfy.app.assets.scanner import (
     ENRICHMENT_HASHED,
     ENRICHMENT_METADATA,
     ENRICHMENT_STUB,

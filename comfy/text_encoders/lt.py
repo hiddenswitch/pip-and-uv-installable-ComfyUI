@@ -89,7 +89,6 @@ class LTXAVGemmaTokenizer(sd1_clip.SD1Tokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, name="gemma3_12b", tokenizer=Gemma3_12BTokenizer)
 
-# todo: requires merge
 class Gemma3_12BModel(sd1_clip.SDClipModel):
     def __init__(self, device="cpu", layer="all", layer_idx=None, textmodel_json_config=None, dtype=None, attention_mask=True, model_options={}):
         if textmodel_json_config is None:

@@ -1,8 +1,8 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference, AssetReferenceTag, AssetReferenceMeta, Tag
-from app.assets.database.queries import (
+from comfy.app.assets.database.models import Asset, AssetReference, AssetReferenceTag, AssetReferenceMeta, Tag
+from comfy.app.assets.database.queries import (
     ensure_tags_exist,
     get_reference_tags,
     set_reference_tags,
@@ -13,7 +13,7 @@ from app.assets.database.queries import (
     list_tags_with_usage,
     bulk_insert_tags_and_meta,
 )
-from app.assets.helpers import get_utc_now
+from comfy.app.assets.helpers import get_utc_now
 
 
 def _make_asset(session: Session, hash_val: str | None = None) -> Asset:

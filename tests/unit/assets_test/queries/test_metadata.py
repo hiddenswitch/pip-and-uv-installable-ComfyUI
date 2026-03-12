@@ -2,10 +2,10 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference, AssetReferenceMeta
-from app.assets.database.queries import list_references_page
-from app.assets.database.queries.asset_reference import convert_metadata_to_rows
-from app.assets.helpers import get_utc_now
+from comfy.app.assets.database.models import Asset, AssetReference, AssetReferenceMeta
+from comfy.app.assets.database.queries import list_references_page
+from comfy.app.assets.database.queries.asset_reference import convert_metadata_to_rows
+from comfy.app.assets.helpers import get_utc_now
 
 
 def _make_asset(session: Session, hash_val: str) -> Asset:

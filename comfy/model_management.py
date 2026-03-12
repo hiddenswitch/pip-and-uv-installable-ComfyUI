@@ -72,9 +72,7 @@ cpu_state = CPUState.GPU
 total_vram = 0
 
 
-# todo: needs merge, what is this really tracking?
-# todo: this should probably interact with pre-existing execution context machinery, to allow nodes to signal that training is required
-# Training Related State
+# Training-related state.
 in_training = False
 
 
@@ -1030,7 +1028,6 @@ def unet_initial_load_device(parameters, dtype):
 
     mem_dev = get_free_memory(torch_dev)
     mem_cpu = get_free_memory(cpu_dev)
-    # todo: needs merge, do we need  `and memory_management.aimdo_allocator is None`? this is fixing some other issue
     if mem_dev > mem_cpu and model_size < mem_dev:
         return torch_dev
     else:

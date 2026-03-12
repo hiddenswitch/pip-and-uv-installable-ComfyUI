@@ -4,7 +4,7 @@ import shutil
 from importlib import resources
 from filelock import FileLock, Timeout
 
-from ...cli_args import args
+from ...execution_context import current_execution_context
 
 Session = None
 
@@ -40,19 +40,20 @@ def can_create_session():
 
 
 def get_alembic_config():
+    db_url = current_execution_context().configuration.database_url
     # Use importlib to read alembic.ini from the package
     with resources.as_file(resources.files("comfy") / "alembic.ini") as config_path:
         config = Config(str(config_path))
 
     # Use module path format for script_location (works with importlib)
     config.set_main_option("script_location", "comfy:alembic_db")
-    config.set_main_option("sqlalchemy.url", args.database_url)
+    config.set_main_option("sqlalchemy.url", db_url)
 
     return config
 
 
 def get_db_path():
-    url = args.database_url
+    url = current_execution_context().configuration.database_url
     if url.startswith("sqlite:///"):
         return url.split("///")[1]
     else:
@@ -86,7 +87,7 @@ def _is_memory_db(db_url):
 
 
 def init_db():
-    db_url = args.database_url
+    db_url = current_execution_context().configuration.database_url
     logger.debug(f"Database URL: {db_url}")
 
     if _is_memory_db(db_url):

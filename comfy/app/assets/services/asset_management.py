@@ -4,8 +4,8 @@ import os
 from typing import Sequence
 
 
-from app.assets.database.models import Asset
-from app.assets.database.queries import (
+from ..database.models import Asset
+from ..database.queries import (
     asset_exists_by_hash,
     reference_exists_for_asset_id,
     delete_reference_by_id,
@@ -24,9 +24,9 @@ from app.assets.database.queries import (
     update_reference_name,
     update_reference_updated_at,
 )
-from app.assets.helpers import select_best_live_path
-from app.assets.services.path_utils import compute_relative_filename
-from app.assets.services.schemas import (
+from ..helpers import select_best_live_path
+from .path_utils import compute_relative_filename
+from .schemas import (
     AssetData,
     AssetDetailResult,
     AssetSummaryData,
@@ -36,7 +36,7 @@ from app.assets.services.schemas import (
     extract_asset_data,
     extract_reference_data,
 )
-from app.database.db import create_session
+from ...database.db import create_session
 
 
 def get_asset_detail(

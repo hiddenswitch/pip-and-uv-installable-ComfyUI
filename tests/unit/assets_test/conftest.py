@@ -8,6 +8,7 @@ import contextlib
 import json
 import socket
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Generator, Any
 from multiprocessing import Process
@@ -69,6 +70,7 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     config.base_directory = str(comfy_tmp_base_dir)
     config.base_paths = [str(comfy_tmp_base_dir)]
     config.database_url = db_url
+    config.enable_assets = True
     config.disable_assets_autoscan = True
     config.listen = "127.0.0.1"
     config.port = _find_free_port()
@@ -177,7 +179,8 @@ def seeded_asset(request: pytest.FixtureRequest, http: requests.Session, api_bas
     if tags is None:
         tags = ["models", "checkpoints", "unit-tests", "alpha"]
     meta = {"purpose": "test", "epoch": 1, "flags": ["x", "y"], "nullable": None}
-    files = {"file": (name, b"A" * 4096, "application/octet-stream")}
+    file_bytes = (uuid.uuid4().hex.encode("ascii") * 256)[:4096]
+    files = {"file": (name, file_bytes, "application/octet-stream")}
     form_data = {
         "tags": json.dumps(tags),
         "name": name,
@@ -208,7 +211,9 @@ def autoclean_unit_test_assets(http: requests.Session, api_base: str):
             break
         for aid in ids:
             with contextlib.suppress(Exception):
-                http.delete(f"{api_base}/api/assets/{aid}", timeout=30)
+                http.delete(
+                    f"{api_base}/api/assets/{aid}?delete_content=true", timeout=30
+                )
 
 
 # Helper functions are in helpers.py for direct import by test files

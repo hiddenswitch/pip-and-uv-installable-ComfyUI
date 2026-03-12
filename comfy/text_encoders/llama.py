@@ -5,7 +5,6 @@ from typing import Optional, Any, Tuple
 
 import torch
 import torch.nn as nn
-from tqdm import tqdm
 
 from . import qwen_vl
 from .. import clip_model
@@ -15,7 +14,7 @@ from ..ldm.modules.attention import optimized_attention_for_device
 from ..model_management import cast_to_device
 from ..model_management import should_use_bf16
 from ..ops import uncast_bias_weight, cast_bias_weight
-from ..utils import ProgressBar
+from ..utils import ProgressBar, tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -866,7 +865,6 @@ class BaseGenerate:
         pbar = ProgressBar(max_length)
 
         # Generation loop
-        # todo: needs merge, uses our comfy tqdm / tqdm patching facility
         for step in tqdm(range(max_length), desc="Generating tokens"):
             x, _, past_key_values = self.model.forward(None, embeds=embeds, attention_mask=None, past_key_values=past_key_values)
             logits = self.logits(x)[:, -1]

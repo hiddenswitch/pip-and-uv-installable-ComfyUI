@@ -17,7 +17,13 @@ from alembic import context
 config = context.config
 
 from comfy.app.database.models import Base
-from comfy.app.assets.database.models import Asset, AssetInfo, AssetCacheState, AssetInfoMeta, AssetInfoTag, Tag
+from comfy.app.assets.database.models import (
+    Asset,
+    AssetReference,
+    AssetReferenceMeta,
+    AssetReferenceTag,
+    Tag,
+)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

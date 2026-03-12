@@ -268,7 +268,6 @@ class GGUFQuantization:
     mmap_released: bool = False
     patch_on_device: bool = False
 
-# todo: needs merge, update model manageable signatures and implementors
 class ModelPatcher(ModelManageable, PatchSupport):
     def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         self.size = size
@@ -874,8 +873,6 @@ class ModelPatcher(ModelManageable, PatchSupport):
                     sort_criteria = (module_offload_mem >= 64 * 1024, -module_offload_mem)
                 else:
                     sort_criteria = (module_offload_mem,)
-                # todo: needs merge, migrate LoadingListItem to have sort_criteria instead of prepend
-                # todo: needs merge, migrate LoadingListItem params to be kwargs or any, really
                 loading.append(LoadingListItem(sort_criteria, module_offload_mem, module_mem, n, m, params))
         return loading
 
@@ -904,7 +901,6 @@ class ModelPatcher(ModelManageable, PatchSupport):
             offload_buffer = 0
             sort_loading_list_in_place(loading, reverse=True)
             for i, x in enumerate(loading):
-                # first item is some kind of odd prepend item
                 _, module_offload_mem, module_mem, n, m, params = x
 
                 lowvram_weight = False
@@ -1134,7 +1130,6 @@ class ModelPatcher(ModelManageable, PatchSupport):
             for unload in unload_list:
                 if memory_to_free + offload_buffer - self._memory_measurements.model_offload_buffer_memory < memory_freed:
                     break
-                # todo: we added the first item which is this prepend, which is confusing
                 _, module_offload_mem, module_mem, n, m, params = unload
 
                 potential_offload = module_offload_mem + sum(offload_weight_factor)
@@ -1722,9 +1717,7 @@ class ModelPatcherDynamic(ModelPatcher):
             if vbar is not None:
                 vbar.prioritize()
 
-            # We have way more tools for acceleration on comfy weight offloading, so always
-            # prioritize the non-comfy weights (note the order reverse).
-            # todo: needs merge, update this relative to prev commit
+            # Prioritize smaller dynamic loads first, then larger modules by offload cost.
             loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 

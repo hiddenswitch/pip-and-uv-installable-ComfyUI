@@ -1,7 +1,9 @@
 import math
-import torch
 from typing import NamedTuple
 
+import torch
+
+from .component_model.module_property import create_module_properties
 from .quant_ops import QuantizedTensor
 
 class TensorGeometry(NamedTuple):
@@ -78,4 +80,11 @@ def interpret_gathered_like(tensors, gathered):
 
     return dest_views
 
-aimdo_enabled = False
+aimdo_allocator = None
+
+_module_properties = create_module_properties()
+
+
+@_module_properties.getter
+def _aimdo_enabled() -> bool:
+    return aimdo_allocator is not None

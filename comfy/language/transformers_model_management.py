@@ -26,6 +26,11 @@ except ImportError:
     MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES = {}
 
 try:
+    from transformers.models.auto.modeling_auto import MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES
+except ImportError:
+    MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = {}
+
+try:
     from transformers.models.auto.modeling_auto import AutoModelForImageTextToText
 except ImportError:
     # Fallback for older transformers versions
@@ -215,7 +220,7 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
                 pass
             for i, kwargs_to_try in enumerate(kwargses_to_try):
                 try:
-                    if AutoModelForImageTextToText is not None and model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES:
+                    if AutoModelForImageTextToText is not None and (model_type in MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES or model_type in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES):
                         model = AutoModelForImageTextToText.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
                     elif model_type in MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
                         model = AutoModelForSeq2SeqLM.from_pretrained(**from_pretrained_kwargs, **kwargs_to_try)
@@ -328,7 +333,7 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
         inputs = tokens
 
         # used to determine if text streaming is supported
-        num_beams = generate_kwargs.get("num_beams", transformers_model.generation_config.num_beams)
+        num_beams = generate_kwargs.get("num_beams", None) or getattr(transformers_model.generation_config, "num_beams", 1) or 1
 
         progress_bar: ProgressBar
         with comfy_progress(total=max_new_tokens) as progress_bar:

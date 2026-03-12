@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from comfy_api.latest._io_public import NodeReplace
 
 from comfy_execution.graph_utils import is_link
-import nodes
+from ..nodes_context import get_nodes
 
 class NodeStruct(TypedDict):
     inputs: dict[str, str | int | float | bool | tuple[str, int]]
@@ -43,6 +43,7 @@ class NodeReplaceManager:
         return old_node_id in self._replacements
 
     def apply_replacements(self, prompt: dict[str, NodeStruct]):
+        node_class_mappings = get_nodes().NODE_CLASS_MAPPINGS
         connections: dict[str, list[tuple[str, str, int]]] = {}
         need_replacement: set[str] = set()
         for node_number, node_struct in prompt.items():
@@ -50,7 +51,7 @@ class NodeReplaceManager:
                 continue
             class_type = node_struct["class_type"]
             # need replacement if not in NODE_CLASS_MAPPINGS and has replacement
-            if class_type not in nodes.NODE_CLASS_MAPPINGS.keys() and self.has_replacement(class_type):
+            if class_type not in node_class_mappings and self.has_replacement(class_type):
                 need_replacement.add(node_number)
             # keep track of connections
             for input_id, input_value in node_struct["inputs"].items():
@@ -67,7 +68,7 @@ class NodeReplaceManager:
             replacement = replacements[0]
             new_node_id = replacement.new_node_id
             # if replacement is not a valid node, skip trying to replace it as will only cause confusion
-            if new_node_id not in nodes.NODE_CLASS_MAPPINGS.keys():
+            if new_node_id not in node_class_mappings:
                 continue
             # first, replace node id (class_type)
             new_node_struct = copy_node_struct(node_struct, empty_inputs=True)

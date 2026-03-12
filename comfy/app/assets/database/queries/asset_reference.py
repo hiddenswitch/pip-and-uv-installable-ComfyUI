@@ -15,21 +15,21 @@ from sqlalchemy.dialects import sqlite
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, noload
 
-from app.assets.database.models import (
+from ..models import (
     Asset,
     AssetReference,
     AssetReferenceMeta,
     AssetReferenceTag,
     Tag,
 )
-from app.assets.database.queries.common import (
+from .common import (
     MAX_BIND_PARAMS,
     build_prefix_like_conditions,
     build_visible_owner_clause,
     calculate_rows_per_statement,
     iter_chunks,
 )
-from app.assets.helpers import escape_sql_like_string, get_utc_now, normalize_tags
+from ...helpers import escape_sql_like_string, get_utc_now, normalize_tags
 
 
 def _check_is_scalar(v):

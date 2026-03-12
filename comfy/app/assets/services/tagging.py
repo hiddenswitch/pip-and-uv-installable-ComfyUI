@@ -1,4 +1,4 @@
-from app.assets.database.queries import (
+from ..database.queries import (
     AddTagsResult,
     RemoveTagsResult,
     add_tags_to_reference,
@@ -6,8 +6,8 @@ from app.assets.database.queries import (
     list_tags_with_usage,
     remove_tags_from_reference,
 )
-from app.assets.services.schemas import TagUsage
-from app.database.db import create_session
+from .schemas import TagUsage
+from ...database.db import create_session
 
 
 def apply_tags(

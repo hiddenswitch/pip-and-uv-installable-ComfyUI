@@ -2,8 +2,8 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference
-from app.assets.database.queries import (
+from comfy.app.assets.database.models import Asset, AssetReference
+from comfy.app.assets.database.queries import (
     list_references_by_asset_id,
     upsert_reference,
     get_unreferenced_unhashed_asset_ids,
@@ -17,7 +17,7 @@ from app.assets.database.queries import (
     mark_references_missing_outside_prefixes,
     restore_references_by_paths,
 )
-from app.assets.helpers import select_best_live_path, get_utc_now
+from comfy.app.assets.helpers import select_best_live_path, get_utc_now
 
 
 def _make_asset(session: Session, hash_val: str | None = None, size: int = 1024) -> Asset:

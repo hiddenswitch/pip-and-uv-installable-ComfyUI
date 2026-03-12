@@ -1345,6 +1345,12 @@ class _DisabledProgressBar:
     def __init__(self, *args, **kwargs):
         pass
 
+    def update_absolute(self, value, total=None, preview_image_or_output=None):
+        return None
+
+    def update(self, value):
+        return None
+
 
 def model_trange(*args, **kwargs):
     if not memory_management.aimdo_enabled:

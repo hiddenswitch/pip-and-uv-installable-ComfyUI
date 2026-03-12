@@ -44,7 +44,6 @@ from ..app.model_manager import ModelFileManager
 from ..app.subgraph_manager import SubgraphManager
 from ..app.user_manager import UserManager
 
-from ..cli_args import args
 from ..client.client_types import FileOutput
 from ..cmd import execution
 from ..cmd import folder_paths
@@ -57,6 +56,7 @@ from ..component_model.queue_types import QueueItem, HistoryEntry, BinaryEventTy
     ExecutionStatus, QueueTuple, ExtraData
 from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
 from ..digest import digest
+from ..execution_context import current_execution_context
 from ..images import open_image
 from ..middleware.cache_middleware import cache_control
 from ..model_management import get_torch_device, get_torch_device_name, get_total_memory, get_free_memory, torch_version
@@ -254,6 +254,7 @@ class PromptServer(ExecutorToClientProgress):
     instance: Optional['PromptServer'] = None
 
     def __init__(self, loop):
+        server_args = current_execution_context().configuration
         # todo: this really needs to be set up differently, because sometimes the prompt server will not be initialized
         PromptServer.instance = self
 
@@ -275,15 +276,15 @@ class PromptServer(ExecutorToClientProgress):
         self.background_tasks: dict[str, Task] = dict()
 
         middlewares = [opentelemetry_middleware, cache_control, deprecation_warning]
-        if args.enable_compress_response_body:
+        if server_args.enable_compress_response_body:
             middlewares.append(compress_body)
 
-        if args.enable_cors_header:
-            middlewares.append(create_cors_middleware(args.enable_cors_header))
+        if server_args.enable_cors_header:
+            middlewares.append(create_cors_middleware(server_args.enable_cors_header))
         else:
             middlewares.append(create_origin_only_middleware())
 
-        if args.disable_api_nodes:
+        if server_args.disable_api_nodes:
             middlewares.append(create_block_external_middleware())
 
         # Add manager middleware if available
@@ -292,19 +293,19 @@ class PromptServer(ExecutorToClientProgress):
         if manager_middleware is not None:
             middlewares.append(manager_middleware)
 
-        max_upload_size = round(args.max_upload_size * 1024 * 1024)
+        max_upload_size = round(server_args.max_upload_size * 1024 * 1024)
         self.app: web.Application = web.Application(client_max_size=max_upload_size,
                                                     handler_args={'max_field_size': 16380},
                                                     middlewares=middlewares)
         self.sockets = dict()
         self._sockets_metadata = dict()
         self.web_root = (
-            FrontendManager.init_frontend(args.front_end_version)
-            if args.front_end_root is None
-            else args.front_end_root
+            FrontendManager.init_frontend(server_args.front_end_version)
+            if server_args.front_end_root is None
+            else server_args.front_end_root
         )
         routes = web.RouteTableDef()
-        if args.enable_assets:
+        if server_args.enable_assets:
             register_assets_routes(self.app, self.user_manager)
         else:
             register_assets_routes(self.app)
@@ -1451,7 +1452,8 @@ class PromptServer(ExecutorToClientProgress):
         runner = web.AppRunner(self.app, access_log=None, keepalive_timeout=900)
         await runner.setup()
 
-        if 'tls_keyfile' in args or 'tls_certfile' in args:
+        server_args = current_execution_context().configuration
+        if 'tls_keyfile' in server_args or 'tls_certfile' in server_args:
             logger.warning("Use caddy instead of aiohttp to serve https by setting up a reverse proxy. See README.md")
 
         def is_ipv4(address: str, *args):
@@ -1501,7 +1503,7 @@ class PromptServer(ExecutorToClientProgress):
 
     @classmethod
     def get_too_busy_queue_size(cls):
-        return args.max_queue_size
+        return current_execution_context().configuration.max_queue_size
 
     def send_progress_text(
             self, text: Union[bytes, bytearray, str], node_id: str, sid=None

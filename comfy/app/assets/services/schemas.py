@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, NamedTuple
 
-from app.assets.database.models import Asset, AssetReference
+from ..database.models import Asset, AssetReference
 
 UserMetadata = dict[str, Any] | None
 

@@ -2,12 +2,13 @@ import contextlib
 import logging
 import mimetypes
 import os
+import shutil
 from typing import Any, Sequence
 
 from sqlalchemy.orm import Session
 
-import app.assets.services.hashing as hashing
-from app.assets.database.queries import (
+from . import hashing
+from ..database.queries import (
     add_tags_to_reference,
     fetch_reference_and_asset,
     get_asset_by_hash,
@@ -22,14 +23,14 @@ from app.assets.database.queries import (
     upsert_reference,
     validate_tags_exist,
 )
-from app.assets.helpers import normalize_tags
-from app.assets.services.file_utils import get_size_and_mtime_ns
-from app.assets.services.path_utils import (
+from ..helpers import normalize_tags
+from .file_utils import get_size_and_mtime_ns
+from .path_utils import (
     compute_relative_filename,
     resolve_destination_from_tags,
     validate_path_within_base,
 )
-from app.assets.services.schemas import (
+from .schemas import (
     IngestResult,
     RegisterAssetResult,
     UploadResult,
@@ -37,7 +38,7 @@ from app.assets.services.schemas import (
     extract_asset_data,
     extract_reference_data,
 )
-from app.database.db import create_session
+from ...database.db import create_session
 
 
 def _ingest_file_from_path(
@@ -224,6 +225,35 @@ def _sanitize_filename(name: str | None, fallback: str) -> str:
     return n if n else fallback
 
 
+def _copy_to_reserved_destination(temp_path: str, dest_abs: str) -> str:
+    """Copy a temp upload into a unique destination path without clobbering."""
+    stem, ext = os.path.splitext(dest_abs)
+    attempt = 0
+
+    while True:
+        candidate = dest_abs if attempt == 0 else f"{stem}-{attempt}{ext}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        try:
+            fd = os.open(candidate, flags, 0o644)
+        except FileExistsError:
+            attempt += 1
+            continue
+
+        try:
+            with open(temp_path, "rb") as src, os.fdopen(fd, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.remove(candidate)
+            raise
+        break
+
+    with contextlib.suppress(OSError):
+        os.remove(temp_path)
+
+    return candidate
+
+
 class HashMismatchError(Exception):
     pass
 
@@ -257,7 +287,7 @@ def upload_from_temp_path(
     with create_session() as session:
         existing = get_asset_by_hash(session, asset_hash=asset_hash)
 
-    if existing is not None:
+    if existing is not None and not tags:
         with contextlib.suppress(Exception):
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -298,7 +328,7 @@ def upload_from_temp_path(
     )
 
     try:
-        os.replace(temp_path, dest_abs)
+        dest_abs = _copy_to_reserved_destination(temp_path, dest_abs)
     except Exception as e:
         raise RuntimeError(f"failed to move uploaded file into place: {e}")
 
