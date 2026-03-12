@@ -145,7 +145,9 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
             result[name] = _wrap_value(val)
             idx += 1
         else:
-            break
+            if "default" not in opts:
+                break
+            result[name] = _wrap_value(opts["default"])
 
         for extra_name in _extra_widgets_after(opts, name=name, type_spec=type_spec):
             if idx < len(widgets_values):

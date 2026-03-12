@@ -344,10 +344,10 @@ class TestMapWidgets:
         assert result == {"label": "hello"}
 
     def test_truncated_widgets(self):
-        """If widgets_values is shorter than expected, map what we can."""
+        """If widgets_values is shorter than expected, fill trailing defaults."""
         input_types = _EmptyLatentImage.INPUT_TYPES()
         result, _ = _map_widgets(input_types, [768])
-        assert result == {"width": 768}
+        assert result == {"width": 768, "height": 512, "batch_size": 1}
 
     def test_dict_widgets_passthrough(self):
         """Ensure convert_ui_to_api handles dict widgets_values."""
