@@ -121,6 +121,8 @@ dependencies = [
     "SQLAlchemy",
     "gguf",
     "trimesh",
+    "glfw",
+    "PyOpenGL",
     # doesn't support linux correctly yet
     "stringzilla<4.2.0",
     "requests_cache",
