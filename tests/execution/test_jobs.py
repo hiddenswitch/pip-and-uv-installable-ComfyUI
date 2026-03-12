@@ -350,7 +350,7 @@ class TestNormalizeQueueItem:
         assert job['id'] == 'prompt-123'
         assert job['status'] == 'pending'
         assert job['priority'] == 10.0
-        assert job['create_time'] == 1234567890
+        assert job['create_time'] == item['extra_data']['create_time']
         assert job['outputs_count'] == 0
         assert job['workflow_id'] == 'workflow-abc'
 
@@ -570,10 +570,7 @@ class TestNormalizeHistoryItem:
         assert job['workflow_id'] == 'workflow-dict'
         assert job['workflow'] == {
             'prompt': {'nodes': {'1': {}}},
-            'extra_data': {
-                'create_time': 1234567890,
-                'extra_pnginfo': {'workflow': {'id': 'workflow-dict'}},
-            },
+            'extra_data': queue_item['extra_data'],
         }
 
 

@@ -342,6 +342,107 @@ paths:
               description: >-
                 A POST request to /free with: {"unload_models":true} will unload models from vram. 
                 A POST request to /free with: {"free_memory":true} will unload models and free all cached data from the last run workflow.
+  /api/jobs:
+    get:
+      operationId: list_jobs
+      summary: (API) List jobs
+      description: |
+        Lists jobs across the queue and history, with filtering, sorting, and pagination.
+
+        The response shape matches the frontend jobs API types used by the queue panel.
+      parameters:
+        - in: query
+          name: status
+          description: Comma-separated job statuses to include.
+          schema:
+            type: string
+            example: completed,failed,cancelled
+        - in: query
+          name: workflow_id
+          description: Filter jobs by workflow ID extracted from `extra_pnginfo.workflow.id`.
+          schema:
+            type: string
+        - in: query
+          name: sort_by
+          description: Sort field.
+          schema:
+            type: string
+            enum: [created_at, execution_duration]
+            default: created_at
+        - in: query
+          name: sort_order
+          description: Sort direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: limit
+          description: Maximum jobs to return.
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: offset
+          description: Number of jobs to skip.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Jobs list response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsListResponse"
+        '400':
+          description: Invalid filter or pagination parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/jobs/{job_id}:
+    get:
+      operationId: get_job_detail
+      summary: (API) Get job detail
+      description: |
+        Returns a single job, including workflow and outputs when available.
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+          description: Job ID / prompt ID.
+      responses:
+        '200':
+          description: Job detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        '400':
+          description: Missing or invalid job ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '404':
+          description: Job not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
   /api/v1/prompts/{prompt_id}:
     get:
       operationId: get_prompt
@@ -849,6 +950,147 @@ components:
           type: string
         abs_path:
           type: string
+    PreviewOutput:
+      type: object
+      required:
+        - nodeId
+        - mediaType
+      properties:
+        filename:
+          type: string
+        subfolder:
+          type: string
+        type:
+          type: string
+          enum: [output, input, temp]
+        nodeId:
+          type: string
+        mediaType:
+          type: string
+        display_name:
+          type: string
+      additionalProperties: true
+    JobExecutionError:
+      type: object
+      required:
+        - node_id
+        - node_type
+        - exception_message
+        - exception_type
+        - traceback
+        - current_inputs
+        - current_outputs
+      properties:
+        prompt_id:
+          type: string
+        timestamp:
+          type: number
+        node_id:
+          type: string
+        node_type:
+          type: string
+        executed:
+          type: array
+          items:
+            type: string
+        exception_message:
+          type: string
+        exception_type:
+          type: string
+        traceback:
+          type: array
+          items:
+            type: string
+        current_inputs: {}
+        current_outputs: {}
+      additionalProperties: true
+    JobListItem:
+      type: object
+      required:
+        - id
+        - status
+        - create_time
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed, cancelled]
+        create_time:
+          type: number
+        execution_start_time:
+          type: number
+          nullable: true
+        execution_end_time:
+          type: number
+          nullable: true
+        preview_output:
+          allOf:
+            - $ref: "#/components/schemas/PreviewOutput"
+          nullable: true
+        outputs_count:
+          type: integer
+          nullable: true
+        execution_error:
+          allOf:
+            - $ref: "#/components/schemas/JobExecutionError"
+          nullable: true
+        workflow_id:
+          type: string
+          nullable: true
+        priority:
+          type: number
+      additionalProperties: true
+    JobWorkflowContainer:
+      type: object
+      properties:
+        prompt:
+          $ref: "#/components/schemas/Prompt"
+        extra_data:
+          $ref: "#/components/schemas/ExtraData"
+      additionalProperties: true
+    JobDetail:
+      allOf:
+        - $ref: "#/components/schemas/JobListItem"
+        - type: object
+          properties:
+            workflow:
+              $ref: "#/components/schemas/JobWorkflowContainer"
+            outputs:
+              $ref: "#/components/schemas/Outputs"
+            update_time:
+              type: number
+            execution_status: {}
+            execution_meta: {}
+          additionalProperties: true
+    PaginationInfo:
+      type: object
+      required:
+        - offset
+        - limit
+        - total
+        - has_more
+      properties:
+        offset:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        has_more:
+          type: boolean
+    JobsListResponse:
+      type: object
+      required:
+        - jobs
+        - pagination
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobListItem"
+        pagination:
+          $ref: "#/components/schemas/PaginationInfo"
     ValidationErrorDict:
       type: object
       properties:
