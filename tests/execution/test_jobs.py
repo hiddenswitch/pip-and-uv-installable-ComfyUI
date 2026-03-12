@@ -1,7 +1,9 @@
 """Unit tests for comfy_execution/jobs.py"""
 
+from comfy.component_model.queue_types import QueueItem, QueueTuple
 from comfy_execution.jobs import (
     JobStatus,
+    get_job,
     is_previewable,
     normalize_queue_item,
     normalize_history_item,
@@ -326,6 +328,32 @@ class TestNormalizeQueueItem:
         assert job['outputs_count'] == 0
         assert job['workflow_id'] == 'workflow-abc'
 
+    def test_queue_item_dict_wrapper_normalization(self):
+        """QueueItem dict wrappers returned by PromptQueue should normalize cleanly."""
+        item = QueueItem(
+            QueueTuple(
+                10.0,
+                'prompt-123',
+                {'nodes': {}},
+                {
+                    'create_time': 1234567890,
+                    'extra_pnginfo': {'workflow': {'id': 'workflow-abc'}},
+                },
+                ['node1'],
+                None,
+            ),
+            None,
+        )
+
+        job = normalize_queue_item(item, JobStatus.PENDING)
+
+        assert job['id'] == 'prompt-123'
+        assert job['status'] == 'pending'
+        assert job['priority'] == 10.0
+        assert job['create_time'] == 1234567890
+        assert job['outputs_count'] == 0
+        assert job['workflow_id'] == 'workflow-abc'
+
 
 class TestNormalizeHistoryItem:
     """Unit tests for normalize_history_item()"""
@@ -511,6 +539,66 @@ class TestNormalizeHistoryItem:
         assert job['outputs']['node1']['images'] == [
             {'filename': 'photo.png', 'type': 'output', 'subfolder': ''},
         ]
+
+    def test_history_item_accepts_dict_prompt_wrapper(self):
+        """History entries should tolerate dict-backed prompt wrappers."""
+        queue_item = QueueItem(
+            QueueTuple(
+                7.0,
+                'prompt-dict',
+                {'nodes': {'1': {}}},
+                {
+                    'create_time': 1234567890,
+                    'extra_pnginfo': {'workflow': {'id': 'workflow-dict'}},
+                },
+                ['node1'],
+                None,
+            ),
+            None,
+        )
+        history_item = {
+            'prompt': queue_item,
+            'status': {'status_str': 'success', 'completed': True, 'messages': []},
+            'outputs': {},
+        }
+
+        job = normalize_history_item('prompt-dict', history_item, include_outputs=True)
+
+        assert job['id'] == 'prompt-dict'
+        assert job['status'] == 'completed'
+        assert job['priority'] == 7.0
+        assert job['workflow_id'] == 'workflow-dict'
+        assert job['workflow'] == {
+            'prompt': {'nodes': {'1': {}}},
+            'extra_data': {
+                'create_time': 1234567890,
+                'extra_pnginfo': {'workflow': {'id': 'workflow-dict'}},
+            },
+        }
+
+
+class TestGetJob:
+    """Unit tests for get_job() queue lookup behavior."""
+
+    def test_get_job_matches_dict_backed_running_item(self):
+        """get_job should find QueueItem entries returned by current queues."""
+        running_item = QueueItem(
+            QueueTuple(
+                4.0,
+                'prompt-running',
+                {'nodes': {}},
+                {'create_time': 1234567890},
+                ['node1'],
+                None,
+            ),
+            None,
+        )
+
+        job = get_job('prompt-running', [running_item], [], {})
+
+        assert job is not None
+        assert job['id'] == 'prompt-running'
+        assert job['status'] == 'in_progress'
 
 
 class TestNormalizeOutputItem:
