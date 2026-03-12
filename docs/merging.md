@@ -221,7 +221,8 @@ After moving directories, fix absolute imports to use relative imports whenever 
 
 - `import folder_paths` -> `from comfy.cmd import folder_paths`
 - `import nodes` in moved node modules -> `from comfy.nodes import base_nodes as nodes`
-- internal package imports like `from comfy.cmd.server import PromptServer` inside `comfy_api/latest/__init__.py` should become relative imports such as `from ...cmd.server import PromptServer`
+- prefer relative imports for moves within the same package tree
+- exception: cross-package imports must stay absolute. For example, `comfy_api/latest/__init__.py` must import `PromptServer` as `from comfy.cmd.server import PromptServer`, because `comfy_api` and `comfy` are sibling top-level packages.
 
 ```python
 import app.assets.manager as manager
