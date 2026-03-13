@@ -222,7 +222,7 @@ jobs:
   build_and_execute_windows_nvidia:
     environment: "Testing"
     name: "Windows CUDA 12.8 PyTorch 2.10.0"
-    runs-on: [self-hosted, windows, X64, cuda-3090-24gb]
+    runs-on: [self-hosted, windows-cuda-3090-24gb]
     defaults:
       run:
         shell: bash
