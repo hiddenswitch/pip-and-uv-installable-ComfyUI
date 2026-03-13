@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
+_OS_FORK = getattr(os, "fork", None)
+_OS_SETSID = getattr(os, "setsid", None)
+_SIGKILL = getattr(signal, "SIGKILL", signal.SIGTERM)
+
 
 def _default_dir() -> Path:
     return Path.home() / ".comfyui"
@@ -23,13 +27,16 @@ def default_log_file() -> str:
 
 
 def _daemonize_posix(pid_file: str, log_file: str) -> None:
-    pid = os.fork()  # type: ignore[attr-defined]
+    if _OS_FORK is None or _OS_SETSID is None:
+        raise RuntimeError("POSIX daemon mode is not supported on this platform")
+
+    pid = _OS_FORK()
     if pid > 0:
         Path(pid_file).write_text(str(pid))
         sys.stdout.write(f"ComfyUI daemon started (PID {pid}), logging to {log_file}\n")
         sys.exit(0)
 
-    os.setsid()  # type: ignore[attr-defined]
+    _OS_SETSID()
     log_fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log_fd, sys.stdout.fileno())
     os.dup2(log_fd, sys.stderr.fileno())
@@ -107,6 +114,6 @@ def stop_daemon(pid_file: str) -> bool:
             except OSError:
                 Path(pid_file).unlink(missing_ok=True)
                 return True
-        os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]
+        os.kill(pid, _SIGKILL)
     Path(pid_file).unlink(missing_ok=True)
     return True
