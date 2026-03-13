@@ -236,8 +236,13 @@ jobs:
           echo "=== UV ===" && uv --version
           echo "=== Working directory ===" && pwd
           echo "=== GPU ===" && nvidia-smi || echo "nvidia-smi not available"
-      - uses: actions/checkout@v4
-        name: Checkout git repo
+      - name: Checkout git repo
+        run: |
+          git config --global credential.helper store
+          echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+          git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create venv and install PyTorch
         run: |
           uv venv C:/venv --python python3
