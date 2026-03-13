@@ -250,10 +250,11 @@ jobs:
       - name: Write Overrides
         run: |
           uv pip freeze --python C:/venv/Scripts/python.exe | grep -E 'torch|numpy|opencv' > overrides.txt
+          echo 'uvloop; sys_platform == "win32"' >> excludes.txt
           cat overrides.txt
       - name: Install ComfyUI
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt ".[dev]" --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --exclude excludes.txt ".[dev]" --inexact
       - name: Install VideoHelperSuite
         run: |
           uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
