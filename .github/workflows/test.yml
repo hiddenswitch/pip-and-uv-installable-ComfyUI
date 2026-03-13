@@ -219,6 +219,43 @@ jobs:
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
+  build_and_execute_windows_nvidia:
+    environment: "Testing"
+    name: "Windows CUDA 12.8 PyTorch 2.10.0"
+    runs-on: [self-hosted, windows, X64, cuda-3090-24gb]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Environment info
+        run: |
+          echo "=== Shell ===" && bash --version 2>&1 || true
+          echo "=== Python ===" && python --version
+          echo "=== UV ===" && uv --version
+          echo "=== Working directory ===" && pwd
+          echo "=== GPU ===" && nvidia-smi || echo "nvidia-smi not available"
+      - uses: actions/checkout@v4
+        name: Checkout git repo
+      - name: Create venv and install PyTorch
+        run: |
+          uv venv C:/venv --python python3
+          uv pip install --python C:/venv/Scripts/python.exe torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+      - name: Write Overrides
+        run: |
+          uv pip freeze --python C:/venv/Scripts/python.exe | grep -E 'torch|numpy|opencv' > overrides.txt
+          cat overrides.txt
+      - name: Install ComfyUI
+        run: |
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt ".[dev]" --inexact
+      - name: Install VideoHelperSuite
+        run: |
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+      - name: Lint for errors
+        run: |
+          C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+      - name: Run unit tests
+        run: |
+          C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit
   build_and_execute_macos:
     environment: "Testing"
     name: Installation Test for macOS
