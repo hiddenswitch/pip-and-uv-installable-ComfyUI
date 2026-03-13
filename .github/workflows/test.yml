@@ -224,14 +224,14 @@ jobs:
     name: "Windows CUDA 12.8 PyTorch 2.10.0"
     runs-on: [self-hosted, windows-cuda-3090-24gb]
     container:
-      image: harbor.appmana.com/appmana-shared/builder:latest
+      image: harbor.appmana.com/appmana-shared/buildervscuda:latest
     defaults:
       run:
-        shell: bash
+        shell: sh -e {0}
     steps:
       - name: Environment info
         run: |
-          echo "=== Shell ===" && bash --version 2>&1 || true
+          echo "=== Shell ===" && sh --help 2>&1 | head -1 || true
           echo "=== Python ===" && python --version
           echo "=== UV ===" && uv --version
           echo "=== Working directory ===" && pwd
