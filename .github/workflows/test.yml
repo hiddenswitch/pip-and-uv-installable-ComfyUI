@@ -60,17 +60,25 @@ jobs:
           uv pip uninstall opencv
           rm -rf /usr/local/lib/python3.10/dist-packages/cv2/ || rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ || true
           uv pip install -U --no-deps opencv-python-headless
+      - name: Write Overrides
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+
+          touch overrides.txt
+          uv pip freeze | grep -E 'torch|nvidia|numpy|opencv' >> overrides.txt
+          echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=numpy_override.txt
+          export UV_OVERRIDE=overrides.txt
           uv pip install --torch-backend=auto ".[dev]" --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=numpy_override.txt
+          export UV_OVERRIDE=overrides.txt
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Install Playwright browsers
         run: |
