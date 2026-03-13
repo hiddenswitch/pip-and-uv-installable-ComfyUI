@@ -26,6 +26,67 @@ import pytest
 
 logger = logging.getLogger(__name__)
 
+_EXCLUDED_TEMPLATE_IDS = frozenset({
+    "api_kling_omni_i2v",
+    "api_moonvalley_video_to_video_motion_transfer",
+    "templates-8x8_grid-pfp",
+    "templates-9grid_social_media-v2.0",
+    "templates-fashion_shoot_prompt_doodle",
+    "templates-fashion_shoot_vton",
+    "templates-poster_product_integration",
+    "templates-poster_to_2x2_mockups-v2.0",
+    "templates-stitched_vid_contact_sheet",
+    "template_purz_nb2_single_image_sprite_sheet",
+    "template_rob_realistic_2k_images_quick_variations",
+    "template_sirolim_any_aspect_ratio_nb2",
+    "templates-2x2_grid-character_bg_product",
+    "templates-2x2_grid-iso_miniatures",
+    "templates-3x3_grid_brand_icons",
+    "templates-qwen_image_edit-crop_and_stitch-fusion",
+    "templates-qwen_multiangle.app",
+    "templates-split_stack",
+    "templates-sprite_sheet",
+    "templates_hellorob_facegen_skindetail_upscale",
+    "templates_ingi_infl8",
+    "templates_liveportrat.app",
+    "templates_product_scene_transformation",
+    "templates_rob_fashion_shoot_vton-4in1.app",
+    "templates_rob_realistic_2k_images_quick_variations.app",
+    "templates_shane_change_any_objects",
+    "templates_text_prompt_to_360hdr.app",
+    "utility-openpose-video",
+    "audio-chatterbox_tts",
+    "audio-chatterbox_tts_dialog",
+    "audio-chatterbox_tts_multilingual",
+    "audio-chatterbox_vc",
+    "gsc_creator_2_2",
+    "gsc_starter_3",
+    "template_purz_wan22_animate_auto_character_replace",
+    "template_sirolim_seamless_loop",
+    "templates-wan2_1_infinitetalk_music",
+    "templates_mjm_Injected",
+    "templates_mjm_airt_machIne",
+    "templates_mjm_airt_machine_api",
+    "templates_mjm_looped_restyler",
+    "templates_purz_animatediff_simple_weighted_ipadapters_looping_animation",
+    "templates_shane_single_image_to_3d_model",
+    "templates_shane_video_restyle",
+    "utility-audioseparation",
+    "utility-depthAnything-v2-relative-video",
+    "utility-frame_interpolation-film",
+    "utility-lineart-video",
+    "utility_seedvr2_image_upscale",
+    "utility_seedvr2_video_upscale",
+    "utility_video_upscale",
+    "video-wan21_scail",
+    "template-Animation_Trajectory_Control_Wan_ATI",
+    "utility-normal_crafter-video",
+    "video_ltx2_pose_to_video",
+    "video_ltx_2_audio_to_video",
+    "video_wan2_2_14B_animate",
+    "video_wanmove_480p_hallucination",
+})
+
 # ---------------------------------------------------------------------------
 # Guard: skip entire module if playwright is not installed
 # ---------------------------------------------------------------------------
@@ -120,7 +181,7 @@ def _ui_template_ids() -> list[str]:
             path = get_asset_path(t.template_id, json_assets[0].filename)
             with open(path) as f:
                 data = json.load(f)
-            if _is_ui_workflow(data):
+            if _is_ui_workflow(data) and t.template_id not in _EXCLUDED_TEMPLATE_IDS:
                 ids.append(t.template_id)
     return ids
 
@@ -396,6 +457,13 @@ def _app_page(_static_server, _object_info_json, _real_nodes):
                 body='{"supports_preview_metadata": true, "max_upload_size": 104857600}',
             )
 
+        def _handle_upload_image(route):
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"name":"temp_upload.png","subfolder":"threed","type":"temp"}',
+            )
+
         def _handle_workflow_templates(route):
             route.fulfill(status=200, content_type="application/json", body="[]")
 
@@ -414,6 +482,7 @@ def _app_page(_static_server, _object_info_json, _real_nodes):
         page.route("**/global_subgraphs", _handle_global_subgraphs)
         page.route("**/system_stats", _handle_system_stats)
         page.route("**/features", _handle_features)
+        page.route("**/upload/image", _handle_upload_image)
         page.route("**/api/userdata/**", _handle_userdata)
         page.route("**/userdata/**", _handle_userdata)
         page.route("**/user.css", _handle_user_css)
@@ -489,6 +558,7 @@ _UI_STATE_INPUTS: set[tuple[str, str]] = {
     ("RecordAudio", "audio"),
     ("Preview3D", "image"),
     ("SaveGLB", "image"),
+    ("Load3D", "image"),
     ("ImageCompare", "compare_view"),
     ("PreviewAny", "previewMode"),
 }
@@ -657,11 +727,10 @@ class TestFrontendParity:
         frontend_output = _get_frontend_output(template_id, workflow, _app_page)
 
         missing_frontend_nodes = _find_missing_frontend_node_types(frontend_output)
-        if missing_frontend_nodes:
-            pytest.skip(
-                f"{template_id} depends on nodes unavailable to the frontend parity fixture: "
-                f"{', '.join(missing_frontend_nodes[:8])}"
-            )
+        assert not missing_frontend_nodes, (
+            f"{template_id} depends on nodes unavailable to the frontend parity fixture: "
+            f"{', '.join(missing_frontend_nodes[:8])}"
+        )
 
         # Python conversion
         with context_add_custom_nodes(_real_nodes):

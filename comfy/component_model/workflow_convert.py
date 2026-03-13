@@ -57,6 +57,23 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
     "RecordAudio": (("audio", ""),),
 })
 
+_FRONTEND_WIDGET_SERIALIZATION_OVERRIDES: Final[
+    MappingProxyType[str, tuple[tuple[str, object], ...]]
+] = MappingProxyType({
+    # ComfyUI_frontend/src/extensions/core/load3d.ts adds these widgets after
+    # model_file and before width/height. graphToPrompt serializes actual
+    # widget order, not just INPUT_TYPES order.
+    "Load3D": (
+        ("model_file", ""),
+        ("upload 3d model", "upload3dmodel"),
+        ("upload extra resources", "uploadExtraResources"),
+        ("clear", "clear"),
+        ("image", ""),
+        ("width", 1024),
+        ("height", 1024),
+    ),
+})
+
 
 def _is_widget_type(type_spec, opts=None) -> bool:
     if isinstance(type_spec, list):
@@ -103,7 +120,12 @@ def _extra_widgets_after(opts: dict, name: str = "", type_spec=None) -> list[str
     # The ComfyUI frontend also adds seed control widgets for INT fields
     # named "seed" or "noise_seed" even without control_after_generate,
     # so match that behavior for correct widget value alignment.
-    if not has_seed_control and name in _SEED_CONTROL_NAMES and type_spec == "INT":
+    if (
+        "control_after_generate" not in opts
+        and not has_seed_control
+        and name in _SEED_CONTROL_NAMES
+        and type_spec == "INT"
+    ):
         has_seed_control = True
     if has_seed_control:
         extras.append(None)
@@ -238,9 +260,14 @@ def _consume_dynamic_combo_subwidgets(
                 result[dotted] = _wrap_value(widgets_values[idx])
                 idx += 1
             else:
-                return idx
+                default_value = _frontend_widget_default(sub_type, sub_opts)
+                if default_value is None:
+                    continue
+                result[dotted] = _wrap_value(default_value)
 
-            for extra_name in _extra_widgets_after(sub_opts):
+            for extra_name in _extra_widgets_after(
+                sub_opts, name=sub_name, type_spec=sub_type,
+            ):
                 if idx < len(widgets_values):
                     if extra_name is not None:
                         result[f"{dotted}.{extra_name}"] = _wrap_value(widgets_values[idx])
@@ -280,6 +307,32 @@ def _map_unknown_widgets(widgets_values) -> dict[str, object]:
     if isinstance(widgets_values, list) and widgets_values:
         return {"UNKNOWN": _wrap_value(__unknown_widget_value(widgets_values[-1]))}
     return {}
+
+
+def _map_frontend_widget_override(
+    class_type: str,
+    widgets_values,
+) -> tuple[dict[str, object], int] | None:
+    layout = _FRONTEND_WIDGET_SERIALIZATION_OVERRIDES.get(class_type)
+    if layout is None or not isinstance(widgets_values, list):
+        return None
+
+    result: dict[str, object] = {}
+    for idx, (name, default_value) in enumerate(layout):
+        if idx < len(widgets_values):
+            result[name] = _wrap_value(widgets_values[idx])
+        else:
+            result[name] = _wrap_value(default_value)
+    return result, len(layout)
+
+
+def _serialized_widget_input_names(node: dict) -> set[str]:
+    names: set[str] = set()
+    for inp in node.get('inputs', []) or []:
+        name = inp.get('name')
+        if isinstance(name, str) and inp.get('widget') is not None:
+            names.add(name)
+    return names
 
 
 def _types_match(a: str | None, b: str | None) -> bool:
@@ -563,39 +616,18 @@ def _compute_proxy_overrides(sg_node, parent_overrides=None):
 def _ensure_global_id_uniqueness(
     workflow: dict, sg_defs: dict[str, dict],
 ) -> dict[str, dict[int, int]]:
-    """Pre-remap inner node IDs across all subgraph definitions to ensure
-    global uniqueness, mirroring the frontend ``ensureGlobalIdUniqueness``.
+    """Mirror the frontend serialized subgraph deduplication pass.
 
-    The frontend iterates ``[rootGraph, ...subgraphs]`` (subgraphs in
-    definition order), maintaining a shared ``usedNodeIds`` set and a shared
-    ``lastNodeId`` counter.  When an inner node ID collides with any
-    previously-seen ID, it is reassigned to ``++lastNodeId`` (skipping any
-    IDs already in ``usedNodeIds``).
-
-    Returns a ``{subgraph_uuid: {old_id: new_id}}`` mapping for each
-    subgraph that required remapping.
+    The frontend pre-deduplicates serialized subgraph node IDs in definition
+    order using the root graph's ``lastNodeId`` as the running counter. It
+    does *not* pre-scan all subgraph IDs to raise the counter first; it only
+    advances ``lastNodeId`` when encountering non-conflicting IDs or when
+    allocating a replacement for a collision.
     """
     outer_ids = {n['id'] for n in workflow.get('nodes', [])
                  if isinstance(n.get('id'), int)}
     last_node_id = workflow.get('last_node_id', max(outer_ids) if outer_ids else 0)
-
-    # The frontend bumps state.lastNodeId when adding inner nodes during
-    # subgraph.configure() (via LGraph.add), so by the time
-    # ensureGlobalIdUniqueness runs, lastNodeId is already >= max of all
-    # inner node IDs.  Mirror that by pre-scanning all subgraph definitions.
     subgraph_defs = workflow.get('definitions', {}).get('subgraphs', [])
-    for sg in subgraph_defs:
-        if not isinstance(sg, dict):
-            continue
-        sg_state = sg.get('state')
-        if isinstance(sg_state, dict):
-            sg_last = sg_state.get('lastNodeId')
-            if isinstance(sg_last, int) and sg_last > last_node_id:
-                last_node_id = sg_last
-        for n in sg.get('nodes', []):
-            nid = n.get('id')
-            if isinstance(nid, int) and nid > last_node_id:
-                last_node_id = nid
 
     used_ids: set[int] = set(outer_ids)
     remaps: dict[str, dict[int, int]] = {}
@@ -625,43 +657,8 @@ def _ensure_global_id_uniqueness(
     return remaps
 
 
-def _build_dom_widget_store(workflow: dict) -> dict[int, tuple[str, list]]:
-    """Simulate the frontend WidgetValueStore for DOM widgets.
-
-    The frontend processes subgraph definitions in order.  During each
-    definition's ``configure()``, inner-node widgets are registered in
-    a shared store keyed by ``nodeId``.  If two definitions share the
-    same inner-node ID, the **last** definition's values overwrite the
-    earlier ones.  ``ensureGlobalIdUniqueness`` runs *after* configure,
-    so the first definition's non-remapped nodes read the clobbered
-    (last-write) value at serialization time.
-
-    Only DOM widgets (``customtext`` type = STRING multiline) are
-    affected because they read from the store at access time via
-    ``getValue()`` callbacks, whereas regular ``BaseWidget`` subclasses
-    cache their own ``_state`` reference.
-
-    Returns ``{nodeId: (nodeType, widgets_values)}``.  The node type is
-    tracked so that clobbering is only applied when the colliding nodes
-    share the same type (and therefore the same widget layout).
-    """
-    store: dict[int, tuple[str, list]] = {}
-    for sg in workflow.get('definitions', {}).get('subgraphs', []):
-        if not isinstance(sg, dict):
-            continue
-        for n in sg.get('nodes', []):
-            nid = n.get('id')
-            if not isinstance(nid, int) or nid < 0:
-                continue
-            wv = n.get('widgets_values')
-            if isinstance(wv, list):
-                store[nid] = (n.get('type', ''), wv)
-    return store
-
-
 def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
-                     sg_defs, dto_map, sg_exec_id, id_remaps=None,
-                     dom_widget_store=None):
+                     sg_defs, dto_map, sg_exec_id, id_remaps=None):
     sg_dto = dto_map[sg_exec_id]
     instance_path = [int(x) for x in sg_dto.exec_id.split(':')]
 
@@ -698,26 +695,16 @@ def _expand_subgraph(sg_node, sg_def, subgraph_node_path,
             )
             dto_map[child_dto.exec_id] = child_dto
 
-            if mode not in (_MODE_NEVER, _MODE_BYPASS):
-                _expand_subgraph(
-                    inner_node, child_sg_def, instance_path,
-                    sg_defs, dto_map, child_dto.exec_id,
-                    id_remaps=id_remaps,
-                    dom_widget_store=dom_widget_store,
-                )
+            _expand_subgraph(
+                inner_node, child_sg_def, instance_path,
+                sg_defs, dto_map, child_dto.exec_id,
+                id_remaps=id_remaps,
+            )
         else:
             dto = _NodeDTO(
                 inner_node, instance_path, inner_links, inner_nodes_by_id,
                 sg_node_exec_id=sg_exec_id, remapped_nid=remapped_nid,
             )
-            if dom_widget_store and remapped_nid is None:
-                stored = dom_widget_store.get(inner_nid)
-                own_wv = inner_node.get('widgets_values')
-                if (stored is not None and own_wv is not None
-                        and isinstance(own_wv, list)
-                        and stored[0] == class_type
-                        and stored[1] != own_wv):
-                    dto.clobbered_wv = stored[1]
             dto_map[dto.exec_id] = dto
 
 
@@ -734,8 +721,6 @@ def _build_dto_map(workflow, sg_defs):
             nodes_by_id[nid] = node
 
     id_remaps = _ensure_global_id_uniqueness(workflow, sg_defs)
-    dom_store = _build_dom_widget_store(workflow)
-
     dto_map: dict[str, _NodeDTO] = {}
 
     for node in workflow.get('nodes', []):
@@ -756,7 +741,6 @@ def _build_dto_map(workflow, sg_defs):
                 _expand_subgraph(
                     node, sg_def, [], sg_defs, dto_map, sg_dto.exec_id,
                     id_remaps=id_remaps,
-                    dom_widget_store=dom_store,
                 )
         else:
             dto = _NodeDTO(node, [], links, nodes_by_id)
@@ -782,7 +766,7 @@ def _get_sg_widget_by_name(sg_node, inp_name, sg_def=None):
                 return True, wv[pw_idx]
             return False, None
 
-    if sg_def and wv:
+    if sg_def and wv and not proxy_widgets:
         return _get_sg_widget_positional(sg_def, inp_name, wv)
 
     return False, None
@@ -1051,7 +1035,14 @@ def convert_ui_to_api(workflow: dict) -> dict:
             logger.warning("Unknown node type %r (id=%s); preserving in API output",
                            class_type, node.get('id'))
         elif isinstance(widgets_values, list):
-            api_inputs, _wv_consumed = _map_widgets(input_types, widgets_values)
+            overridden_mapping = _map_frontend_widget_override(
+                class_type,
+                widgets_values,
+            )
+            if overridden_mapping is not None:
+                api_inputs, _wv_consumed = overridden_mapping
+            else:
+                api_inputs, _wv_consumed = _map_widgets(input_types, widgets_values)
             use_class_type = class_type
         elif isinstance(widgets_values, dict):
             api_inputs = _map_widgets_dict(input_types, widgets_values)
@@ -1059,15 +1050,6 @@ def convert_ui_to_api(workflow: dict) -> dict:
         else:
             api_inputs = {}
             use_class_type = class_type
-
-        if dto.clobbered_wv is not None and not is_unknown and input_types:
-            clobbered_mapped, _ = _map_widgets(input_types, dto.clobbered_wv)
-            all_inputs = {**input_types.get('required', {}),
-                          **input_types.get('optional', {})}
-            for wname, cval in clobbered_mapped.items():
-                ts, opts = _input_type_and_opts(all_inputs.get(wname, (None,)))
-                if ts == 'STRING' and opts.get('multiline'):
-                    api_inputs[wname] = cval
 
         if dto.sg_node_exec_id and not is_unknown:
             sg_dto = dto_map.get(dto.sg_node_exec_id)
@@ -1091,6 +1073,11 @@ def convert_ui_to_api(workflow: dict) -> dict:
             )
         else:
             _all_input_names = None
+        _all_input_names_from_serialized = _serialized_widget_input_names(node)
+        if _all_input_names is None:
+            _all_input_names = set(_all_input_names_from_serialized)
+        else:
+            _all_input_names |= _all_input_names_from_serialized
 
         _widget_input_names: set[str] = set()
         if input_types:
@@ -1099,6 +1086,7 @@ def convert_ui_to_api(workflow: dict) -> dict:
                 _wts, _wopts = _input_type_and_opts(_we)
                 if _is_widget_type(_wts, _wopts):
                     _widget_input_names.add(_wn)
+        _widget_input_names |= _all_input_names_from_serialized
 
         for i, inp in enumerate(node.get('inputs', [])):
             inp_name = inp.get('name')
@@ -1113,6 +1101,8 @@ def convert_ui_to_api(workflow: dict) -> dict:
                                           skip_boundary_widgets=skip_bw,
                                           set_node_map=set_node_map)
             if resolved is None:
+                if inp.get('widget') is not None and inp_name in api_inputs:
+                    continue
                 api_inputs.pop(inp_name, None)
             elif resolved[0] == 'value':
                 if _all_input_names is None or inp_name in _all_input_names:
