@@ -1,8 +1,9 @@
-"""Daemon support: fork, PID file, log file, stop."""
+"""Daemon support: background process, PID file, log file, stop."""
 from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -21,21 +22,14 @@ def default_log_file() -> str:
     return str(_default_dir() / "comfyui.log")
 
 
-def daemonize(pid_file: str, log_file: str) -> None:
-    if sys.platform == "win32":
-        raise RuntimeError("Daemon mode is not supported on Windows")
-
-    _default_dir().mkdir(parents=True, exist_ok=True)
-    Path(pid_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-
-    pid = os.fork()
+def _daemonize_posix(pid_file: str, log_file: str) -> None:
+    pid = os.fork()  # type: ignore[attr-defined]
     if pid > 0:
         Path(pid_file).write_text(str(pid))
         sys.stdout.write(f"ComfyUI daemon started (PID {pid}), logging to {log_file}\n")
         sys.exit(0)
 
-    os.setsid()
+    os.setsid()  # type: ignore[attr-defined]
     log_fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log_fd, sys.stdout.fileno())
     os.dup2(log_fd, sys.stderr.fileno())
@@ -43,6 +37,35 @@ def daemonize(pid_file: str, log_file: str) -> None:
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, sys.stdin.fileno())
     os.close(devnull)
+
+
+def _daemonize_windows(pid_file: str, log_file: str) -> None:
+    log_fh = open(log_file, "a")
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    DETACHED_PROCESS = 0x00000008
+    proc = subprocess.Popen(
+        [sys.executable] + sys.argv,
+        stdout=log_fh,
+        stderr=log_fh,
+        stdin=subprocess.DEVNULL,
+        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+        close_fds=True,
+    )
+    log_fh.close()
+    Path(pid_file).write_text(str(proc.pid))
+    sys.stdout.write(f"ComfyUI daemon started (PID {proc.pid}), logging to {log_file}\n")
+    sys.exit(0)
+
+
+def daemonize(pid_file: str, log_file: str) -> None:
+    _default_dir().mkdir(parents=True, exist_ok=True)
+    Path(pid_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+
+    if sys.platform == "win32":
+        _daemonize_windows(pid_file, log_file)
+    else:
+        _daemonize_posix(pid_file, log_file)
 
 
 def read_pid(pid_file: str) -> Optional[int]:
@@ -65,14 +88,25 @@ def stop_daemon(pid_file: str) -> bool:
     pid = read_pid(pid_file)
     if pid is None:
         return False
-    os.kill(pid, signal.SIGTERM)
-    for _ in range(100):
-        time.sleep(0.1)
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            Path(pid_file).unlink(missing_ok=True)
-            return True
-    os.kill(pid, signal.SIGKILL)
+    if sys.platform == "win32":
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(100):
+            time.sleep(0.1)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                Path(pid_file).unlink(missing_ok=True)
+                return True
+        os.kill(pid, signal.SIGTERM)
+    else:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(100):
+            time.sleep(0.1)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                Path(pid_file).unlink(missing_ok=True)
+                return True
+        os.kill(pid, signal.SIGKILL)  # type: ignore[attr-defined]
     Path(pid_file).unlink(missing_ok=True)
     return True
