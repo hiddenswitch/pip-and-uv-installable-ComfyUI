@@ -105,7 +105,6 @@ dependencies = [
     "google-generativeai",
     "humanize",
     "lightning",
-    "flax",
     "jax",
     "colour",
     "av>=14.2.0,<16",
