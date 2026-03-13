@@ -57,6 +57,7 @@ logging.getLogger("requests_cache").setLevel(logging.ERROR)
 logging.getLogger("fsspec").setLevel(logging.WARNING)
 logging.getLogger("comfy_kitchen.dispatch").setLevel(logging.WARNING)
 logging.getLogger("jax").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 from ..cli_args import args
 

@@ -60,6 +60,7 @@ def setup_logging_filters():
     logging.getLogger("fsspec").setLevel(logging.WARNING)
     logging.getLogger("comfy_kitchen.dispatch").setLevel(logging.WARNING)
     logging.getLogger("jax").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 
 def setup_logging(config: Configuration):

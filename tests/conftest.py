@@ -23,10 +23,12 @@ os.environ["TC_HOST"] = "localhost"
 
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import Configuration
+from comfy.component_model.setup import setup_logging_filters
 assert "pkg" in fsspec.available_protocols()
 
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
+setup_logging_filters()
 
 
 def run_server(server_arguments: Configuration):
