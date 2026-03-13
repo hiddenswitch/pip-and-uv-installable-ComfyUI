@@ -493,6 +493,18 @@ _UI_STATE_INPUTS: set[tuple[str, str]] = {
     ("PreviewAny", "previewMode"),
 }
 
+def _find_missing_frontend_node_types(api_output: dict) -> list[str]:
+    missing: list[str] = []
+    for node_data in api_output.values():
+        class_type = node_data.get("class_type")
+        if class_type is None:
+            title = node_data.get("_meta", {}).get("title")
+            if isinstance(title, str) and title:
+                missing.append(title)
+            else:
+                missing.append("<unknown>")
+    return sorted(set(missing))
+
 
 def _normalize_api_output(output: dict) -> dict:
     """Normalize an API output dict for comparison."""
@@ -643,6 +655,13 @@ class TestFrontendParity:
 
         # Frontend conversion (cached or via browser)
         frontend_output = _get_frontend_output(template_id, workflow, _app_page)
+
+        missing_frontend_nodes = _find_missing_frontend_node_types(frontend_output)
+        if missing_frontend_nodes:
+            pytest.skip(
+                f"{template_id} depends on nodes unavailable to the frontend parity fixture: "
+                f"{', '.join(missing_frontend_nodes[:8])}"
+            )
 
         # Python conversion
         with context_add_custom_nodes(_real_nodes):

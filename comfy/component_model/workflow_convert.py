@@ -116,6 +116,44 @@ def _wrap_value(val):
     return {"__value__": val} if isinstance(val, list) else val
 
 
+def _frontend_widget_default(type_spec, opts: dict):
+    """Mirror frontend widget constructor defaults.
+
+    This follows the current ComfyUI frontend widget constructors used by
+    ``graphToPrompt`` after the workflow has been configured:
+    - STRING/TEXTAREA -> default or ""
+    - INT/FLOAT -> default or 0
+    - BOOLEAN -> default or False
+    - COMBO -> explicit default, otherwise first option, otherwise "Loading..."
+      for remote combos
+    """
+    widget_type = opts.get("widgetType", type_spec)
+
+    if isinstance(type_spec, list) or widget_type == "COMBO":
+        if "default" in opts:
+            return opts["default"]
+        if isinstance(type_spec, list) and type_spec:
+            return type_spec[0]
+        if isinstance(opts.get("options"), list) and opts["options"]:
+            return opts["options"][0]
+        if opts.get("remote"):
+            return "Loading..."
+        return None
+
+    if widget_type in ("STRING", "TEXTAREA"):
+        return opts.get("default", "")
+    if widget_type == "INT":
+        return opts.get("default", 0)
+    if widget_type == "FLOAT":
+        return opts.get("default", 0)
+    if widget_type == "BOOLEAN":
+        return opts.get("default", False)
+    if widget_type in ("COLOR", "CURVE", "BOUNDING_BOX", "MARKDOWN", "CHART", "GALLERIA"):
+        return opts.get("default")
+
+    return opts.get("default")
+
+
 def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, object], int]:
     required = input_types.get("required", {})
     optional = input_types.get("optional", {})
@@ -145,9 +183,10 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
             result[name] = _wrap_value(val)
             idx += 1
         else:
-            if "default" not in opts:
-                break
-            result[name] = _wrap_value(opts["default"])
+            default_value = _frontend_widget_default(type_spec, opts)
+            if default_value is None:
+                continue
+            result[name] = _wrap_value(default_value)
 
         for extra_name in _extra_widgets_after(opts, name=name, type_spec=type_spec):
             if idx < len(widgets_values):
@@ -222,7 +261,9 @@ def _map_widgets_dict(input_types: dict, widgets_values: dict) -> dict[str, obje
             if name in widgets_values:
                 result[name] = _wrap_value(widgets_values[name])
             else:
-                result[name] = opts.get("default")
+                default_value = _frontend_widget_default(type_spec, opts)
+                if default_value is not None:
+                    result[name] = _wrap_value(default_value)
     return result
 
 

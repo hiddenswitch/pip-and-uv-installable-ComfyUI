@@ -494,6 +494,15 @@ Custom node installations are cached in `~/.cache/comfy-test/custom_nodes/` (ove
 
 The `test_workflow_convert_playwright.py` test cross-validates the Python `convert_ui_to_api()` against the real frontend `graphToPrompt()`. It loads template workflows in a headless Chromium browser and compares the output.
 
+If this test does not reproduce locally but fails in CI, first check whether Chromium is installed. Without browser binaries, the test is skipped rather than passed.
+
+Install the browser runtime with:
+
+```shell
+source /home/administrator/Documents/appmana/.venv/bin/activate
+python -m playwright install chromium
+```
+
 ### Cache
 
 Frontend outputs are cached on disk at `tests/unit/playwright_cache/{frontend_version}/` keyed by the `comfyui-frontend-package` version. Playwright is only needed when the cache is missing for a template.
@@ -517,3 +526,14 @@ python -c "from tests.unit.test_workflow_convert_playwright import invalidate_st
 ```
 
 The next test run will regenerate those entries via Playwright (requires `pip install playwright && python -m playwright install chromium`).
+
+If you want to reproduce a current frontend mismatch from scratch, delete the whole cache directory for the active frontend version and rerun a specific template:
+
+```shell
+source /home/administrator/Documents/appmana/.venv/bin/activate
+cd /home/administrator/Documents/appmana/appmana-comfyui/src
+rm -rf tests/unit/playwright_cache/$(python -c "from importlib.metadata import version; print(version('comfyui-frontend-package'))")
+pytest -q "tests/unit/test_workflow_convert_playwright.py::TestFrontendParity::test_convert_matches_frontend[api_google_gemini_image]"
+```
+
+Use `pytest -rs` if you need to distinguish a real pass from a Playwright skip.

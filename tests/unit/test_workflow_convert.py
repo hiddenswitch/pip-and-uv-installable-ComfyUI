@@ -135,6 +135,20 @@ class _ForceInputNode:
         }
 
 
+class _OptionalFrontendDefaultsNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {"multiline": True, "default": ""}),
+            },
+            "optional": {
+                "response_modalities": (["IMAGE+TEXT", "IMAGE"], {"advanced": True}),
+                "system_prompt": ("STRING", {"default": "system default", "advanced": True}),
+            },
+        }
+
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 _TEST_MAPPINGS = {
@@ -147,6 +161,7 @@ _TEST_MAPPINGS = {
     "LoadImage": _LoadImage,
     "ImageScaleToTotalPixels": _ImageScaleToTotalPixels,
     "ForceInputNode": _ForceInputNode,
+    "OptionalFrontendDefaultsNode": _OptionalFrontendDefaultsNode,
 }
 
 
@@ -348,6 +363,16 @@ class TestMapWidgets:
         input_types = _EmptyLatentImage.INPUT_TYPES()
         result, _ = _map_widgets(input_types, [768])
         assert result == {"width": 768, "height": 512, "batch_size": 1}
+
+    def test_optional_widgets_use_frontend_defaults(self):
+        """Optional widget defaults should match frontend widget constructors."""
+        input_types = _OptionalFrontendDefaultsNode.INPUT_TYPES()
+        result, _ = _map_widgets(input_types, ["user prompt"])
+        assert result == {
+            "prompt": "user prompt",
+            "response_modalities": "IMAGE+TEXT",
+            "system_prompt": "system default",
+        }
 
     def test_dict_widgets_passthrough(self):
         """Ensure convert_ui_to_api handles dict widgets_values."""
