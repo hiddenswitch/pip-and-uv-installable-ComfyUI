@@ -66,7 +66,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
 
           touch overrides.txt
-          uv pip freeze | grep -E 'torch|nvidia|numpy|opencv' >> overrides.txt
+          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
@@ -129,7 +129,7 @@ jobs:
           export UV_PYTHON=/opt/venv/bin/python
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
-          uv pip freeze | grep -E 'torch|rocm|numpy|opencv' >> overrides.txt
+          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
@@ -196,7 +196,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
-          uv pip freeze | grep -E 'torch|intel|numpy|opencv' >> overrides.txt
+          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
