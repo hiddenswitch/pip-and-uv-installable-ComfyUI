@@ -8,6 +8,10 @@ name: Backend Tests
 
 on: [ push ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_execute_nvidia:
     environment: "Testing"
