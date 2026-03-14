@@ -13,6 +13,7 @@ from comfy.component_model.make_mutable import make_mutable
 from comfy.component_model.tensor_types import RGBImageBatch
 from comfy.distributed.executors import ContextVarExecutor
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
+from comfy.execution_context import current_execution_context
 from comfy.execution_context import context_add_custom_nodes
 from comfy.nodes.package_typing import CustomNode, ExportedNodes
 
@@ -127,6 +128,13 @@ EXECUTOR_FACTORIES = [
 ]
 
 
+def _baseline_configuration() -> Configuration:
+    baseline = current_execution_context().configuration
+    if baseline is None:
+        return default_configuration()
+    return Configuration(**dict(baseline))
+
+
 def create_failing_workflow():
     """Create a workflow that uses our test node to raise an exception"""
     return make_mutable({
@@ -144,7 +152,7 @@ def create_failing_workflow():
 async def test_panic_on_exception_with_executor(executor_cls, executor_kwargs):
     """Test panic behavior with different executor types"""
     # Create configuration with our test exception in panic_when
-    config = default_configuration()
+    config = _baseline_configuration()
     config.panic_when = [f"{__name__}.UnrecoverableError"]
 
     # Initialize the specific executor
@@ -154,6 +162,7 @@ async def test_panic_on_exception_with_executor(executor_cls, executor_kwargs):
     with (context_add_custom_nodes(ExportedNodes(NODE_CLASS_MAPPINGS=TEST_NODE_CLASS_MAPPINGS,
                                                  NODE_DISPLAY_NAME_MAPPINGS=TEST_NODE_DISPLAY_NAME_MAPPINGS)),
           patch('sys.exit') as mock_exit):
+        sys_exit_called = False
         try:
             async with Comfy(configuration=config, executor=executor) as client:
                 # Queue our failing workflow
@@ -180,7 +189,7 @@ async def test_no_panic_when_disabled_with_executor(executor_cls, executor_kwarg
     """Test no-panic behavior with different executor types"""
 
     # Create configuration without the exception in panic_when
-    config = default_configuration()
+    config = _baseline_configuration()
 
     # Initialize the specific executor
     executor = executor_cls(**executor_kwargs)
@@ -189,6 +198,7 @@ async def test_no_panic_when_disabled_with_executor(executor_cls, executor_kwarg
     with (context_add_custom_nodes(ExportedNodes(NODE_CLASS_MAPPINGS=TEST_NODE_CLASS_MAPPINGS,
                                                  NODE_DISPLAY_NAME_MAPPINGS=TEST_NODE_DISPLAY_NAME_MAPPINGS)),
           patch('sys.exit') as mock_exit):
+        sys_exit_called = False
         try:
             async with Comfy(configuration=config, executor=executor) as client:
                 from comfy.cli_args import args

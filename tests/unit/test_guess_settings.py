@@ -138,7 +138,8 @@ class TestGuessSettingsNvidia:
     @patch("comfy.component_model.guess_settings._has_package", return_value=False)
     def test_novram_when_competing_processes(self, *_mocks):
         cfg = _config()
-        apply_guess_settings(cfg)
+        with patch("sys.platform", "linux"):
+            apply_guess_settings(cfg)
         assert cfg.novram is True
 
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=True)
@@ -246,7 +247,8 @@ class TestGuessSettingsAttention:
     def test_sage_attention_preferred(self, *_mocks):
         with patch("comfy.component_model.guess_settings._has_package", side_effect=lambda n: n == "sageattention"):
             cfg = _config()
-            apply_guess_settings(cfg)
+            with patch("sys.platform", "linux"):
+                apply_guess_settings(cfg)
             assert cfg.use_sage_attention is True
 
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=False)

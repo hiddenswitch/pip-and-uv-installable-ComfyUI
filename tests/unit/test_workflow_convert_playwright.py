@@ -133,7 +133,7 @@ def _cache_path(template_id: str) -> Path:
 def _load_cached(template_id: str) -> dict | None:
     path = _cache_path(template_id)
     if path.exists():
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     return None
 
@@ -141,7 +141,7 @@ def _load_cached(template_id: str) -> dict | None:
 def _save_cached(template_id: str, output: dict) -> None:
     path = _cache_path(template_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(output, f, separators=(",", ":"), sort_keys=True)
 
 
@@ -159,7 +159,7 @@ def invalidate_stale_cache() -> list[str]:
         return []
     deleted: list[str] = []
     for path in sorted(version_dir.glob("*.json")):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if any(node.get("class_type") is None for node in data.values()):
             path.unlink()
@@ -178,11 +178,11 @@ def _load_template_workflow(template_id: str) -> dict | None:
         return None
     for t in iter_templates():
         if t.template_id == template_id:
-            json_assets = [a for a in t.assets if a.filename.endswith(".json")]
-            if json_assets:
-                path = get_asset_path(t.template_id, json_assets[0].filename)
-                with open(path) as f:
-                    return json.load(f)
+                json_assets = [a for a in t.assets if a.filename.endswith(".json")]
+                if json_assets:
+                    path = get_asset_path(t.template_id, json_assets[0].filename)
+                    with open(path, encoding="utf-8") as f:
+                        return json.load(f)
     return None
 
 
@@ -201,7 +201,7 @@ def _ui_template_ids() -> list[str]:
         json_assets = [a for a in t.assets if a.filename.endswith(".json")]
         if json_assets:
             path = get_asset_path(t.template_id, json_assets[0].filename)
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if _is_ui_workflow(data) and t.template_id not in _EXCLUDED_TEMPLATE_IDS:
                 ids.append(t.template_id)

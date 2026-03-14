@@ -14,6 +14,7 @@ import requests
 import sys
 import time
 import fsspec
+from pytest import MonkeyPatch
 
 os.environ['OTEL_METRICS_EXPORTER'] = 'none'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -29,6 +30,31 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_unreliable_mps_on_macos_ci():
+    """GitHub macOS runners report MPS but routinely OOM on tiny allocations."""
+    if sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true":
+        yield
+        return
+
+    import torch
+    from comfy import model_management
+    from comfy.model_management import CPUState
+
+    monkeypatch = MonkeyPatch()
+    if hasattr(torch.backends, "mps"):
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False, raising=False)
+        monkeypatch.setattr(torch.backends.mps, "is_built", lambda: False, raising=False)
+
+    original_cpu_state = model_management.cpu_state
+    model_management.cpu_state = CPUState.CPU
+    try:
+        yield
+    finally:
+        model_management.cpu_state = original_cpu_state
+        monkeypatch.undo()
 
 
 def run_server(server_arguments: Configuration):
