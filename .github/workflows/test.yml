@@ -299,7 +299,7 @@ jobs:
           C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit
   build_and_execute_macos:
     environment: "Testing"
-    name: Installation Test for macOS
+    name: macOS 14 Python 3.12
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
