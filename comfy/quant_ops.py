@@ -33,9 +33,10 @@ try:
         ck.registry.disable("triton")
     for k, v in ck.list_backends().items():
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
-except ImportError as e:
+except Exception as e:  # pylint: disable=broad-exception-caught
     logger.debug(f"Failed to import comfy_kitchen, Error: {e}, fp8 and fp4 support will not be available.")
     _CK_AVAILABLE = False
+    ck = None
 
 
     class QuantizedTensor:
