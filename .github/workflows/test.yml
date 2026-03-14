@@ -66,6 +66,11 @@ jobs:
           export UV_SYSTEM_PYTHON=true
 
           touch overrides.txt
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
           uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
@@ -73,12 +78,14 @@ jobs:
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install --torch-backend=auto ".[dev]" --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Install Playwright browsers
         run: |
@@ -129,6 +136,11 @@ jobs:
           export UV_PYTHON=/opt/venv/bin/python
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
           uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
@@ -137,6 +149,7 @@ jobs:
           export UV_PYTHON=/opt/venv/bin/python
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
       - name: Install VideoHelperSuite
         run: |
@@ -144,6 +157,7 @@ jobs:
           export UV_PYTHON=/opt/venv/bin/python
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Install Playwright browsers
         run: |
@@ -196,6 +210,11 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           echo ${GITHUB_WORKSPACE}
           touch overrides.txt
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
           uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
@@ -204,6 +223,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
       - name: Install VideoHelperSuite
         run: |
@@ -211,6 +231,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Install Playwright browsers
         run: |
@@ -257,14 +278,19 @@ jobs:
           uv pip install --python C:/venv/Scripts/python.exe torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
       - name: Write Overrides
         run: |
-          uv pip freeze --python C:/venv/Scripts/python.exe | grep -E 'torch|numpy|opencv' > overrides.txt
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
+          uv pip freeze --python C:/venv/Scripts/python.exe | grep -E 'numpy|opencv' > overrides.txt
           cat overrides.txt
       - name: Install ComfyUI
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt ".[dev]" --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt ".[dev]" --inexact
       - name: Install VideoHelperSuite
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
       - name: Lint for errors
         run: |
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
