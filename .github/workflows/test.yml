@@ -94,6 +94,12 @@ jobs:
       - name: Install Playwright browsers
         run: |
           playwright install --with-deps chromium
+      - name: Environment info
+        run: |
+          hostname
+          /opt/venv/bin/python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('hip', getattr(torch.version, 'hip', None))"
+          rocminfo | head -n 80
+          rocm-smi || /opt/rocm/bin/rocm-smi
       - name: Lint for errors
         run: |
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/

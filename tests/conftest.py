@@ -2,7 +2,6 @@ import logging
 import multiprocessing
 import os
 import pathlib
-import shutil
 import subprocess
 import tempfile
 import urllib
@@ -23,13 +22,8 @@ os.environ["HF_XET_HIGH_PERFORMANCE"] = "True"
 # fixes issues with running the testcontainers rabbitmqcontainer on Windows
 os.environ["TC_HOST"] = "localhost"
 
-
 def _should_force_cpu_for_ci_unit_tests() -> bool:
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        return False
-    if sys.platform == "darwin":
-        return True
-    return shutil.which("rocminfo") is not None or os.path.exists("/dev/kfd")
+    return os.environ.get("GITHUB_ACTIONS") == "true" and sys.platform == "darwin"
 
 
 if _should_force_cpu_for_ci_unit_tests():
