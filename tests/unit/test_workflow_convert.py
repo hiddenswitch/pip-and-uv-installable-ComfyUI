@@ -1238,7 +1238,7 @@ def _load_template_workflow(template_id: str) -> dict | None:
             if json_assets:
                 import json as _json
                 path = get_asset_path(t.template_id, json_assets[0].filename)
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     return _json.load(f)
     return None
 

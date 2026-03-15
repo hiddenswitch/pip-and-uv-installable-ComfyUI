@@ -12,6 +12,7 @@ The logic mirrors the frontend ``graphToPrompt`` implementation from
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 import re
 from types import MappingProxyType
@@ -335,6 +336,56 @@ def _serialized_widget_input_names(node: dict) -> set[str]:
     return names
 
 
+def _effective_node_inputs(node: dict) -> list[dict]:
+    inputs = list(node.get('inputs', []) or [])
+    proxy_widgets = node.get('properties', {}).get('proxyWidgets', [])
+    if not isinstance(proxy_widgets, list) or not proxy_widgets:
+        return inputs
+
+    widget_inputs: list[dict] = []
+    non_widget_inputs: list[dict] = []
+    widget_input_by_name: dict[str, dict] = {}
+
+    for inp in inputs:
+        widget = inp.get('widget')
+        if widget is None:
+            non_widget_inputs.append(inp)
+            continue
+        widget_name = None
+        if isinstance(widget, dict):
+            widget_name = widget.get('name')
+        widget_name = widget_name or inp.get('name')
+        if isinstance(widget_name, str):
+            widget_input_by_name.setdefault(widget_name, inp)
+        widget_inputs.append(inp)
+
+    ordered_widget_inputs: list[dict] = []
+    seen_widget_ids: set[int] = set()
+    for entry in proxy_widgets:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2 or str(entry[0]) != '-1':
+            continue
+        widget_name = entry[1]
+        if not isinstance(widget_name, str):
+            continue
+        matched = widget_input_by_name.get(widget_name)
+        if matched is None:
+            matched = {
+                'name': widget_name,
+                'type': None,
+                'widget': {'name': widget_name},
+                'link': None,
+            }
+        else:
+            seen_widget_ids.add(id(matched))
+        ordered_widget_inputs.append(matched)
+
+    for inp in widget_inputs:
+        if id(inp) not in seen_widget_ids:
+            ordered_widget_inputs.append(inp)
+
+    return [*non_widget_inputs, *ordered_widget_inputs]
+
+
 def _types_match(a: str | None, b: str | None) -> bool:
     if a is None or b is None:
         return False
@@ -551,6 +602,57 @@ def _parse_link(raw) -> LiteLink:
     return LiteLink.from_list(raw)
 
 
+def _matches_legacy_api_input(inp: dict) -> bool:
+    return not (inp.get('widget') is not None and inp.get('link') is None and not inp.get('label'))
+
+
+def _compress_widget_input_slots(workflow: dict) -> dict:
+    workflow = deepcopy(workflow)
+
+    def _compress_graph_nodes(nodes, links, dict_links: bool):
+        if not isinstance(nodes, list):
+            return
+        for node in nodes:
+            inputs = node.get('inputs')
+            if not isinstance(inputs, list):
+                continue
+            compressed_inputs = [inp for inp in inputs if _matches_legacy_api_input(inp)]
+            node['inputs'] = compressed_inputs
+
+            for input_index, inp in enumerate(compressed_inputs):
+                link_id = inp.get('link')
+                if link_id is None or not links:
+                    continue
+                for raw_link in links:
+                    if dict_links:
+                        if raw_link.get('id') == link_id:
+                            raw_link['target_slot'] = input_index
+                            break
+                    else:
+                        if len(raw_link) > 4 and raw_link[0] == link_id:
+                            raw_link[4] = input_index
+                            break
+
+    def _compress_subgraphs(subgraphs):
+        if not isinstance(subgraphs, list):
+            return
+        for subgraph in subgraphs:
+            _compress_graph_nodes(
+                subgraph.get('nodes', []),
+                subgraph.get('links', []),
+                dict_links=True,
+            )
+            definitions = subgraph.get('definitions', {})
+            if isinstance(definitions, dict):
+                _compress_subgraphs(definitions.get('subgraphs'))
+
+    _compress_graph_nodes(workflow.get('nodes', []), workflow.get('links', []), dict_links=False)
+    definitions = workflow.get('definitions', {})
+    if isinstance(definitions, dict):
+        _compress_subgraphs(definitions.get('subgraphs'))
+    return workflow
+
+
 def _build_inner_links(sg_def: dict) -> dict[int, LiteLink]:
     inner_links: dict[int, LiteLink] = {}
     for raw in sg_def.get("links", []):
@@ -749,7 +851,17 @@ def _build_dto_map(workflow, sg_defs):
     return dto_map
 
 
-def _get_sg_widget_by_name(sg_node, inp_name, sg_def=None):
+def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
+    inputs = _effective_node_inputs(sg_node)
+    if slot >= len(inputs):
+        return False, None
+
+    slot_input = inputs[slot]
+    widget_info = slot_input.get('widget')
+    if widget_info is None:
+        return False, None
+
+    inp_name = slot_input.get('name')
     if inp_name is None:
         return False, None
 
@@ -861,25 +973,17 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
         if sg_dto is None:
             return None
 
-        sg_def = sg_dto.sg_def
-        sg_def_inputs = sg_def.get('inputs', []) if sg_def else []
-        if link.src_slot >= len(sg_def_inputs):
+        sg_inputs = _effective_node_inputs(sg_dto.node)
+        if link.src_slot >= len(sg_inputs):
             return None
-        boundary_name = sg_def_inputs[link.src_slot].get('name')
 
-        sg_inputs = sg_dto.node.get('inputs', [])
-        outer_link_id = None
-        sg_inp_idx = None
-        for idx, sg_inp in enumerate(sg_inputs):
-            if sg_inp.get('name') == boundary_name:
-                outer_link_id = sg_inp.get('link')
-                sg_inp_idx = idx
-                break
+        sg_inp_idx = link.src_slot
+        outer_link_id = sg_inputs[sg_inp_idx].get('link')
 
         if outer_link_id is None:
             if skip_boundary_widgets:
                 return None
-            found, val = _get_sg_widget_by_name(sg_dto.node, boundary_name, sg_def)
+            found, val = _get_sg_widget_by_slot(sg_dto.node, sg_inp_idx, sg_dto.sg_def)
             return ("value", val) if found else None
 
         outer_link = sg_dto.graph_links.get(outer_link_id)
@@ -1004,6 +1108,7 @@ def convert_ui_to_api(workflow: dict) -> dict:
             "Node system not loaded. Call import_all_nodes_in_workspace() first."
         )
 
+    workflow = _compress_widget_input_slots(workflow)
     sg_defs = _collect_subgraph_defs(workflow)
 
     dto_map = _build_dto_map(workflow, sg_defs)
