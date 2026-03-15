@@ -62,18 +62,12 @@ jobs:
           export UV_OVERRIDE=numpy_override.txt
           
           uv pip uninstall opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
-          python - <<'PY'
-          from pathlib import Path
-          import shutil
-          for base in (Path("/usr/local/lib"), Path("/opt/conda/lib")):
-              if not base.exists():
-                  continue
-              for path in base.glob("python*/dist-packages/cv2"):
-                  shutil.rmtree(path, ignore_errors=True)
-              for path in base.glob("python*/site-packages/cv2"):
-                  shutil.rmtree(path, ignore_errors=True)
-          PY
-          uv pip install -U --no-deps opencv-python-headless
+          python -c "from pathlib import Path; import shutil; [shutil.rmtree(path, ignore_errors=True) for base in (Path('/usr/local/lib'), Path('/opt/conda/lib')) if base.exists() for pattern in ('python*/dist-packages/cv2', 'python*/site-packages/cv2') for path in base.glob(pattern)]"
+          for attempt in 1 2 3; do
+            uv pip install -U --no-deps opencv-python-headless && break
+            [ \"$attempt\" -eq 3 ] && exit 1
+            sleep 10
+          done
       - name: Write Overrides
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -85,7 +79,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
+          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
@@ -166,7 +160,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
+          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
@@ -244,7 +238,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip freeze | grep -E 'numpy|opencv' >> overrides.txt
+          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |

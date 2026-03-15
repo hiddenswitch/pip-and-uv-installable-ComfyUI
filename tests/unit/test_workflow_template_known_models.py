@@ -89,7 +89,7 @@ def test_supported_package_workflow_assets_are_known_models():
         if template.source != "package" or not template.path:
             continue
 
-        workflow = json.loads(Path(template.path).read_text())
+        workflow = json.loads(Path(template.path).read_text(encoding="utf-8"))
         for name, url in _iter_machine_readable_assets(workflow):
             if (
                 any(marker in url for marker in _SUPPORTED_REPO_MARKERS)
@@ -103,7 +103,7 @@ def test_supported_package_workflow_assets_are_known_models():
 
 def test_widget_only_workflow_model_names_are_known():
     templates = {
-        template.template_id: json.loads(Path(template.path).read_text())
+        template.template_id: json.loads(Path(template.path).read_text(encoding="utf-8"))
         for template in get_all_templates()
         if template.source == "package" and template.path and template.template_id in _WIDGET_ONLY_EXPECTED
     }

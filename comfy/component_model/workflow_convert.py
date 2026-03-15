@@ -336,54 +336,35 @@ def _serialized_widget_input_names(node: dict) -> set[str]:
     return names
 
 
-def _effective_node_inputs(node: dict) -> list[dict]:
-    inputs = list(node.get('inputs', []) or [])
-    proxy_widgets = node.get('properties', {}).get('proxyWidgets', [])
-    if not isinstance(proxy_widgets, list) or not proxy_widgets:
-        return inputs
+def _get_subgraph_boundary_name(sg_node: dict, slot: int, sg_def: dict | None = None) -> str | None:
+    if sg_def:
+        sg_inputs = sg_def.get('inputs', []) or []
+        if slot < len(sg_inputs):
+            name = sg_inputs[slot].get('name')
+            if isinstance(name, str):
+                return name
 
-    widget_inputs: list[dict] = []
-    non_widget_inputs: list[dict] = []
-    widget_input_by_name: dict[str, dict] = {}
+    inputs = sg_node.get('inputs', []) or []
+    if slot < len(inputs):
+        name = inputs[slot].get('name')
+        if isinstance(name, str):
+            return name
 
-    for inp in inputs:
-        widget = inp.get('widget')
-        if widget is None:
-            non_widget_inputs.append(inp)
-            continue
-        widget_name = None
-        if isinstance(widget, dict):
-            widget_name = widget.get('name')
-        widget_name = widget_name or inp.get('name')
-        if isinstance(widget_name, str):
-            widget_input_by_name.setdefault(widget_name, inp)
-        widget_inputs.append(inp)
+    return None
 
-    ordered_widget_inputs: list[dict] = []
-    seen_widget_ids: set[int] = set()
-    for entry in proxy_widgets:
-        if not isinstance(entry, (list, tuple)) or len(entry) < 2 or str(entry[0]) != '-1':
-            continue
-        widget_name = entry[1]
-        if not isinstance(widget_name, str):
-            continue
-        matched = widget_input_by_name.get(widget_name)
-        if matched is None:
-            matched = {
-                'name': widget_name,
-                'type': None,
-                'widget': {'name': widget_name},
-                'link': None,
-            }
-        else:
-            seen_widget_ids.add(id(matched))
-        ordered_widget_inputs.append(matched)
 
-    for inp in widget_inputs:
-        if id(inp) not in seen_widget_ids:
-            ordered_widget_inputs.append(inp)
+def _get_subgraph_outer_input_slot(
+    sg_node: dict,
+    boundary_name: str | None,
+) -> tuple[int | None, dict | None]:
+    if boundary_name is None:
+        return None, None
 
-    return [*non_widget_inputs, *ordered_widget_inputs]
+    for idx, inp in enumerate(sg_node.get('inputs', []) or []):
+        if inp.get('name') == boundary_name:
+            return idx, inp
+
+    return None, None
 
 
 def _types_match(a: str | None, b: str | None) -> bool:
@@ -852,17 +833,12 @@ def _build_dto_map(workflow, sg_defs):
 
 
 def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
-    inputs = _effective_node_inputs(sg_node)
-    if slot >= len(inputs):
-        return False, None
-
-    slot_input = inputs[slot]
-    widget_info = slot_input.get('widget')
-    if widget_info is None:
-        return False, None
-
-    inp_name = slot_input.get('name')
+    inp_name = _get_subgraph_boundary_name(sg_node, slot, sg_def)
     if inp_name is None:
+        return False, None
+
+    _, slot_input = _get_subgraph_outer_input_slot(sg_node, inp_name)
+    if slot_input is not None and slot_input.get('widget') is None:
         return False, None
 
     proxy_widgets = sg_node.get('properties', {}).get('proxyWidgets', [])
@@ -973,12 +949,10 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
         if sg_dto is None:
             return None
 
-        sg_inputs = _effective_node_inputs(sg_dto.node)
-        if link.src_slot >= len(sg_inputs):
-            return None
-
         sg_inp_idx = link.src_slot
-        outer_link_id = sg_inputs[sg_inp_idx].get('link')
+        boundary_name = _get_subgraph_boundary_name(sg_dto.node, sg_inp_idx, sg_dto.sg_def)
+        outer_slot_idx, outer_input = _get_subgraph_outer_input_slot(sg_dto.node, boundary_name)
+        outer_link_id = outer_input.get('link') if outer_input is not None else None
 
         if outer_link_id is None:
             if skip_boundary_widgets:
@@ -986,11 +960,10 @@ def _resolve_dto_input(dto, slot, dto_map, visited=None, skip_boundary_widgets=F
             found, val = _get_sg_widget_by_slot(sg_dto.node, sg_inp_idx, sg_dto.sg_def)
             return ("value", val) if found else None
 
-        outer_link = sg_dto.graph_links.get(outer_link_id)
-        if outer_link is None:
+        if outer_slot_idx is None:
             return None
 
-        return _resolve_dto_input(sg_dto, sg_inp_idx, dto_map, visited,
+        return _resolve_dto_input(sg_dto, outer_slot_idx, dto_map, visited,
                                   set_node_map=set_node_map)
 
     src_nid = link.src_node
@@ -1201,9 +1174,8 @@ def convert_ui_to_api(workflow: dict) -> dict:
             if link_id is None or link_id not in dto.graph_links:
                 continue
 
-            skip_bw = is_unknown or inp_name not in _widget_input_names
             resolved = _resolve_dto_input(dto, i, dto_map,
-                                          skip_boundary_widgets=skip_bw,
+                                          skip_boundary_widgets=False,
                                           set_node_map=set_node_map)
             if resolved is None:
                 if inp.get('widget') is not None and inp_name in api_inputs:

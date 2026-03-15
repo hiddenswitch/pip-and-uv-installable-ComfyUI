@@ -41,7 +41,8 @@ def _write_snapshot_sqlite(
     only_known_nodes: bool,
 ) -> None:
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(sqlite_path) as connection:
+    connection = sqlite3.connect(sqlite_path)
+    try:
         connection.execute("PRAGMA journal_mode=OFF")
         connection.execute("PRAGMA synchronous=OFF")
         connection.execute("PRAGMA temp_store=MEMORY")
@@ -138,6 +139,8 @@ def _write_snapshot_sqlite(
         connection.executemany("INSERT INTO metadata (key, value) VALUES (?, ?)", metadata_rows)
         connection.commit()
         connection.execute("VACUUM")
+    finally:
+        connection.close()
 
 
 def write_facade_registry_snapshot(
@@ -170,7 +173,7 @@ def write_facade_registry_snapshot(
             with sqlite_path.open("rb") as source, lzma.open(destination, "wb", preset=9) as compressed:
                 shutil.copyfileobj(source, compressed)
         else:
-            shutil.move(str(sqlite_path), str(destination))
+            shutil.copyfile(sqlite_path, destination)
     return destination
 
 
