@@ -61,8 +61,18 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=numpy_override.txt
           
-          uv pip uninstall opencv
-          rm -rf /usr/local/lib/python3.10/dist-packages/cv2/ || rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ || true
+          uv pip uninstall opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          for base in (Path("/usr/local/lib"), Path("/opt/conda/lib")):
+              if not base.exists():
+                  continue
+              for path in base.glob("python*/dist-packages/cv2"):
+                  shutil.rmtree(path, ignore_errors=True)
+              for path in base.glob("python*/site-packages/cv2"):
+                  shutil.rmtree(path, ignore_errors=True)
+          PY
           uv pip install -U --no-deps opencv-python-headless
       - name: Write Overrides
         run: |
@@ -90,16 +100,21 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          for attempt in 1 2 3; do
+            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 15
+          done
       - name: Install Playwright browsers
         run: |
           playwright install --with-deps chromium
       - name: Environment info
         run: |
           hostname
-          /opt/venv/bin/python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('hip', getattr(torch.version, 'hip', None))"
-          rocminfo | head -n 80
-          rocm-smi || /opt/rocm/bin/rocm-smi
+          python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('hip', getattr(torch.version, 'hip', None))"
+          nvidia-smi || true
+          if command -v rocminfo >/dev/null 2>&1; then rocminfo | head -n 80; fi
+          if command -v rocm-smi >/dev/null 2>&1; then rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
       - name: Lint for errors
         run: |
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
@@ -168,7 +183,11 @@ jobs:
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          for attempt in 1 2 3; do
+            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 15
+          done
       - name: Install Playwright browsers
         run: |
           playwright install --with-deps chromium
@@ -242,7 +261,11 @@ jobs:
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          for attempt in 1 2 3; do
+            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 15
+          done
       - name: Install Playwright browsers
         run: |
           playwright install --with-deps chromium
@@ -300,7 +323,11 @@ jobs:
           uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt ".[dev]" --inexact
       - name: Install VideoHelperSuite
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          for attempt in 1 2 3; do
+            uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 15
+          done
       - name: Lint for errors
         run: |
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
@@ -328,7 +355,11 @@ jobs:
           uv pip install --torch-backend=auto '.[dev]' --inexact
       - name: Install VideoHelperSuite
         run: |
-          uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact
+          for attempt in 1 2 3; do
+            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 15
+          done
       - name: Install Playwright browsers
         run: |
           uv run playwright install --with-deps chromium
