@@ -14,33 +14,12 @@ import requests
 import sys
 import time
 import fsspec
-from pytest import MonkeyPatch
 
 os.environ['OTEL_METRICS_EXPORTER'] = 'none'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 os.environ["HF_XET_HIGH_PERFORMANCE"] = "True"
 # fixes issues with running the testcontainers rabbitmqcontainer on Windows
 os.environ["TC_HOST"] = "localhost"
-
-def _should_force_cpu_for_ci_unit_tests() -> bool:
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        return False
-    if sys.platform == "darwin":
-        return True
-    if sys.platform != "win32":
-        return False
-    try:
-        import torch
-    except ImportError:
-        return False
-    try:
-        return not torch.cuda.is_available()
-    except Exception:
-        return True
-
-
-if _should_force_cpu_for_ci_unit_tests():
-    os.environ["COMFY_TEST_FORCE_CPU"] = "1"
 
 from comfy.cli_args import default_configuration
 from comfy.cli_args import args
@@ -51,35 +30,6 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
-
-if os.environ.get("COMFY_TEST_FORCE_CPU") == "1":
-    args.cpu = True
-    args.torch_device = "cpu"
-
-
-@pytest.fixture(scope="session", autouse=True)
-def disable_unreliable_mps_on_macos_ci():
-    """GitHub macOS runners report MPS but routinely OOM on tiny allocations."""
-    if os.environ.get("COMFY_TEST_FORCE_CPU") != "1":
-        yield
-        return
-
-    import torch
-    from comfy import model_management
-    from comfy.model_management import CPUState
-
-    monkeypatch = MonkeyPatch()
-    if hasattr(torch.backends, "mps"):
-        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False, raising=False)
-        monkeypatch.setattr(torch.backends.mps, "is_built", lambda: False, raising=False)
-
-    original_cpu_state = model_management.cpu_state
-    model_management.cpu_state = CPUState.CPU
-    try:
-        yield
-    finally:
-        model_management.cpu_state = original_cpu_state
-        monkeypatch.undo()
 
 
 def run_server(server_arguments: Configuration):
@@ -102,13 +52,6 @@ def mock_user_directory():
 
 @pytest.fixture(scope="function", autouse=False)
 def has_gpu() -> bool:
-    if os.environ.get("COMFY_TEST_FORCE_CPU") == "1":
-        from comfy import model_management
-        from comfy.model_management import CPUState
-        model_management.cpu_state = CPUState.CPU
-        yield False
-        return
-
     # mps
     has_gpu = False
     try:

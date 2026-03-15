@@ -330,7 +330,7 @@ jobs:
           C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit
   build_and_execute_macos:
     environment: "Testing"
-    name: macOS 14 Python 3.12
+    name: macOS Installation Tests
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -354,12 +354,6 @@ jobs:
             [ "$attempt" -eq 3 ] && exit 1
             sleep 15
           done
-      - name: Install Playwright browsers
-        run: |
-          uv run playwright install --with-deps chromium
       - name: Lint for errors
         run: |
           uv run pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      - name: Run unit tests
-        run: |
-          uv run pytest -v --tb=long --capture=no tests/unit
