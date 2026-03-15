@@ -699,33 +699,42 @@ def _get_frontend_output(template_id: str, workflow: dict, page) -> dict:
     if cached is not None:
         return cached
 
-    page.reload(wait_until="networkidle", timeout=60000)
-    page.wait_for_function(
-        """() => {
-            try {
-                return !!(
-                    window.comfyAPI &&
-                    window.comfyAPI.app &&
-                    window.comfyAPI.app.app &&
-                    window.comfyAPI.app.app.graph
-                );
-            } catch(e) { return false; }
-        }""",
-        timeout=60000,
-    )
+    def _evaluate_frontend_output() -> dict:
+        page.reload(wait_until="networkidle", timeout=60000)
+        page.wait_for_function(
+            """() => {
+                try {
+                    return !!(
+                        window.comfyAPI &&
+                        window.comfyAPI.app &&
+                        window.comfyAPI.app.app &&
+                        window.comfyAPI.app.app.graph
+                    );
+                } catch(e) { return false; }
+            }""",
+            timeout=60000,
+        )
 
-    frontend_output = page.evaluate(
-        """async (wf) => {
-            const app = window.comfyAPI.app.app;
-            await app.loadGraphData(wf, true, true, null, {
-                showMissingNodesDialog: false,
-                showMissingModelsDialog: false,
-            });
-            const result = await app.graphToPrompt();
-            return result.output;
-        }""",
-        workflow,
-    )
+        return page.evaluate(
+            """async (wf) => {
+                const app = window.comfyAPI.app.app;
+                await app.loadGraphData(wf, true, true, null, {
+                    showMissingNodesDialog: false,
+                    showMissingModelsDialog: false,
+                });
+                const result = await app.graphToPrompt();
+                return result.output;
+            }""",
+            workflow,
+        )
+
+    try:
+        frontend_output = _evaluate_frontend_output()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        if "InvalidLinkError" not in str(exc):
+            raise
+        logger.warning("Retrying frontend conversion for %s after InvalidLinkError", template_id)
+        frontend_output = _evaluate_frontend_output()
 
     _save_cached(template_id, frontend_output)
     return frontend_output
