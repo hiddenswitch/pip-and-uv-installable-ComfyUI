@@ -135,11 +135,14 @@ _TYPES = {
     "F8_E4M3": torch.float8_e4m3fn,
     "F8_E5M2": torch.float8_e5m2,
     "C64": torch.complex64,
-
-    "U64": torch.uint64,
-    "U32": torch.uint32,
-    "U16": torch.uint16,
 }
+
+if hasattr(torch, "uint64"):
+    _TYPES["U64"] = torch.uint64
+if hasattr(torch, "uint32"):
+    _TYPES["U32"] = torch.uint32
+if hasattr(torch, "uint16"):
+    _TYPES["U16"] = torch.uint16
 
 
 def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:

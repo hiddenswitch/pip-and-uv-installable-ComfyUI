@@ -2,6 +2,7 @@ import logging
 import multiprocessing
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import urllib
@@ -22,7 +23,20 @@ os.environ["HF_XET_HIGH_PERFORMANCE"] = "True"
 # fixes issues with running the testcontainers rabbitmqcontainer on Windows
 os.environ["TC_HOST"] = "localhost"
 
+
+def _should_force_cpu_for_ci_unit_tests() -> bool:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return False
+    if sys.platform == "darwin":
+        return True
+    return shutil.which("rocminfo") is not None or os.path.exists("/dev/kfd")
+
+
+if _should_force_cpu_for_ci_unit_tests():
+    os.environ["COMFY_TEST_FORCE_CPU"] = "1"
+
 from comfy.cli_args import default_configuration
+from comfy.cli_args import args
 from comfy.cli_args_types import Configuration
 from comfy.component_model.setup import setup_logging_filters
 assert "pkg" in fsspec.available_protocols()
@@ -31,11 +45,15 @@ logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
 
+if os.environ.get("COMFY_TEST_FORCE_CPU") == "1":
+    args.cpu = True
+    args.torch_device = "cpu"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_unreliable_mps_on_macos_ci():
     """GitHub macOS runners report MPS but routinely OOM on tiny allocations."""
-    if sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true":
+    if os.environ.get("COMFY_TEST_FORCE_CPU") != "1":
         yield
         return
 
@@ -77,6 +95,13 @@ def mock_user_directory():
 
 @pytest.fixture(scope="function", autouse=False)
 def has_gpu() -> bool:
+    if os.environ.get("COMFY_TEST_FORCE_CPU") == "1":
+        from comfy import model_management
+        from comfy.model_management import CPUState
+        model_management.cpu_state = CPUState.CPU
+        yield False
+        return
+
     # mps
     has_gpu = False
     try:
