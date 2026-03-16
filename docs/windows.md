@@ -61,10 +61,11 @@ cp C:/busybox64.exe /mnt/externals/env.exe
 
 Actions like `actions/checkout@v4` are JavaScript and need Node.js at `/__e/node20/bin/node`. On Linux, the hooks' default `fs-init` copies `/home/runner/externals/` from the actions-runner image. On Windows, we need Windows `node.exe`.
 
-**Fix**: The `fs-init` init container uses the `buildervscuda` image (which has Node.js installed) and copies it:
+**Fix**: The `fs-init` init container uses the `buildervscuda` image (which has Node.js installed) and copies the full Node payload, not just `node.exe`, because the current runner/container path can also need `corepack`, `npm`, `npx`, and `node_modules` under `/__e/node20/bin`:
 
 ```
 mkdir -p /mnt/externals/node20/bin
+cp -r 'C:/Program Files/nodejs/'* /mnt/externals/node20/bin/
 cp 'C:/Program Files/nodejs/node.exe' /mnt/externals/node20/bin/node
 ```
 
