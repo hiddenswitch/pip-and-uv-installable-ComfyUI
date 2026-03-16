@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:25.03-py3
+FROM nvcr.io/nvidia/pytorch:25.12-py3
 
 ENV TZ="Etc/UTC"
 
@@ -18,7 +18,7 @@ ENV LC_ALL=C.UTF-8
 # mitigates
 # RuntimeError: Failed to import transformers.generation.utils because of the following error (look up to see its traceback):
 # numpy.dtype size changed, may indicate binary incompatibility. Expected 96 from C header, got 88 from PyObject
-RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | grep nvidia >> /workspace/overrides.txt; echo "torch==2.7.0a0+7c8ec84dab.nv25.3" >> /workspace/overrides.txt; pip freeze | grep numpy >> /workspace/overrides.txt; echo "opencv-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-python-headless; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python-headless!=4.11.0.86" >> /workspace/overrides.txt; echo "sentry-sdk; python_version < '0'" >> /workspace/overrides.txt
+RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | grep nvidia >> /workspace/overrides.txt; python -c "import torch; print(f'torch=={torch.__version__}')" >> /workspace/overrides.txt; pip freeze | grep numpy >> /workspace/overrides.txt; echo "opencv-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-python-headless; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python-headless!=4.11.0.86" >> /workspace/overrides.txt; echo "sentry-sdk; python_version < '0'" >> /workspace/overrides.txt
 
 # mitigates https://stackoverflow.com/questions/55313610/importerror-libgl-so-1-cannot-open-shared-object-file-no-such-file-or-directo
 # mitigates AttributeError: module 'cv2.dnn' has no attribute 'DictValue' \

@@ -8,8 +8,9 @@ This project is rigorously tested on specific hardware and software configuratio
 
 | Hardware | Python | CUDA / ROCm | PyTorch | Torch-TensorRT | Container Image | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **NVIDIA RTX 3090** (24GB) | 3.12 | 13.1.0 | Latest | 2.10.0a0 | `nvcr.io/nvidia/pytorch:25.12-py3` (LTS) | ✅ Automated |
 | **NVIDIA RTX 3090** (24GB) | 3.12 | 12.9.1 | Latest | 2.8.0a0 | `nvcr.io/nvidia/pytorch:25.06-py3` | ✅ Automated |
-| **NVIDIA RTX 3090** (24GB) | 3.12 | 12.8.1 | Latest | 2.7.0a0 | `nvcr.io/nvidia/pytorch:25.03-py3` (LTS) | ✅ Automated |
+| **NVIDIA RTX 3090** (24GB) | 3.12 | 12.8.1 | Latest | 2.7.0a0 | `nvcr.io/nvidia/pytorch:25.03-py3` | ✅ Automated |
 | **NVIDIA RTX 3090** (24GB) | 3.10 | 12.6.2 | Latest | 2.5.0a0 | `nvcr.io/nvidia/pytorch:24.10-py3` | ✅ Automated |
 | **NVIDIA RTX 3090** (24GB) | 3.10 | 12.3.2 | Latest | 2.2.0a0 | `nvcr.io/nvidia/pytorch:23.12-py3` | ✅ Automated |
 | **AMD RX 7600** (8GB) | 3.12 | ROCm 7.0 | 2.7.1 (Nightly) | N/A | `rocm/pytorch:rocm7.0_ubuntu24.04_py3.12_pytorch_release_2.7.1` | ✅ Automated |

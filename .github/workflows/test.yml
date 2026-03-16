@@ -23,13 +23,13 @@ jobs:
       matrix:
         runner:
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
-            friendly_name: "Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
+            friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
             container: "nvcr.io/nvidia/pytorch:25.12-py3"
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.12 CUDA 12.9.1 PyTorch 2.8.0"
             container: "nvcr.io/nvidia/pytorch:25.06-py3"
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
-            friendly_name: "(LTS) Python 3.12 CUDA 12.8.1.012 PyTorch 2.7.0"
+            friendly_name: "Python 3.12 CUDA 12.8.1.012 PyTorch 2.7.0"
             container: "nvcr.io/nvidia/pytorch:25.03-py3"
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.10 CUDA 12.6.2 PyTorch 2.5.0"
