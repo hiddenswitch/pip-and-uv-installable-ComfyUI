@@ -35,26 +35,11 @@ RUN pip install uv && uv --version && \
 # install sageattention
 ADD pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl /workspace/pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
 RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry "flash-attn<=2.8.0" "xformers==0.0.31.post1" "file:./pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl"
-# this installs a matching torchaudio wheel when PyTorch publishes one for the image CUDA tag.
 # Some NGC images ship newer CUDA tags before public torchaudio wheels exist; in that case keep
 # the image-bundled torchaudio instead of failing the build.
-RUN <<-EOF
-python -c 'import torch, re, subprocess
-torch_version_full = torch.__version__
-torch_ver_match = re.match(r"(\d+\.\d+\.\d+)", torch_version_full)
-if not torch_ver_match:
-    raise ValueError(f"Could not parse torch version from {torch_version_full}")
-torch_ver = torch_ver_match.group(1)
-cuda_ver_tag = f"cu{torch.version.cuda.replace(".", "")}"
-command = [
-    "uv", "pip", "install", "--no-deps",
-    f"torchaudio=={torch_ver}+{cuda_ver_tag}",
-    "--extra-index-url", f"https://download.pytorch.org/whl/{cuda_ver_tag}",
-]
-result = subprocess.run(command)
-if result.returncode != 0:
-    print(f\"No published torchaudio wheel for {torch_ver}+{cuda_ver_tag}; keeping image-bundled torchaudio.\")'
-EOF
+RUN torch_spec="$(python -c 'import torch, re; m = re.match(r\"(\\d+\\.\\d+\\.\\d+)\", torch.__version__); print(f\"{m.group(1)}+cu{torch.version.cuda.replace(\\\".\\\", \\\"\\\")}\")')" && \
+    uv pip install --no-deps "torchaudio==${torch_spec}" --extra-index-url "https://download.pytorch.org/whl/cu$(python -c 'import torch; print(torch.version.cuda.replace(\".\", \"\"))')" || \
+    echo "No published torchaudio wheel for ${torch_spec}; keeping image-bundled torchaudio."
 
 # sources for building this dockerfile
 # use these lines to build from the local fs
