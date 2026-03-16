@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import types
 import zipfile
 from pathlib import Path
@@ -79,7 +80,7 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
     )
 
     assert built_path.cache_path == wheel_path
-    assert built_path.local_path == wheel_path
+    assert os.path.normpath(built_path.local_path or "") == os.path.normpath(wheel_path)
     assert Path(wheel_path).exists()
 
     with zipfile.ZipFile(wheel_path) as wheel:

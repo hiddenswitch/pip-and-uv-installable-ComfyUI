@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import logging
 import torch
 
@@ -147,6 +148,29 @@ class TensorCoreFP8E5M2Layout(_TensorCoreFP8LayoutBase):
 
 # Backward compatibility alias - default to E4M3
 TensorCoreFP8Layout = TensorCoreFP8E4M3Layout
+
+
+if not hasattr(TensorCoreFP8Layout, "Params"):
+    @dataclass(frozen=True)
+    class _FP8Params:
+        scale: torch.Tensor
+        orig_dtype: torch.dtype
+        orig_shape: tuple[int, ...]
+
+    TensorCoreFP8Layout.Params = _FP8Params
+    TensorCoreFP8E4M3Layout.Params = _FP8Params
+    TensorCoreFP8E5M2Layout.Params = _FP8Params
+
+
+if not hasattr(TensorCoreNVFP4Layout, "Params"):
+    @dataclass(frozen=True)
+    class _NVFP4Params:
+        scale: torch.Tensor
+        orig_dtype: torch.dtype
+        orig_shape: tuple[int, ...]
+        block_scale: torch.Tensor | None = None
+
+    TensorCoreNVFP4Layout.Params = _NVFP4Params
 
 # ==============================================================================
 # Registry

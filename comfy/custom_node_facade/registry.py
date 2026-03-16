@@ -236,7 +236,10 @@ class SnapshotFacadeRegistry:
                         ),
                     )
         finally:
-            Path(temp_path).unlink(missing_ok=True)
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except PermissionError:
+                logger.debug("Snapshot temp file %s is still locked during cleanup", temp_path)
 
         versions_cache: dict[str, list[FacadeVersion]] = {}
         for node_id, versions in raw_versions.items():

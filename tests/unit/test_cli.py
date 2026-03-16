@@ -78,7 +78,7 @@ def test_serve_pip_help():
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "--pip-facade-registry" in out or "registry API" in out
-    assert "--pip-facade-snapshot" in out or "snapshot URI" in out
+    assert "Read facade registry" in out or "snapshot URI" in out
     assert "--pip-facade-cache" in out or "cached" in out
     assert "--pip-facade-only-kno" in out or "Only expose nodes" in out
 
