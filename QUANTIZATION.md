@@ -82,6 +82,8 @@ For any unsupported operation, QuantizedTensor will fallback to call `dequantize
 
 The `MixedPrecisionOps` class (lines 542-648 in `comfy/ops.py`) enables per-layer quantization decisions, allowing different layers in a model to use different precisions. This is activated when a model config contains a `layer_quant_config` dictionary that specifies which layers should be quantized and how.
 
+When `comfy_kitchen` is unavailable, ComfyUI disables FP8 and NVFP4 mixed-precision quantized layers and falls back to loading those weights in the normal compute dtype instead. This is the expected behavior on older torch builds such as the 2.2.x lane, where `comfy_kitchen` cannot provide its tensor subclass implementation.
+
 **Architecture:**
 
 ```python

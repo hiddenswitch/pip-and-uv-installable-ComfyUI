@@ -33,6 +33,7 @@ class SimpleModel(torch.nn.Module):
 
 
 class TestMixedPrecisionOps(unittest.TestCase):
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_quant_layout_class_fallbacks_exist(self):
         self.assertIsNotNone(ops.get_layout_class("TensorCoreFP8E4M3Layout"))
         self.assertIsNotNone(ops.get_layout_class("TensorCoreFP8E5M2Layout"))
@@ -63,6 +64,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertEqual(output.shape, (5, 40))
         self.assertEqual(output.dtype, torch.bfloat16)
 
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_mixed_precision_load(self):
         """Test loading a mixed precision model from state dict"""
         # Configure mixed precision: layer1 is FP8, layer2 and layer3 are standard
@@ -124,6 +126,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
 
         self.assertEqual(output.shape, (5, 40))
 
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_state_dict_quantized_preserved(self):
         """Test that quantized weights are preserved in state_dict()"""
         # Configure mixed precision
@@ -162,6 +165,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertNotIsInstance(state_dict2["layer2.weight"], QuantizedTensor)
         self.assertNotIsInstance(state_dict2["layer3.weight"], QuantizedTensor)
 
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_weight_function_compatibility(self):
         """Test that weight_function (LoRA) works with quantized layers"""
         # Configure FP8 quantization

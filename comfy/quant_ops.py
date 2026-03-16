@@ -195,6 +195,10 @@ def get_layout_class(name):
         return layout_cls
     return _LAYOUT_CLASS_FALLBACKS.get(name)
 
+
+def mixed_precision_quantization_available() -> bool:
+    return _CK_AVAILABLE
+
 QUANT_ALGOS = {
     "float8_e4m3fn": {
         "storage_t": torch.float8_e4m3fn,
@@ -227,4 +231,5 @@ __all__ = [
     "TensorCoreNVFP4Layout",
     "QUANT_ALGOS",
     "register_layout_op",
+    "mixed_precision_quantization_available",
 ]

@@ -851,6 +851,7 @@ from .quant_ops import (
     QUANT_ALGOS,
     TensorCoreFP8Layout,
     get_layout_class,
+    mixed_precision_quantization_available,
 )
 
 
@@ -927,13 +928,23 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                     if not self._full_precision_mm:
                         self._full_precision_mm = self._full_precision_mm_config
 
-                    if self.quant_format in MixedPrecisionOps._disabled:
-                        self._full_precision_mm = True
-
                     if self.quant_format is None:
                         raise ValueError(f"Unknown quantization format for layer {layer_name}")
 
                     qconfig = QUANT_ALGOS[self.quant_format]
+                    if self.quant_format in MixedPrecisionOps._disabled:
+                        self._full_precision_mm = True
+                        for param_name in qconfig["parameters"]:
+                            param_key = f"{prefix}{param_name}"
+                            if state_dict.pop(param_key, None) is not None:
+                                manually_loaded_keys.append(param_key)
+                        self.weight = torch.nn.Parameter(weight.to(device=device, dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
+                        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+                        for key in manually_loaded_keys:
+                            if key in missing_keys:
+                                missing_keys.remove(key)
+                        return
+
                     self.layout_type = qconfig["comfy_tensor_layout"]
                     layout_cls = get_layout_class(self.layout_type)
 
@@ -1109,6 +1120,8 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")
         disabled = set()
+        if not mixed_precision_quantization_available():
+            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4"})
         if not nvfp4_compute:
             disabled.add("nvfp4")
         if not fp8_compute:
