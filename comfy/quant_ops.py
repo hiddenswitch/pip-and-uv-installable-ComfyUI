@@ -14,7 +14,7 @@ try:
         TensorCoreNVFP4Layout as _CKNvfp4Layout,
         register_layout_op,
         register_layout_class,
-        get_layout_class,
+        get_layout_class as _ck_get_layout_class,
     )
 
     _CK_AVAILABLE = True
@@ -58,7 +58,7 @@ except Exception as e:  # pylint: disable=broad-exception-caught
         pass
 
 
-    def get_layout_class(name):
+    def _ck_get_layout_class(name):
         return None
 
     def register_layout_op(*args, **kwargs):
@@ -156,6 +156,20 @@ register_layout_class("TensorCoreFP8Layout", TensorCoreFP8Layout)
 register_layout_class("TensorCoreFP8E4M3Layout", TensorCoreFP8E4M3Layout)
 register_layout_class("TensorCoreFP8E5M2Layout", TensorCoreFP8E5M2Layout)
 register_layout_class("TensorCoreNVFP4Layout", TensorCoreNVFP4Layout)
+
+_LAYOUT_CLASS_FALLBACKS = {
+    "TensorCoreFP8Layout": TensorCoreFP8Layout,
+    "TensorCoreFP8E4M3Layout": TensorCoreFP8E4M3Layout,
+    "TensorCoreFP8E5M2Layout": TensorCoreFP8E5M2Layout,
+    "TensorCoreNVFP4Layout": TensorCoreNVFP4Layout,
+}
+
+
+def get_layout_class(name):
+    layout_cls = _ck_get_layout_class(name)
+    if layout_cls is not None:
+        return layout_cls
+    return _LAYOUT_CLASS_FALLBACKS.get(name)
 
 QUANT_ALGOS = {
     "float8_e4m3fn": {

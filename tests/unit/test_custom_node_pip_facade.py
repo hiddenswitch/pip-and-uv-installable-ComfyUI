@@ -147,6 +147,15 @@ def test_build_wheel_to_memory_fs_prefix(tmp_path: Path):
         assert "_appmana_facade_comfyui_custom_scripts/entrypoint.py" in archive.namelist()
 
 
+def test_facade_cache_store_handles_windows_local_parent(tmp_path: Path):
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    cache = builder._cache  # type: ignore[attr-defined]
+
+    windows_style_path = str(tmp_path / "facade" / "wheel.whl").replace("/", "\\")
+
+    assert cache._parent(windows_style_path).endswith("\\facade")
+
+
 def test_stamp_relative_python_modules_uses_class_module():
     class ExampleNode:
         __module__ = "vendor.custom_scripts.nodes"

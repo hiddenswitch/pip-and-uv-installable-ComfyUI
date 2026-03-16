@@ -7,6 +7,7 @@ import base64
 import csv
 import hashlib
 import io
+import ntpath
 import os
 import posixpath
 import re
@@ -129,7 +130,7 @@ class FacadeCacheStore:
         return bool(self._fs.exists(path))
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        parent = posixpath.dirname(path)
+        parent = self._parent(path)
         if parent:
             self._fs.makedirs(parent, exist_ok=True)
         with self._fs.open(path, "wb") as handle:
@@ -150,6 +151,11 @@ class FacadeCacheStore:
         if not clean_parts:
             return root
         return posixpath.join(root, *clean_parts)
+
+    def _parent(self, path: str) -> str:
+        if isinstance(self._fs, fsspec.implementations.local.LocalFileSystem):
+            return ntpath.dirname(path)
+        return posixpath.dirname(path)
 
     def _local_path(self, path: str) -> str | None:
         try:

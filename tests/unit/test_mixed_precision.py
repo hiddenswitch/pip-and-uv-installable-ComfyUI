@@ -33,6 +33,10 @@ class SimpleModel(torch.nn.Module):
 
 
 class TestMixedPrecisionOps(unittest.TestCase):
+    def test_quant_layout_class_fallbacks_exist(self):
+        self.assertIsNotNone(ops.get_layout_class("TensorCoreFP8E4M3Layout"))
+        self.assertIsNotNone(ops.get_layout_class("TensorCoreFP8E5M2Layout"))
+        self.assertIsNotNone(ops.get_layout_class("TensorCoreNVFP4Layout"))
 
     def test_all_layers_standard(self):
         """Test that model with no quantization works normally"""
@@ -227,4 +231,3 @@ class TestMixedPrecisionOps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
