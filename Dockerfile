@@ -35,7 +35,9 @@ RUN pip install uv && uv --version && \
 # install sageattention
 ADD pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl /workspace/pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
 RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry "flash-attn<=2.8.0" "xformers==0.0.31.post1" "file:./pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl"
-# this exotic command will determine the correct torchaudio to install for the image
+# this installs a matching torchaudio wheel when PyTorch publishes one for the image CUDA tag.
+# Some NGC images ship newer CUDA tags before public torchaudio wheels exist; in that case keep
+# the image-bundled torchaudio instead of failing the build.
 RUN <<-EOF
 python -c 'import torch, re, subprocess
 torch_version_full = torch.__version__
@@ -49,7 +51,9 @@ command = [
     f"torchaudio=={torch_ver}+{cuda_ver_tag}",
     "--extra-index-url", f"https://download.pytorch.org/whl/{cuda_ver_tag}",
 ]
-subprocess.run(command, check=True)'
+result = subprocess.run(command)
+if result.returncode != 0:
+    print(f\"No published torchaudio wheel for {torch_ver}+{cuda_ver_tag}; keeping image-bundled torchaudio.\")'
 EOF
 
 # sources for building this dockerfile
