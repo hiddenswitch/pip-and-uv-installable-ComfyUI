@@ -39,6 +39,7 @@ _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
     "image_flux2_klein_9b_kv_image_edit": ("<unknown>",),
     "image_qwen_Image_2512_controlnet": ("<frontend invalid link>",),
     "image_qwen_Image_2512": ("<frontend invalid link>",),
+    "video_wan2_2_14B_i2v": ("<frontend invalid link>",),
     "template-Animation_Trajectory_Control_Wan_ATI": ("<unknown>",),
     "template_purz_nb2_single_image_sprite_sheet": ("<unknown>",),
     "template_purz_wan22_animate_auto_character_replace": ("<unknown>", "Input Video"),
