@@ -44,17 +44,50 @@ uv run --no-sync comfyui --fp32-vae
 
 ### Linux — Intel Arc / Max / iGPU (XPU, Ubuntu)
 
-Use XPU when `torch.xpu.is_available()` is true. On Ubuntu, the host needs the Intel GPU kernel driver plus the userland compute stack:
+Use XPU when `torch.xpu.is_available()` is true. On Ubuntu, the host needs both:
 
-- recent Intel-supported kernel/firmware for your GPU
-- Level Zero runtime
-- Intel compute runtime / OpenCL ICD
-- a PyTorch build with XPU support, or the Intel XPU container image
+- a recent Intel GPU kernel/firmware stack that exposes `/dev/dri/renderD*`
+- the Intel userland compute stack used by XPU workloads
 
-The easiest supported path is to run inside Intel's XPU PyTorch container, which is also what CI uses:
+In this repo, the CI lane itself runs inside Intel's XPU PyTorch container:
 
 ```shell
 docker run --rm -it --device /dev/dri intel/intel-extension-for-pytorch:2.8.10-xpu bash
+```
+
+That container provides the XPU-enabled PyTorch userspace. The host still has to provide the kernel-side GPU support. Our worker provisioning currently does two Intel-specific things:
+
+- uses Ubuntu 24.04 HWE kernel on workers
+- patches DG2/Arc firmware by installing upstream `dg2_guc_70.bin`, rebuilding initramfs, and holding `linux-firmware`
+
+The Kubernetes runner hook also requires the Intel device plugin resources:
+
+- `gpu.intel.com/xe: 1`
+- `gpu.intel.com/family: A_Series`
+
+The Intel PPA / Intel graphics repo below is about the userland compute runtime. It does not replace the need for the host kernel driver and firmware.
+
+For Ubuntu desktop/client GPUs, Intel's documented package flow is:
+
+**Ubuntu 24.04 / newer desktop path**
+```shell
+sudo apt-get update
+sudo apt-get install -y software-properties-common
+sudo add-apt-repository -y ppa:kobuk-team/intel-graphics
+sudo apt-get update
+sudo apt-get install -y libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc
+sudo apt-get install -y libze-dev intel-ocloc
+```
+
+**Ubuntu 22.04 path**
+```shell
+sudo apt-get update
+wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
+  sudo gpg --yes --dearmor --output /usr/share/keyrings/intel-graphics.gpg
+echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu jammy unified" | \
+  sudo tee /etc/apt/sources.list.d/intel-gpu-jammy.list
+sudo apt update
+sudo apt-get install -y libze-intel-gpu1 libze1 intel-opencl-icd clinfo libze-dev intel-ocloc
 ```
 
 Inside that environment:
@@ -73,6 +106,7 @@ If you are installing directly on Ubuntu instead of using the container, verify 
 ```shell
 python -c "import torch; print(torch.xpu.is_available())"
 python -c "import torch; print(torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'no xpu')"
+clinfo | grep "Device Name"
 ```
 
 If `torch.xpu.is_available()` is false, fix the Intel driver/runtime stack first. ComfyUI will not make XPU appear if the base PyTorch/XPU environment is not healthy.
@@ -84,6 +118,18 @@ Use ROCm when `torch.cuda.is_available()` is true on an AMD system with a ROCm b
 - the AMDGPU kernel driver
 - ROCm userland compatible with your GPU architecture
 - a ROCm PyTorch build matching that architecture
+
+Unlike the Intel XPU lane, our ROCm CI lane uses a ROCm PyTorch container but still depends on the host AMDGPU/ROCK kernel stack and `/dev/kfd` / `/dev/dri` being healthy before the container starts.
+
+AMD's documented Ubuntu flow is to install the `amdgpu-install` package first, then install the ROCm stack from that package. For example:
+
+```shell
+sudo apt update
+wget https://repo.radeon.com/amdgpu-install/6.4.1/ubuntu/noble/amdgpu-install_6.4.60401-1_all.deb
+sudo apt install ./amdgpu-install_6.4.60401-1_all.deb
+```
+
+After that, install the ROCm components appropriate for your machine, then install the matching ROCm PyTorch wheels. For ComfyUI, the important part is that the host AMDGPU/ROCm stack must be working before you install torch or start a ROCm container.
 
 For RDNA 3 and newer consumer GPUs, this repo uses AMD's architecture-specific nightly wheels. The pattern is:
 
@@ -97,7 +143,7 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.version.h
 uv run --no-sync comfyui --fp32-vae
 ```
 
-For Ubuntu host setup, the key rule is: install the ROCm stack that matches your GPU family first, then install the matching PyTorch wheels. Do not mix a generic CPU torch wheel with ROCm expectations.
+For Ubuntu host setup, the key rule is: install the ROCm stack that matches your GPU family first, then install the matching PyTorch wheels. Do not mix a generic CPU torch wheel with ROCm expectations. On bare metal, verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI itself.
 
 Verify the ROCm path before debugging ComfyUI itself:
 
