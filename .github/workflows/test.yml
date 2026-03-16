@@ -293,48 +293,49 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Initialize Windows graphics environment
+        shell: powershell
         run: |
-          if [ -f C:/enable-graphics-apis.ps1 ]; then
-            powershell -ExecutionPolicy Bypass -File C:/enable-graphics-apis.ps1
-          else
-            cat <<'EOF' > enable-graphics-apis.ps1
+          if (Test-Path "C:/enable-graphics-apis.ps1") {
+            & "C:/enable-graphics-apis.ps1"
+          } else {
+            @'
             function CopyToSystem32($sourceDirectory, $filenames, $rename)
             {
-            	foreach ($filename in $filenames)
-            	{
-            		$source = "$sourceDirectory\$filename"
-            		$destination = "C:\Windows\System32\$filename"
-            		if ($rename -and $rename[$filename])
-            		{
-            			$renamed = $rename[$filename]
-            			$destination = "C:\Windows\System32\$renamed"
-            		}
-            		Write-Host "    Copying $source to $destination"
-            		try {
-            			Copy-Item -Path "$source" -Destination "$destination" -ErrorAction Stop
-            		}
-            		catch {
-            			Write-Host "    Warning: failed to copy file $filename" -ForegroundColor Yellow
-            		}
-            	}
+                foreach ($filename in $filenames)
+                {
+                    $source = "$sourceDirectory\$filename"
+                    $destination = "C:\Windows\System32\$filename"
+                    if ($rename -and $rename[$filename])
+                    {
+                        $renamed = $rename[$filename]
+                        $destination = "C:\Windows\System32\$renamed"
+                    }
+                    Write-Host "    Copying $source to $destination"
+                    try {
+                        Copy-Item -Path "$source" -Destination "$destination" -ErrorAction Stop
+                    }
+                    catch {
+                        Write-Host "    Warning: failed to copy file $filename" -ForegroundColor Yellow
+                    }
+                }
             }
             $nvidiaSentinelFile = (Get-ChildItem "C:\Windows\System32\HostDriverStore\FileRepository\nv*.inf_amd64_*\nvapi64.dll" -ErrorAction SilentlyContinue)
             if ($nvidiaSentinelFile) {
-            	$nvidiaDirectory = $nvidiaSentinelFile[0].VersionInfo.FileName | Split-Path
-            	Write-Host "Found NVIDIA Display Driver directory: $nvidiaDirectory"
-            	Write-Host "`nEnabling NVIDIA NVAPI support:"
-            	CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvapi64.dll", "nvml.dll")
-            	Write-Host "`nEnabling NVIDIA NVENC support:"
-            	CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvEncodeAPI64.dll", "nvEncMFTH264x.dll", "nvEncMFThevcx.dll")
-            	Write-Host "`nEnabling NVIDIA CUVID/NVDEC support:"
-            	CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuvid64.dll", "nvDecMFTMjpeg.dll", "nvDecMFTMjpegx.dll") -Rename @{"nvcuvid64.dll" = "nvcuvid.dll"}
-            	Write-Host "`nEnabling NVIDIA CUDA support:"
-            	CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuda64.dll", "nvcuda_loader64.dll", "nvptxJitCompiler64.dll") -Rename @{"nvcuda_loader64.dll" = "nvcuda.dll"}
-            	Write-Host ""
+                $nvidiaDirectory = $nvidiaSentinelFile[0].VersionInfo.FileName | Split-Path
+                Write-Host "Found NVIDIA Display Driver directory: $nvidiaDirectory"
+                Write-Host "`nEnabling NVIDIA NVAPI support:"
+                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvapi64.dll", "nvml.dll")
+                Write-Host "`nEnabling NVIDIA NVENC support:"
+                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvEncodeAPI64.dll", "nvEncMFTH264x.dll", "nvEncMFThevcx.dll")
+                Write-Host "`nEnabling NVIDIA CUVID/NVDEC support:"
+                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuvid64.dll", "nvDecMFTMjpeg.dll", "nvDecMFTMjpegx.dll") -Rename @{"nvcuvid64.dll" = "nvcuvid.dll"}
+                Write-Host "`nEnabling NVIDIA CUDA support:"
+                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuda64.dll", "nvcuda_loader64.dll", "nvptxJitCompiler64.dll") -Rename @{"nvcuda_loader64.dll" = "nvcuda.dll"}
+                Write-Host ""
             }
-            EOF
-            powershell -ExecutionPolicy Bypass -File ./enable-graphics-apis.ps1
-          fi
+            '@ | Set-Content -Path "./enable-graphics-apis.ps1"
+            & "./enable-graphics-apis.ps1"
+          }
       - name: Environment info
         run: |
           echo "=== Shell ===" && sh --help 2>&1 | head -1 || true
