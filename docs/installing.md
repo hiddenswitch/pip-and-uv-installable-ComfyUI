@@ -42,6 +42,73 @@ uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run --no-sync comfyui --fp32-vae
 ```
 
+### Linux — Intel Arc / Max / iGPU (XPU, Ubuntu)
+
+Use XPU when `torch.xpu.is_available()` is true. On Ubuntu, the host needs the Intel GPU kernel driver plus the userland compute stack:
+
+- recent Intel-supported kernel/firmware for your GPU
+- Level Zero runtime
+- Intel compute runtime / OpenCL ICD
+- a PyTorch build with XPU support, or the Intel XPU container image
+
+The easiest supported path is to run inside Intel's XPU PyTorch container, which is also what CI uses:
+
+```shell
+docker run --rm -it --device /dev/dri intel/intel-extension-for-pytorch:2.8.10-xpu bash
+```
+
+Inside that environment:
+
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+uv venv --python 3.11
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+python -c "import torch; print(torch.xpu.is_available())"
+uv run --no-sync comfyui
+```
+
+If you are installing directly on Ubuntu instead of using the container, verify that these work before installing ComfyUI:
+
+```shell
+python -c "import torch; print(torch.xpu.is_available())"
+python -c "import torch; print(torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'no xpu')"
+```
+
+If `torch.xpu.is_available()` is false, fix the Intel driver/runtime stack first. ComfyUI will not make XPU appear if the base PyTorch/XPU environment is not healthy.
+
+### Linux — AMD ROCm (Ubuntu)
+
+Use ROCm when `torch.cuda.is_available()` is true on an AMD system with a ROCm build of PyTorch. On Ubuntu, the host needs:
+
+- the AMDGPU kernel driver
+- ROCm userland compatible with your GPU architecture
+- a ROCm PyTorch build matching that architecture
+
+For RDNA 3 and newer consumer GPUs, this repo uses AMD's architecture-specific nightly wheels. The pattern is:
+
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+python -c "import torch; print(torch.cuda.is_available()); print(torch.version.hip)"
+uv run --no-sync comfyui --fp32-vae
+```
+
+For Ubuntu host setup, the key rule is: install the ROCm stack that matches your GPU family first, then install the matching PyTorch wheels. Do not mix a generic CPU torch wheel with ROCm expectations.
+
+Verify the ROCm path before debugging ComfyUI itself:
+
+```shell
+python -c "import torch; print(torch.cuda.is_available())"
+python -c "import torch; print(torch.version.hip)"
+python -c "import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no rocm device')"
+```
+
+If those checks fail, fix the ROCm driver/runtime installation first.
+
 ### Windows — NVIDIA (CUDA)
 
 Open **Windows PowerShell**, then:
@@ -207,6 +274,22 @@ uv pip install --torch-backend=cu130 "comfyui@git+https://github.com/hiddenswitc
 ```
 
 See the [uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integration/pytorch/) for more details.
+
+## XPU and ROCm Runtime Notes
+
+### Intel XPU
+
+- `torch.xpu` is the Intel accelerator backend exposed by XPU-enabled PyTorch.
+- ComfyUI uses it only if the installed torch build already supports XPU.
+- The recommended Linux path is the Intel XPU PyTorch container used in CI: `intel/intel-extension-for-pytorch:2.8.10-xpu`.
+- On bare Ubuntu, install the Intel GPU driver/runtime stack first, then verify `torch.xpu.is_available()` before installing ComfyUI.
+
+### AMD ROCm
+
+- On AMD, accelerated PyTorch typically reports through `torch.cuda` even though the backend is ROCm.
+- `torch.version.hip` is the quickest way to confirm you are running a ROCm torch build.
+- For consumer RDNA 3+ GPUs, use the architecture-specific nightly wheel index from the compatibility matrix instead of generic wheels.
+- If ComfyUI starts but VAE decode is unstable on AMD, run with `--fp32-vae`.
 
 ## Model Downloading
 

@@ -25,7 +25,8 @@ RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | gre
 # see https://github.com/facebookresearch/nougat/issues/40
 RUN pip install uv && uv --version && \
     apt-get update && apt-get install --no-install-recommends ffmpeg libsm6 libxext6 libcairo2-dev libxcb1 -y && \
-    uv pip uninstall --system $(pip list --format=freeze | grep opencv) && \
+    opencv_pkgs="$(pip list --format=freeze | grep opencv || true)" && \
+    if [ -n "$opencv_pkgs" ]; then uv pip uninstall --system $opencv_pkgs; fi && \
     rm -rf /usr/local/lib/python3.12/dist-packages/cv2/ && \
     uv pip install wheel && \
     uv pip install --no-build-isolation "opencv-contrib-python-headless>=4.12.0.88" && \
