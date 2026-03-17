@@ -501,45 +501,66 @@ uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre
 
 If you followed the ROCm installation steps above, Triton was already installed alongside PyTorch.
 
-## SageAttention (CUDA only)
+## Stable ABI CUDA extensions
 
-SageAttention accelerates attention computation in diffusion models. It requires PyTorch >= 2.9 (included by default).
+AppMana publishes stable-ABI wheels for SageAttention and Nunchaku. These wheels use
+Python `abi3` and the PyTorch stable ABI, so they are the preferred install path for
+CUDA builds on PyTorch `>= 2.9`.
 
-### Windows
+Use `cu130` for new installations. That is the preferred choice for NVIDIA RTX 20xx
+and newer GPUs, including RTX 30xx, 40xx, and 50xx cards.
 
-Install the prebuilt wheel matching your CUDA version. Check your CUDA version with `nvidia-smi`.
+Use `cu128` only when you specifically need CUDA 12.8 compatibility.
 
-**Pascal and older GPUs (last generation supported by CUDA 12.8):**
+These packages are not supported on macOS.
 
-```powershell
-uv pip install "sageattention@https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu128torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl"
-```
+### SageAttention (CUDA only)
 
-**Turing and newer GPUs (CUDA 13.0):**
+SageAttention accelerates attention computation in diffusion models.
 
-```powershell
-uv pip install "sageattention@https://github.com/woct0rdho/SageAttention/releases/download/v2.2.0-windows.post4/sageattention-2.2.0+cu130torch2.9.0andhigher.post4-cp39-abi3-win_amd64.whl"
-```
+Install `triton-windows` first if you are on Windows, then install SageAttention from
+the matching AppMana stable-ABI index:
 
-See https://github.com/woct0rdho/SageAttention for more builds.
-
-### Linux
-
-Install the prebuilt wheel (no CUDA Toolkit required):
+**Recommended for new installs: CUDA 13.0 (`cu130`)**
 
 ```shell
-uv pip install pkg/sageattention-2.2.0-cp39-abi3-linux_x86_64.whl
+uv pip install triton-windows
+uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu130
 ```
 
-Or build from source (requires CUDA Toolkit and build tools):
+**Fallback: CUDA 12.8 (`cu128`)**
+
+```shell
+uv pip install triton-windows
+uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu128
+```
+
+Or build from source instead (requires CUDA Toolkit and build tools):
 
 ```shell
 sudo apt-get install -y build-essential nvidia-cuda-toolkit
 uv pip install --no-build-isolation "sageattention@git+https://github.com/woct0rdho/SageAttention.git"
 ```
 
-### Running with SageAttention
+#### Running with SageAttention
 
 ```shell
 uv run --no-sync comfyui --use-sage-attention
+```
+
+### Nunchaku (CUDA only)
+
+Nunchaku provides optimized 4-bit inference kernels. For PyTorch `>= 2.9`, install it
+from the matching AppMana stable-ABI index:
+
+**Recommended for new installs: CUDA 13.0 (`cu130`)**
+
+```shell
+uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu130
+```
+
+**Fallback: CUDA 12.8 (`cu128`)**
+
+```shell
+uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu128
 ```

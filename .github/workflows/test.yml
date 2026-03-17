@@ -25,18 +25,23 @@ jobs:
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
             container: "nvcr.io/nvidia/pytorch:25.12-py3"
+            stable_abi_cuda: "cu130"
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.12 CUDA 12.9.1 PyTorch 2.8.0"
             container: "nvcr.io/nvidia/pytorch:25.06-py3"
+            stable_abi_cuda: ""
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.12 CUDA 12.8.1.012 PyTorch 2.7.0"
             container: "nvcr.io/nvidia/pytorch:25.03-py3"
+            stable_abi_cuda: ""
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.10 CUDA 12.6.2 PyTorch 2.5.0"
             container: "nvcr.io/nvidia/pytorch:24.10-py3"
+            stable_abi_cuda: ""
           - labels: [self-hosted, linux, X64, cuda-3090-24gb]
             friendly_name: "Python 3.10 CUDA 12.3.2 PyTorch 2.2.0"
             container: "nvcr.io/nvidia/pytorch:23.12-py3"
+            stable_abi_cuda: ""
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends libxcb1
@@ -79,7 +84,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
+          uv pip freeze | awk '/^(numpy|opencv|flash-attn)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI
         run: |
@@ -88,6 +93,15 @@ jobs:
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
           uv pip install --torch-backend=auto ".[dev]" --inexact
+      - name: Install stable ABI CUDA extensions
+        if: matrix.runner.stable_abi_cuda != ''
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
+          uv pip install --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
+          uv pip install --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -277,10 +291,18 @@ jobs:
 #          python -m pytest -v tests/inference
   build_and_execute_windows_nvidia:
     environment: "Testing"
-    name: "Windows CUDA 12.8 PyTorch 2.10.0"
-    runs-on: [self-hosted, windows-cuda-3090-24gb]
+    name: ${{ matrix.runner.friendly_name }}
+    runs-on: ${{ matrix.runner.labels }}
     container:
-      image: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.0-ltsc2022
+      image: ${{ matrix.runner.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - labels: [self-hosted, windows-cuda-3090-24gb]
+            friendly_name: "Windows CUDA 12.8 PyTorch 2.10.0"
+            container: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.0-ltsc2022
+            stable_abi_cuda: "cu128"
     defaults:
       run:
         shell: sh -e {0}
@@ -359,6 +381,12 @@ jobs:
       - name: Install ComfyUI
         run: |
           uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt ".[dev]" --inexact
+      - name: Install stable ABI CUDA extensions
+        if: matrix.runner.stable_abi_cuda != ''
+        run: |
+          uv pip install --python C:/venv/Scripts/python.exe triton-windows
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do

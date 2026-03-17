@@ -18,7 +18,7 @@ ENV LC_ALL=C.UTF-8
 # mitigates
 # RuntimeError: Failed to import transformers.generation.utils because of the following error (look up to see its traceback):
 # numpy.dtype size changed, may indicate binary incompatibility. Expected 96 from C header, got 88 from PyObject
-RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | grep nvidia >> /workspace/overrides.txt; python -c "import torch; print(f'torch=={torch.__version__}')" >> /workspace/overrides.txt; pip freeze | grep numpy >> /workspace/overrides.txt; echo "opencv-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-python-headless; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python-headless!=4.11.0.86" >> /workspace/overrides.txt; echo "sentry-sdk; python_version < '0'" >> /workspace/overrides.txt
+RUN echo "onnxruntime-gpu==1.22.0" >> /workspace/overrides.txt; pip freeze | grep nvidia >> /workspace/overrides.txt; python -c "import torch; print(f'torch=={torch.__version__}')" >> /workspace/overrides.txt; pip freeze | grep numpy >> /workspace/overrides.txt; pip freeze | grep '^flash-attn==' >> /workspace/overrides.txt || true; echo "opencv-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-python-headless; python_version < '0'" >> /workspace/overrides.txt; echo "opencv-contrib-python-headless!=4.11.0.86" >> /workspace/overrides.txt; echo "sentry-sdk; python_version < '0'" >> /workspace/overrides.txt
 
 # mitigates https://stackoverflow.com/questions/55313610/importerror-libgl-so-1-cannot-open-shared-object-file-no-such-file-or-directo
 # mitigates AttributeError: module 'cv2.dnn' has no attribute 'DictValue' \
@@ -32,9 +32,10 @@ RUN pip install uv && uv --version && \
     uv pip install --no-build-isolation "opencv-contrib-python-headless>=4.12.0.88" && \
     rm -rf /var/lib/apt/lists/*
 
-# install sageattention
-ADD pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl /workspace/pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
-RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry "flash-attn<=2.8.0" "xformers==0.0.31.post1" "file:./pkg/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl"
+# install CUDA acceleration extras from the AppMana stable-ABI indexes
+RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry "xformers==0.0.35" && \
+    uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu130 && \
+    uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu130
 # Some NGC images ship newer CUDA tags before public torchaudio wheels exist; in that case keep
 # the image-bundled torchaudio instead of failing the build.
 RUN torch_spec="$(python -c 'import torch, re; m = re.match(r\"(\\d+\\.\\d+\\.\\d+)\", torch.__version__); print(f\"{m.group(1)}+cu{torch.version.cuda.replace(\\\".\\\", \\\"\\\")}\")')" && \
@@ -58,17 +59,12 @@ WORKDIR /workspace
 # smoke test
 RUN python - <<'PY' \
 && comfyui --quick-test-for-ci --cpu --cwd /workspace
-import importlib
 import torch
 import xformers
 import cv2
 import diffusers.hooks
-
-if importlib.util.find_spec("sageattention") is not None:
-    try:
-        import sageattention
-    except Exception as exc:  # pragma: no cover - image smoke test
-        print(f"Skipping sageattention smoke import: {exc}")
+import sageattention
+import nunchaku
 PY
 
 EXPOSE 8188

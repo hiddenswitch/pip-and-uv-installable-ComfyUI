@@ -32,7 +32,7 @@ The container hooks generate shell scripts that start with `rm "$0"` (self-delet
 ```yaml
 initContainers:
   - name: patch-hooks
-    image: "summerwind/actions-runner:v2.331.0-ubuntu-22.04-a868229"
+    image: "summerwind/actions-runner:v2.332.0-ubuntu-22.04"
     command: ["sh", "-c"]
     args:
       - |
