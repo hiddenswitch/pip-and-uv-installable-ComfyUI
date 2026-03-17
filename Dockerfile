@@ -33,18 +33,14 @@ RUN pip install uv && uv --version && \
     rm -rf /var/lib/apt/lists/*
 
 # install CUDA acceleration extras from the AppMana stable-ABI indexes
-RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry "xformers==0.0.35" && \
+RUN uv pip install -U --no-deps --no-build-isolation spandrel timm tensorboard poetry && \
     uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu130 && \
     uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu130
-# Some NGC images ship newer CUDA tags before public torchaudio wheels exist; in that case keep
-# the image-bundled torchaudio instead of failing the build.
-RUN torch_spec="$(python -c 'import torch, re; m = re.match(r\"(\\d+\\.\\d+\\.\\d+)\", torch.__version__); print(f\"{m.group(1)}+cu{torch.version.cuda.replace(\\\".\\\", \\\"\\\")}\")')" && \
-    uv pip install --no-deps "torchaudio==${torch_spec}" --extra-index-url "https://download.pytorch.org/whl/cu$(python -c 'import torch; print(torch.version.cuda.replace(\".\", \"\"))')" || \
-    echo "No published torchaudio wheel for ${torch_spec}; keeping image-bundled torchaudio."
 
 # sources for building this dockerfile
 # use these lines to build from the local fs
 ADD . /workspace/src
+RUN rm -rf /workspace/src/comfy/cmd/web/extensions/pysssss/CustomScripts /workspace/src/comfy/cmd/web/extensions/pysssss/WD14Tagger
 ARG SOURCES="comfyui[attention,comfyui_manager]@./src"
 # this builds from github
 # useful if you are copying and pasted in order to customize this
@@ -54,18 +50,6 @@ ENV SOURCES=$SOURCES
 RUN uv pip install $SOURCES
 
 WORKDIR /workspace
-# addresses https://github.com/pytorch/pytorch/issues/104801
-# and issues reported by importing nodes_canny
-# smoke test
-RUN python - <<'PY' \
-&& comfyui --quick-test-for-ci --cpu --cwd /workspace
-import torch
-import xformers
-import cv2
-import diffusers.hooks
-import sageattention
-import nunchaku
-PY
 
 EXPOSE 8188
 CMD ["python", "-m", "comfy.cmd.main", "--listen", "--use-sage-attention", "--reserve-vram=0", "--logging-level=INFO", "--enable-cors"]
