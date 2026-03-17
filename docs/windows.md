@@ -75,6 +75,8 @@ The init container must be named `fs-init` to override the hooks' default Linux-
 
 The checkout action emits `::add-matcher::` with Windows paths that the Linux runner agent mangles (prepends the workspace path to an absolute Windows path). This causes a step failure even though git operations succeed.
 
+Also, ARC now injects the job work volume itself. The Windows hook extension must not add its own `work` volume or `/__w` mount anymore, or pod creation fails with duplicate volume / duplicate mount-path validation errors.
+
 **Fix**: Use a manual `git clone` instead:
 
 ```yaml
