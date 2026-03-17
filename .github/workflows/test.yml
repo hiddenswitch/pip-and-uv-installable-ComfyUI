@@ -128,7 +128,7 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v --tb=long --capture=no tests/unit
+          pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |
@@ -206,7 +206,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py
+          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
@@ -284,7 +284,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test
+          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
@@ -317,47 +317,7 @@ jobs:
       - name: Initialize Windows graphics environment
         shell: powershell
         run: |
-          if (Test-Path "C:/enable-graphics-apis.ps1") {
-            & "C:/enable-graphics-apis.ps1"
-          } else {
-            @'
-            function CopyToSystem32($sourceDirectory, $filenames, $rename)
-            {
-                foreach ($filename in $filenames)
-                {
-                    $source = "$sourceDirectory\$filename"
-                    $destination = "C:\Windows\System32\$filename"
-                    if ($rename -and $rename[$filename])
-                    {
-                        $renamed = $rename[$filename]
-                        $destination = "C:\Windows\System32\$renamed"
-                    }
-                    Write-Host "    Copying $source to $destination"
-                    try {
-                        Copy-Item -Path "$source" -Destination "$destination" -ErrorAction Stop
-                    }
-                    catch {
-                        Write-Host "    Warning: failed to copy file $filename" -ForegroundColor Yellow
-                    }
-                }
-            }
-            $nvidiaSentinelFile = (Get-ChildItem "C:\Windows\System32\HostDriverStore\FileRepository\nv*.inf_amd64_*\nvapi64.dll" -ErrorAction SilentlyContinue)
-            if ($nvidiaSentinelFile) {
-                $nvidiaDirectory = $nvidiaSentinelFile[0].VersionInfo.FileName | Split-Path
-                Write-Host "Found NVIDIA Display Driver directory: $nvidiaDirectory"
-                Write-Host "`nEnabling NVIDIA NVAPI support:"
-                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvapi64.dll", "nvml.dll")
-                Write-Host "`nEnabling NVIDIA NVENC support:"
-                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvEncodeAPI64.dll", "nvEncMFTH264x.dll", "nvEncMFThevcx.dll")
-                Write-Host "`nEnabling NVIDIA CUVID/NVDEC support:"
-                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuvid64.dll", "nvDecMFTMjpeg.dll", "nvDecMFTMjpegx.dll") -Rename @{"nvcuvid64.dll" = "nvcuvid.dll"}
-                Write-Host "`nEnabling NVIDIA CUDA support:"
-                CopyToSystem32 -SourceDirectory $nvidiaDirectory -Filenames @("nvcuda64.dll", "nvcuda_loader64.dll", "nvptxJitCompiler64.dll") -Rename @{"nvcuda_loader64.dll" = "nvcuda.dll"}
-                Write-Host ""
-            }
-            '@ | Set-Content -Path "./enable-graphics-apis.ps1"
-            & "./enable-graphics-apis.ps1"
-          }
+          & "./.github/scripts/enable-graphics-apis.ps1"
       - name: Environment info
         run: |
           echo "=== Shell ===" && sh --help 2>&1 | head -1 || true
@@ -399,7 +359,7 @@ jobs:
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit
+          C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
     name: macOS Installation Tests

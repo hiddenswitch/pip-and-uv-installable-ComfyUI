@@ -322,7 +322,11 @@ class UserManager():
             if not file:
                 return web.Response(status=400)
 
-            path = self.get_request_user_filepath(request, file)
+            try:
+                path = self.get_request_user_filepath(request, file)
+            except KeyError as e:
+                logger.warning(f"Access denied for user: {e}")
+                return web.Response(status=403, text="Invalid user specified in request")
             if not path:
                 return web.Response(status=403)
 
