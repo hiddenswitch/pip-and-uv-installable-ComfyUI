@@ -27,89 +27,15 @@ import pytest
 logger = logging.getLogger(__name__)
 
 _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
-    "api_kling_omni_i2v": ("<unknown>",),
-    "api_moonvalley_video_to_video_motion_transfer": ("<unknown>",),
-    "audio-chatterbox_tts": ("<unknown>",),
-    "audio-chatterbox_tts_dialog": ("<unknown>",),
-    "audio-chatterbox_tts_multilingual": ("<unknown>",),
-    "audio-chatterbox_vc": ("<unknown>",),
-    "gsc_starter_2": ("<frontend promoted widgets>",),
-    "gsc_creator_2_2": ("<unknown>",),
-    "gsc_starter_3": ("<unknown>", "Resize Images"),
-    "image_flux2_klein_9b_kv_image_edit": ("<unknown>",),
-    "image_qwen_Image_2512_controlnet": ("<frontend invalid link>",),
-    "image_qwen_Image_2512": ("<frontend invalid link>",),
-    "video_wan2_2_14B_i2v": ("<frontend invalid link>",),
-    "template-Animation_Trajectory_Control_Wan_ATI": ("<unknown>",),
-    "template_purz_nb2_single_image_sprite_sheet": ("<unknown>",),
-    "template_purz_wan22_animate_auto_character_replace": ("<unknown>", "Input Video"),
-    "template_rob_realistic_2k_images_quick_variations": ("<unknown>", "Caption Image - QwenVL"),
-    "template_sirolim_any_aspect_ratio_nb2": ("<unknown>",),
-    "template_sirolim_seamless_loop": ("<unknown>",),
-    "templates-car_product": ("<frontend group node outputs>",),
-    "templates-2x2_grid-character_bg_product": ("<unknown>", "Resize Images"),
-    "templates-2x2_grid-iso_miniatures": ("<unknown>", "Resize Images"),
-    "templates-3x3_grid_brand_icons": ("<unknown>",),
-    "templates-8x8_grid-pfp": ("<unknown>",),
-    "templates-9grid_social_media-v2.0": ("<unknown>",),
-    "templates-fashion_shoot_prompt_doodle": ("<unknown>", "Resize Images"),
-    "templates-fashion_shoot_vton": ("<unknown>", "Resize Images"),
-    "templates-poster_product_integration": ("<unknown>",),
-    "templates-poster_to_2x2_mockups-v2.0": ("<unknown>",),
-    "templates-qwen_image_edit-crop_and_stitch-fusion": ("<unknown>",),
-    "templates-qwen_multiangle.app": ("<unknown>",),
-    "templates-split_stack": ("<unknown>",),
-    "templates-sprite_sheet": ("<unknown>", "Resize Images"),
-    "templates-stitched_vid_contact_sheet": (
-        "<unknown>",
-        "Order Keyframes From Batch Indexes",
-        "Resize Images",
-    ),
-    "templates-wan2_1_infinitetalk_music": ("<unknown>",),
-    "templates_hellorob_facegen_skindetail_upscale": ("<unknown>", "IfElse"),
-    "templates_ingi_infl8": ("<unknown>",),
-    "templates_liveportrat.app": ("<unknown>",),
-    "templates_mjm_Injected": (
-        "<unknown>",
-        "Height",
-        "Load mask video",
-        "Load noise injection video",
-        "Width",
-    ),
-    "templates_mjm_airt_machIne": ("<unknown>",),
-    "templates_mjm_airt_machine_api": ("<unknown>",),
-    "templates_mjm_looped_restyler": ("<unknown>",),
-    "templates_product_scene_transformation": ("<unknown>", "Resize Images"),
-    "templates_purz_animatediff_simple_weighted_ipadapters_looping_animation": ("<unknown>",),
-    "templates_rob_fashion_shoot_vton-4in1.app": ("<unknown>", "Resize Images"),
-    "templates_rob_realistic_2k_images_quick_variations.app": ("<unknown>", "Caption Image - QwenVL"),
-    "templates_shane_change_any_objects": (
-        "<unknown>",
-        "Height",
-        "Input Video",
-        "Length",
-        "Object Prompt",
-        "Output Visualization2",
-        "Width",
-    ),
-    "templates_shane_single_image_to_3d_model": ("<unknown>",),
-    "templates_shane_video_restyle": ("<unknown>", "Height", "Length", "Width"),
-    "templates_text_prompt_to_360hdr.app": ("<unknown>", "IfElse"),
-    "utility-audioseparation": ("<unknown>",),
-    "utility-depthAnything-v2-relative-video": ("<unknown>",),
-    "utility-frame_interpolation-film": ("<unknown>",),
-    "utility-lineart-video": ("<unknown>",),
-    "utility-normal_crafter-video": ("<unknown>",),
-    "utility-openpose-video": ("<unknown>",),
-    "utility_seedvr2_image_upscale": ("<unknown>", "IfElse"),
-    "utility_seedvr2_video_upscale": ("<unknown>",),
-    "utility_sirolim_image_controlled_upscale": ("<unknown>",),
-    "utility_video_upscale": ("<unknown>", "Image Embeds", "Lightning Lora", "Torch CompSettings"),
-    "video-wan21_scail": ("<unknown>",),
-    "video_ltx2_pose_to_video": ("<unknown>",),
-    "video_ltx_2_audio_to_video": ("<unknown>", "window_size_seconds"),
-    "video_wan2_2_14B_animate": ("<unknown>",),
-    "video_wanmove_480p_hallucination": ("<unknown>",),
+    # Frontend bug: compressWidgetInputSlots shrinks SubgraphNode input
+    # array but resolveInput still indexes by original slot, going OOB.
+    "gsc_starter_2": ("SimpleMath+ extra 'a', KSamplerAdvanced steps=8 vs 4",),
+    "video-wan21_scail": ("SimpleMath+ extra 'a', unknown node num_frames",),
+    "image_flux2_klein_image_edit_9b_distilled": ("subgraph boundary inputs",),
+    # Frontend bug: duplicate inner links to same subgraph output slot
+    # cause resolveSubgraphOutputLink to return undefined.
+    "templates-car_product": ("duplicate subgraph output links",),
+    "templates_rob_kling3_0_multishot_llm_product": ("subgraph output to StringToInt.data",),
 }
 
 _EXCLUDED_TEMPLATE_IDS = frozenset(_EXCLUDED_TEMPLATE_REASONS)
@@ -131,15 +57,22 @@ def _frontend_version() -> str:
     return pkg_version("comfyui-frontend-package")
 
 
+def _templates_version() -> str:
+    return pkg_version("comfyui-workflow-templates")
+
+
 def _cache_path(template_id: str) -> Path:
-    return _CACHE_DIR / _frontend_version() / f"{template_id}.json"
+    return _CACHE_DIR / f"{_frontend_version()}+t{_templates_version()}" / f"{template_id}.json"
 
 
 def _load_cached(template_id: str) -> dict | None:
     path = _cache_path(template_id)
     if path.exists():
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if "__frontend_error__" in data:
+            return None
+        return data
     return None
 
 
@@ -159,7 +92,7 @@ def invalidate_stale_cache() -> list[str]:
 
     Returns the list of deleted template IDs.
     """
-    version_dir = _CACHE_DIR / _frontend_version()
+    version_dir = _CACHE_DIR / f"{_frontend_version()}+t{_templates_version()}"
     if not version_dir.exists():
         return []
     deleted: list[str] = []
@@ -735,7 +668,15 @@ def _get_frontend_output(template_id: str, workflow: dict, page) -> dict:
         if "InvalidLinkError" not in str(exc):
             raise
         logger.warning("Retrying frontend conversion for %s after InvalidLinkError", template_id)
-        frontend_output = _evaluate_frontend_output()
+        try:
+            frontend_output = _evaluate_frontend_output()
+        except Exception as exc2:
+            if "InvalidLinkError" not in str(exc2):
+                raise
+            # Frontend cannot convert this workflow due to broken links.
+            # Cache a sentinel so we don't re-run Playwright on every test.
+            _save_cached(template_id, {"__frontend_error__": str(exc2)})
+            return None
 
     _save_cached(template_id, frontend_output)
     return frontend_output
@@ -761,16 +702,12 @@ class TestFrontendParity:
 
         # Frontend conversion (cached or via browser)
         frontend_output = _get_frontend_output(template_id, workflow, _app_page)
+        if frontend_output is None:
+            pytest.skip(f"{template_id}: frontend throws InvalidLinkError (broken workflow links)")
 
-        missing_frontend_nodes = _find_missing_frontend_node_types(frontend_output)
-        assert not missing_frontend_nodes, (
-            f"{template_id} depends on nodes unavailable to the frontend parity fixture: "
-            f"{', '.join(missing_frontend_nodes[:8])}"
-        )
-
-        # Python conversion
+        # Python conversion (frontend-parity mode for comparison)
         with context_add_custom_nodes(_real_nodes):
-            python_output = convert_ui_to_api(workflow)
+            python_output = convert_ui_to_api(workflow, preserve_unknown_nodes=False)
 
         # Normalize and compare
         f = _normalize_api_output(frontend_output)

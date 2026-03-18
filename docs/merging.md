@@ -638,3 +638,107 @@ rm -rf ~/.cache/comfy-test/custom_nodes/
 - **`comfy/app/custom_node_manager.py`** — `CustomNodeManager.install_custom_node()` handles cloning and dependency installation
 - **`comfy/component_model/site_packages.py`** — `add_node_site()` adds the `node_site/` directory to `sys.path`
 - **`tests/custom_nodes/test_data/`** — Test media assets (image, audio, video) substituted into workflows during testing
+
+## Workflow Conversion (Frontend Parity)
+
+### Overview
+
+The Python module `comfy/component_model/workflow_convert.py` implements the same logic as the frontend's `graphToPrompt` function. It converts UI-format (LiteGraph) workflows — which have `nodes`, `links`, and `widgets_values` — into API format (`{node_id: {"class_type": ..., "inputs": {...}}}`).
+
+The Playwright parity test (`tests/unit/test_workflow_convert_playwright.py`) validates that the Python conversion produces identical output to the real frontend JavaScript for every template workflow shipped with `comfyui-workflow-templates`.
+
+### How the Test Works
+
+1. A headless Chromium browser loads the compiled ComfyUI frontend
+2. For each template workflow, the frontend's `app.loadGraphData()` and `app.graphToPrompt()` produce the authoritative API output
+3. The Python `convert_ui_to_api()` converts the same workflow
+4. Both outputs are normalized and compared; any differences fail the test
+
+Frontend outputs are cached on disk under `tests/unit/playwright_cache/<version>/` keyed by the `comfyui-frontend-package` version. Playwright only runs when the frontend version changes.
+
+### When to Run
+
+Run the Playwright tests after:
+- Upgrading `comfyui-frontend-package` (new cache needed)
+- Modifying `comfy/component_model/workflow_convert.py`
+- Adding new node types that affect template workflows
+
+```bash
+pytest tests/unit/test_workflow_convert_playwright.py -x --tb=short
+```
+
+The first run after a frontend upgrade takes ~8 minutes (generates cache for all templates). Subsequent runs use the cache and are fast.
+
+### Fixing Mismatches
+
+When tests fail, the mismatch output shows exactly which nodes and inputs differ between the Python and frontend outputs. To fix:
+
+1. **Clone the frontend source** at the matching tag:
+   ```bash
+   git clone --depth 1 --branch v<VERSION> https://github.com/Comfy-Org/ComfyUI_frontend.git /tmp/comfyui-frontend
+   ```
+
+2. **Read the authoritative implementation** — the key files are:
+   - `src/utils/executionUtil.ts` — the `graphToPrompt` function: widget serialization loop, link resolution, dangling link cleanup
+   - `src/lib/litegraph/src/subgraph/ExecutableNodeDTO.ts` — `resolveInput`, `resolveOutput`, `_getBypassSlotIndex`, `_resolveSubgraphOutput`
+   - `src/utils/executableGroupNodeDto.ts` — legacy group node DTO
+   - `src/utils/executableGroupNodeChildDTO.ts` — child nodes inside group nodes
+   - `src/utils/litegraphUtil.ts` — `compressWidgetInputSlots`, `matchesLegacyApi`
+
+3. **Faithfully port the TypeScript logic to Python**. Do not innovate or approximate. The Python code must match the frontend behavior exactly. Search for `graphToPrompt` in the frontend codebase to find all relevant code paths.
+
+4. **Delete the stale cache** for the affected version so Playwright regenerates it:
+   ```bash
+   rm -rf tests/unit/playwright_cache/<VERSION>/
+   ```
+
+5. **Re-run the tests** to verify all templates pass.
+
+### Architecture Mapping
+
+| Frontend (TypeScript) | Python (`workflow_convert.py`) |
+|---|---|
+| `graphToPrompt()` in `executionUtil.ts` | `convert_ui_to_api()` |
+| `ExecutableNodeDTO` | `_NodeDTO` class + `_resolve_dto_input/output` |
+| `ExecutableGroupNodeDTO` | Legacy group node handling in `_convert_legacy_group_node` |
+| `compressWidgetInputSlots` | `_compress_widget_input_slots()` |
+| `matchesLegacyApi` | `_matches_legacy_api_input()` |
+| Widget serialization loop (lines 98-116) | `_map_widgets()`, `_map_widgets_dict()` |
+| `{ __value__: array }` wrapping | `_wrap_value()` |
+| `resolveInput` / `resolveOutput` | `_resolve_dto_input()` / `_resolve_dto_output()` |
+| `_getBypassSlotIndex` | `_get_bypass_slot_index()` |
+| `_resolveSubgraphOutput` | `_resolve_sg_output()` |
+| Subgraph ID deduplication | `_ensure_global_id_uniqueness()` |
+| Proxy widget overrides | `_compute_proxy_overrides()` |
+
+### Excluded Templates
+
+Templates are excluded in `_EXCLUDED_TEMPLATE_REASONS` when they depend on nodes unavailable to the test fixture. The exclusion tuple contains the missing node titles (or `<unknown>` when the title is not available). Common exclusion reasons:
+
+- **`<unknown>`** — the template uses custom nodes not included in the base ComfyUI installation
+- **`<frontend invalid link>`** — the workflow has broken links that the frontend also fails to resolve
+- **`<frontend promoted widgets>`** — the template uses frontend-only promoted widget features
+- **`<frontend group node outputs>`** — the template uses legacy group node output features
+
+Never mark a workflow as impossible to convert due to a bug — all bugs are real and fixable. The only legitimate exclusion reason is missing nodes that don't exist in the test environment.
+
+### Cache Management
+
+To invalidate stale cache entries (e.g., after adding new node implementations):
+
+```python
+from tests.unit.test_workflow_convert_playwright import invalidate_stale_cache
+deleted = invalidate_stale_cache()
+print(f"Invalidated {len(deleted)} stale cache entries: {deleted}")
+```
+
+This removes cached entries where `class_type: null` (indicating missing node types at cache time that may now be available).
+
+### CI Notes
+
+The Playwright tests are **excluded from CI** (`--ignore=tests/unit/test_workflow_convert_playwright.py` in all CI test commands) because:
+- They require Playwright browsers installed (`playwright install chromium`)
+- They take ~8 minutes for a fresh run
+- On Windows, they previously caused process deadlocks
+
+Run them locally when upgrading the frontend package or modifying the conversion code.

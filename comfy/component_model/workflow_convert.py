@@ -163,6 +163,16 @@ def _frontend_widget_default(type_spec, opts: dict):
             return "Loading..."
         return None
 
+    if widget_type == "COMFY_DYNAMICCOMBO_V3":
+        if "default" in opts:
+            return opts["default"]
+        options = opts.get("options", [])
+        if options and isinstance(options[0], dict):
+            key = options[0].get("key")
+            if key is not None:
+                return getattr(key, 'value', key)
+        return None
+
     if widget_type in ("STRING", "TEXTAREA"):
         return opts.get("default", "")
     if widget_type == "INT":
@@ -1036,21 +1046,42 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited, set_node_map=N
 
 
 def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited, set_node_map=None):
-    for link in sg_dto.inner_links.values():
-        if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot:
-            src_nid = link.src_node
-            if sg_dto.id_remap:
-                src_nid = sg_dto.id_remap.get(src_nid, src_nid)
-            inner_exec_id = f"{sg_dto.exec_id}:{src_nid}"
-            inner_dto = dto_map.get(inner_exec_id)
-            if inner_dto is None:
-                continue
-            result = _resolve_dto_output(
-                inner_dto, link.src_slot, target_type, dto_map, visited,
-                set_node_map=set_node_map,
-            )
-            if result is not None:
-                return result
+    # The frontend resolves subgraph outputs using the output definition's
+    # linkIds ordering (via outputSlot.getLinks().at(0)). Use the same
+    # ordering when available, otherwise fall back to iterating all links.
+    sg_outputs = sg_dto.sg_def.get('outputs', []) if sg_dto.sg_def else []
+    link_ids_order: list[int] | None = None
+    if slot < len(sg_outputs):
+        link_ids = sg_outputs[slot].get('linkIds')
+        if isinstance(link_ids, list) and link_ids:
+            link_ids_order = link_ids
+
+    if link_ids_order is not None:
+        links_to_try = []
+        for lid in link_ids_order:
+            link = sg_dto.inner_links.get(lid)
+            if link and link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot:
+                links_to_try.append(link)
+    else:
+        links_to_try = [
+            link for link in sg_dto.inner_links.values()
+            if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot
+        ]
+
+    for link in links_to_try:
+        src_nid = link.src_node
+        if sg_dto.id_remap:
+            src_nid = sg_dto.id_remap.get(src_nid, src_nid)
+        inner_exec_id = f"{sg_dto.exec_id}:{src_nid}"
+        inner_dto = dto_map.get(inner_exec_id)
+        if inner_dto is None:
+            continue
+        result = _resolve_dto_output(
+            inner_dto, link.src_slot, target_type, dto_map, visited,
+            set_node_map=set_node_map,
+        )
+        if result is not None:
+            return result
     return None
 
 
@@ -1063,12 +1094,21 @@ def is_ui_workflow(workflow: dict) -> bool:
     return "nodes" in workflow and "links" in workflow
 
 
-def convert_ui_to_api(workflow: dict) -> dict:
+def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) -> dict:
     """Convert a UI (LiteGraph) workflow dict to API format.
 
     Uses a DTO-based approach mirroring the frontend's ``graphToPrompt``
     and ``ExecutableNodeDTO`` for correct subgraph resolution at any
     nesting depth.
+
+    Args:
+        workflow: A UI (LiteGraph) workflow dict.
+        preserve_unknown_nodes: When True (default), unknown node types
+            retain their ``class_type`` string and all serialized widget
+            values.  When False, unknown nodes get ``class_type: None``
+            and only minimal widget data — matching the frontend's
+            ``graphToPrompt`` behaviour for nodes missing from
+            ``/object_info``.
 
     Raises:
         RuntimeError: If node system is not loaded.
@@ -1108,8 +1148,19 @@ def convert_ui_to_api(workflow: dict) -> dict:
         widgets_values = node.get('widgets_values')
         _wv_consumed = 0
         if is_unknown:
-            api_inputs = _map_unknown_widgets(widgets_values)
-            use_class_type = class_type
+            if class_def is None and not preserve_unknown_nodes:
+                # Frontend-parity mode: errorNodeWidgets.ts creates UNKNOWN
+                # widgets only from list-format widgets_values (has .length).
+                # Dict-format widgets_values have no .length → no widgets.
+                if isinstance(widgets_values, list):
+                    api_inputs = _map_unknown_widgets(widgets_values)
+                else:
+                    api_inputs = {}
+                use_class_type = None
+            else:
+                # Preserve mode (default): keep class_type and all values.
+                api_inputs = _map_unknown_widgets(widgets_values)
+                use_class_type = class_type
             logger.warning("Unknown node type %r (id=%s); preserving in API output",
                            class_type, node.get('id'))
         elif isinstance(widgets_values, list):
@@ -1174,15 +1225,22 @@ def convert_ui_to_api(workflow: dict) -> dict:
             if link_id is None or link_id not in dto.graph_links:
                 continue
 
+            _frontend_unknown = class_def is None and not preserve_unknown_nodes
             resolved = _resolve_dto_input(dto, i, dto_map,
-                                          skip_boundary_widgets=False,
+                                          skip_boundary_widgets=_frontend_unknown,
                                           set_node_map=set_node_map)
             if resolved is None:
                 if inp.get('widget') is not None and inp_name in api_inputs:
                     continue
                 api_inputs.pop(inp_name, None)
             elif resolved[0] == 'value':
-                if _all_input_names is None or inp_name in _all_input_names:
+                # In frontend-parity mode, unknown nodes have all widgets
+                # renamed to UNKNOWN by errorNodeWidgets.ts, so
+                # PrimitiveNode.applyToGraph() can't find the target widget
+                # and the generic virtual node resolution returns undefined.
+                if _frontend_unknown:
+                    pass
+                elif _all_input_names is None or inp_name in _all_input_names:
                     api_inputs[inp_name] = _wrap_value(resolved[1])
             else:
                 api_inputs[inp_name] = [resolved[1], resolved[2]]
