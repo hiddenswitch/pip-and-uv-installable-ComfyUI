@@ -188,8 +188,9 @@ class TestCuDNNVersionMismatch:
         cudnn_version = torch.backends.cudnn.version()
         assert cudnn_version is not None
         assert isinstance(cudnn_version, int)
-        # cuDNN version should be a 5-digit number like 90102
-        assert cudnn_version > 10000, f"Unexpected cuDNN version format: {cudnn_version}"
+        # cuDNN 8.x returns 4-digit numbers (e.g. 8906 for 8.9.6),
+        # cuDNN 9.x returns 5-digit numbers (e.g. 90102 for 9.1.2)
+        assert cudnn_version >= 1000, f"Unexpected cuDNN version format: {cudnn_version}"
 
     def test_cuda_runtime_available(self):
         """Test that CUDA runtime version is accessible."""

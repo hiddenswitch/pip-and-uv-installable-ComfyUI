@@ -359,7 +359,7 @@ jobs:
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          C:/venv/Scripts/python.exe -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
     name: macOS Installation Tests

@@ -722,7 +722,8 @@ class PromptServer(ExecutorToClientProgress):
         @routes.get("/object_info")
         async def get_object_info(request):
             # todo: what does this doozy do...
-            asset_seeder.start(roots=("models", "input", "output"))
+            if not server_args.disable_assets_autoscan:
+                asset_seeder.start(roots=("models", "input", "output"))
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:
