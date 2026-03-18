@@ -226,7 +226,7 @@ def _init_egl():
             raise RuntimeError("eglGetDisplay() failed")
 
         logger.debug("_init_egl: calling eglInitialize()")
-        major, minor = _EGL.EGLint(), _EGL.EGLint()
+        major, minor = _EGL.EGLint(), _EGL.EGLint()  # pylint: disable=no-value-for-parameter
         if not eglInitialize(display, major, minor):
             display = None  # Not initialized, don't terminate
             raise RuntimeError("eglInitialize() failed")
@@ -239,7 +239,7 @@ def _init_egl():
             EGL_DEPTH_SIZE, 0, EGL_NONE
         ]
         configs = (_EGL.EGLConfig * 1)()
-        num_configs = _EGL.EGLint()
+        num_configs = _EGL.EGLint()  # pylint: disable=no-value-for-parameter
         if not eglChooseConfig(display, config_attribs, configs, 1, num_configs) or num_configs.value == 0:
             raise RuntimeError("eglChooseConfig() failed")
         config = configs[0]
