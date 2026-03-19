@@ -3,7 +3,7 @@ import pytest
 from requests.exceptions import HTTPError
 from unittest.mock import patch, mock_open
 
-from app.frontend_management import (
+from comfy.app.frontend_management import (
     FrontendManager,
     FrontEndProvider,
     Release,

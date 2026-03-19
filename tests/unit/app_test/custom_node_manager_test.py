@@ -1,7 +1,7 @@
 import pytest
 from aiohttp import web
 from unittest.mock import patch
-from app.custom_node_manager import CustomNodeManager
+from comfy.app.custom_node_manager import CustomNodeManager
 import json
 
 pytestmark = (

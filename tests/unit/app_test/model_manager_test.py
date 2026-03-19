@@ -6,7 +6,7 @@ from io import BytesIO
 from PIL import Image
 from aiohttp import web
 from unittest.mock import patch
-from app.model_manager import ModelFileManager
+from comfy.app.model_manager import ModelFileManager
 
 pytestmark = (
     pytest.mark.asyncio

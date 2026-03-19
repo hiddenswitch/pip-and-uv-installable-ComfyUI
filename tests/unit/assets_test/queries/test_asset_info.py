@@ -3,8 +3,8 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference, AssetReferenceMeta
-from app.assets.database.queries import (
+from comfy.app.assets.database.models import Asset, AssetReference, AssetReferenceMeta
+from comfy.app.assets.database.queries import (
     reference_exists_for_asset_id,
     get_reference_by_id,
     insert_reference,
@@ -22,7 +22,7 @@ from app.assets.database.queries import (
     ensure_tags_exist,
     add_tags_to_reference,
 )
-from app.assets.helpers import get_utc_now
+from comfy.app.assets.helpers import get_utc_now
 
 
 def _make_asset(session: Session, hash_val: str | None = None, size: int = 1024) -> Asset:

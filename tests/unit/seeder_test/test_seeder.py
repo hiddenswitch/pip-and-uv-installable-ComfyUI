@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.assets.database.queries.asset_reference import UnenrichedReferenceRow
-from app.assets.seeder import _AssetSeeder, Progress, ScanInProgressError, ScanPhase, State
+from comfy.app.assets.database.queries.asset_reference import UnenrichedReferenceRow
+from comfy.app.assets.seeder import _AssetSeeder, Progress, ScanInProgressError, ScanPhase, State
 
 
 @pytest.fixture

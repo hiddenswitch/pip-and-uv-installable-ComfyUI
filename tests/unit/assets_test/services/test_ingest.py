@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference, Tag
-from app.assets.database.queries import get_reference_tags
-from app.assets.services.ingest import _ingest_file_from_path, _register_existing_asset
+from comfy.app.assets.database.models import Asset, AssetReference, Tag
+from comfy.app.assets.database.queries import get_reference_tags
+from comfy.app.assets.services.ingest import _ingest_file_from_path, _register_existing_asset
 
 
 class TestIngestFileFromPath:
@@ -117,7 +117,7 @@ class TestIngestFileFromPath:
         preview_asset = Asset(hash="blake3:preview", size_bytes=100)
         session.add(preview_asset)
         session.flush()
-        from app.assets.helpers import get_utc_now
+        from comfy.app.assets.helpers import get_utc_now
         now = get_utc_now()
         preview_ref = AssetReference(
             asset_id=preview_asset.id, name="preview.png", owner_id="",
@@ -186,7 +186,7 @@ class TestRegisterExistingAsset:
         session.add(asset)
         session.flush()
 
-        from app.assets.helpers import get_utc_now
+        from comfy.app.assets.helpers import get_utc_now
         ref = AssetReference(
             owner_id="",
             name="Existing Ref",

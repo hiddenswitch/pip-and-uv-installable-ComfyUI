@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import tempfile
 
 import folder_paths
-from app.user_manager import UserManager
+from comfy.app.user_manager import UserManager
 
 
 @pytest.fixture

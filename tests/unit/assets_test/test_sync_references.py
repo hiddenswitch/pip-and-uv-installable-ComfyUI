@@ -10,21 +10,21 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import (
+from comfy.app.assets.database.models import (
     Asset,
     AssetReference,
     AssetReferenceTag,
     Base,
     Tag,
 )
-from app.assets.database.queries.asset_reference import (
+from comfy.app.assets.database.queries.asset_reference import (
     bulk_insert_references_ignore_conflicts,
     get_references_for_prefixes,
     get_unenriched_references,
     restore_references_by_paths,
 )
-from app.assets.scanner import sync_references_with_filesystem
-from app.assets.services.file_utils import get_mtime_ns
+from comfy.app.assets.scanner import sync_references_with_filesystem
+from comfy.app.assets.services.file_utils import get_mtime_ns
 
 
 @pytest.fixture

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference
-from app.assets.services.bulk_ingest import SeedAssetSpec, batch_insert_seed_assets
+from comfy.app.assets.database.models import Asset, AssetReference
+from comfy.app.assets.services.bulk_ingest import SeedAssetSpec, batch_insert_seed_assets
 
 
 class TestBatchInsertSeedAssets:
@@ -105,7 +105,7 @@ class TestBatchInsertSeedAssets:
 class TestMetadataExtraction:
     def test_extracts_mime_type_for_model_files(self, temp_dir: Path):
         """Verify metadata extraction returns correct mime_type for model files."""
-        from app.assets.services.metadata_extract import extract_file_metadata
+        from comfy.app.assets.services.metadata_extract import extract_file_metadata
 
         file_path = temp_dir / "model.safetensors"
         file_path.write_bytes(b"fake safetensors content")
@@ -116,7 +116,7 @@ class TestMetadataExtraction:
 
     def test_mime_type_for_various_model_formats(self, temp_dir: Path):
         """Verify various model file types get correct mime_type from metadata."""
-        from app.assets.services.metadata_extract import extract_file_metadata
+        from comfy.app.assets.services.metadata_extract import extract_file_metadata
 
         test_cases = [
             ("model.safetensors", "application/safetensors"),
