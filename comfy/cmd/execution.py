@@ -844,7 +844,8 @@ class PromptExecutor:
                 elif event == "end":
                     provider.on_prompt_end(prompt_id)
             except Exception as e:
-                # todo: needs merge, must remove this slop try catch, it is a real exception, if raise_exception is true, this should raise not log.
+                if self.raise_exceptions:
+                    raise
                 _cache_logger.warning(f"Cache provider {provider.__class__.__name__} error on {event}: {e}")
 
     async def execute_async(self, prompt, prompt_id, extra_data=None, execute_outputs=None):

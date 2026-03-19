@@ -60,6 +60,7 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "cpu_vae",
     "fp16_vae",
     "bf16_vae",
+    "fp16_intermediates",
     "fp32_vae",
     "force_upcast_attention",
     "use_sage_attention",

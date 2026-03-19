@@ -115,6 +115,7 @@ class Configuration(dict):
         fp8_e5m2_text_enc (bool): Use FP8 precision for the text encoder (e5m2 variant).
         fp16_text_enc (bool): Use FP16 precision for the text encoder.
         fp32_text_enc (bool): Use FP32 precision for the text encoder.
+        fp16_intermediates (bool): Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.
         oneapi_device_selector (Optional[str]): Sets the oneAPI device(s) this instance will use.
         directml (Optional[int]): Use DirectML. -1 for auto-selection.
         disable_ipex_optimize (bool): Disable IPEX optimization for Intel GPUs.
@@ -258,6 +259,7 @@ class Configuration(dict):
         self.fp8_e5m2_text_enc: bool = False
         self.fp16_text_enc: bool = False
         self.fp32_text_enc: bool = False
+        self.fp16_intermediates: bool = False
         self.directml: Optional[int] = None
         self.disable_ipex_optimize: bool = False
         self.preview_method: LatentPreviewMethod = LatentPreviewMethod.Auto

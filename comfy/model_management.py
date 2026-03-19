@@ -1230,7 +1230,6 @@ def intermediate_device():
     else:
         return torch.device("cpu")
 
-# todo: needs merge, since fp16_intermediates appears here, it must trigger process pool executor
 def intermediate_dtype():
     if args.fp16_intermediates:
         return torch.float16

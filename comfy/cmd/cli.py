@@ -98,6 +98,7 @@ _PRECISION_OPTS: list[tuple] = [
     ("fp16_text_enc", bool, typer.Option(False, "--fp16-text-enc", help="Store text encoder weights in fp16.")),
     ("fp32_text_enc", bool, typer.Option(False, "--fp32-text-enc", help="Store text encoder weights in fp32.")),
     ("bf16_text_enc", bool, typer.Option(False, "--bf16-text-enc", help="Store text encoder weights in bf16.")),
+    ("fp16_intermediates", bool, typer.Option(False, "--fp16-intermediates", help="Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.")),
 ]
 
 _ATTENTION_OPTS: list[tuple] = [
