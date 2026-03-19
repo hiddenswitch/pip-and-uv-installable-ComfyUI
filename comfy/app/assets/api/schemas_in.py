@@ -334,7 +334,7 @@ class UploadAssetSpec(BaseModel):
     def _validate_order(self):
         if not self.tags:
             raise ValueError("at least one tag is required for uploads")
-        root = self.tags[0]
+        root = self.tags[0]  # pylint: disable=unsubscriptable-object
         if root not in {"models", "input", "output"}:
             raise ValueError("first tag must be one of: models, input, output")
         if root == "models":
