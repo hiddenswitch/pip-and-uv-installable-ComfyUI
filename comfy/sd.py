@@ -996,12 +996,23 @@ class VAE:
             batch_number = int(free_memory / memory_used)
             batch_number = max(1, batch_number)
 
+            # Pre-allocate output for VAEs that support direct buffer writes
+            preallocated = False
+            if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
+                pixel_samples = torch.empty(self.first_stage_model.decode_output_shape(samples_in.shape), device=self.output_device, dtype=self.vae_output_dtype())
+                preallocated = True
+
             for x in range(0, samples_in.shape[0], batch_number):
                 samples = samples_in[x:x + batch_number].to(device=self.device, dtype=self.vae_dtype)
-                out = self.process_output(self.first_stage_model.decode(samples, **vae_options).to(device=self.output_device, dtype=self.vae_output_dtype(), copy=True))
-                if pixel_samples is None:
-                    pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
-                pixel_samples[x:x + batch_number] = out
+                if preallocated:
+                    self.first_stage_model.decode(samples, output_buffer=pixel_samples[x:x+batch_number], **vae_options)
+                else:
+                    out = self.first_stage_model.decode(samples, **vae_options).to(device=self.output_device, dtype=self.vae_output_dtype(), copy=True)
+                    if pixel_samples is None:
+                        pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
+                    pixel_samples[x:x + batch_number].copy_(out)
+                    del out
+                self.process_output(pixel_samples[x:x+batch_number])
         except Exception as e:
             model_management.raise_non_oom(e)
             logger.warning("Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
@@ -1075,8 +1086,13 @@ class VAE:
             batch_number = max(1, batch_number)
             samples = None
             for x in range(0, pixel_samples.shape[0], batch_number):
-                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype).to(self.device)
-                out = self.first_stage_model.encode(pixels_in).to(self.output_device).to(dtype=self.vae_output_dtype())
+                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype)
+                if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
+                    out = self.first_stage_model.encode(pixels_in, device=self.device)
+                else:
+                    pixels_in = pixels_in.to(self.device)
+                    out = self.first_stage_model.encode(pixels_in)
+                out = out.to(self.output_device).to(dtype=self.vae_output_dtype())
                 if samples is None:
                     samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
                 samples[x:x + batch_number] = out
