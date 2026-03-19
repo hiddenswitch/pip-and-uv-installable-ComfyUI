@@ -468,6 +468,28 @@ pytest tests/ -k "my-workflow-a" -vv
 
 ---
 
+## Mocking folder_paths in Tests
+
+This fork uses execution-context-scoped `folder_names_and_paths` instead of a module-level global. Do not use `unittest.mock.patch` to override `folder_paths` attributes — use `FolderNames` and `context_folder_names_and_paths` instead:
+
+```python
+from comfy.component_model.folder_path_types import FolderNames
+from comfy.execution_context import context_folder_names_and_paths
+
+fn = FolderNames()
+fn["custom_nodes"] = ([str(custom_nodes_dir)], set())  # set(), not None
+with context_folder_names_and_paths(fn):
+    manager = CustomNodeManager()  # must be created INSIDE the context
+    result = manager.build_translations()
+```
+
+Key rules:
+- Use `set()` for supported_extensions, not `None`
+- Create objects that read `folder_paths.folder_names_and_paths` at init time **inside** the context block
+- For other mock targets, use the full module path: `patch("comfy.cmd.folder_paths.xxx")`, `patch("comfy.app.xxx")`
+
+---
+
 ## Custom Node Example Workflow Tests
 
 The `tests/custom_nodes/` suite clones popular custom nodes, discovers their example workflows, and executes each one. This produces a report of which custom nodes ship example workflows and whether they run successfully.

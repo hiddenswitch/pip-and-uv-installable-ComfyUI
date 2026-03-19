@@ -356,6 +356,49 @@ Upstream may change error types, message formats, or validation behavior. When t
 2. **Check message content** - Error messages may be reworded
 3. **Verify behavior is correct** - Ensure the test is checking for the right behavior, then update assertions to match
 
+### Mock Patching folder_paths
+
+Upstream tests often use `unittest.mock.patch` to override `folder_paths` attributes:
+
+```python
+# Upstream pattern (WRONG in this fork)
+with patch("folder_paths.folder_names_and_paths", {"custom_nodes": (["/tmp"], None)}):
+    ...
+```
+
+This doesn't work because `folder_paths.folder_names_and_paths` is a context-dependent property that reads from the execution context. Instead, use `FolderNames` and `context_folder_names_and_paths`:
+
+```python
+from comfy.component_model.folder_path_types import FolderNames
+from comfy.execution_context import context_folder_names_and_paths
+
+fn = FolderNames()
+fn["custom_nodes"] = ([str(custom_nodes_dir)], set())
+with context_folder_names_and_paths(fn):
+    ...
+```
+
+Key differences from the upstream pattern:
+
+- **Use `set()` not `None`** for supported_extensions — `FolderNames.__setitem__` wraps the value into a `ModelPaths` and `set(None)` raises `TypeError`
+- **Create objects inside the context** — classes like `CustomNodeManager` capture `folder_paths.folder_names_and_paths` at `__init__` time, so they must be instantiated inside the `context_folder_names_and_paths` block
+- **All `patch("folder_paths.xxx")` targets** must be rewritten to `patch("comfy.cmd.folder_paths.xxx")` if patching is still needed for non-dict attributes
+- **All `patch("app.xxx")` targets** must be rewritten to `patch("comfy.app.xxx")`
+
+### Mock Patching General Rules
+
+When converting upstream test `patch()` targets:
+
+| Upstream Target | This Fork Target |
+|---|---|
+| `"folder_paths.X"` | `"comfy.cmd.folder_paths.X"` or use `FolderNames`/`context_folder_names_and_paths` |
+| `"app.X"` | `"comfy.app.X"` |
+| `"server.X"` | `"comfy.cmd.server.X"` |
+| `"nodes.X"` | `"comfy.nodes.X"` |
+| `"execution.X"` | `"comfy.cmd.execution.X"` |
+
+Watch for multi-line `patch()` calls where the target string is on a different line from `patch(` — simple find-and-replace may miss these.
+
 ## Module-Level Properties
 
 This fork uses module-level properties from `comfy/component_model/module_property.py` for configuration-dependent exports. This pattern allows module attributes to be evaluated at access time rather than import time.
