@@ -244,7 +244,7 @@ def test_missing_tag_clears_on_fastpass_when_mtime_and_size_match(
     """
     scope = f"fastclear-{uuid.uuid4().hex[:6]}"
     name = "fastpass_clear.bin"
-    data = make_asset_bytes(name, 3072)
+    data = make_asset_bytes(f"{root}-{scope}-{name}", 3072)
 
     a = asset_factory(name, [root, "unit-tests", scope], {}, data)
     aid = a["id"]

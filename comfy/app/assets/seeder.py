@@ -4,9 +4,12 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
+
+from ...distributed.executors import ContextVarExecutor
 
 from .scanner import (
     ENRICHMENT_METADATA,
@@ -82,7 +85,8 @@ class _AssetSeeder:
         self._progress: Progress | None = None
         self._last_progress: Progress | None = None
         self._errors: list[str] = []
-        self._thread: threading.Thread | None = None
+        self._executor = ContextVarExecutor(max_workers=1, thread_name_prefix="_AssetSeeder")
+        self._future: Future | None = None
         self._cancel_event = threading.Event()
         self._run_gate = threading.Event()
         self._run_gate.set()  # Start unpaused (set = running, clear = paused)
@@ -140,13 +144,7 @@ class _AssetSeeder:
             self._progress_callback = progress_callback
             self._cancel_event.clear()
             self._run_gate.set()  # Ensure unpaused when starting
-            from ...component_model.context_thread import ContextThread
-            self._thread = ContextThread(
-                target=self._run_scan,
-                name="_AssetSeeder",
-                daemon=True,
-            )
-            self._thread.start()
+            self._future = self._executor.submit(self._run_scan)
             return True
 
     def start_fast(
@@ -308,11 +306,16 @@ class _AssetSeeder:
             True if scan completed, False if timeout expired or no scan running
         """
         with self._lock:
-            thread = self._thread
-        if thread is None:
+            future = self._future
+        if future is None:
             return True
-        thread.join(timeout=timeout)
-        return not thread.is_alive()
+        try:
+            future.result(timeout=timeout)
+            return True
+        except TimeoutError:
+            return False
+        except Exception:
+            return True  # scan finished (with error)
 
     def get_status(self) -> ScanStatus:
         """Get the current status and progress of the seeder."""
@@ -340,7 +343,7 @@ class _AssetSeeder:
         self.cancel()
         self.wait(timeout=timeout)
         with self._lock:
-            self._thread = None
+            self._future = None
 
     def mark_missing_outside_prefixes(self) -> int:
         """Mark references as missing when outside all known root prefixes.
