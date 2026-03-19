@@ -159,7 +159,7 @@ class TrainSampler(comfy.samplers.Sampler):
             bucket_latents  # list of (Bi, C, Hi, Wi)
         )
         # GradScaler for fp16 training
-        self.grad_scaler = torch.amp.GradScaler() if use_grad_scaler else None
+        self.grad_scaler = torch.amp.GradScaler() if use_grad_scaler else None  # pylint: disable=no-member
         # Precompute bucket offsets and weights for sampling
         if bucket_latents is not None:
             self._init_bucket_data(bucket_latents)
