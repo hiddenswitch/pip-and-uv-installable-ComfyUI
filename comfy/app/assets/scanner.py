@@ -40,6 +40,8 @@ from .services.path_utils import (
 )
 from ..database.db import create_session
 
+logger = logging.getLogger(__name__)
+
 
 class _RefInfo(TypedDict):
     ref_id: str
@@ -149,10 +151,10 @@ def sync_references_with_filesystem(
             exists = False
         except PermissionError:
             exists = True
-            logging.debug("Permission denied accessing %s", row.file_path)
+            logger.debug("Permission denied accessing %s", row.file_path)
         except OSError as e:
             exists = False
-            logging.debug("OSError checking %s: %s", row.file_path, e)
+            logger.debug("OSError checking %s: %s", row.file_path, e)
 
         acc["refs"].append(
             {
@@ -205,14 +207,14 @@ def sync_references_with_filesystem(
                 try:
                     remove_missing_tag_for_asset_id(session, asset_id=aid)
                 except Exception as e:
-                    logging.warning(
+                    logger.warning(
                         "Failed to remove missing tag for asset %s: %s", aid, e
                     )
         elif update_missing_tags:
             try:
                 add_missing_tag_for_asset_id(session, asset_id=aid, origin="automatic")
             except Exception as e:
-                logging.warning("Failed to add missing tag for asset %s: %s", aid, e)
+                logger.warning("Failed to add missing tag for asset %s: %s", aid, e)
 
         for r in refs:
             if r["exists"]:
@@ -245,7 +247,7 @@ def sync_root_safely(root: RootType) -> set[str]:
             sess.commit()
             return survivors or set()
     except Exception as e:
-        logging.exception("fast DB scan failed for %s: %s", root, e)
+        logger.exception("fast DB scan failed for %s: %s", root, e)
         return set()
 
 
@@ -260,7 +262,7 @@ def mark_missing_outside_prefixes_safely(prefixes: list[str]) -> int:
             sess.commit()
             return count
     except Exception as e:
-        logging.exception("marking missing assets failed: %s", e)
+        logger.exception("marking missing assets failed: %s", e)
         return 0
 
 
@@ -324,7 +326,7 @@ def build_asset_specs(
                 digest, _ = compute_blake3_hash(abs_p)
                 asset_hash = "blake3:" + digest
             except Exception as e:
-                logging.warning("Failed to hash %s: %s", abs_p, e)
+                logger.warning("Failed to hash %s: %s", abs_p, e)
 
         mime_type = metadata.content_type if metadata else None
         specs.append(
@@ -480,14 +482,14 @@ def enrich_asset(
             stat_after = os.stat(file_path, follow_symlinks=True)
             mtime_after = get_mtime_ns(stat_after)
             if mtime_before != mtime_after:
-                logging.warning("File modified during hashing, discarding hash: %s", file_path)
+                logger.warning("File modified during hashing, discarding hash: %s", file_path)
             else:
                 full_hash = f"blake3:{digest}"
                 metadata_ok = not extract_metadata or metadata is not None
                 if metadata_ok:
                     new_level = ENRICHMENT_HASHED
         except Exception as e:
-            logging.warning("Failed to hash %s: %s", file_path, e)
+            logger.warning("Failed to hash %s: %s", file_path, e)
 
     if extract_metadata and metadata:
         system_metadata = metadata.to_user_metadata()
@@ -560,7 +562,7 @@ def enrich_assets_batch(
                 else:
                     failed_ids.append(row.reference_id)
             except Exception as e:
-                logging.warning("Failed to enrich %s: %s", row.file_path, e)
+                logger.warning("Failed to enrich %s: %s", row.file_path, e)
                 sess.rollback()
                 failed_ids.append(row.reference_id)
 

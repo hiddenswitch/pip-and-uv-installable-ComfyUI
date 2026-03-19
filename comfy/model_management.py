@@ -816,7 +816,7 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
             logger.debug(f"Unloading {current_loaded_models[i].model.model.__class__.__name__}")
             unloaded_model.append(i)
         if pins_to_free > 0:
-            logging.debug(f"PIN Unloading {current_loaded_models[i].model.model.__class__.__name__}")
+            logger.debug(f"PIN Unloading {current_loaded_models[i].model.model.__class__.__name__}")
             current_loaded_models[i].model.partially_unload_ram(pins_to_free)
 
     for x in can_unload_sorted:
@@ -826,7 +826,7 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
             continue
         resident_memory, _ = current_loaded_models[i].model_mmap_residency(free=True)
         if resident_memory > 0:
-            logging.debug(f"RAM Unloading {current_loaded_models[i].model.model.__class__.__name__}")
+            logger.debug(f"RAM Unloading {current_loaded_models[i].model.model.__class__.__name__}")
 
     for i in sorted(unloaded_model, reverse=True):
         unloaded_models.append(current_loaded_models.pop(i))

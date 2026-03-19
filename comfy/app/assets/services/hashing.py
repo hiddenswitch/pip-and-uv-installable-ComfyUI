@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from typing import IO, Any, Callable, Iterator
 import logging
 
+logger = logging.getLogger(__name__)
+
 try:
     from blake3 import blake3
 except ModuleNotFoundError:
-    logging.warning("WARNING: blake3 package not installed")
+    logger.warning("WARNING: blake3 package not installed")
 
 DEFAULT_CHUNK = 8 * 1024 * 1024
 

@@ -9,6 +9,8 @@ from ....cmd import folder_paths
 from ..api.schemas_in import ParsedUpload, UploadError
 from ..helpers import validate_blake3_hash
 
+logger = logging.getLogger(__name__)
+
 
 def normalize_and_validate_hash(s: str) -> str:
     """Validate and normalize a hash string.
@@ -78,7 +80,7 @@ async def parse_multipart_upload(
                 try:
                     provided_hash_exists = check_hash_exists(provided_hash)
                 except Exception as e:
-                    logging.exception(
+                    logger.exception(
                         "check_hash_exists failed for hash=%s: %s", provided_hash, e
                     )
                     raise UploadError(
@@ -176,7 +178,7 @@ def delete_temp_file_if_exists(tmp_path: str | None) -> None:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
         except OSError as e:
-            logging.debug("Failed to delete temp file %s: %s", tmp_path, e)
+            logger.debug("Failed to delete temp file %s: %s", tmp_path, e)
         try:
             parent = os.path.dirname(tmp_path)
             if parent and os.path.isdir(parent):

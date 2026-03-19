@@ -41,6 +41,8 @@ from ..services import (
 )
 from ..services.tagging import list_tag_histogram
 
+logger = logging.getLogger(__name__)
+
 ROUTES = web.RouteTableDef()
 USER_MANAGER: user_manager.UserManager | None = None
 _ASSETS_ENABLED = False
@@ -257,7 +259,7 @@ async def get_asset_route(request: web.Request) -> web.Response:
             404, "ASSET_NOT_FOUND", str(e), {"id": reference_id}
         )
     except Exception:
-        logging.exception(
+        logger.exception(
             "get_asset failed for reference_id=%s, owner_id=%s",
             reference_id,
             USER_MANAGER.get_request_user_id(request),
@@ -303,7 +305,7 @@ async def download_asset_content(request: web.Request) -> web.Response:
 
     file_size = os.path.getsize(abs_path)
     size_mb = file_size / (1024 * 1024)
-    logging.info(
+    logger.info(
         "download_asset_content: path=%s, size=%d bytes (%.2f MB), type=%s, name=%s",
         abs_path,
         file_size,
@@ -463,7 +465,7 @@ async def upload_asset(request: web.Request) -> web.Response:
         return _build_error_response(503, "DEPENDENCY_MISSING", e.message)
     except Exception:
         delete_temp_file_if_exists(parsed.tmp_path)
-        logging.exception("upload_asset failed for owner_id=%s", owner_id)
+        logger.exception("upload_asset failed for owner_id=%s", owner_id)
         return _build_error_response(500, "INTERNAL", "Unexpected server error.")
 
     asset = _build_asset_response(result)
@@ -504,7 +506,7 @@ async def update_asset_route(request: web.Request) -> web.Response:
             404, "ASSET_NOT_FOUND", str(ve), {"id": reference_id}
         )
     except Exception:
-        logging.exception(
+        logger.exception(
             "update_asset failed for reference_id=%s, owner_id=%s",
             reference_id,
             USER_MANAGER.get_request_user_id(request),
@@ -531,7 +533,7 @@ async def delete_asset_route(request: web.Request) -> web.Response:
             delete_content_if_orphan=delete_content,
         )
     except Exception:
-        logging.exception(
+        logger.exception(
             "delete_asset_reference failed for reference_id=%s, owner_id=%s",
             reference_id,
             USER_MANAGER.get_request_user_id(request),
@@ -620,7 +622,7 @@ async def add_asset_tags(request: web.Request) -> web.Response:
             404, "ASSET_NOT_FOUND", str(ve), {"id": reference_id}
         )
     except Exception:
-        logging.exception(
+        logger.exception(
             "add_tags_to_asset failed for reference_id=%s, owner_id=%s",
             reference_id,
             USER_MANAGER.get_request_user_id(request),
@@ -667,7 +669,7 @@ async def delete_asset_tags(request: web.Request) -> web.Response:
             404, "ASSET_NOT_FOUND", str(ve), {"id": reference_id}
         )
     except Exception:
-        logging.exception(
+        logger.exception(
             "remove_tags_from_asset failed for reference_id=%s, owner_id=%s",
             reference_id,
             USER_MANAGER.get_request_user_id(request),

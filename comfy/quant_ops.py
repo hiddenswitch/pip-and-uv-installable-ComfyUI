@@ -71,7 +71,7 @@ if _CK_AVAILABLE:
         from comfy_kitchen.tensor import TensorCoreMXFP8Layout as _CKMxfp8Layout
         _CK_MXFP8_AVAILABLE = True
     except ImportError:
-        logging.debug("comfy_kitchen does not support MXFP8")
+        logger.debug("comfy_kitchen does not support MXFP8")
 
 if not _CK_MXFP8_AVAILABLE:
     class _CKMxfp8Layout:  # pylint: disable=function-redefined

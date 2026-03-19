@@ -134,7 +134,7 @@ def move_weight_functions(m, device):
 
 
 def string_to_seed(data):
-    logging.warning("WARNING: string_to_seed has moved from comfy.model_patcher to comfy.utils")
+    logger.warning("WARNING: string_to_seed has moved from comfy.model_patcher to comfy.utils")
     return utils.string_to_seed(data)
 
 
@@ -1783,7 +1783,7 @@ class ModelPatcherDynamic(ModelPatcher):
                     v_weight_size += v_weight_bias
 
                     if force_load:
-                        logging.info(f"Module {n} has resizing Lora - force loading")
+                        logger.info(f"Module {n} has resizing Lora - force loading")
                         force_load_param(self, "weight", device_to)
                         force_load_param(self, "bias", device_to)
                     else:
@@ -1814,7 +1814,7 @@ class ModelPatcherDynamic(ModelPatcher):
                 self.model.model_loaded_weight_memory += casted_buf.numel() * casted_buf.element_size()
 
             force_load_stat = f" Force pre-loaded {len(self.backup)} weights: {self.model.model_loaded_weight_memory // 1024} KB." if len(self.backup) > 0 else ""
-            logging.info(f"Model {self.model.__class__.__name__} prepared for dynamic VRAM loading. {allocated_size // (1024 ** 2)}MB Staged. {num_patches} patches attached.{force_load_stat}")
+            logger.info(f"Model {self.model.__class__.__name__} prepared for dynamic VRAM loading. {allocated_size // (1024 ** 2)}MB Staged. {num_patches} patches attached.{force_load_stat}")
 
             self.model.device = device_to
             self.model.current_weight_patches_uuid = self.patches_uuid

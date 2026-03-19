@@ -129,12 +129,12 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
     if clip is not None:
         key_map = model_lora_keys_clip(clip.cond_stage_model, key_map)
 
-    logging.debug(f"[BypassLoRA] key_map has {len(key_map)} entries")
+    logger.debug(f"[BypassLoRA] key_map has {len(key_map)} entries")
 
     lora = convert_lora(lora)
     loaded = load_lora(lora, key_map)
 
-    logging.debug(f"[BypassLoRA] loaded has {len(loaded)} entries")
+    logger.debug(f"[BypassLoRA] loaded has {len(loaded)} entries")
 
     # Separate adapters (for bypass) from other patches (for regular patching)
     bypass_patches = {}  # WeightAdapterBase instances -> bypass mode
@@ -146,7 +146,7 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
         else:
             regular_patches[key] = patch_data
 
-    logging.debug(f"[BypassLoRA] {len(bypass_patches)} bypass adapters, {len(regular_patches)} regular patches")
+    logger.debug(f"[BypassLoRA] {len(bypass_patches)} bypass adapters, {len(regular_patches)} regular patches")
 
     k = set()
     k1 = set()
@@ -168,7 +168,7 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
                 manager.add_adapter(key, adapter, strength=strength_model)
                 k.add(key)
             else:
-                logging.warning(f"[BypassLoRA] Adapter key not in model state_dict: {key}")
+                logger.warning(f"[BypassLoRA] Adapter key not in model state_dict: {key}")
 
         injections = manager.create_injections(new_modelpatcher.model)
 
@@ -206,7 +206,7 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
             patch_type = type(patch_data).__name__
             if isinstance(patch_data, tuple):
                 patch_type = f"tuple({patch_data[0]})"
-            logging.warning(f"NOT LOADED: {x} (type={patch_type})")
+            logger.warning(f"NOT LOADED: {x} (type={patch_type})")
 
     return (new_modelpatcher, new_clip)
 
@@ -845,10 +845,10 @@ class VAE:
 
         m, u = self.first_stage_model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
         if len(m) > 0:
-            logging.warning("Missing VAE keys {}".format(m))
+            logger.warning("Missing VAE keys {}".format(m))
 
         if len(u) > 0:
-            logging.debug("Leftover VAE keys {}".format(u))
+            logger.debug("Leftover VAE keys {}".format(u))
 
         logger.debug("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
         # todo: why is this being called here? for what side effects exactly?
@@ -1887,7 +1887,7 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
     model.load_model_weights(new_sd, "", assign=model_patcher.is_dynamic())
     left_over = sd.keys()
     if len(left_over) > 0:
-        logging.info("left over keys in diffusion model: {}".format(left_over))
+        logger.info("left over keys in diffusion model: {}".format(left_over))
     return model_patcher
 
 

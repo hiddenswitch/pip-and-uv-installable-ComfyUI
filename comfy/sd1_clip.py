@@ -610,7 +610,7 @@ class SDTokenizer:
                 self.tokens_start = 0
                 self.start_token = start_token
                 if start_token is None:
-                    logging.warning("WARNING: There's something wrong with your tokenizers.'")
+                    logger.warning("WARNING: There's something wrong with your tokenizers.'")
 
             if end_token is not None:
                 self.end_token = end_token

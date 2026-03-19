@@ -530,6 +530,23 @@ import logging  # often missing after refactoring
 from .cli_args import args  # might need _args() function instead
 ```
 
+### Logging Convention
+
+Use `logger = logging.getLogger(__name__)` and `logger.info(...)` — never bare `logging.info(...)`. Upstream frequently uses bare `logging.xxx()` calls; convert them during merge.
+
+```python
+# Bad (upstream pattern)
+import logging
+logging.warning("something happened")
+
+# Good
+import logging
+logger = logging.getLogger(__name__)
+logger.warning("something happened")
+```
+
+Place `logger = logging.getLogger(__name__)` at module level, after imports.
+
 ### Avoid `__all__`
 
 Never use `__all__` in this codebase. It's brittle and causes maintenance issues:

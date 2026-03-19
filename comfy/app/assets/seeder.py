@@ -27,6 +27,8 @@ from .scanner import (
 )
 from ..database.db import dependencies_available
 
+logger = logging.getLogger(__name__)
+
 
 class ScanInProgressError(Exception):
     """Raised when an operation cannot proceed because a scan is running."""
@@ -100,7 +102,7 @@ class _AssetSeeder:
     def disable(self) -> None:
         """Disable the asset seeder, preventing any scans from starting."""
         self._disabled = True
-        logging.info("Asset seeder disabled")
+        logger.info("Asset seeder disabled")
 
     def is_disabled(self) -> bool:
         """Check if the asset seeder is disabled."""
@@ -127,12 +129,12 @@ class _AssetSeeder:
             True if scan was started, False if already running
         """
         if self._disabled:
-            logging.debug("Asset seeder is disabled, skipping start")
+            logger.debug("Asset seeder is disabled, skipping start")
             return False
-        logging.info("Seeder start (roots=%s, phase=%s)", roots, phase.value)
+        logger.info("Seeder start (roots=%s, phase=%s)", roots, phase.value)
         with self._lock:
             if self._state != State.IDLE:
-                logging.info("Asset seeder already running, skipping start")
+                logger.info("Asset seeder already running, skipping start")
                 return False
             self._state = State.RUNNING
             self._progress = Progress()
@@ -204,7 +206,7 @@ class _AssetSeeder:
         with self._lock:
             if self._state not in (State.RUNNING, State.PAUSED):
                 return False
-            logging.info("Asset seeder cancelling (was %s)", self._state.value)
+            logger.info("Asset seeder cancelling (was %s)", self._state.value)
             self._state = State.CANCELLING
             self._cancel_event.set()
             self._run_gate.set()  # Unblock if paused so thread can exit
@@ -229,7 +231,7 @@ class _AssetSeeder:
         with self._lock:
             if self._state != State.RUNNING:
                 return False
-            logging.info("Asset seeder pausing")
+            logger.info("Asset seeder pausing")
             self._state = State.PAUSED
             self._run_gate.clear()
             return True
@@ -245,7 +247,7 @@ class _AssetSeeder:
         with self._lock:
             if self._state != State.PAUSED:
                 return False
-            logging.info("Asset seeder resuming")
+            logger.info("Asset seeder resuming")
             self._state = State.RUNNING
             self._run_gate.set()
         self._emit_event("assets.seed.resumed", {})
@@ -273,7 +275,7 @@ class _AssetSeeder:
         Returns:
             True if new scan was started, False if failed to stop previous
         """
-        logging.info("Asset seeder restart requested")
+        logger.info("Asset seeder restart requested")
         with self._lock:
             prev_roots = self._roots
             prev_phase = self._phase
@@ -373,7 +375,7 @@ class _AssetSeeder:
 
         try:
             if not dependencies_available():
-                logging.warning(
+                logger.warning(
                     "Database dependencies not available, skipping mark missing"
                 )
                 return 0
@@ -381,7 +383,7 @@ class _AssetSeeder:
             all_prefixes = get_all_known_prefixes()
             marked = mark_missing_outside_prefixes_safely(all_prefixes)
             if marked > 0:
-                logging.info("Marked %d references as missing", marked)
+                logger.info("Marked %d references as missing", marked)
             return marked
         finally:
             with self._lock:
@@ -479,14 +481,14 @@ class _AssetSeeder:
 
         for root in roots:
             if root == "models":
-                logging.info(
+                logger.info(
                     "Asset scan [models] directory: %s",
                     os.path.abspath(folder_paths.models_dir),
                 )
             else:
                 prefixes = get_prefixes_for_root(root)
                 if prefixes:
-                    logging.info("Asset scan [%s] directories: %s", root, prefixes)
+                    logger.info("Asset scan [%s] directories: %s", root, prefixes)
 
     def _run_scan(self) -> None:
         """Main scan loop running in background thread."""
@@ -512,10 +514,10 @@ class _AssetSeeder:
                 all_prefixes = get_all_known_prefixes()
                 marked = mark_missing_outside_prefixes_safely(all_prefixes)
                 if marked > 0:
-                    logging.info("Marked %d refs as missing before scan", marked)
+                    logger.info("Marked %d refs as missing before scan", marked)
 
             if self._check_pause_and_cancel():
-                logging.info("Asset scan cancelled after pruning phase")
+                logger.info("Asset scan cancelled after pruning phase")
                 cancelled = True
                 return
 
@@ -561,7 +563,7 @@ class _AssetSeeder:
                 )
 
             elapsed = time.perf_counter() - t_start
-            logging.info(
+            logger.info(
                 "Scan(%s, %s) done %.3fs: created=%d enriched=%d skipped=%d",
                 roots,
                 phase.value,
@@ -585,7 +587,7 @@ class _AssetSeeder:
 
         except Exception as e:
             self._add_error(f"Scan failed: {e}")
-            logging.exception("Asset scan failed")
+            logger.exception("Asset scan failed")
             self._emit_event("assets.seed.error", {"message": str(e)})
         finally:
             if cancelled:
@@ -618,7 +620,7 @@ class _AssetSeeder:
             if self._check_pause_and_cancel():
                 return total_created, skipped_existing, 0
             existing_paths.update(sync_root_safely(r))
-        logging.debug(
+        logger.debug(
             "Fast scan: sync_root phase took %.3fs (%d existing paths)",
             time.perf_counter() - t_sync,
             len(existing_paths),
@@ -629,7 +631,7 @@ class _AssetSeeder:
 
         t_collect = time.perf_counter()
         paths = collect_paths_for_roots(roots)
-        logging.debug(
+        logger.debug(
             "Fast scan: collect_paths took %.3fs (%d paths found)",
             time.perf_counter() - t_collect,
             len(paths),
@@ -650,7 +652,7 @@ class _AssetSeeder:
             enable_metadata_extraction=False,
             compute_hashes=False,
         )
-        logging.debug(
+        logger.debug(
             "Fast scan: build_asset_specs took %.3fs (%d specs, %d skipped)",
             time.perf_counter() - t_specs,
             len(specs),
@@ -667,7 +669,7 @@ class _AssetSeeder:
 
         for i in range(0, len(specs), batch_size):
             if self._check_pause_and_cancel():
-                logging.info(
+                logger.info(
                     "Fast scan cancelled after %d/%d files (created=%d)",
                     i,
                     len(specs),
@@ -682,7 +684,7 @@ class _AssetSeeder:
                 total_created += created
             except Exception as e:
                 self._add_error(f"Batch insert failed at offset {i}: {e}")
-                logging.exception("Batch insert failed at offset %d", i)
+                logger.exception("Batch insert failed at offset %d", i)
 
             scanned = i + len(batch)
             now = time.perf_counter()
@@ -701,7 +703,7 @@ class _AssetSeeder:
                 last_progress_time = now
 
         self._update_progress(scanned=len(specs), created=total_created)
-        logging.info(
+        logger.info(
             "Fast scan complete: %.3fs total (created=%d, skipped=%d, total_paths=%d)",
             time.perf_counter() - t_fast_start,
             total_created,
@@ -742,7 +744,7 @@ class _AssetSeeder:
 
         while True:
             if self._check_pause_and_cancel():
-                logging.info("Enrich scan cancelled after %d assets", total_enriched)
+                logger.info("Enrich scan cancelled after %d assets", total_enriched)
                 return True, total_enriched
 
             # Fetch next batch of unenriched assets
@@ -772,7 +774,7 @@ class _AssetSeeder:
             if enriched == 0:
                 consecutive_empty += 1
                 if consecutive_empty >= max_consecutive_empty:
-                    logging.warning(
+                    logger.warning(
                         "Enrich phase stopping: %d consecutive batches with no progress (%d skipped)",
                         consecutive_empty,
                         len(skip_ids),

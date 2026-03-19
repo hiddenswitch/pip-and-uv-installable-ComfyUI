@@ -41,6 +41,8 @@ from ..services.schemas import (
 )
 from ...database.db import create_session
 
+logger = logging.getLogger(__name__)
+
 
 def _ingest_file_from_path(
     abs_path: str,
@@ -117,7 +119,7 @@ def _ingest_file_from_path(
         try:
             remove_missing_tag_for_asset_id(session, asset_id=asset.id)
         except Exception:
-            logging.exception("Failed to clear 'missing' tag for asset %s", asset.id)
+            logger.exception("Failed to clear 'missing' tag for asset %s", asset.id)
 
         session.commit()
 
@@ -452,7 +454,7 @@ def create_from_hash(
             preview_id=preview_id,
         )
     except ValueError:
-        logging.warning("create_from_hash: no asset found for hash %s", canonical)
+        logger.warning("create_from_hash: no asset found for hash %s", canonical)
         return None
 
     return UploadResult(
