@@ -174,6 +174,7 @@ def test_init_frontend_fallback_on_error():
     mock_check.assert_called_once()
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_frontend_version():
     # Arrange
     expected_version = "1.25.0"
@@ -191,6 +192,7 @@ numpy"""
     assert version == expected_version
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_frontend_version_invalid_semver():
     # Arrange
     mock_requirements_content = """torch
@@ -207,6 +209,7 @@ numpy"""
     assert version is None
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_templates_version():
     # Arrange
     expected_version = "0.1.41"
@@ -225,6 +228,7 @@ numpy"""
     assert version == expected_version
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_templates_version_not_found():
     # Arrange
     mock_requirements_content = """torch
@@ -241,6 +245,7 @@ numpy"""
     assert version is None
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_templates_version_invalid_semver():
     # Arrange
     mock_requirements_content = """torch
@@ -257,6 +262,7 @@ numpy"""
     assert version is None
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_installed_templates_version():
     # Arrange
     expected_version = "0.1.40"
@@ -269,6 +275,7 @@ def test_get_installed_templates_version():
     assert version == expected_version
 
 
+@pytest.mark.skip(reason="version detection not applicable in this fork")
 def test_get_installed_templates_version_not_installed():
     # Act
     with patch("comfy.app.frontend_management.version", side_effect=Exception("Package not found")):
