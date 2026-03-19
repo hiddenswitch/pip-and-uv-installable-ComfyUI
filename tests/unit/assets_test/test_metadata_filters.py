@@ -1,5 +1,9 @@
 import json
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
+
 
 def test_meta_and_across_keys_and_types(
     http, api_base: str, asset_factory, make_asset_bytes

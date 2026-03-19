@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import pytest
 
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
+
 
 def test_upload_ok_duplicate_reference(http: requests.Session, api_base: str, make_asset_bytes):
     name = "dup_a.safetensors"

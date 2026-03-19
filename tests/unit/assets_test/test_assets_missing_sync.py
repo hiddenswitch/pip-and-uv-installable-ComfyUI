@@ -6,7 +6,7 @@ import pytest
 import requests
 from helpers import get_asset_filename, trigger_sync_seed_assets
 
-
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
 
 
 @pytest.mark.parametrize("root", ["input", "output"])

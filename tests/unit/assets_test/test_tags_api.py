@@ -1,7 +1,10 @@
 import json
 import uuid
 
+import pytest
 import requests
+
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
 
 
 def test_tags_present(http: requests.Session, api_base: str, seeded_asset: dict):

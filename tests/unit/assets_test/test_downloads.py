@@ -8,6 +8,8 @@ import pytest
 import requests
 from helpers import get_asset_filename, trigger_sync_seed_assets
 
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
+
 
 def test_download_attachment_and_inline(http: requests.Session, api_base: str, seeded_asset: dict):
     aid = seeded_asset["id"]

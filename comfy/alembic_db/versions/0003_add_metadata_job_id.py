@@ -10,7 +10,7 @@ Create Date: 2026-03-09
 from alembic import op
 import sqlalchemy as sa
 
-from app.database.models import NAMING_CONVENTION
+from comfy.app.database.models import NAMING_CONVENTION
 
 revision = "0003_add_metadata_job_id"
 down_revision = "0002_merge_to_asset_references"

@@ -4,6 +4,8 @@ import uuid
 import pytest
 import requests
 
+pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
+
 
 def test_list_assets_paging_and_sort(http: requests.Session, api_base: str, asset_factory, make_asset_bytes):
     names = ["a1_u.safetensors", "a2_u.safetensors", "a3_u.safetensors"]
