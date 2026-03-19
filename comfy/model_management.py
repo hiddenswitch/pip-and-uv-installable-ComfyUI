@@ -36,6 +36,7 @@ from opentelemetry.trace import get_current_span
 
 from . import memory_management
 from . import interruption
+from . import quant_ops
 from .cli_args import args, PerformanceFeature
 from .component_model.deprecation import _deprecate_method
 from .model_management_types import ModelManageable
@@ -572,7 +573,7 @@ def module_mmap_residency(module, free=False):
     for k in sd:
         t = sd[k]
         module_mem += t.nbytes
-        storage = t._qdata.untyped_storage() if isinstance(t, comfy.quant_ops.QuantizedTensor) else t.untyped_storage()
+        storage = t._qdata.untyped_storage() if isinstance(t, quant_ops.QuantizedTensor) else t.untyped_storage()
         if not getattr(storage, "_comfy_tensor_mmap_touched", False):
             continue
         mmap_touched_mem += t.nbytes
@@ -785,7 +786,7 @@ def free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins
         return unloaded_models
 
 
-def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, ram_required=0):
+def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins_required=0, ram_required=0):
     cleanup_models_gc()
     unloaded_model = []
     can_unload = []
@@ -1473,9 +1474,9 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None):
             dest_view = dest_views.pop(0)
             if tensor is None:
                 continue
-            if comfy.memory_management.read_tensor_file_slice_into(tensor, dest_view):
+            if memory_management.read_tensor_file_slice_into(tensor, dest_view):
                 continue
-            storage = tensor._qdata.untyped_storage() if isinstance(tensor, comfy.quant_ops.QuantizedTensor) else tensor.untyped_storage()
+            storage = tensor._qdata.untyped_storage() if isinstance(tensor, quant_ops.QuantizedTensor) else tensor.untyped_storage()
             if hasattr(storage, "_comfy_tensor_mmap_touched"):
                 storage._comfy_tensor_mmap_touched = True
             dest_view.copy_(tensor, non_blocking=non_blocking)

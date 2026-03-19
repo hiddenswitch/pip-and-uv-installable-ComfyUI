@@ -18,6 +18,7 @@ import comfy.utils
 from comfy import node_helpers
 from comfy.cmd import folder_paths
 from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
+from comfy.cli_args import args, PerformanceFeature
 from comfy.execution_context import current_execution_context
 from comfy.utils import ProgressBar
 from comfy.weight_adapter import adapters, adapter_maps

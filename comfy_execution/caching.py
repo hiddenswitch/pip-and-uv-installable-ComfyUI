@@ -305,7 +305,7 @@ class BasicCache:
                     if not isinstance(result.outputs, (list, tuple)):
                         _logger.warning(f"Provider {provider.__class__.__name__} returned invalid outputs")
                         continue
-                    from execution import CacheEntry
+                    from comfy.cmd.execution import CacheEntry
                     return CacheEntry(ui=result.ui, outputs=list(result.outputs))
             except Exception as e:
                 _logger.warning(f"Cache provider {provider.__class__.__name__} error on lookup: {e}")

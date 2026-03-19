@@ -11,7 +11,7 @@ from .causal_conv3d import CausalConv3d
 from .pixel_norm import PixelNorm
 from ..model import PixArtAlphaCombinedTimestepSizeEmbeddings
 from ....ops import disable_weight_init as ops
-import comfy.model_management
+from .... import model_management
 from ...modules.diffusionmodules.model import torch_cat_if_needed
 
 
@@ -302,7 +302,7 @@ MIN_CHUNK_SIZE = 32 * 1024 ** 2
 MAX_CHUNK_SIZE = 128 * 1024 ** 2
 
 def get_max_chunk_size(device: torch.device) -> int:
-    total_memory = comfy.model_management.get_total_memory(dev=device)
+    total_memory = model_management.get_total_memory(dev=device)
 
     if total_memory <= MIN_VRAM_FOR_CHUNK_SCALING:
         return MIN_CHUNK_SIZE
@@ -555,7 +555,7 @@ class Decoder(nn.Module):
                     mark_conv3d_ended(self.conv_out)
                 sample = self.conv_out(sample, causal=self.causal)
                 if sample is not None and sample.shape[2] > 0:
-                    output.append(sample.to(comfy.model_management.intermediate_device()))
+                    output.append(sample.to(model_management.intermediate_device()))
                 return
 
             up_block = self.up_blocks[idx]

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import logging
 import torch
 
-from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block
+from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block, stochastic_round_quantize_mxfp8_by_block
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ if _CK_AVAILABLE:
         logging.warning("comfy_kitchen does not support MXFP8, please update comfy_kitchen.")
 
 if not _CK_MXFP8_AVAILABLE:
-    class _CKMxfp8Layout:
+    class _CKMxfp8Layout:  # pylint: disable=function-redefined
         pass
 
 
@@ -117,7 +117,7 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
         return qdata, params
 
 
-class TensorCoreMXFP8Layout(_CKMxfp8Layout):
+class TensorCoreMXFP8Layout(_CKMxfp8Layout):  # pylint: disable=possibly-used-before-assignment
     @classmethod
     def quantize(cls, tensor, scale=None, stochastic_rounding=0, inplace_ops=False):
         if tensor.dim() != 2:
@@ -130,7 +130,7 @@ class TensorCoreMXFP8Layout(_CKMxfp8Layout):
         needs_padding = padded_shape != orig_shape
 
         if stochastic_rounding > 0:
-            qdata, block_scale = comfy.float.stochastic_round_quantize_mxfp8_by_block(tensor, pad_32x=needs_padding, seed=stochastic_rounding)
+            qdata, block_scale = stochastic_round_quantize_mxfp8_by_block(tensor, pad_32x=needs_padding, seed=stochastic_rounding)
         else:
             qdata, block_scale = ck.quantize_mxfp8(tensor, pad_32x=needs_padding)
 

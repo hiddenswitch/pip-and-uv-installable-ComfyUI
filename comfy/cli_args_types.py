@@ -277,6 +277,7 @@ class Configuration(dict):
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: float = 0.0
         self.disable_dynamic_vram: bool = False
+        self.enable_dynamic_vram: bool = False
         self.disable_smart_memory: bool = False
         self.deterministic: bool = False
         self.dont_print_server: bool = False

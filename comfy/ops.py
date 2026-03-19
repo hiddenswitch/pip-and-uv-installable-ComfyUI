@@ -697,8 +697,8 @@ class disable_weight_init:
                      norm_type=2.0, scale_grad_by_freq=False, sparse=False, _weight=None,
                      _freeze=False, device=None, dtype=None):
             # don't trust subclasses that BYO state dict loader to call us.
-            if (not comfy.model_management.WINDOWS
-                    or not comfy.memory_management.aimdo_enabled
+            if (not model_management.WINDOWS
+                    or not memory_management.aimdo_enabled
                     or type(self)._load_from_state_dict is not disable_weight_init.Embedding._load_from_state_dict):
                 super().__init__(num_embeddings, embedding_dim, padding_idx, max_norm,
                                  norm_type, scale_grad_by_freq, sparse, _weight,
@@ -725,8 +725,8 @@ class disable_weight_init:
         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
                                   strict, missing_keys, unexpected_keys, error_msgs):
 
-            if (not comfy.model_management.WINDOWS
-                    or not comfy.memory_management.aimdo_enabled
+            if (not model_management.WINDOWS
+                    or not memory_management.aimdo_enabled
                     or type(self)._load_from_state_dict is not disable_weight_init.Embedding._load_from_state_dict):
                 return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                                      missing_keys, unexpected_keys, error_msgs)
@@ -1215,7 +1215,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
 
                     scale = getattr(self, 'input_scale', None)
                     if scale is not None:
-                        scale = comfy.model_management.cast_to_device(scale, input.device, None)
+                        scale = model_management.cast_to_device(scale, input.device, None)
 
                     output = QuantLinearFunc.apply(
                         input, weight, bias, self.layout_type, scale, compute_dtype
@@ -1291,7 +1291,7 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         inference_mode = current_execution_context().inference_mode
     fp8_compute = model_management.supports_fp8_compute(load_device)  # TODO: if we support more ops this needs to be more granular
     nvfp4_compute = model_management.supports_nvfp4_compute(load_device)
-    mxfp8_compute = comfy.model_management.supports_mxfp8_compute(load_device)
+    mxfp8_compute = model_management.supports_mxfp8_compute(load_device)
 
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")

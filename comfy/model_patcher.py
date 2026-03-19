@@ -368,7 +368,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         return self.size
 
     def model_mmap_residency(self, free=False):
-        return comfy.model_management.module_mmap_residency(self.model, free=free)
+        return model_management.module_mmap_residency(self.model, free=free)
 
     def get_ram_usage(self):
         return self.model_size()
@@ -1850,7 +1850,7 @@ class ModelPatcherDynamic(ModelPatcher):
         loading = self._load_list(for_dynamic=True)
         for x in loading:
             _, _, _, _, m, _ = x
-            pin = comfy.pinned_memory.get_pin(m)
+            pin = pinned_memory.get_pin(m)
             if pin is not None:
                 total += pin.numel() * pin.element_size()
         return total
