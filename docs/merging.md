@@ -360,19 +360,20 @@ Upstream may change error types, message formats, or validation behavior. When t
 
 This fork stores runtime state (folder paths, configuration, execution context) in `contextvars`. Plain `threading.Thread` does **not** propagate `contextvars` — child threads get an empty context, so values like `folder_names_and_paths` resolve to defaults instead of the configured paths.
 
-When upstream adds new `threading.Thread(...)` calls, replace them with `ContextThread` from `comfy/component_model/context_thread.py`:
+When upstream adds new `threading.Thread(...)` calls, replace them with `ContextVarExecutor` from `comfy/distributed/executors.py`:
 
 ```python
 # Bad: thread gets empty context, folder_paths uses defaults
 import threading
-t = threading.Thread(target=self._run_scan, daemon=True)
+threading.Thread(target=do_work, daemon=True, args=(x, y)).start()
 
-# Good: thread inherits the caller's context
-from comfy.component_model.context_thread import ContextThread
-t = ContextThread(target=self._run_scan, daemon=True)
+# Good: executor propagates the caller's contextvars
+from comfy.distributed.executors import ContextVarExecutor
+executor = ContextVarExecutor(max_workers=1, thread_name_prefix="MyWorker")
+executor.submit(do_work, x, y)
 ```
 
-`ContextThread` is a drop-in replacement — same API as `threading.Thread`, but it captures `contextvars.copy_context()` at creation time and runs the target inside that context.
+`ContextVarExecutor` is a `ThreadPoolExecutor` that captures `contextvars.copy_context()` on each `submit()` and runs the callable inside that context. Using a named executor pool (vs naked threads) makes it easier to track and debug active threads.
 
 ### Mock Patching folder_paths
 

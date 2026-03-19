@@ -330,8 +330,9 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         if distributed:
             logger.warning(
                 f"Distributed workers started in the default thread loop cannot notify clients of progress updates. Instead of comfyui or main.py, use comfyui-worker.")
-        from ..component_model.context_thread import ContextThread
-        ContextThread(target=prompt_worker, daemon=True, args=(q, worker_thread_server)).start()
+        from ..distributed.executors import ContextVarExecutor
+        _prompt_worker_executor = ContextVarExecutor(max_workers=1, thread_name_prefix="PromptWorker")
+        _prompt_worker_executor.submit(prompt_worker, q, worker_thread_server)
 
     # server has been imported and things should be looking good
     initialize_event_tracking(loop)
