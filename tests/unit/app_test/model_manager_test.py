@@ -42,7 +42,7 @@ async def test_get_model_preview_safetensors(aiohttp_client, app, tmp_path):
         f.write(length_bytes)
         f.write(header_bytes)
 
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)

@@ -21,13 +21,13 @@ def fresh_seeder():
 def mock_dependencies():
     """Mock all external dependencies for isolated testing."""
     with (
-        patch("app.assets.seeder.dependencies_available", return_value=True),
-        patch("app.assets.seeder.sync_root_safely", return_value=set()),
-        patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-        patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-        patch("app.assets.seeder.insert_asset_specs", return_value=0),
-        patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-        patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+        patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+        patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+        patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+        patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+        patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+        patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+        patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
     ):
         yield
 
@@ -168,13 +168,13 @@ class TestSeederProgress:
         paths = ["/path/file1.safetensors", "/path/file2.safetensors"]
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=paths),
-            patch("app.assets.seeder.build_asset_specs", side_effect=slow_build),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=paths),
+            patch("comfy.app.assets.seeder.build_asset_specs", side_effect=slow_build),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -240,15 +240,15 @@ class TestSeederCancellation:
         ]
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=paths),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=paths),
             patch(
                 "app.assets.seeder.build_asset_specs", return_value=(specs, set(), 0)
             ),
-            patch("app.assets.seeder.insert_asset_specs", side_effect=slow_insert),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", side_effect=slow_insert),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",))
             assert first_insert_done.wait(timeout=2.0)
@@ -265,8 +265,8 @@ class TestSeederErrorHandling:
 
     def test_database_errors_captured_in_status(self, fresh_seeder: _AssetSeeder):
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
             patch(
                 "app.assets.seeder.collect_paths_for_roots",
                 return_value=["/path/file.safetensors"],
@@ -295,8 +295,8 @@ class TestSeederErrorHandling:
                 "app.assets.seeder.insert_asset_specs",
                 side_effect=Exception("DB connection failed"),
             ),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",))
             fresh_seeder.wait(timeout=5.0)
@@ -308,7 +308,7 @@ class TestSeederErrorHandling:
     def test_dependencies_unavailable_captured_in_errors(
         self, fresh_seeder: _AssetSeeder
     ):
-        with patch("app.assets.seeder.dependencies_available", return_value=False):
+        with patch("comfy.app.assets.seeder.dependencies_available", return_value=False):
             fresh_seeder.start(roots=("models",))
             fresh_seeder.wait(timeout=5.0)
 
@@ -318,7 +318,7 @@ class TestSeederErrorHandling:
 
     def test_thread_crash_resets_state_to_idle(self, fresh_seeder: _AssetSeeder):
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
             patch(
                 "app.assets.seeder.sync_root_safely",
                 side_effect=RuntimeError("Unexpected crash"),
@@ -396,7 +396,7 @@ class TestSeederMarkMissing:
 
     def test_mark_missing_when_idle(self, fresh_seeder: _AssetSeeder):
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
             patch(
                 "app.assets.seeder.get_all_known_prefixes",
                 return_value=["/models", "/input", "/output"],
@@ -434,7 +434,7 @@ class TestSeederMarkMissing:
     def test_mark_missing_returns_zero_when_dependencies_unavailable(
         self, fresh_seeder: _AssetSeeder
     ):
-        with patch("app.assets.seeder.dependencies_available", return_value=False):
+        with patch("comfy.app.assets.seeder.dependencies_available", return_value=False):
             result = fresh_seeder.mark_missing_outside_prefixes()
             assert result == 0
 
@@ -452,15 +452,15 @@ class TestSeederMarkMissing:
             return set()
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.get_all_known_prefixes", return_value=["/models"]),
-            patch("app.assets.seeder.mark_missing_outside_prefixes_safely", side_effect=track_mark),
-            patch("app.assets.seeder.sync_root_safely", side_effect=track_sync),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.get_all_known_prefixes", return_value=["/models"]),
+            patch("comfy.app.assets.seeder.mark_missing_outside_prefixes_safely", side_effect=track_mark),
+            patch("comfy.app.assets.seeder.sync_root_safely", side_effect=track_sync),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",), prune_first=True)
             fresh_seeder.wait(timeout=5.0)
@@ -486,13 +486,13 @@ class TestSeederPhases:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", side_effect=track_fast),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", side_effect=track_fast),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start_fast(roots=("models",))
             fresh_seeder.wait(timeout=5.0)
@@ -514,13 +514,13 @@ class TestSeederPhases:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", side_effect=track_fast),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", side_effect=track_fast),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start_enrich(roots=("models",))
             fresh_seeder.wait(timeout=5.0)
@@ -542,13 +542,13 @@ class TestSeederPhases:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", side_effect=track_fast),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", side_effect=track_fast),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=track_enrich),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",), phase=ScanPhase.FULL)
             fresh_seeder.wait(timeout=5.0)
@@ -725,13 +725,13 @@ class TestSeederStopRestart:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", side_effect=track_collect),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", side_effect=track_collect),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("input", "output"))
             fresh_seeder.wait(timeout=5.0)
@@ -752,13 +752,13 @@ class TestSeederStopRestart:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", side_effect=track_collect),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", side_effect=track_collect),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             fresh_seeder.start(roots=("models",))
             fresh_seeder.wait(timeout=5.0)
@@ -807,13 +807,13 @@ class TestEnrichPhaseDefensiveLogic:
             return enriched, failed
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
-            patch("app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
         ):
             fresh_seeder.start(roots=("models",), phase=ScanPhase.ENRICH)
             fresh_seeder.wait(timeout=5.0)
@@ -843,13 +843,13 @@ class TestEnrichPhaseDefensiveLogic:
             return 0, [r.reference_id for r in rows]
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
-            patch("app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
         ):
             fresh_seeder.start(roots=("models",), phase=ScanPhase.ENRICH)
             fresh_seeder.wait(timeout=5.0)
@@ -883,13 +883,13 @@ class TestEnrichPhaseDefensiveLogic:
             return 1, []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", return_value=[]),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
-            patch("app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[]),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=fake_get_unenriched),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", side_effect=fake_enrich),
         ):
             fresh_seeder.start(roots=("models",), phase=ScanPhase.ENRICH)
             fresh_seeder.wait(timeout=5.0)

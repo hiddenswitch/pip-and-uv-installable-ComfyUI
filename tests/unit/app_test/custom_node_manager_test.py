@@ -37,7 +37,7 @@ async def test_get_workflow_templates(aiohttp_client, app, tmp_path):
     template_file.write_text("")
 
     with patch(
-        "folder_paths.folder_names_and_paths",
+        "comfy.cmd.folder_paths.folder_names_and_paths",
         {"custom_nodes": ([str(custom_nodes_dir)], None)},
     ):
         response = await client.get("/workflow_templates")
@@ -53,7 +53,7 @@ async def test_build_translations_empty_when_no_locales(custom_node_manager, tmp
     custom_nodes_dir = tmp_path / "custom_nodes"
     custom_nodes_dir.mkdir(parents=True)
 
-    with patch("folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
+    with patch("comfy.cmd.folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
         translations = custom_node_manager.build_translations()
         assert translations == {}
 
@@ -78,7 +78,7 @@ async def test_build_translations_loads_all_files(custom_node_manager, tmp_path)
     (locales_dir / "settings.json").write_text(json.dumps(settings))
 
     with patch(
-        "folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
+        "comfy.cmd.folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
     ):
         translations = custom_node_manager.build_translations()
 
@@ -106,7 +106,7 @@ async def test_build_translations_handles_invalid_json(custom_node_manager, tmp_
     (locales_dir / "nodeDefs.json").write_text("invalid json{")
 
     with patch(
-        "folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
+        "comfy.cmd.folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
     ):
         translations = custom_node_manager.build_translations()
 
@@ -135,7 +135,7 @@ async def test_build_translations_merges_multiple_extensions(
     ext2_main = {"description": "Extension 2", "shared": "Override"}
     (ext2_dir / "main.json").write_text(json.dumps(ext2_main))
 
-    with patch("folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
+    with patch("comfy.cmd.folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
         translations = custom_node_manager.build_translations()
 
         assert translations == {

@@ -94,9 +94,9 @@ def test_init_frontend_invalid_provider():
 @pytest.fixture
 def mock_os_functions():
     with (
-        patch("app.frontend_management.os.makedirs") as mock_makedirs,
-        patch("app.frontend_management.os.listdir") as mock_listdir,
-        patch("app.frontend_management.os.rmdir") as mock_rmdir,
+        patch("comfy.app.frontend_management.os.makedirs") as mock_makedirs,
+        patch("comfy.app.frontend_management.os.listdir") as mock_listdir,
+        patch("comfy.app.frontend_management.os.rmdir") as mock_rmdir,
     ):
         mock_listdir.return_value = []  # Simulate empty directory
         yield mock_makedirs, mock_listdir, mock_rmdir
@@ -104,7 +104,7 @@ def mock_os_functions():
 
 @pytest.fixture
 def mock_download():
-    with patch("app.frontend_management.download_release_asset_zip") as mock:
+    with patch("comfy.app.frontend_management.download_release_asset_zip") as mock:
         mock.side_effect = Exception("Download failed")  # Simulate download failure
         yield mock
 
@@ -147,7 +147,7 @@ def test_init_frontend_default_with_mocks():
 
     # Act
     with (
-        patch("app.frontend_management.check_frontend_version") as mock_check,
+        patch("comfy.app.frontend_management.check_frontend_version") as mock_check,
         patch.object(
             FrontendManager, "default_frontend_path", return_value="/mocked/path"
         ),
@@ -168,7 +168,7 @@ def test_init_frontend_fallback_on_error():
         patch.object(
             FrontendManager, "init_frontend_unsafe", side_effect=Exception("Test error")
         ),
-        patch("app.frontend_management.check_frontend_version") as mock_check,
+        patch("comfy.app.frontend_management.check_frontend_version") as mock_check,
         patch.object(
             FrontendManager, "default_frontend_path", return_value="/default/path"
         ),
@@ -268,7 +268,7 @@ def test_get_installed_templates_version():
     expected_version = "0.1.40"
 
     # Act
-    with patch("app.frontend_management.version", return_value=expected_version):
+    with patch("comfy.app.frontend_management.version", return_value=expected_version):
         version = FrontendManager.get_installed_templates_version()
 
     # Assert
@@ -277,7 +277,7 @@ def test_get_installed_templates_version():
 
 def test_get_installed_templates_version_not_installed():
     # Act
-    with patch("app.frontend_management.version", side_effect=Exception("Package not found")):
+    with patch("comfy.app.frontend_management.version", side_effect=Exception("Package not found")):
         version = FrontendManager.get_installed_templates_version()
 
     # Assert
