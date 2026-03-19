@@ -1,13 +1,11 @@
 from .main_pre import tracer
 
 import asyncio
-import contextvars
 import gc
 import logging
 import os
 import shutil
 import sys
-import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -332,10 +330,8 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         if distributed:
             logger.warning(
                 f"Distributed workers started in the default thread loop cannot notify clients of progress updates. Instead of comfyui or main.py, use comfyui-worker.")
-        # todo: this should really be using an executor instead of doing things this jankilicious way
-        ctx = contextvars.copy_context()
-        threading.Thread(target=lambda _q, _worker_thread_server: ctx.run(prompt_worker, _q, _worker_thread_server),
-                         daemon=True, args=(q, worker_thread_server,)).start()
+        from ..component_model.context_thread import ContextThread
+        ContextThread(target=prompt_worker, daemon=True, args=(q, worker_thread_server)).start()
 
     # server has been imported and things should be looking good
     initialize_event_tracking(loop)
