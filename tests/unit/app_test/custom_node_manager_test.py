@@ -1,7 +1,8 @@
 import pytest
 from aiohttp import web
-from unittest.mock import patch
 from comfy.app.custom_node_manager import CustomNodeManager
+from comfy.component_model.folder_path_types import FolderNames
+from comfy.execution_context import context_folder_names_and_paths
 import json
 
 pytestmark = (
@@ -9,24 +10,20 @@ pytestmark = (
 )  # This applies the asyncio mark to all test functions in the module
 
 
-@pytest.fixture
-def custom_node_manager():
-    return CustomNodeManager()
+def _make_app_with_manager(fn, extension_names=None):
+    """Create a CustomNodeManager and aiohttp app inside the given folder context."""
+    if extension_names is None:
+        extension_names = [("ComfyUI-TestExtension1", "ComfyUI-TestExtension1")]
+    with context_folder_names_and_paths(fn):
+        manager = CustomNodeManager()
+        app = web.Application()
+        routes = web.RouteTableDef()
+        manager.add_routes(routes, app, extension_names)
+        app.add_routes(routes)
+        return manager, app
 
 
-@pytest.fixture
-def app(custom_node_manager):
-    app = web.Application()
-    routes = web.RouteTableDef()
-    custom_node_manager.add_routes(
-        routes, app, [("ComfyUI-TestExtension1", "ComfyUI-TestExtension1")]
-    )
-    app.add_routes(routes)
-    return app
-
-
-async def test_get_workflow_templates(aiohttp_client, app, tmp_path):
-    client = await aiohttp_client(app)
+async def test_get_workflow_templates(aiohttp_client, tmp_path):
     # Setup temporary custom nodes file structure with 1 workflow file
     custom_nodes_dir = tmp_path / "custom_nodes"
     example_workflows_dir = (
@@ -36,10 +33,12 @@ async def test_get_workflow_templates(aiohttp_client, app, tmp_path):
     template_file = example_workflows_dir / "workflow1.json"
     template_file.write_text("")
 
-    with patch(
-        "comfy.cmd.folder_paths.folder_names_and_paths",
-        {"custom_nodes": ([str(custom_nodes_dir)], None)},
-    ):
+    fn = FolderNames()
+    fn["custom_nodes"] = ([str(custom_nodes_dir)], set())
+    manager, app = _make_app_with_manager(fn)
+    client = await aiohttp_client(app)
+
+    with context_folder_names_and_paths(fn):
         response = await client.get("/workflow_templates")
         assert response.status == 200
         workflows_dict = await response.json()
@@ -49,16 +48,19 @@ async def test_get_workflow_templates(aiohttp_client, app, tmp_path):
         assert workflows_dict["ComfyUI-TestExtension1"][0] == "workflow1"
 
 
-async def test_build_translations_empty_when_no_locales(custom_node_manager, tmp_path):
+async def test_build_translations_empty_when_no_locales(tmp_path):
     custom_nodes_dir = tmp_path / "custom_nodes"
     custom_nodes_dir.mkdir(parents=True)
 
-    with patch("comfy.cmd.folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
-        translations = custom_node_manager.build_translations()
+    fn = FolderNames()
+    fn["custom_nodes"] = ([str(custom_nodes_dir)], set())
+    with context_folder_names_and_paths(fn):
+        manager = CustomNodeManager()
+        translations = manager.build_translations()
         assert translations == {}
 
 
-async def test_build_translations_loads_all_files(custom_node_manager, tmp_path):
+async def test_build_translations_loads_all_files(tmp_path):
     # Setup test directory structure
     custom_nodes_dir = tmp_path / "custom_nodes" / "test-extension"
     locales_dir = custom_nodes_dir / "locales" / "en"
@@ -77,10 +79,11 @@ async def test_build_translations_loads_all_files(custom_node_manager, tmp_path)
     settings = {"setting1": "Setting 1"}
     (locales_dir / "settings.json").write_text(json.dumps(settings))
 
-    with patch(
-        "comfy.cmd.folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
-    ):
-        translations = custom_node_manager.build_translations()
+    fn = FolderNames()
+    fn["custom_nodes"] = ([str(tmp_path / "custom_nodes")], set())
+    with context_folder_names_and_paths(fn):
+        manager = CustomNodeManager()
+        translations = manager.build_translations()
 
         assert translations == {
             "en": {
@@ -92,7 +95,7 @@ async def test_build_translations_loads_all_files(custom_node_manager, tmp_path)
         }
 
 
-async def test_build_translations_handles_invalid_json(custom_node_manager, tmp_path):
+async def test_build_translations_handles_invalid_json(tmp_path):
     # Setup test directory structure
     custom_nodes_dir = tmp_path / "custom_nodes" / "test-extension"
     locales_dir = custom_nodes_dir / "locales" / "en"
@@ -105,10 +108,11 @@ async def test_build_translations_handles_invalid_json(custom_node_manager, tmp_
     # Create invalid JSON file
     (locales_dir / "nodeDefs.json").write_text("invalid json{")
 
-    with patch(
-        "comfy.cmd.folder_paths.get_folder_paths", return_value=[tmp_path / "custom_nodes"]
-    ):
-        translations = custom_node_manager.build_translations()
+    fn = FolderNames()
+    fn["custom_nodes"] = ([str(tmp_path / "custom_nodes")], set())
+    with context_folder_names_and_paths(fn):
+        manager = CustomNodeManager()
+        translations = manager.build_translations()
 
         assert translations == {
             "en": {
@@ -117,9 +121,7 @@ async def test_build_translations_handles_invalid_json(custom_node_manager, tmp_
         }
 
 
-async def test_build_translations_merges_multiple_extensions(
-    custom_node_manager, tmp_path
-):
+async def test_build_translations_merges_multiple_extensions(tmp_path):
     # Setup test directory structure for two extensions
     custom_nodes_dir = tmp_path / "custom_nodes"
     ext1_dir = custom_nodes_dir / "extension1" / "locales" / "en"
@@ -135,8 +137,11 @@ async def test_build_translations_merges_multiple_extensions(
     ext2_main = {"description": "Extension 2", "shared": "Override"}
     (ext2_dir / "main.json").write_text(json.dumps(ext2_main))
 
-    with patch("comfy.cmd.folder_paths.get_folder_paths", return_value=[str(custom_nodes_dir)]):
-        translations = custom_node_manager.build_translations()
+    fn = FolderNames()
+    fn["custom_nodes"] = ([str(custom_nodes_dir)], set())
+    with context_folder_names_and_paths(fn):
+        manager = CustomNodeManager()
+        translations = manager.build_translations()
 
         assert translations == {
             "en": {

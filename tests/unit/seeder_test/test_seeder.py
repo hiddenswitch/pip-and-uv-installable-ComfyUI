@@ -50,7 +50,7 @@ class TestSeederStateTransitions:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             started = fresh_seeder.start(roots=("models",))
             assert started is True
@@ -71,7 +71,7 @@ class TestSeederStateTransitions:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -93,7 +93,7 @@ class TestSeederStateTransitions:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -138,7 +138,7 @@ class TestSeederWait:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             completed = fresh_seeder.wait(timeout=0.1)
@@ -195,7 +195,7 @@ class TestSeederProgress:
             progress_updates.append(p)
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots",
+            "comfy.app.assets.seeder.collect_paths_for_roots",
             return_value=[f"/path/file{i}.safetensors" for i in range(10)],
         ):
             fresh_seeder.start(roots=("models",), progress_callback=callback)
@@ -244,7 +244,7 @@ class TestSeederCancellation:
             patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
             patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=paths),
             patch(
-                "app.assets.seeder.build_asset_specs", return_value=(specs, set(), 0)
+                "comfy.app.assets.seeder.build_asset_specs", return_value=(specs, set(), 0)
             ),
             patch("comfy.app.assets.seeder.insert_asset_specs", side_effect=slow_insert),
             patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
@@ -268,11 +268,11 @@ class TestSeederErrorHandling:
             patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
             patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
             patch(
-                "app.assets.seeder.collect_paths_for_roots",
+                "comfy.app.assets.seeder.collect_paths_for_roots",
                 return_value=["/path/file.safetensors"],
             ),
             patch(
-                "app.assets.seeder.build_asset_specs",
+                "comfy.app.assets.seeder.build_asset_specs",
                 return_value=(
                     [
                         {
@@ -292,7 +292,7 @@ class TestSeederErrorHandling:
                 ),
             ),
             patch(
-                "app.assets.seeder.insert_asset_specs",
+                "comfy.app.assets.seeder.insert_asset_specs",
                 side_effect=Exception("DB connection failed"),
             ),
             patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", return_value=[]),
@@ -320,7 +320,7 @@ class TestSeederErrorHandling:
         with (
             patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
             patch(
-                "app.assets.seeder.sync_root_safely",
+                "comfy.app.assets.seeder.sync_root_safely",
                 side_effect=RuntimeError("Unexpected crash"),
             ),
         ):
@@ -345,7 +345,7 @@ class TestSeederThreadSafety:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             results = []
 
@@ -374,7 +374,7 @@ class TestSeederThreadSafety:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -398,11 +398,11 @@ class TestSeederMarkMissing:
         with (
             patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
             patch(
-                "app.assets.seeder.get_all_known_prefixes",
+                "comfy.app.assets.seeder.get_all_known_prefixes",
                 return_value=["/models", "/input", "/output"],
             ),
             patch(
-                "app.assets.seeder.mark_missing_outside_prefixes_safely", return_value=5
+                "comfy.app.assets.seeder.mark_missing_outside_prefixes_safely", return_value=5
             ) as mock_mark,
         ):
             result = fresh_seeder.mark_missing_outside_prefixes()
@@ -421,7 +421,7 @@ class TestSeederMarkMissing:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -572,7 +572,7 @@ class TestSeederPauseResume:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -599,7 +599,7 @@ class TestSeederPauseResume:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -625,7 +625,7 @@ class TestSeederPauseResume:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -647,7 +647,7 @@ class TestSeederPauseResume:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached_checkpoint.wait(timeout=2.0)
@@ -677,7 +677,7 @@ class TestSeederStopRestart:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
@@ -704,7 +704,7 @@ class TestSeederStopRestart:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",))
             assert reached.wait(timeout=2.0)
