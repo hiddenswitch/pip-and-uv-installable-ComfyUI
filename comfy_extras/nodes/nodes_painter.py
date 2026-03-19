@@ -87,7 +87,7 @@ class PainterNode(io.ComfyNode):
             painter_img = painter_img.convert("RGBA")
 
             if painter_img.size != (w, h):
-                painter_img = painter_img.resize((w, h), Image.LANCZOS)
+                painter_img = painter_img.resize((w, h), Image.LANCZOS)  # pylint: disable=no-member
 
             painter_np = np.array(painter_img).astype(np.float32) / 255.0
             painter_rgb = painter_np[:, :, :3]
