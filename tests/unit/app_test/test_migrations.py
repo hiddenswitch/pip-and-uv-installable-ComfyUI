@@ -20,9 +20,9 @@ _BASELINE = "0002_merge_to_asset_references"
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../..")
-    config_path = os.path.abspath(os.path.join(root, "alembic.ini"))
-    scripts_path = os.path.abspath(os.path.join(root, "alembic_db"))
+    root = os.path.join(os.path.dirname(__file__), "../../..")
+    config_path = os.path.abspath(os.path.join(root, "comfy", "alembic.ini"))
+    scripts_path = os.path.abspath(os.path.join(root, "comfy", "alembic_db"))
 
     cfg = Config(config_path)
     cfg.set_main_option("script_location", scripts_path)
