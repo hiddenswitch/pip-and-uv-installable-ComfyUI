@@ -79,6 +79,7 @@ class CLIPTextEncode(ComfyNodeABC):
 
 
 class ConditioningCombine:
+    ESSENTIALS_CATEGORY = "Image Generation"
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"conditioning_1": ("CONDITIONING",), "conditioning_2": ("CONDITIONING",)}}
@@ -1032,7 +1033,7 @@ class UNETLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"unet_name": (get_filename_list_with_downloadable("diffusion_models", KNOWN_UNET_MODELS),),
-                             "weight_dtype": (FLUX_WEIGHT_DTYPES,)
+                             "weight_dtype": (FLUX_WEIGHT_DTYPES, {"advanced": True})
                              }}
 
     RETURN_TYPES = ("MODEL",)
@@ -1304,9 +1305,6 @@ class GLIGENTextBoxApply:
 
 
 class EmptyLatentImage:
-    def __init__(self):
-        self.device = model_management.intermediate_device()
-
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -1326,7 +1324,7 @@ class EmptyLatentImage:
     SEARCH_ALIASES = ["empty", "empty latent", "new latent", "create latent", "blank latent", "blank"]
 
     def generate(self, width, height, batch_size=1):
-        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
+        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype())
         return ({"samples": latent, "downscale_ratio_spacial": 8},)
 
 
@@ -1861,6 +1859,7 @@ class LoadImage:
         output_images = []
         output_masks = []
         w, h = None, None
+        dtype = comfy.model_management.intermediate_dtype()
 
         excluded_formats = ['MPO']
 
@@ -1897,8 +1896,8 @@ class LoadImage:
                     # unlike upstream, the mask is now the size of the original image, even when there was no alpha channel
                     # this is opaque
                     mask = torch.zeros((h, w), dtype=torch.float32, device="cpu")
-                output_images.append(image)
-                output_masks.append(mask.unsqueeze(0))
+                output_images.append(image.to(dtype=dtype))
+                output_masks.append(mask.unsqueeze(0).to(dtype=dtype))
 
                 if img.format == "MPO":
                     break  # ignore all frames except the first one for MPO format
@@ -1921,6 +1920,7 @@ class LoadImage:
 
 
 class LoadImageMask:
+    ESSENTIALS_CATEGORY = "Image Tools"
     SEARCH_ALIASES = ["import mask", "alpha mask", "channel mask"]
 
     _color_channels = ["alpha", "red", "green", "blue"]
@@ -2025,6 +2025,7 @@ class ImageScale:
 
 
 class ImageScaleBy:
+    ESSENTIALS_CATEGORY = "Image Tools"
     upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
 
     @classmethod

@@ -102,6 +102,9 @@ fpte_group.add_argument("--fp16-text-enc", action="store_true", help="Store text
 fpte_group.add_argument("--fp32-text-enc", action="store_true", help="Store text encoder weights in fp32.")
 fpte_group.add_argument("--bf16-text-enc", action="store_true", help="Store text encoder weights in bf16.")
 
+# todo: needs merge, new cli arg
+parser.add_argument("--fp16-intermediates", action="store_true", help="Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.")
+
 parser.add_argument("--directml", type=int, nargs="?", metavar="DIRECTML_DEVICE", const=-1, help="Use torch-directml.")
 parser.add_argument("--oneapi-device-selector", type=str, default=None, metavar="SELECTOR_STRING", help="Sets the oneAPI device(s).")
 parser.add_argument("--disable-ipex-optimize", action="store_true", help="Disables ipex.optimize.")
@@ -146,6 +149,7 @@ parser.add_argument("--reserve-vram", type=float, default=0, help="VRAM to reser
 parser.add_argument("--async-offload", nargs='?', const=2, type=int, default=None, metavar="NUM_STREAMS", help="Use async weight offloading.")
 parser.add_argument("--disable-async-offload", action="store_true", help="Disable async weight offloading.")
 parser.add_argument("--disable-dynamic-vram", action="store_true", help="Disable dynamic VRAM and use estimate based model loading.")
+parser.add_argument("--enable-dynamic-vram", action="store_true", help="Enable dynamic VRAM on systems where it's not enabled by default.")
 
 parser.add_argument("--force-non-blocking", action="store_true", help="Force non-blocking operations.")
 parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Hash function for comparisons.")
@@ -288,4 +292,6 @@ def dynamic_vram_supported() -> bool:
 
 
 def enables_dynamic_vram():
+    if args.enable_dynamic_vram:
+        return True
     return dynamic_vram_requested() and dynamic_vram_supported()

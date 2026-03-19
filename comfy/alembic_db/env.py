@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 
+# todo: is this really necessary?
 # Ensure src directory is in path for absolute imports
 src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
@@ -16,14 +17,7 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
-from comfy.app.database.models import Base
-from comfy.app.assets.database.models import (
-    Asset,
-    AssetReference,
-    AssetReferenceMeta,
-    AssetReferenceTag,
-    Tag,
-)
+from comfy.app.database.models import Base, NAMING_CONVENTION
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -66,7 +60,10 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            naming_convention=NAMING_CONVENTION,
         )
 
         with context.begin_transaction():

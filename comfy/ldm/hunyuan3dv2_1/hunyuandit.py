@@ -349,6 +349,7 @@ class CrossAttention(nn.Module):
             k.reshape(b, s2, self.num_heads * self.head_dim),
             v,
             heads=self.num_heads,
+            low_precision_attention=False,
         )
 
         out = self.out_proj(x)
@@ -419,6 +420,7 @@ class Attention(nn.Module):
             key.reshape(B, N, self.num_heads * self.head_dim),
             value,
             heads=self.num_heads,
+            low_precision_attention=False,
         )
 
         x = self.out_proj(x)

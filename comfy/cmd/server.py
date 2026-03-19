@@ -38,6 +38,8 @@ from .. import interruption, model_management
 from .. import node_helpers
 from .. import utils
 from ..api_server.routes.internal.internal_routes import InternalRoutes
+from ..app.assets.services.asset_management import resolve_hash_to_path
+from ..app.assets.services.ingest import register_file_in_place
 from ..app.custom_node_manager import CustomNodeManager
 from ..app.frontend_management import FrontendManager
 from ..app.model_manager import ModelFileManager
@@ -378,7 +380,7 @@ class PromptServer(ExecutorToClientProgress):
         @routes.get("/")
         async def get_root(request):
             response = web.FileResponse(os.path.join(self.web_root, "index.html"))
-            response.headers['Cache-Control'] = 'no-cache'
+            response.headers['Cache-Control'] = 'no-store, must-revalidate'
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
             return response
@@ -485,7 +487,21 @@ class PromptServer(ExecutorToClientProgress):
                         async with aiofiles.open(filepath, mode='wb') as file:
                             await file.write(image.file.read())
 
-                return web.json_response({"name": filename, "subfolder": subfolder, "type": image_upload_type})
+                resp = {"name": filename, "subfolder": subfolder, "type": image_upload_type}
+
+                if server_args.enable_assets:
+                    tag = image_upload_type if image_upload_type in ("input", "output") else "input"
+                    result = register_file_in_place(abs_path=filepath, name=filename, tags=[tag])
+                    resp["asset"] = {
+                        "id": result.ref.id,
+                        "name": result.ref.name,
+                        "asset_hash": result.asset.hash,
+                        "size": result.asset.size_bytes,
+                        "mime_type": result.asset.mime_type,
+                        "tags": result.tags,
+                    }
+
+                return web.json_response(resp)
             else:
                 return web.Response(status=400)
 
@@ -547,6 +563,7 @@ class PromptServer(ExecutorToClientProgress):
 
         @routes.get("/view")
         async def view_image(request):
+            resolved_content_type = None
             if "filename" in request.rel_url.query:
                 filename = request.rel_url.query["filename"]
                 # todo: do we ever need annotated filenames support on this?
@@ -554,17 +571,28 @@ class PromptServer(ExecutorToClientProgress):
                 if not filename:
                     return web.Response(status=400)
 
-                type = request.rel_url.query.get("type", "output")
-                subfolder = request.rel_url.query["subfolder"] if "subfolder" in request.rel_url.query else None
+                # The frontend's LoadImage combo widget uses asset_hash values
+                # (e.g. "blake3:...") as widget values. When litegraph renders the
+                # node preview, it constructs /view?filename=<asset_hash>, so this
+                # endpoint must resolve blake3 hashes to their on-disk file paths.
+                if filename.startswith("blake3:"):
+                    owner_id = self.user_manager.get_request_user_id(request)
+                    result = resolve_hash_to_path(filename, owner_id=owner_id)
+                    if result is None:
+                        return web.Response(status=404)
+                    file, filename, resolved_content_type = result.abs_path, result.download_name, result.content_type
+                else:
+                    type = request.rel_url.query.get("type", "output")
+                    subfolder = request.rel_url.query["subfolder"] if "subfolder" in request.rel_url.query else None
 
-                try:
-                    file = file_output_path(filename, type=type, subfolder=subfolder)
-                except FileNotFoundError:
-                    return web.Response(status=404)
-                except PermissionError:
-                    return web.Response(status=403)
-                except ValueError:
-                    return web.Response(status=400)
+                    try:
+                        file = file_output_path(filename, type=type, subfolder=subfolder)
+                    except FileNotFoundError:
+                        return web.Response(status=404)
+                    except PermissionError:
+                        return web.Response(status=403)
+                    except ValueError:
+                        return web.Response(status=400)
 
                 if os.path.isfile(file):
                     # todo: any image file we upload that browsers don't support, we should encode a preview
@@ -627,8 +655,13 @@ class PromptServer(ExecutorToClientProgress):
                             return web.Response(body=alpha_buffer.read(), content_type='image/png',
                                                 headers={"Content-Disposition": f"filename=\"{filename}\""})
                     else:
-                        # Get content type from mimetype, defaulting to 'application/octet-stream'
-                        content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+                        # Use the content type from asset resolution if available,
+                        # otherwise guess from the filename.
+                        content_type = (
+                            resolved_content_type
+                            or mimetypes.guess_type(filename)[0]
+                            or 'application/octet-stream'
+                        )
 
                         # For security, force certain mimetypes to download instead of display
                         if content_type in {'text/html', 'text/html-sandboxed', 'application/xhtml+xml', 'text/javascript', 'text/css'}:

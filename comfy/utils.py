@@ -19,18 +19,18 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import ctypes
 import itertools
 import json
 import logging
-import time
 import math
-import mmap
 import os
 import pickle
 import random
 import struct
 import sys
 import threading
+import time
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
@@ -43,8 +43,8 @@ import torch
 from PIL import Image
 from einops import rearrange
 from torch.nn.functional import interpolate
-from tqdm.auto import trange
 from tqdm import tqdm
+from tqdm.auto import trange
 from typing_extensions import TypedDict, NotRequired
 
 from comfy_execution.progress import get_progress_state
@@ -146,14 +146,17 @@ if hasattr(torch, "uint16"):
 
 
 def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
-    f = open(ckpt, "rb")
-    mapping = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-    mv = memoryview(mapping)
+    import comfy_aimdo.model_mmap
 
-    header_size = struct.unpack("<Q", mapping[:8])[0]
-    header = json.loads(mapping[8:8 + header_size].decode("utf-8"))
+    f = open(ckpt, "rb", buffering=0)
+    model_mmap = comfy_aimdo.model_mmap.ModelMMAP(ckpt)
+    file_size = os.path.getsize(ckpt)
+    mv = memoryview((ctypes.c_uint8 * file_size).from_address(model_mmap.get()))
 
-    mv = mv[8 + header_size:]
+    header_size = struct.unpack("<Q", mv[:8])[0]
+    header = json.loads(mv[8:8 + header_size].tobytes().decode("utf-8"))
+
+    mv = mv[(data_base_offset := 8 + header_size):]
 
     sd = {}
     for name, info in header.items():
@@ -167,7 +170,15 @@ def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
             with warnings.catch_warnings():
                 # We are working with read-only RAM by design
                 warnings.filterwarnings("ignore", message="The given buffer is not writable")
-                sd[name] = torch.frombuffer(mv[start:end], dtype=_TYPES[info["dtype"]]).view(info["shape"])
+                tensor = torch.frombuffer(mv[start:end], dtype=_TYPES[info["dtype"]]).view(info["shape"])
+                storage = tensor.untyped_storage()
+                setattr(storage,
+                        "_comfy_tensor_file_slice",
+                        # todo: needs merge, why are we using a thread identifier here?
+                        memory_management.TensorFileSlice(f, threading.get_ident(), data_base_offset + start, end - start))
+                setattr(storage, "_comfy_tensor_mmap_refs", (model_mmap, mv))
+                setattr(storage, "_comfy_tensor_mmap_touched", False)
+                sd[name] = tensor
 
     return sd, header.get("__metadata__", {}),
 
@@ -1018,6 +1029,10 @@ def set_attr(obj, attr, value):
 
 
 def set_attr_param(obj, attr, value):
+    # Clone inference tensors (created under torch.inference_mode) since
+    # their version counter is frozen and nn.Parameter() cannot wrap them.
+    if (not torch.is_inference_mode_enabled()) and value.is_inference():
+        value = value.clone()
     return set_attr(obj, attr, torch.nn.Parameter(value, requires_grad=False))
 
 

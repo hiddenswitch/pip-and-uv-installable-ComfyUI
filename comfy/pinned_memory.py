@@ -1,4 +1,6 @@
 import torch
+import comfy_aimdo.host_buffer
+import comfy_aimdo.torch
 
 from . import memory_management
 from . import model_management
@@ -12,18 +14,32 @@ def pin_memory(module):
         return
     #FIXME: This is a RAM cache trigger event
     size = memory_management.vram_aligned_size([ module.weight, module.bias ])
-    pin = torch.empty((size,), dtype=torch.uint8)
-    if model_management.pin_memory(pin):
-        module._pin = pin
-    else:
+
+    if model_management.MAX_PINNED_MEMORY <= 0 or (model_management.TOTAL_PINNED_MEMORY + size) > model_management.MAX_PINNED_MEMORY:
         module.pin_failed = True
         return False
+
+    try:
+        hostbuf = comfy_aimdo.host_buffer.HostBuffer(size)
+    except RuntimeError:
+        module.pin_failed = True
+        return False
+
+    module._pin = comfy_aimdo.torch.hostbuf_to_tensor(hostbuf)
+    module._pin_hostbuf = hostbuf
+    model_management.TOTAL_PINNED_MEMORY += size
     return True
 
 def unpin_memory(module):
     if get_pin(module) is None:
         return 0
     size = module._pin.numel() * module._pin.element_size()
-    model_management.unpin_memory(module._pin)
+
+    # todo: needs merge, this is per process or per machine or...? should this be migrated to the execution context?
+    model_management.TOTAL_PINNED_MEMORY -= size
+    if model_management.TOTAL_PINNED_MEMORY < 0:
+        model_management.TOTAL_PINNED_MEMORY = 0
+
     del module._pin
+    del module._pin_hostbuf
     return size

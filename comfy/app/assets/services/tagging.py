@@ -1,3 +1,5 @@
+from typing import Sequence
+
 from ..database.queries import (
     AddTagsResult,
     RemoveTagsResult,
@@ -6,6 +8,7 @@ from ..database.queries import (
     list_tags_with_usage,
     remove_tags_from_reference,
 )
+from ...assets.database.queries.tags import list_tag_counts_for_filtered_assets
 from .schemas import TagUsage
 from ...database.db import create_session
 
@@ -73,3 +76,23 @@ def list_tags(
         )
 
     return [TagUsage(name, tag_type, count) for name, tag_type, count in rows], total
+
+
+def list_tag_histogram(
+    owner_id: str = "",
+    include_tags: Sequence[str] | None = None,
+    exclude_tags: Sequence[str] | None = None,
+    name_contains: str | None = None,
+    metadata_filter: dict | None = None,
+    limit: int = 100,
+) -> dict[str, int]:
+    with create_session() as session:
+        return list_tag_counts_for_filtered_assets(
+            session,
+            owner_id=owner_id,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            name_contains=name_contains,
+            metadata_filter=metadata_filter,
+            limit=limit,
+        )

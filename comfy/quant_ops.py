@@ -65,6 +65,18 @@ except Exception as e:  # pylint: disable=broad-exception-caught
     def register_layout_op(*args, **kwargs):
         pass
 
+_CK_MXFP8_AVAILABLE = False
+if _CK_AVAILABLE:
+    try:
+        from comfy_kitchen.tensor import TensorCoreMXFP8Layout as _CKMxfp8Layout
+        _CK_MXFP8_AVAILABLE = True
+    except ImportError:
+        logging.warning("comfy_kitchen does not support MXFP8, please update comfy_kitchen.")
+
+if not _CK_MXFP8_AVAILABLE:
+    class _CKMxfp8Layout:
+        pass
+
 
 # ==============================================================================
 # FP8 Layouts with Comfy-Specific Extensions
@@ -102,6 +114,31 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
             qdata = ck.quantize_per_tensor_fp8(tensor, scale, cls.FP8_DTYPE)
 
         params = cls.Params(scale=scale.float(), orig_dtype=orig_dtype, orig_shape=orig_shape)
+        return qdata, params
+
+
+class TensorCoreMXFP8Layout(_CKMxfp8Layout):
+    @classmethod
+    def quantize(cls, tensor, scale=None, stochastic_rounding=0, inplace_ops=False):
+        if tensor.dim() != 2:
+            raise ValueError(f"MXFP8 requires 2D tensor, got {tensor.dim()}D")
+
+        orig_dtype = tensor.dtype
+        orig_shape = tuple(tensor.shape)
+
+        padded_shape = cls.get_padded_shape(orig_shape)
+        needs_padding = padded_shape != orig_shape
+
+        if stochastic_rounding > 0:
+            qdata, block_scale = comfy.float.stochastic_round_quantize_mxfp8_by_block(tensor, pad_32x=needs_padding, seed=stochastic_rounding)
+        else:
+            qdata, block_scale = ck.quantize_mxfp8(tensor, pad_32x=needs_padding)
+
+        params = cls.Params(
+            scale=block_scale,
+            orig_dtype=orig_dtype,
+            orig_shape=orig_shape,
+        )
         return qdata, params
 
 
@@ -180,6 +217,9 @@ register_layout_class("TensorCoreFP8Layout", TensorCoreFP8Layout)
 register_layout_class("TensorCoreFP8E4M3Layout", TensorCoreFP8E4M3Layout)
 register_layout_class("TensorCoreFP8E5M2Layout", TensorCoreFP8E5M2Layout)
 register_layout_class("TensorCoreNVFP4Layout", TensorCoreNVFP4Layout)
+# todo: needs merge, how does this change for torch 2.2.0 compatibility?
+if _CK_MXFP8_AVAILABLE:
+    register_layout_class("TensorCoreMXFP8Layout", TensorCoreMXFP8Layout)
 
 _LAYOUT_CLASS_FALLBACKS = {
     "TensorCoreFP8Layout": TensorCoreFP8Layout,
@@ -217,6 +257,17 @@ QUANT_ALGOS = {
         "group_size": 16,
     },
 }
+
+if _CK_MXFP8_AVAILABLE:
+    QUANT_ALGOS["mxfp8"] = {
+        "storage_t": torch.float8_e4m3fn,
+        "parameters": {"weight_scale", "input_scale"},
+        "comfy_tensor_layout": "TensorCoreMXFP8Layout",
+        "group_size": 32,
+    }
+else:
+    # todo: needs merge, stub for torch 2.2.0?
+    pass
 
 # ==============================================================================
 # Re-exports for backward compatibility
