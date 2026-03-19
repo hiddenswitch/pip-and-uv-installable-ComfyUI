@@ -356,6 +356,24 @@ Upstream may change error types, message formats, or validation behavior. When t
 2. **Check message content** - Error messages may be reworded
 3. **Verify behavior is correct** - Ensure the test is checking for the right behavior, then update assertions to match
 
+### Threading and contextvars
+
+This fork stores runtime state (folder paths, configuration, execution context) in `contextvars`. Plain `threading.Thread` does **not** propagate `contextvars` — child threads get an empty context, so values like `folder_names_and_paths` resolve to defaults instead of the configured paths.
+
+When upstream adds new `threading.Thread(...)` calls, replace them with `ContextThread` from `comfy/component_model/context_thread.py`:
+
+```python
+# Bad: thread gets empty context, folder_paths uses defaults
+import threading
+t = threading.Thread(target=self._run_scan, daemon=True)
+
+# Good: thread inherits the caller's context
+from comfy.component_model.context_thread import ContextThread
+t = ContextThread(target=self._run_scan, daemon=True)
+```
+
+`ContextThread` is a drop-in replacement — same API as `threading.Thread`, but it captures `contextvars.copy_context()` at creation time and runs the target inside that context.
+
 ### Mock Patching folder_paths
 
 Upstream tests often use `unittest.mock.patch` to override `folder_paths` attributes:

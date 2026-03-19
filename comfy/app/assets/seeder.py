@@ -1,6 +1,5 @@
 """Background asset seeder with thread management and cancellation support."""
 
-import contextvars
 import logging
 import os
 import threading
@@ -141,10 +140,9 @@ class _AssetSeeder:
             self._progress_callback = progress_callback
             self._cancel_event.clear()
             self._run_gate.set()  # Ensure unpaused when starting
-            ctx = contextvars.copy_context()
-            self._thread = threading.Thread(
-                target=ctx.run,
-                args=(self._run_scan,),
+            from ...component_model.context_thread import ContextThread
+            self._thread = ContextThread(
+                target=self._run_scan,
                 name="_AssetSeeder",
                 daemon=True,
             )
