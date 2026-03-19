@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from ..helpers import get_utc_now
-from app.database.models import Base
+from ...database.models import Base
 
 
 class Asset(Base):

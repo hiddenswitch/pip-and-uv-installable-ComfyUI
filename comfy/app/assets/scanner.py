@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Callable, Literal, TypedDict
 
-from comfy.cmd from ..
+from ...cmd import folder_paths
 from .database.queries import (
     add_missing_tag_for_asset_id,
     bulk_update_enrichment_level,

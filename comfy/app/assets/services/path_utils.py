@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Literal
 
-from comfy.cmd import folder_paths
+from ....cmd import folder_paths
 from ..helpers import normalize_tags
 
 
@@ -137,7 +139,7 @@ def get_asset_category_and_relative_path(
             if not _check_is_within(fp_abs, base_abs):
                 continue
             cand = (len(base_abs), bucket, _compute_relative(fp_abs, base_abs))
-            if best is None or cand[0] > best[0]:
+            if best is None or cand[0] > best[0]:  # pylint: disable=unsubscriptable-object
                 best = cand
 
     if best is not None:

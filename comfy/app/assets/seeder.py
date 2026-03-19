@@ -417,7 +417,7 @@ class _AssetSeeder:
     def _emit_event(self, event_type: str, data: dict) -> None:
         """Emit a WebSocket event if server is available."""
         try:
-            from server import PromptServer
+            from ...cmd.server import PromptServer
 
             if hasattr(PromptServer, "instance") and PromptServer.instance:
                 PromptServer.instance.send_sync(event_type, data)
@@ -471,7 +471,7 @@ class _AssetSeeder:
 
     def _log_scan_config(self, roots: tuple[RootType, ...]) -> None:
         """Log the directories that will be scanned."""
-        from comfy.cmd import folder_paths
+        from ...cmd import folder_paths
 
         for root in roots:
             if root == "models":

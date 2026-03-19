@@ -5,7 +5,7 @@ from typing import Callable
 
 from aiohttp import web
 
-from comfy.cmd import folder_paths
+from ....cmd import folder_paths
 from ..api.schemas_in import ParsedUpload, UploadError
 from ..helpers import validate_blake3_hash
 

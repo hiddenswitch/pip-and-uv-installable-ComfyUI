@@ -10,8 +10,8 @@ from typing import Any
 from aiohttp import web
 from pydantic import ValidationError
 
-from comfy.cmd import folder_paths
-from app import user_manager
+from ....cmd import folder_paths
+from ... import user_manager
 from ..api import schemas_in, schemas_out
 from ..services import schemas
 from ..api.schemas_in import (

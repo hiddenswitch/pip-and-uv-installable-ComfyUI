@@ -14,7 +14,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-from utils.mime_types import init_mime_types
+from ....mime_types import init_mime_types
 
 init_mime_types()
 
