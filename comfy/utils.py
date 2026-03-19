@@ -1313,7 +1313,7 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
             if pbar is not None:
                 pbar.update(1)
 
-         out .div_( out_div)
+        out.div_(out_div)
     return output
 
 
