@@ -6,8 +6,8 @@ from typing import Any, Sequence
 
 from sqlalchemy.orm import Session
 
-import app.assets.services.hashing as hashing
-from app.assets.database.queries import (
+from ...assets.services import hashing
+from ..database.queries import (
     add_tags_to_reference,
     fetch_reference_and_asset,
     get_asset_by_hash,
@@ -23,15 +23,15 @@ from app.assets.database.queries import (
     upsert_reference,
     validate_tags_exist,
 )
-from app.assets.helpers import normalize_tags
-from app.assets.services.file_utils import get_size_and_mtime_ns
-from app.assets.services.path_utils import (
+from ..helpers import normalize_tags
+from ..services.file_utils import get_size_and_mtime_ns
+from ..services.path_utils import (
     compute_relative_filename,
     get_name_and_tags_from_asset_path,
     resolve_destination_from_tags,
     validate_path_within_base,
 )
-from app.assets.services.schemas import (
+from ..services.schemas import (
     IngestResult,
     RegisterAssetResult,
     UploadResult,
@@ -39,7 +39,7 @@ from app.assets.services.schemas import (
     extract_asset_data,
     extract_reference_data,
 )
-from app.database.db import create_session
+from ...database.db import create_session
 
 
 def _ingest_file_from_path(

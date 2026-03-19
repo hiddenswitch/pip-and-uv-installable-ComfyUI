@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 from typing import Callable, Literal, TypedDict
 
-import folder_paths
-from app.assets.database.queries import (
+from comfy.cmd from ..
+from .database.queries import (
     add_missing_tag_for_asset_id,
     bulk_update_enrichment_level,
     bulk_update_is_missing,
@@ -21,24 +21,24 @@ from app.assets.database.queries import (
     set_reference_system_metadata,
     update_asset_hash_and_mime,
 )
-from app.assets.services.bulk_ingest import (
+from .services.bulk_ingest import (
     SeedAssetSpec,
     batch_insert_seed_assets,
 )
-from app.assets.services.file_utils import (
+from .services.file_utils import (
     get_mtime_ns,
     is_visible,
     list_files_recursively,
     verify_file_unchanged,
 )
-from app.assets.services.hashing import HashCheckpoint, compute_blake3_hash
-from app.assets.services.metadata_extract import extract_file_metadata
-from app.assets.services.path_utils import (
+from .services.hashing import HashCheckpoint, compute_blake3_hash
+from .services.metadata_extract import extract_file_metadata
+from .services.path_utils import (
     compute_relative_filename,
     get_comfy_models_folders,
     get_name_and_tags_from_asset_path,
 )
-from app.database.db import create_session
+from ..database.db import create_session
 
 
 class _RefInfo(TypedDict):

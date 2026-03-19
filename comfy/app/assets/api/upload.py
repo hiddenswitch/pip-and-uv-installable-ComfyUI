@@ -5,9 +5,9 @@ from typing import Callable
 
 from aiohttp import web
 
-import folder_paths
-from app.assets.api.schemas_in import ParsedUpload, UploadError
-from app.assets.helpers import validate_blake3_hash
+from comfy.cmd import folder_paths
+from ..api.schemas_in import ParsedUpload, UploadError
+from ..helpers import validate_blake3_hash
 
 
 def normalize_and_validate_hash(s: str) -> str:

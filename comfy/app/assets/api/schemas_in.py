@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from app.assets.helpers import validate_blake3_hash
+from ..helpers import validate_blake3_hash
 from pydantic import (
     BaseModel,
     ConfigDict,

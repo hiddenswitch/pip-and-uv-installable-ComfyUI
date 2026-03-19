@@ -1,4 +1,4 @@
-from app.assets.database.queries.asset import (
+from ...database.queries.asset import (
     asset_exists_by_hash,
     bulk_insert_assets,
     get_asset_by_hash,
@@ -7,7 +7,7 @@ from app.assets.database.queries.asset import (
     update_asset_hash_and_mime,
     upsert_asset,
 )
-from app.assets.database.queries.asset_reference import (
+from ...database.queries.asset_reference import (
     CacheStateRow,
     UnenrichedReferenceRow,
     bulk_insert_references_ignore_conflicts,
@@ -50,7 +50,7 @@ from app.assets.database.queries.asset_reference import (
     update_reference_updated_at,
     upsert_reference,
 )
-from app.assets.database.queries.tags import (
+from ...database.queries.tags import (
     AddTagsResult,
     RemoveTagsResult,
     SetTagsResult,

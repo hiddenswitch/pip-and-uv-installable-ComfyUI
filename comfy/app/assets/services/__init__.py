@@ -1,4 +1,4 @@
-from app.assets.services.asset_management import (
+from ..services.asset_management import (
     asset_exists,
     delete_asset_reference,
     get_asset_by_hash,
@@ -8,28 +8,28 @@ from app.assets.services.asset_management import (
     set_asset_preview,
     update_asset_metadata,
 )
-from app.assets.services.bulk_ingest import (
+from ..services.bulk_ingest import (
     BulkInsertResult,
     batch_insert_seed_assets,
     cleanup_unreferenced_assets,
 )
-from app.assets.services.file_utils import (
+from ..services.file_utils import (
     get_mtime_ns,
     get_size_and_mtime_ns,
     list_files_recursively,
     verify_file_unchanged,
 )
-from app.assets.services.ingest import (
+from ..services.ingest import (
     DependencyMissingError,
     HashMismatchError,
     create_from_hash,
     upload_from_temp_path,
 )
-from app.assets.database.queries import (
+from ..database.queries import (
     AddTagsResult,
     RemoveTagsResult,
 )
-from app.assets.services.schemas import (
+from ..services.schemas import (
     AssetData,
     AssetDetailResult,
     AssetSummaryData,
@@ -42,7 +42,7 @@ from app.assets.services.schemas import (
     UploadResult,
     UserMetadata,
 )
-from app.assets.services.tagging import (
+from ..services.tagging import (
     apply_tags,
     list_tags,
     remove_tags,

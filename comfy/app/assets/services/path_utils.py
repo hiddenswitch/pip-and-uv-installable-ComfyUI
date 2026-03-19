@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
-import folder_paths
-from app.assets.helpers import normalize_tags
+from comfy.cmd import folder_paths
+from ..helpers import normalize_tags
 
 
 _NON_MODEL_FOLDER_NAMES = frozenset({"custom_nodes"})

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
-from app.assets.scanner import (
+from .scanner import (
     ENRICHMENT_METADATA,
     ENRICHMENT_STUB,
     RootType,
@@ -22,7 +22,7 @@ from app.assets.scanner import (
     mark_missing_outside_prefixes_safely,
     sync_root_safely,
 )
-from app.database.db import dependencies_available
+from ..database.db import dependencies_available
 
 
 class ScanInProgressError(Exception):
@@ -471,7 +471,7 @@ class _AssetSeeder:
 
     def _log_scan_config(self, roots: tuple[RootType, ...]) -> None:
         """Log the directories that will be scanned."""
-        import folder_paths
+        from comfy.cmd import folder_paths
 
         for root in roots:
             if root == "models":
