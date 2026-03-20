@@ -337,13 +337,14 @@ class _AssetSeeder:
             )
 
     def shutdown(self, timeout: float = 5.0) -> None:
-        """Gracefully shutdown: cancel any running scan and wait for thread.
+        """Gracefully shutdown: cancel any running scan and wait for completion.
 
         Args:
-            timeout: Maximum seconds to wait for thread to exit
+            timeout: Maximum seconds to wait for scan to finish
         """
         self.cancel()
         self.wait(timeout=timeout)
+        self._executor.shutdown(wait=True, cancel_futures=True)
         with self._lock:
             self._future = None
 
