@@ -1,5 +1,6 @@
 """Background asset seeder with thread management and cancellation support."""
 
+import concurrent.futures
 import logging
 import os
 import threading
@@ -314,7 +315,7 @@ class _AssetSeeder:
         try:
             future.result(timeout=timeout)
             return True
-        except TimeoutError:
+        except (TimeoutError, concurrent.futures.TimeoutError):
             return False
         except Exception:
             return True  # scan finished (with error)
