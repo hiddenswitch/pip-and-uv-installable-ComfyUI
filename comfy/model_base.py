@@ -167,8 +167,8 @@ class BaseModel(torch.nn.Module):
             self.diffusion_model.eval()
             if model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
-                logging.debug("using channels last mode for diffusion model")
-            logging.info("model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype))
+                logger.debug("using channels last mode for diffusion model")
+            logger.info("model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype))
             model_management.archive_model_dtypes(self.diffusion_model)
         else:
             self.operations = None

@@ -18,6 +18,8 @@ This is useful for:
 import logging
 from typing import Optional, Union
 
+logger = logging.getLogger(__name__)
+
 import torch
 import torch.nn as nn
 
@@ -177,7 +179,7 @@ class BypassForwardHook:
     def inject(self):
         """Replace module forward with bypass version."""
         if self.original_forward is not None:
-            logging.debug(
+            logger.debug(
                 f"[BypassHook] Already injected for {type(self.module).__name__}"
             )
             return  # Already injected
@@ -200,7 +202,7 @@ class BypassForwardHook:
 
         self.original_forward = self.module.forward
         self.module.forward = self._bypass_forward
-        logging.debug(
+        logger.debug(
             f"[BypassHook] Injected bypass forward for {type(self.module).__name__} (adapter={type(self.adapter).__name__})"
         )
 
@@ -217,7 +219,7 @@ class BypassForwardHook:
         if isinstance(adapter, nn.Module):
             # In training mode we don't touch dtype as trainer will handle it
             adapter.to(device=device)
-            logging.debug(
+            logger.debug(
                 f"[BypassHook] Moved training adapter (nn.Module) to {device}"
             )
             return
@@ -246,17 +248,17 @@ class BypassForwardHook:
             else:
                 adapter.weights = weights.to(device=device)
 
-        logging.debug(f"[BypassHook] Moved adapter weights to {device}")
+        logger.debug(f"[BypassHook] Moved adapter weights to {device}")
 
     def eject(self):
         """Restore original module forward."""
         if self.original_forward is None:
-            logging.debug(f"[BypassHook] Not injected for {type(self.module).__name__}")
+            logger.debug(f"[BypassHook] Not injected for {type(self.module).__name__}")
             return  # Not injected
 
         self.module.forward = self.original_forward
         self.original_forward = None
-        logging.debug(
+        logger.debug(
             f"[BypassHook] Ejected bypass forward for {type(self.module).__name__}"
         )
 
@@ -301,12 +303,12 @@ class BypassInjectionManager:
         module_key = key
         if module_key.endswith(".weight"):
             module_key = module_key[:-7]
-            logging.debug(
+            logger.debug(
                 f"[BypassManager] Stripped .weight suffix: {key} -> {module_key}"
             )
 
         self.adapters[module_key] = (adapter, strength)
-        logging.debug(
+        logger.debug(
             f"[BypassManager] Added adapter: {module_key} (type={type(adapter).__name__}, strength={strength})"
         )
 
@@ -326,13 +328,13 @@ class BypassInjectionManager:
                     module = module[int(part)]
                 else:
                     module = getattr(module, part)
-            logging.debug(
+            logger.debug(
                 f"[BypassManager] Found module for key {key}: {type(module).__name__}"
             )
             return module
         except (AttributeError, IndexError, KeyError) as e:
-            logging.error(f"[BypassManager] Failed to find module for key {key}: {e}")
-            logging.error(
+            logger.error(f"[BypassManager] Failed to find module for key {key}: {e}")
+            logger.error(
                 f"[BypassManager] Failed at part index {i}, part={part}, current module type={type(module).__name__}"
             )
             return None
@@ -349,46 +351,46 @@ class BypassInjectionManager:
         """
         self.hooks.clear()
 
-        logging.debug(
+        logger.debug(
             f"[BypassManager] create_injections called with {len(self.adapters)} adapters"
         )
-        logging.debug(f"[BypassManager] Model type: {type(model).__name__}")
+        logger.debug(f"[BypassManager] Model type: {type(model).__name__}")
 
         for key, (adapter, strength) in self.adapters.items():
-            logging.debug(f"[BypassManager] Looking for module: {key}")
+            logger.debug(f"[BypassManager] Looking for module: {key}")
             module = self._get_module_by_key(model, key)
 
             if module is None:
-                logging.warning(f"[BypassManager] Module not found for key {key}")
+                logger.warning(f"[BypassManager] Module not found for key {key}")
                 continue
 
             if not hasattr(module, "weight"):
-                logging.warning(
+                logger.warning(
                     f"[BypassManager] Module {key} has no weight attribute (type={type(module).__name__})"
                 )
                 continue
 
-            logging.debug(
+            logger.debug(
                 f"[BypassManager] Creating hook for {key} (module type={type(module).__name__}, weight shape={module.weight.shape})"
             )
             hook = BypassForwardHook(module, adapter, multiplier=strength)
             self.hooks.append(hook)
 
-        logging.debug(f"[BypassManager] Created {len(self.hooks)} hooks")
+        logger.debug(f"[BypassManager] Created {len(self.hooks)} hooks")
 
         # Create single injection that manages all hooks
         def inject_all(model_patcher):
-            logging.debug(
+            logger.debug(
                 f"[BypassManager] inject_all called, injecting {len(self.hooks)} hooks"
             )
             for hook in self.hooks:
                 hook.inject()
-                logging.debug(
+                logger.debug(
                     f"[BypassManager] Injected hook for {type(hook.module).__name__}"
                 )
 
         def eject_all(model_patcher):
-            logging.debug(
+            logger.debug(
                 f"[BypassManager] eject_all called, ejecting {len(self.hooks)} hooks"
             )
             for hook in self.hooks:

@@ -103,7 +103,7 @@ class _AssetSeeder:
     def disable(self) -> None:
         """Disable the asset seeder, preventing any scans from starting."""
         self._disabled = True
-        logger.info("Asset seeder disabled")
+        logger.debug("Asset seeder disabled")
 
     def is_disabled(self) -> bool:
         """Check if the asset seeder is disabled."""

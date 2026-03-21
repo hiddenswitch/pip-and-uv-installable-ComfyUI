@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -28,6 +29,7 @@ from ..nodes.package import import_all_nodes_in_workspace
 from ..nodes_context import get_nodes
 
 logger = logging.getLogger(__name__)
+_shutdown_event = threading.Event()
 
 
 def cuda_malloc_warning():
@@ -103,10 +105,10 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
     need_gc = False
     gc_collect_interval = 10.0
     current_time = 0.0
-    while True:
-        timeout = 1000.0
+    while not _shutdown_event.is_set():
+        timeout = 1.0
         if need_gc:
-            timeout = max(gc_collect_interval - (current_time - last_gc_collect), 0.0)
+            timeout = max(min(gc_collect_interval - (current_time - last_gc_collect), 1.0), 0.0)
 
         queue_item = q.get(timeout=timeout)
         if queue_item is not None:
@@ -325,6 +327,7 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     setup_database()
 
     # in a distributed setting, the default prompt worker will not be able to send execution events via the websocket
+    _prompt_worker_executor = None
     worker_thread_server = server if not distributed else ServerStub()
     if not distributed or args.distributed_queue_worker:
         if distributed:
@@ -387,6 +390,9 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     except (asyncio.CancelledError, KeyboardInterrupt):
         logger.debug("Stopped server")
     finally:
+        _shutdown_event.set()
+        if _prompt_worker_executor is not None:
+            _prompt_worker_executor.shutdown(wait=True, cancel_futures=True)
         if distributed:
             await q.close()
 

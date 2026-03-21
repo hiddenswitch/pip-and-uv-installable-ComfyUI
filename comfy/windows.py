@@ -1,6 +1,8 @@
 import ctypes
 import logging
 import psutil
+
+logger = logging.getLogger(__name__)
 from ctypes import wintypes
 
 import comfy_aimdo.control
@@ -41,7 +43,7 @@ def get_free_ram():
     pi.cb = ctypes.sizeof(pi)
 
     if not psapi.GetPerformanceInfo(ctypes.byref(pi), pi.cb):
-        logging.warning("WARNING: Failed to query windows performance info. RAM usage may be sub optimal")
+        logger.warning("WARNING: Failed to query windows performance info. RAM usage may be sub optimal")
         return psutil.virtual_memory().available
 
     committed = pi.CommitTotal * pi.PageSize

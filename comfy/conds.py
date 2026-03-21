@@ -23,7 +23,7 @@ def is_equal(x, y):
         try:
             return x == y
         except Exception:
-            logging.warning("comparison issue with COND")
+            logger.warning("comparison issue with COND")
             return False
 
 

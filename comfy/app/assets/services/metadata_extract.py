@@ -14,6 +14,8 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 from ....mime_types import init_mime_types
 
 init_mime_types()
@@ -322,6 +324,6 @@ def extract_file_metadata(
             try:
                 _extract_safetensors_metadata(header, meta)
             except Exception as e:
-                logging.debug("Safetensors meta extract failed %s: %s", abs_path, e)
+                logger.debug("Safetensors meta extract failed %s: %s", abs_path, e)
 
     return meta

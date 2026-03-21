@@ -90,7 +90,8 @@ dependencies = [
     "spandrel>=0.3.4",
     # https://github.com/conda-forge/numba-feedstock/issues/158 until numba is released with support for a later version of numpy
     "numpy>=1.24.4,<2.3",
-    "soundfile",
+    "soundfile>=0.13 ; sys_platform != 'darwin'",
+    "soundfile>=0.12,<0.13 ; sys_platform == 'darwin'",
     "watchdog",
     "networkx>=2.6.3",
     "joblib",
@@ -135,6 +136,7 @@ dependencies = [
     "requests",
     "matrix-nio",
     "rich",
+    "fp8-mps-metal@https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git ; sys_platform == 'darwin'",
 ]
 
 [build-system]

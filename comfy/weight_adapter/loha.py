@@ -1,5 +1,7 @@
 import logging
 from functools import cache
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 import torch
@@ -11,7 +13,7 @@ from .base import WeightAdapterBase, WeightAdapterTrainBase, weight_decompose
 @cache
 def _warn_loha_bypass_inefficient():
     """One-time warning about LoHa bypass inefficiency."""
-    logging.warning(
+    logger.warning(
         "LoHa bypass mode is inefficient: full weight diff is computed each forward pass. "
         "Consider using LoRA or LoKr for training with bypass mode."
     )

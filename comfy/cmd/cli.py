@@ -13,8 +13,12 @@ import json
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# must be set before any transitive import of requests (e.g. via typer/click)
+warnings.filterwarnings("ignore", message=".*doesn't match a supported version")
 
 import click
 import typer

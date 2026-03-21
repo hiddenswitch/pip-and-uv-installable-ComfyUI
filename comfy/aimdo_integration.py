@@ -1,5 +1,7 @@
 import logging
 
+logger = logging.getLogger(__name__)
+
 from . import memory_management
 from . import model_management
 from . import model_patcher
@@ -10,7 +12,7 @@ import comfy_aimdo.torch
 from .cli_args import args, dynamic_vram_requested, dynamic_vram_supported, enables_dynamic_vram
 
 if dynamic_vram_requested() and not dynamic_vram_supported():
-    logging.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
+    logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
     memory_management.aimdo_allocator = None
 elif enables_dynamic_vram():
     if comfy_aimdo.control.init_device(model_management.get_torch_device().index):
@@ -27,7 +29,7 @@ elif enables_dynamic_vram():
 
         model_patcher.CoreModelPatcher = model_patcher.ModelPatcherDynamic
         memory_management.aimdo_allocator = comfy_aimdo.torch.get_torch_allocator()
-        logging.info("DynamicVRAM support detected and enabled")
+        logger.info("DynamicVRAM support detected and enabled")
     else:
-        logging.info("No working comfy-aimdo install detected. DynamicVRAM support disabled. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
+        logger.info("No working comfy-aimdo install detected. DynamicVRAM support disabled. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
         memory_management.aimdo_allocator = None

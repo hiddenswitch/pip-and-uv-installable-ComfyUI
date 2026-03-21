@@ -63,6 +63,6 @@ try:
         else:
             return q_apply_rope1(x, freqs_cis)
 except:
-    logging.warning("No comfy kitchen, using old apply_rope functions.")
+    logger.warning("No comfy kitchen, using old apply_rope functions.")
     apply_rope = _apply_rope
     apply_rope1 = _apply_rope1

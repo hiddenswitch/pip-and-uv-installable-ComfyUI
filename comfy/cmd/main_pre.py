@@ -12,7 +12,11 @@ import importlib.util
 import logging
 import os
 import shutil
+import sys
 import warnings
+
+# must be set before any transitive import of requests
+warnings.filterwarnings("ignore", message=".*doesn't match a supported version")
 
 from .. import options
 from ..app import logger
@@ -45,6 +49,7 @@ warnings.filterwarnings("ignore", message="Inheritance class _InstrumentedApplic
 warnings.filterwarnings("ignore", message="Please import `gaussian_filter` from the `scipy.ndimage` namespace; the `scipy.ndimage.filters` namespace is deprecated", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="The installed version of bitsandbytes was compiled without GPU support")
 warnings.filterwarnings("ignore", category=UserWarning, message="Unsupported Windows version .* ONNX Runtime supports Windows 10 and above, only.")
+
 log_msg_to_filter = "NOTE: Redirects are currently not supported in Windows or MacOs."
 logging.getLogger("torch.distributed.elastic.multiprocessing.redirects").addFilter(
     lambda record: log_msg_to_filter not in record.getMessage()
