@@ -483,6 +483,10 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Lightricks/LTX-Video", "ltx-video-2b-v0.9.1.safetensors"),
     HuggingFile("Lightricks/LTX-2", "ltx-2-19b-dev-fp8.safetensors"),
     HuggingFile("Lightricks/LTX-2", "ltx-2-19b-dev.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3-fp8", "ltx-2.3-22b-dev-fp8.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3-fp8", "ltx-2.3-22b-distilled-fp8.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-22b-dev.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-22b-distilled.safetensors"),
     HuggingFile("Comfy-Org/Lumina_Image_2.0_Repackaged", "all_in_one/lumina_2.safetensors"),
     HuggingFile("Comfy-Org/flux1-schnell", "flux1-schnell-fp8.safetensors"),
     HuggingFile("Comfy-Org/flux1-dev", "flux1-dev-fp8.safetensors"),
@@ -527,6 +531,10 @@ KNOWN_UPSCALERS: Final[KnownDownloadables] = KnownDownloadables([
 
 KNOWN_LATENT_UPSCALE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Lightricks/LTX-2", "ltx-2-spatial-upscaler-x2-1.0.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-spatial-upscaler-x2-1.0.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-temporal-upscaler-x2-1.0.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_1.5_repackaged", "split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_1080p.safetensors"),
 ], folder_name="latent_upscale_models")
 
@@ -569,6 +577,7 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0.safetensors"),
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors", show_in_ui=False),
     HuggingFile("Lightricks/LTX-2", "ltx-2-19b-distilled-lora-384.safetensors"),
+    HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-22b-distilled-lora-384.safetensors"),
     HuggingFile("Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left", "ltx-2-19b-lora-camera-control-dolly-left.safetensors"),
     HuggingFile("Comfy-Org/flux2-dev", "split_files/loras/Flux2TurboComfyv2.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/loras/Qwen-Edit-2509-Multiple-angles.safetensors"),
