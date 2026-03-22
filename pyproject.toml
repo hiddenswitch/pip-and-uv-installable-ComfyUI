@@ -136,7 +136,6 @@ dependencies = [
     "requests",
     "matrix-nio",
     "rich",
-    "fp8-mps-metal@https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git ; sys_platform == 'darwin'",
 ]
 
 [build-system]

@@ -210,6 +210,16 @@ uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch
 uv run --no-sync comfyui
 ```
 
+#### FP8 Support on MPS
+
+Apple Silicon does not natively support FP8 tensor operations. To run FP8-quantized models (e.g., `ltx-2.3-22b-dev-fp8.safetensors`), install the MPS FP8 package:
+
+```shell
+uv pip install "fp8-mps-metal@git+https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git"
+```
+
+This provides software emulation of FP8 compute on MPS via Metal kernels.
+
 ### Running Again Later
 
 To start ComfyUI again after closing your terminal, `cd` into your workspace and run:
