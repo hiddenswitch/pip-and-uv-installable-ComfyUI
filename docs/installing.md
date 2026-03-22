@@ -212,13 +212,7 @@ uv run --no-sync comfyui
 
 #### FP8 Support on MPS
 
-Apple Silicon does not natively support FP8 tensor operations. To run FP8-quantized models (e.g., `ltx-2.3-22b-dev-fp8.safetensors`), install the MPS FP8 package:
-
-```shell
-uv pip install "fp8-mps-metal@git+https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git"
-```
-
-This provides software emulation of FP8 compute on MPS via Metal kernels.
+Apple Silicon does not natively support FP8 tensor operations. The `fp4-fp8-for-torch-mps` package is installed automatically and provides software emulation of FP8 compute on MPS via Metal kernels, enabling FP8-quantized models (e.g., `ltx-2.3-22b-dev-fp8.safetensors`) to run on macOS.
 
 ### Running Again Later
 

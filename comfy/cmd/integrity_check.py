@@ -251,12 +251,12 @@ def _check_xformers() -> _CheckResult:
 
 def _check_fp8_mps() -> _CheckResult:
     if sys.platform != "darwin":
-        return ("fp8-mps-metal", None, "not macOS")
-    if _pkg_version("fp8-mps-metal") == "(not installed)":
-        return ("fp8-mps-metal", False,
+        return ("fp4-fp8-for-torch-mps", None, "not macOS")
+    if _pkg_version("fp4-fp8-for-torch-mps") == "(not installed)":
+        return ("fp4-fp8-for-torch-mps", False,
                 "not installed — required for FP8 models on Apple Silicon. "
-                "Install with: uv pip install \"fp8-mps-metal@git+https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git\"")
-    return ("fp8-mps-metal", True, f"fp8-mps-metal {_pkg_version('fp8-mps-metal')}")
+                "Install with: uv pip install fp4-fp8-for-torch-mps")
+    return ("fp4-fp8-for-torch-mps", True, f"fp4-fp8-for-torch-mps {_pkg_version('fp4-fp8-for-torch-mps')}")
 
 
 def _section_package_versions(console: Console):

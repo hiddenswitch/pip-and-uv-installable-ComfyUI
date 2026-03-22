@@ -136,6 +136,7 @@ dependencies = [
     "requests",
     "matrix-nio",
     "rich",
+    "fp4-fp8-for-torch-mps ; sys_platform == 'darwin'",
 ]
 
 [build-system]
