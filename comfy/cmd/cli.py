@@ -695,6 +695,24 @@ def snapshot_pip_registry(**kwargs):
     run_snapshot_pip_registry(config)
 
 
+@app.command(name="workflow-deps")
+def workflow_deps(
+    workflow_file: str = typer.Argument(..., help="Path to a workflow JSON file (UI or API format)."),
+    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
+):
+    """List custom node packages required by a workflow."""
+    from ..component_model.workflow_dependencies import resolve_workflow_packages
+
+    path = Path(workflow_file)
+    if not path.exists():
+        typer.echo(f"File not found: {path}", err=True)
+        raise typer.Exit(1)
+    workflow = json.loads(path.read_text(encoding="utf-8"))
+    packages = resolve_workflow_packages(workflow, snapshot_uri=snapshot_uri)
+    for pkg in packages:
+        typer.echo(pkg)
+
+
 @app.command(name="stop")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),

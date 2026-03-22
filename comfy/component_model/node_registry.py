@@ -18,6 +18,10 @@ class CustomNodeSpec:
     depends_on: tuple[str, ...] = ()
     xfail: bool = False
     xfail_reason: str = ""
+    inject_version: Optional[str] = None
+    """When set, the facade serves this version from the GitHub archive even
+    when the Comfy Node Registry has no published versions.  The download URL
+    is derived from *repo_url* and *git_ref* (defaulting to the repo's HEAD)."""
 
 
 DEFAULT_SKIP: frozenset[str] = frozenset({
@@ -116,6 +120,7 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         node_id="ComfyMath",
         repo_url="https://github.com/evanspearman/ComfyMath",
         display_name="ComfyMath",
+        inject_version="0.1.0",
     ),
     CustomNodeSpec(
         node_id="ComfyUI_essentials",
@@ -154,6 +159,7 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         node_id="RES4LYF",
         repo_url="https://github.com/ClownsharkBatwing/RES4LYF",
         display_name="RES4LYF",
+        inject_version="0.1.0",
     ),
     CustomNodeSpec(
         node_id="Comfyui-Resolution-Master",
@@ -213,6 +219,7 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         display_name="ComfyUI-NormalCrafterWrapper",
         priority="Mid",
         depends_on=("ComfyUI-VideoHelperSuite",),
+        inject_version="0.1.0",
     ),
     CustomNodeSpec(
         node_id="ComfyUI-FlashVSR_Ultra_Fast",
@@ -226,6 +233,7 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         repo_url="https://github.com/kijai/ComfyUI-Lotus",
         display_name="ComfyUI-Lotus",
         priority="Mid",
+        inject_version="0.1.0",
     ),
     CustomNodeSpec(
         node_id="Bjornulf_custom_nodes",

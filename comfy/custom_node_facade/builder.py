@@ -46,6 +46,29 @@ def _sha256_digest(data: bytes) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+def _strip_url_dependency(requirement: str) -> str:
+    """Rewrite URL dependencies to plain package names.
+
+    ``sam2 @ git+https://github.com/facebookresearch/sam2`` becomes ``sam2``
+    so that the dependency resolves from a package index instead.
+    """
+    from packaging.requirements import Requirement, InvalidRequirement
+    try:
+        parsed = Requirement(requirement)
+    except InvalidRequirement:
+        return requirement
+    if parsed.url is None:
+        return requirement
+    parts = [parsed.name]
+    if parsed.extras:
+        parts.append("[" + ",".join(sorted(parsed.extras)) + "]")
+    if parsed.specifier:
+        parts.append(str(parsed.specifier))
+    if parsed.marker:
+        parts.append("; " + str(parsed.marker))
+    return "".join(parts)
+
+
 def _parse_requirement_name(requirement: str) -> str:
     token = requirement.split(";", 1)[0].strip()
     if " @ " in token:
@@ -271,6 +294,7 @@ class FacadeWheelBuilder:
             stripped = dependency.strip()
             if not stripped:
                 continue
+            stripped = _strip_url_dependency(stripped)
             dep_name = _parse_requirement_name(stripped)
             if dep_name in skipped or dep_name == canonicalize_project_name(project.canonical_name):
                 continue

@@ -415,17 +415,18 @@ class FacadeRegistry:
 
         for spec in CUSTOM_NODE_REGISTRY:
             cnr = repo_to_cnr.get(normalize_repo_url(spec.repo_url))
-            if cnr is None:
-                continue
-            item = {
-                "title": spec.display_name,
-                "reference": spec.repo_url,
-                "description": "",
-            }
-            project = self._build_project(item, cnr, spec.repo_url)
-            if project is None:
-                continue
-            projects_by_name.setdefault(project.canonical_name, project)
+            if cnr is not None:
+                item = {
+                    "title": spec.display_name,
+                    "reference": spec.repo_url,
+                    "description": "",
+                }
+                project = self._build_project(item, cnr, spec.repo_url)
+                if project is not None:
+                    projects_by_name.setdefault(project.canonical_name, project)
+            elif spec.inject_version is not None:
+                project = self._build_injected_project(spec)
+                projects_by_name.setdefault(project.canonical_name, project)
 
         projects = sorted(projects_by_name.values(), key=lambda project: project.canonical_name)
         self._alias_cache = {}
@@ -516,6 +517,45 @@ class FacadeRegistry:
             skip_requirements=frozenset(skip_requirements),
             depends_on=depends_on,
             latest_version=latest_version,
+        )
+
+    @staticmethod
+    def _github_archive_url(repo_url: str, ref: str = "main") -> str:
+        url = repo_url.rstrip("/")
+        if url.endswith(".git"):
+            url = url[:-4]
+        return f"{url}/archive/refs/heads/{ref}.zip"
+
+    def _build_injected_project(self, spec: CustomNodeSpec) -> FacadeProject:
+        """Create a FacadeProject for a spec that has no CNR entry."""
+        repo_name = repo_basename(spec.repo_url)
+        canonical_name = canonicalize_project_name(spec.node_id)
+        aliases = {canonical_name, canonicalize_project_name(repo_name)}
+
+        skip_requirements = set(CustomNodeManager.DEFAULT_SKIP)
+        skip_requirements.update(spec.skip_requirements)
+
+        download_url = self._github_archive_url(spec.repo_url, spec.git_ref or "main")
+        version = FacadeVersion(
+            version=spec.inject_version,
+            download_url=download_url,
+            dependencies=tuple(spec.extra_requirements),
+            deprecated=False,
+        )
+        self._versions_cache[spec.node_id] = [version]
+
+        return FacadeProject(
+            canonical_name=canonical_name,
+            display_name=spec.display_name,
+            node_id=spec.node_id,
+            repo_url=spec.repo_url,
+            repo_name=repo_name,
+            description=f"{spec.display_name} (injected)",
+            aliases=tuple(sorted(aliases)),
+            extra_requirements=tuple(spec.extra_requirements),
+            skip_requirements=frozenset(skip_requirements),
+            depends_on=spec.depends_on,
+            latest_version=spec.inject_version,
         )
 
     def _runtime_dependencies(

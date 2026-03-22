@@ -21,6 +21,90 @@ def _make_zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+from comfy.custom_node_facade.builder import _strip_url_dependency
+
+
+def test_strip_url_dependency_rewrites_sam2():
+    assert _strip_url_dependency("sam2 @ git+https://github.com/facebookresearch/sam2") == "sam2"
+
+
+def test_strip_url_dependency_preserves_plain_requirement():
+    assert _strip_url_dependency("requests>=2.28") == "requests>=2.28"
+
+
+def test_strip_url_dependency_preserves_extras_and_markers():
+    result = _strip_url_dependency("pkg[extra1] @ https://example.com/pkg.tar.gz ; python_version >= '3.10'")
+    assert result == 'pkg[extra1]; python_version >= "3.10"'
+
+
+def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):
+    project = FacadeProject(
+        canonical_name="comfyui-impact-pack",
+        display_name="ComfyUI-Impact-Pack",
+        node_id="comfyui-impact-pack",
+        repo_url="https://github.com/ltdrdata/ComfyUI-Impact-Pack",
+        repo_name="ComfyUI-Impact-Pack",
+        description="Impact pack",
+        aliases=(),
+        extra_requirements=(),
+        skip_requirements=frozenset({"torch", "comfyui"}),
+        depends_on=(),
+        latest_version="8.28.2",
+    )
+    version = FacadeVersion(
+        version="8.28.2",
+        download_url="https://example.invalid/node.zip",
+        dependencies=(
+            "segment-anything>=1.0",
+            "sam2 @ git+https://github.com/facebookresearch/sam2",
+            "ultralytics>=8.0",
+        ),
+        deprecated=False,
+    )
+    archive_bytes = _make_zip_bytes(
+        {"ComfyUI-Impact-Pack/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"}
+    )
+
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    wheel_path = str(tmp_path / "comfyui-impact-pack" / "comfyui_impact_pack-8.28.2-py3-none-any.whl")
+
+    builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        metadata = wheel.read("comfyui_impact_pack-8.28.2.dist-info/METADATA").decode("utf-8")
+        assert "Requires-Dist: sam2" in metadata
+        assert "git+https" not in metadata
+        assert "Requires-Dist: segment-anything>=1.0" in metadata
+        assert "Requires-Dist: ultralytics>=8.0" in metadata
+
+
+def test_injected_project_has_github_archive_version():
+    from comfy.custom_node_facade.registry import FacadeRegistry
+    from comfy.component_model.node_registry import CustomNodeSpec
+
+    spec = CustomNodeSpec(
+        node_id="test-injected-node",
+        repo_url="https://github.com/TestOrg/TestRepo",
+        display_name="Test Injected Node",
+        inject_version="0.1.0",
+        git_ref="main",
+    )
+    registry = FacadeRegistry.__new__(FacadeRegistry)
+    registry._versions_cache = {}
+    registry._overlay_index = None
+
+    project = registry._build_injected_project(spec)
+
+    assert project.canonical_name == "test-injected-node"
+    assert project.latest_version == "0.1.0"
+    assert project.repo_url == "https://github.com/TestOrg/TestRepo"
+
+    versions = registry._versions_cache["test-injected-node"]
+    assert len(versions) == 1
+    assert versions[0].version == "0.1.0"
+    assert versions[0].download_url == "https://github.com/TestOrg/TestRepo/archive/refs/heads/main.zip"
+
+
 def test_extract_vanilla_custom_node_roots(tmp_path: Path):
     root_a = tmp_path / "a"
     root_b = tmp_path / "b"
