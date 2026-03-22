@@ -178,6 +178,9 @@ def _run_compatibility_checks() -> list[_CheckResult]:
     checks.append(_check_sageattention())
     checks.append(_check_xformers())
 
+    # macOS-specific checks
+    checks.append(_check_fp8_mps())
+
     return checks
 
 
@@ -244,6 +247,16 @@ def _check_xformers() -> _CheckResult:
         return ("xformers runtime", True, f"xformers {_pkg_version('xformers')} kernel executed")
     except Exception as exc:
         return ("xformers runtime", False, str(exc))
+
+
+def _check_fp8_mps() -> _CheckResult:
+    if sys.platform != "darwin":
+        return ("fp8-mps-metal", None, "not macOS")
+    if _pkg_version("fp8-mps-metal") == "(not installed)":
+        return ("fp8-mps-metal", False,
+                "not installed — required for FP8 models on Apple Silicon. "
+                "Install with: uv pip install \"fp8-mps-metal@git+https://github.com/AppMana/mps-fp8-for-torch-and-comfyui-python-package.git\"")
+    return ("fp8-mps-metal", True, f"fp8-mps-metal {_pkg_version('fp8-mps-metal')}")
 
 
 def _section_package_versions(console: Console):
