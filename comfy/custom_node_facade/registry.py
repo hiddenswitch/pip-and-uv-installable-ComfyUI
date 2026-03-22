@@ -424,6 +424,8 @@ class FacadeRegistry:
                 project = self._build_project(item, cnr, spec.repo_url)
                 if project is not None:
                     projects_by_name.setdefault(project.canonical_name, project)
+                    if spec.inject_version is not None:
+                        self._seed_injected_version(spec, cnr["id"])
             elif spec.inject_version is not None:
                 project = self._build_injected_project(spec)
                 projects_by_name.setdefault(project.canonical_name, project)
@@ -518,6 +520,22 @@ class FacadeRegistry:
             depends_on=depends_on,
             latest_version=latest_version,
         )
+
+    def _seed_injected_version(self, spec: CustomNodeSpec, node_id: str) -> None:
+        """Pre-populate the versions cache so the CNR fetch is skipped.
+
+        Called when the CNR has an entry for the project but no published
+        versions.  ``list_versions`` checks the cache first, so pre-seeding
+        prevents a redundant (and empty) API call.
+        """
+        download_url = self._github_archive_url(spec.repo_url, spec.git_ref or "main")
+        version = FacadeVersion(
+            version=spec.inject_version,
+            download_url=download_url,
+            dependencies=tuple(spec.extra_requirements),
+            deprecated=False,
+        )
+        self._versions_cache.setdefault(node_id, [version])
 
     @staticmethod
     def _github_archive_url(repo_url: str, ref: str = "main") -> str:

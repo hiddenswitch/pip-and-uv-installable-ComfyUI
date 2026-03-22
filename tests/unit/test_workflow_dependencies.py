@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from comfy.component_model.workflow_dependencies import (
     VIRTUAL_NODE_TYPES,
     extract_class_types_from_workflow,
@@ -66,3 +70,34 @@ def test_resolve_with_custom_nodes():
     packages = resolve_workflow_packages(workflow, builtin_class_types=builtin)
     assert "comfyui-videohelpersuite" in packages
     assert len(packages) >= 1
+
+
+def _res4lyf_installed() -> bool:
+    try:
+        import importlib.metadata
+        importlib.metadata.distribution("res4lyf")
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not _res4lyf_installed(), reason="res4lyf not installed")
+def test_res4lyf_workflow_converts():
+    """Verify a RES4LYF example workflow converts when the package is installed via serve-pip."""
+    import importlib.metadata
+    from comfy.nodes.package import import_all_nodes_in_workspace
+    from comfy.execution_context import context_add_custom_nodes
+    from comfy.component_model.workflow_convert import convert_ui_to_api
+
+    dist = importlib.metadata.distribution("res4lyf")
+    workflow_path = dist._path.parent / "_appmana_facade_res4lyf/_vendor/RES4LYF/example_workflows/chroma txt2img.json"
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+
+    nodes = import_all_nodes_in_workspace()
+    with context_add_custom_nodes(nodes):
+        result = convert_ui_to_api(workflow)
+
+    assert isinstance(result, dict)
+    assert len(result) > 0
+    class_types = {v["class_type"] for v in result.values() if isinstance(v, dict)}
+    assert "ClownsharKSampler_Beta" in class_types or "ClownModelLoader" in class_types
