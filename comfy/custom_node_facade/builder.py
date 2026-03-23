@@ -24,10 +24,15 @@ from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, cano
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
 _FACADE_ALWAYS_SKIPPED_DEPENDENCIES = frozenset({
-    "numpy",
     "opencv-contrib-python",
-    "opencv-contrib-python-headless",
     "opencv-python",
+})
+
+_FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
+    "jax",
+    "jaxlib",
+    "numpy",
+    "opencv-contrib-python-headless",
     "opencv-python-headless",
 })
 
@@ -294,6 +299,8 @@ class FacadeWheelBuilder:
             dep_name = _parse_requirement_name(stripped)
             if dep_name in skipped or dep_name == canonicalize_project_name(project.canonical_name):
                 continue
+            if dep_name in _FACADE_STRIP_VERSION_DEPENDENCIES:
+                stripped = dep_name
             if stripped in seen:
                 continue
             seen.add(stripped)

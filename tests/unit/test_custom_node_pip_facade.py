@@ -78,6 +78,49 @@ def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):
         assert "Requires-Dist: ultralytics>=8.0" in metadata
 
 
+def test_version_constraints_stripped_from_pinned_dependencies(tmp_path: Path):
+    project = FacadeProject(
+        canonical_name="test-node",
+        display_name="Test",
+        node_id="test-node",
+        repo_url="https://github.com/test/test",
+        repo_name="test",
+        description="",
+        aliases=(),
+        extra_requirements=(),
+        skip_requirements=frozenset({"torch"}),
+        depends_on=(),
+        latest_version="1.0.0",
+    )
+    version = FacadeVersion(
+        version="1.0.0",
+        download_url="https://example.invalid/node.zip",
+        dependencies=(
+            "numpy<2",
+            "jax>=0.4,<0.8",
+            "jaxlib>=0.4,<0.8",
+            "opencv-python-headless==4.7.0.72",
+            "scipy>=1.0",
+        ),
+        deprecated=False,
+    )
+    archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    wheel_path = str(tmp_path / "test-node" / "test_node-1.0.0-py3-none-any.whl")
+    builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        metadata = wheel.read("test_node-1.0.0.dist-info/METADATA").decode("utf-8")
+        assert "Requires-Dist: numpy\n" in metadata
+        assert "numpy<" not in metadata
+        assert "Requires-Dist: jax\n" in metadata
+        assert "jax>" not in metadata
+        assert "Requires-Dist: jaxlib\n" in metadata
+        assert "Requires-Dist: opencv-python-headless\n" in metadata
+        assert "opencv-python-headless==" not in metadata
+        assert "Requires-Dist: scipy>=1.0" in metadata
+
+
 def test_injected_project_has_github_archive_version():
     from comfy.custom_node_facade.registry import FacadeRegistry
     from comfy.component_model.node_registry import CustomNodeSpec
@@ -183,7 +226,9 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
         assert "Requires-Dist: comfyui-kjnodes" in metadata
         assert "Requires-Dist: torch" not in metadata
         assert "Requires-Dist: numpy<2" not in metadata
+        assert "Requires-Dist: numpy\n" in metadata
         assert "Requires-Dist: opencv-python-headless==4.7.0.72" not in metadata
+        assert "Requires-Dist: opencv-python-headless\n" in metadata
 
         entry_points = wheel.read(entry_points_name).decode("utf-8")
         assert "[comfyui.custom_nodes]" in entry_points
