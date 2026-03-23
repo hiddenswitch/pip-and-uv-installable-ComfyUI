@@ -522,12 +522,6 @@ class FacadeRegistry:
         )
 
     def _seed_injected_version(self, spec: CustomNodeSpec, node_id: str) -> None:
-        """Pre-populate the versions cache so the CNR fetch is skipped.
-
-        Called when the CNR has an entry for the project but no published
-        versions.  ``list_versions`` checks the cache first, so pre-seeding
-        prevents a redundant (and empty) API call.
-        """
         download_url = self._github_archive_url(spec.repo_url, spec.git_ref or "main")
         version = FacadeVersion(
             version=spec.inject_version,

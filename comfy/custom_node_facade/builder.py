@@ -47,11 +47,7 @@ def _sha256_digest(data: bytes) -> str:
 
 
 def _strip_url_dependency(requirement: str) -> str:
-    """Rewrite URL dependencies to plain package names.
-
-    ``sam2 @ git+https://github.com/facebookresearch/sam2`` becomes ``sam2``
-    so that the dependency resolves from a package index instead.
-    """
+    """Strip the URL from a PEP 440 URL dependency, keeping name/extras/specifier/marker."""
     from packaging.requirements import Requirement, InvalidRequirement
     try:
         parsed = Requirement(requirement)

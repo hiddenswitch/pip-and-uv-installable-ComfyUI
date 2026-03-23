@@ -158,11 +158,6 @@ _refresh_from_github: bool = False
 
 
 def init_manager_model_cache(refresh_from_github: bool = False, disabled: bool | None = None):
-    """Initialize the manager model cache. Called once at startup.
-
-    *disabled* explicitly disables the cache.  When ``None`` (default),
-    reads the flag from the active configuration context.
-    """
     global _enabled, _refresh_from_github
     from . import manager_integration
 

@@ -19,9 +19,6 @@ class CustomNodeSpec:
     xfail: bool = False
     xfail_reason: str = ""
     inject_version: Optional[str] = None
-    """When set, the facade serves this version from the GitHub archive even
-    when the Comfy Node Registry has no published versions.  The download URL
-    is derived from *repo_url* and *git_ref* (defaulting to the repo's HEAD)."""
 
 
 DEFAULT_SKIP: frozenset[str] = frozenset({
