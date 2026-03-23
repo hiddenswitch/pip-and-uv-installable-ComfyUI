@@ -24,20 +24,18 @@ import fsspec
 from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
-_FACADE_ALWAYS_SKIPPED_DEPENDENCIES = frozenset({
-    "opencv-contrib-python",
-    "opencv-python",
-})
+_FACADE_BUILD_REVISION = 2
+_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset()
 
 _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "image-reward",
     "jax",
     "jaxlib",
     "numpy",
-    "opencv-contrib-python-headless",
-    "opencv-python-headless",
     "timm",
 })
+
+_OPENCV_HEADLESS = ["opencv-python-headless"]
 
 # Dependencies that should be expanded to platform-specific variants.
 # Each entry maps a canonical name to the list of requirements that replace it.
@@ -55,6 +53,10 @@ _FACADE_EXPANDED_DEPENDENCIES: dict[str, list[str]] = {
     "onnxruntime-rocm": _ONNXRUNTIME_DEPS,
     "onnxruntime-openvino": _ONNXRUNTIME_DEPS,
     "onnxruntime-silicon": _ONNXRUNTIME_DEPS,
+    "opencv-python": _OPENCV_HEADLESS,
+    "opencv-python-headless": _OPENCV_HEADLESS,
+    "opencv-contrib-python": _OPENCV_HEADLESS,
+    "opencv-contrib-python-headless": _OPENCV_HEADLESS,
 }
 
 
@@ -201,7 +203,7 @@ class FacadeCacheStore:
         self._fs, self._root = fsspec.core.url_to_fs(self._prefix)
 
     def wheel_path(self, project: FacadeProject, filename: str) -> str:
-        return self._join(canonicalize_project_name(project.canonical_name), filename)
+        return self._join(f"v{_FACADE_BUILD_REVISION}", canonicalize_project_name(project.canonical_name), filename)
 
     def exists(self, path: str) -> bool:
         return bool(self._fs.exists(path))
