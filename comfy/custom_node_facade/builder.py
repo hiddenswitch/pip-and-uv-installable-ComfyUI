@@ -5,12 +5,13 @@ from ..cmd.main_pre import tracer
 import asyncio
 import base64
 import csv
-import hashlib
 import io
 import ntpath
 import os
 import posixpath
 import re
+import shutil
+import subprocess
 import tarfile
 import tempfile
 import zipfile
@@ -64,9 +65,41 @@ def _stub_package_name(name: str) -> str:
     return f"_appmana_facade_{identifier}"
 
 
-def _sha256_digest(data: bytes) -> str:
-    digest = hashlib.sha256(data).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
+    result = subprocess.run(
+        ["find", ".", "-type", "f", "-print0"],
+        cwd=str(tree),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"find failed: {result.stderr.decode(errors='replace')}")
+    files = sorted(f for f in result.stdout.decode().split("\0") if f)
+
+    result = subprocess.run(
+        ["xargs", "-0", "sha256sum"],
+        cwd=str(tree),
+        input=result.stdout,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"sha256sum failed: {result.stderr.decode(errors='replace')}")
+
+    hash_map: dict[str, str] = {}
+    for line in result.stdout.decode().splitlines():
+        hex_digest, path = line.split(maxsplit=1)
+        if path.startswith("./"):
+            path = path[2:]
+        raw = bytes.fromhex(hex_digest)
+        hash_map[path] = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    records: list[tuple[str, str, str]] = []
+    for f in files:
+        rel = f[2:] if f.startswith("./") else f
+        full = tree / rel
+        size = full.stat().st_size
+        digest = hash_map.get(rel, "")
+        records.append((rel, f"sha256={digest}", str(size)))
+    return records
 
 
 def _strip_url_dependency(requirement: str) -> str:
@@ -177,6 +210,17 @@ class FacadeCacheStore:
             self._fs.makedirs(parent, exist_ok=True)
         with self._fs.open(path, "wb") as handle:
             handle.write(data)
+
+    def copy_from(self, source_path: str, dest_path: str) -> None:
+        parent = self._parent(dest_path)
+        if parent:
+            self._fs.makedirs(parent, exist_ok=True)
+        local = self._local_path(dest_path)
+        if local is not None:
+            shutil.copy2(source_path, local)
+        else:
+            with open(source_path, "rb") as src, self._fs.open(dest_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
 
     def read_bytes(self, path: str) -> bytes:
         with self._fs.open(path, "rb") as handle:
@@ -343,47 +387,44 @@ class FacadeWheelBuilder:
         dist_name = _wheel_distribution_name(project.canonical_name)
         dist_info = f"{dist_name}-{version.version}.dist-info"
 
-        records: list[tuple[str, str, str]] = []
-        with tempfile.NamedTemporaryFile(prefix="comfyui_facade_", suffix=".whl", delete=False) as temp_file:
-            temp_wheel_path = Path(temp_file.name)
+        with tempfile.TemporaryDirectory(prefix="comfyui_facade_wheel_") as staging_dir:
+            staging = Path(staging_dir)
+            tree = staging / "tree"
 
-        try:
-            with zipfile.ZipFile(temp_wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as wheel:
-                self._writestr(wheel, records, f"{module_name}/__init__.py", b"")
-                self._writestr(wheel, records, f"{module_name}/entrypoint.py", _render_entrypoint_module(project))
+            # Lay out the full wheel directory structure on disk
+            (tree / module_name).mkdir(parents=True)
+            (tree / module_name / "__init__.py").write_bytes(b"")
+            (tree / module_name / "entrypoint.py").write_bytes(_render_entrypoint_module(project))
+            (tree / dist_info).mkdir()
+            (tree / dist_info / "METADATA").write_bytes(_render_metadata(project, version, requirements))
+            (tree / dist_info / "WHEEL").write_bytes(_render_wheel())
+            (tree / dist_info / "entry_points.txt").write_bytes(_render_entry_points(project.canonical_name, module_name))
 
-                vendor_prefix = f"{module_name}/_vendor/{project.repo_name}"
-                for path in sorted(repo_root.rglob("*")):
-                    if not path.is_file():
-                        continue
-                    relative = path.relative_to(repo_root).as_posix()
-                    archive_path = f"{vendor_prefix}/{relative}"
-                    self._writestr(wheel, records, archive_path, path.read_bytes())
+            # Symlink vendor tree (zip follows symlinks by default on Linux)
+            vendor_dir = tree / module_name / "_vendor" / project.repo_name
+            vendor_dir.parent.mkdir(parents=True, exist_ok=True)
+            vendor_dir.symlink_to(repo_root)
 
-                self._writestr(wheel, records, f"{dist_info}/METADATA", _render_metadata(project, version, requirements))
-                self._writestr(wheel, records, f"{dist_info}/WHEEL", _render_wheel())
-                self._writestr(wheel, records, f"{dist_info}/entry_points.txt", _render_entry_points(project.canonical_name, module_name))
+            # Build RECORD using find + sha256sum (no Python memory)
+            records = _build_record_from_tree(tree)
+            record_buf = io.StringIO()
+            writer = csv.writer(record_buf, lineterminator="\n")
+            for row in records:
+                writer.writerow(row)
+            writer.writerow((f"{dist_info}/RECORD", "", ""))
+            (tree / dist_info / "RECORD").write_bytes(record_buf.getvalue().encode("utf-8"))
 
-                record_buffer = io.StringIO()
-                writer = csv.writer(record_buffer, lineterminator="\n")
-                for row in records:
-                    writer.writerow(row)
-                writer.writerow((f"{dist_info}/RECORD", "", ""))
-                wheel.writestr(f"{dist_info}/RECORD", record_buffer.getvalue().encode("utf-8"))
+            # Create the zip with system zip (constant memory, follows symlinks)
+            temp_wheel = staging / "wheel.whl"
+            result = subprocess.run(
+                ["zip", "-q", "-r", "-0", str(temp_wheel), "."],
+                cwd=str(tree),
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"zip failed: {result.stderr.decode(errors='replace')}")
 
-            self._cache.write_bytes(wheel_path, temp_wheel_path.read_bytes())
-        finally:
-            temp_wheel_path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _writestr(
-        wheel: zipfile.ZipFile,
-        records: list[tuple[str, str, str]],
-        path: str,
-        data: bytes,
-    ) -> None:
-        wheel.writestr(path, data)
-        records.append((path, f"sha256={_sha256_digest(data)}", str(len(data))))
+            self._cache.copy_from(str(temp_wheel), wheel_path)
 
     @staticmethod
     def wheel_filename(project: FacadeProject, version: str) -> str:
