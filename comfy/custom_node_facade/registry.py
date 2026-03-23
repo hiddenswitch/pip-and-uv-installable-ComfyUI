@@ -358,6 +358,10 @@ class FacadeRegistry:
                 dropped_versions -= len(versions)
                 if dropped_versions:
                     span.set_attribute("facade.dropped_non_pep440_versions", dropped_versions)
+            if not versions and resolved.repo_url:
+                fallback = self._fallback_version_from_repo(resolved)
+                if fallback is not None:
+                    versions = [fallback]
             self._versions_cache[resolved.node_id] = _sort_versions(versions)
             return self._versions_cache[resolved.node_id]
 
@@ -392,12 +396,14 @@ class FacadeRegistry:
             if repo_url is None:
                 continue
             cnr = repo_to_cnr.get(normalize_repo_url(repo_url))
-            if cnr is None:
-                continue
-            project = self._build_project(item, cnr, repo_url)
-            if project is None:
-                continue
-            projects_by_name[project.canonical_name] = project
+            if cnr is not None:
+                project = self._build_project(item, cnr, repo_url)
+                if project is not None:
+                    projects_by_name[project.canonical_name] = project
+            elif "github.com" in repo_url:
+                project = self._build_manager_only_project(item, repo_url)
+                if project is not None:
+                    projects_by_name.setdefault(project.canonical_name, project)
 
         for spec in CUSTOM_NODE_REGISTRY:
             cnr = repo_to_cnr.get(normalize_repo_url(spec.repo_url))
@@ -516,6 +522,49 @@ class FacadeRegistry:
             deprecated=False,
         )
         self._versions_cache.setdefault(node_id, [version])
+
+    def _build_manager_only_project(self, item: dict[str, Any], repo_url: str) -> FacadeProject | None:
+        if self._only_known_nodes:
+            return None
+        repo_name = repo_basename(repo_url)
+        canonical_name = canonicalize_project_name(repo_name)
+        display_name = item.get("title") or repo_name
+        description = item.get("description") or ""
+        aliases = {canonical_name, canonicalize_project_name(display_name)}
+        download_url = self._github_archive_url(repo_url)
+        version = FacadeVersion(
+            version="0.0.1",
+            download_url=download_url,
+            dependencies=(),
+            deprecated=False,
+        )
+        self._versions_cache[canonical_name] = [version]
+        return FacadeProject(
+            canonical_name=canonical_name,
+            display_name=display_name,
+            node_id=canonical_name,
+            repo_url=repo_url,
+            repo_name=repo_name,
+            description=description,
+            aliases=tuple(sorted(aliases)),
+            extra_requirements=(),
+            skip_requirements=frozenset(CustomNodeManager.DEFAULT_SKIP),
+            depends_on=(),
+            latest_version="0.0.1",
+        )
+
+    @staticmethod
+    def _fallback_version_from_repo(project: FacadeProject) -> FacadeVersion | None:
+        url = project.repo_url.rstrip("/")
+        if "github.com" not in url:
+            return None
+        download_url = FacadeRegistry._github_archive_url(url)
+        return FacadeVersion(
+            version="0.0.1",
+            download_url=download_url,
+            dependencies=tuple(project.extra_requirements),
+            deprecated=False,
+        )
 
     @staticmethod
     def _github_archive_url(repo_url: str, ref: str = "main") -> str:
