@@ -2,7 +2,30 @@
 
 Custom Nodes can be added to ComfyUI by copying and pasting Python files into your `./custom_nodes` directory.
 
-## Installing Custom Nodes
+## Installing Custom Nodes with `pip` or `uv`
+
+Install custom nodes from the package index at `nodes.appmana.com`:
+
+```bash
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-wanvideowrapper
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-kjnodes
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-controlnet-aux
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-videohelpersuite
+```
+
+Or with pip:
+
+```bash
+pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-wanvideowrapper
+```
+
+To find which packages a workflow needs:
+
+```bash
+comfyui workflow-deps path/to/workflow.json
+```
+
+## Other Installation Methods
 
 There are two kinds of custom nodes: vanilla custom nodes, which generally expect to be dropped into the `custom_nodes` directory and managed by a tool called the ComfyUI Extension manager ("vanilla" custom nodes) and this repository's opinionated, installable custom nodes ("installable").
 
@@ -130,93 +153,21 @@ uv pip install -r custom_nodes/ComfyUI-Manager/requirements.txt
 
 Run `uv pip install "git+https://github.com/owner/repository"`, replacing the `git` repository with the installable custom nodes URL. This is just the GitHub URL.
 
-### Installing Custom Nodes Through `serve-pip`
+### Self-Hosting the Package Index
 
-This repository can also expose a local HTTP package index that makes vanilla custom nodes look like normal Python packages. This is useful when you want `uv pip install` semantics, dependency metadata, and versioned installs, but you still want the nodes to execute through the fork's existing vanilla compatibility layer.
-
-The `serve-pip` command:
-
-- enumerates installable custom nodes from ComfyUI-Manager's registry data
-- resolves versions from the Comfy registry (`api.comfy.org`)
-- injects known missing dependencies from this fork's compatibility tables
-- builds wheels on demand
-- publishes `comfyui.custom_nodes` entry points that point back to vendored vanilla custom-node directories
-
-Those entry points are only used for discovery. The actual node code is still imported as a vanilla custom node, so the usual mitigations for `sys.path` pollution, download interception, and blocked runtime package installation still apply.
-
-#### Start the facade server
+The `serve-pip` command runs a local PEP 503 package index backed by the Comfy registry:
 
 ```bash
-uv run --no-sync comfyui serve-pip --listen 127.0.0.1 --port 8190
+comfyui serve-pip --listen 0.0.0.0 --port 8190
 ```
 
-Useful options:
+Then install from it:
 
 ```bash
-# Only expose nodes that are in this repository's tested compatibility registry
-uv run --no-sync comfyui serve-pip --pip-facade-only-known-nodes
-
-# Override the Comfy registry API base URL
-uv run --no-sync comfyui serve-pip --pip-facade-registry-base-url=https://api.comfy.org
-
-# Choose where generated wheels are cached
-uv run --no-sync comfyui serve-pip --pip-facade-cache-prefix=/tmp/comfyui-pip-facade
-
-# Remote caches work too if fsspec can write to them
-uv run --no-sync comfyui serve-pip --pip-facade-cache-prefix=s3://my-bucket/comfyui/pip-facade
+uv pip install --extra-index-url http://localhost:8190/simple/ comfyui-wanvideowrapper
 ```
 
-#### Install custom nodes from the facade
-
-Once the server is running, install nodes with `uv pip install --extra-index-url`:
-
-```bash
-uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-custom-scripts==1.2.5
-uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-detail-daemon
-uv pip install --extra-index-url http://127.0.0.1:8190/simple/ "comfyui-wanvideowrapper>=3.3.3"
-```
-
-If you want to install into a separate target directory instead of the active environment:
-
-```bash
-uv pip install \
-  --python .venv/bin/python \
-  --target ./node_site \
-  --extra-index-url http://127.0.0.1:8190/simple/ \
-  comfyui-custom-scripts==1.2.5
-```
-
-#### What gets installed
-
-Each generated wheel contains:
-
-- the upstream custom node repository contents
-- generated `METADATA` dependencies merged from registry metadata and this fork's extra dependency table
-- a generated `comfyui.custom_nodes` entry point
-
-At runtime, the entry point advertises the vendored custom-node directory to `comfy.nodes.package`, and ComfyUI imports the vendored repo through the vanilla custom-node importer. This means facade-installed nodes behave like ecosystem custom nodes, not like native packaged extensions.
-
-#### Example workflow
-
-1. Start the facade server:
-
-   ```bash
-   uv run --no-sync comfyui serve-pip --listen 127.0.0.1 --port 8190 --pip-facade-only-known-nodes
-   ```
-
-2. Install one node into your environment:
-
-   ```bash
-   uv pip install --extra-index-url http://127.0.0.1:8190/simple/ comfyui-custom-scripts==1.2.5
-   ```
-
-3. Start ComfyUI normally:
-
-   ```bash
-   uv run --no-sync comfyui --guess-settings
-   ```
-
-4. The node package will be discovered through its entry point, but loaded with the same vanilla compatibility layer used for cloned custom nodes.
+Use `--pip-facade-only-known-nodes` to restrict to tested nodes. Use `--pip-facade-cache-prefix` to control where generated wheels are cached. Use `snapshot-pip-registry` to pre-generate a sqlite snapshot for faster startup.
 
 ---
 
@@ -464,64 +415,6 @@ for node_id, (class_types, metadata) in mapping.items():
         reverse_map[ct] = node_id
 ```
 
-### Dependency Management and pip Interception
-
-Custom nodes manage their Python dependencies in several problematic ways. ComfyUI-Manager and this fork both have mitigations.
-
-#### How custom nodes install dependencies
-
-1. **`requirements.txt`** -- Most nodes ship a `requirements.txt`. ComfyUI-Manager reads this during `execute_install_script` and calls `pip install` for each line.
-2. **`install.py`** -- Some nodes include an `install.py` script that runs arbitrary code (often calling pip directly).
-3. **Runtime pip calls** -- Many nodes call `subprocess.run([sys.executable, "-m", "pip", "install", ...])` or `subprocess.Popen(...)` at import time or at execution time to install missing packages.
-4. **`importlib` checks** -- Nodes often use `importlib.util.find_spec()` or try/except imports to check if packages are installed before attempting installation.
-
-#### ComfyUI-Manager's pip safety system
-
-ComfyUI-Manager applies several layers of protection during dependency installation (`manager_core.py:837`, `manager_util.py:407`):
-
-**pip blacklist** -- Packages that must never be installed. Configured at startup in `prestartup_script.py`:
-```python
-cm_global.pip_blacklist = {'torch', 'torchaudio', 'torchsde', 'torchvision'}
-```
-Additional entries can be added via `pip_blacklist.list` in the manager's data directory.
-
-**pip downgrade blacklist** -- Packages that must never be downgraded:
-```python
-cm_global.pip_downgrade_blacklist = [
-    'torch', 'torchaudio', 'torchsde', 'torchvision',
-    'transformers', 'safetensors', 'kornia'
-]
-```
-If a requirements.txt specifies `transformers<=4.30.0` but a newer version is already installed, the install is skipped.
-
-**pip overrides** -- Package name remapping via `pip_overrides.json`:
-```python
-# If pkg is in pip_overrides, replace it
-def remap_pip_package(pkg):
-    if pkg in cm_global.pip_overrides:
-        return cm_global.pip_overrides[pkg]
-    return pkg
-```
-
-**PIPFixer** -- Post-install fixup class (`manager_util.py:407`) that runs after every install. It:
-- **Removes the `comfy` PyPI package** if installed (it conflicts with ComfyUI)
-- **Rolls back torch changes** -- if a node's dependencies change the torch/torchvision/torchaudio versions, PIPFixer reinstalls the original versions
-- **Fixes opencv conflicts** -- multiple opencv variants (`opencv-python`, `opencv-python-headless`, `opencv-contrib-python`, `opencv-contrib-python-headless`) cannot coexist at different versions. PIPFixer detects this and upgrades all installed variants to the highest version present.
-
-**Requirements processing** -- `execute_install_script` reads `requirements.txt` with `robust_readlines` (handles encoding issues via `chardet`), applies `remap_pip_package` to each line, checks `is_blacklisted` (covers both blacklist and downgrade-blacklist), then calls `pip install` via `make_pip_cmd` (which uses `uv` when available).
-
-#### This fork's pip interception
-
-This fork adds additional protection in `comfy_compatibility/vanilla.py` to prevent custom nodes from installing packages at import time and execution time.
-
-**`patch_pip_install_subprocess_run`** -- Patches `subprocess.run` to intercept calls matching the pattern `[sys.executable, '-s', '-m', 'pip', 'install', <package>]` (used by ComfyUI-Easy-Use and similar nodes). Returns a mock result with `returncode=0`.
-
-**`patch_pip_install_popen`** -- Patches `subprocess.Popen` to intercept calls matching `[sys.executable, '-m', 'pip', 'install', ...]`. Returns a mock Popen instance with empty stdout/stderr. Has a special exception for `nunchaku` which is allowed through.
-
-These patches are applied in two places:
-- **At import time** (`vanilla_node_importing.py:164`): When `block_runtime_package_installation` is set in the configuration, the patches are active during `_exec_mitigations` for specific problematic nodes (comfyui-manager, comfyui_ryanonyheinside, comfyui-easy-use, comfyui_custom_nodes_alekpet).
-- **At execution time** (`vanilla.py:255`): `vanilla_environment_node_execution_hooks` applies the patches during prompt execution when `block_runtime_package_installation` is enabled.
-
 ### Vanilla Environment Compatibility Layer
 
 This fork restructures ComfyUI as an installable Python package (`comfy.*`), but vanilla custom nodes expect top-level modules like `nodes`, `folder_paths`, `execution`, `server`, etc. The compatibility layer in `comfy_compatibility/vanilla.py` bridges this gap.
@@ -621,6 +514,22 @@ The existing test infrastructure at `tests/unit/manager_test/` shows the pattern
 ## Authoring Custom Nodes
 
 These instructions will allow you to quickly author installable custom nodes.
+
+### How the Package Index Works
+
+The `serve-pip` command exposes vanilla custom nodes as PEP 503 Python packages. It:
+
+- enumerates installable custom nodes from ComfyUI-Manager's registry data
+- resolves versions from the Comfy registry (`api.comfy.org`)
+- injects known missing dependencies from this fork's compatibility tables
+- builds wheels on demand
+- publishes `comfyui.custom_nodes` entry points that point back to vendored vanilla custom-node directories
+
+Each generated wheel contains the upstream custom node repository contents, generated `METADATA` dependencies merged from registry metadata, and a `comfyui.custom_nodes` entry point. At runtime, the entry point advertises the vendored custom-node directory to `comfy.nodes.package`, and ComfyUI imports the vendored repo through the vanilla custom-node importer. Facade-installed nodes behave like ecosystem custom nodes, not like native packaged extensions.
+
+For nodes without published versions on the Comfy Node Registry, `inject_version` in `comfy/component_model/node_registry.py` generates a synthetic version from the GitHub archive. URL dependencies (like `sam2 @ git+https://...`) are rewritten to plain package names using `packaging.requirements.Requirement`.
+
+Use `snapshot-pip-registry` to pre-generate a sqlite snapshot of the full registry for faster startup. The snapshot can be served directly from disk (no decompression needed for `.db` files) and updated periodically by a separate process.
 
 #### Using `pyproject.toml` for projects with existing `requirements.txt`
 
