@@ -391,6 +391,12 @@ class Comfy:
         self._async_exit_stack.enter_context(cm)
         if self._owns_executor:
             self._async_exit_stack.enter_context(self._executor)
+
+        from ..manager_model_cache import init_manager_model_cache
+        init_manager_model_cache(
+            disabled=getattr(self._configuration, "disable_manager_model_fallback", False),
+        )
+
         return self
 
     async def __aexit__(self, *args):

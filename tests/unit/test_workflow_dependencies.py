@@ -81,17 +81,43 @@ def _res4lyf_installed() -> bool:
         return False
 
 
+def _res4lyf_workflow_path() -> str:
+    import importlib.metadata
+    dist = importlib.metadata.distribution("res4lyf")
+    return str(dist._path.parent / "_appmana_facade_res4lyf/_vendor/RES4LYF/example_workflows/chroma txt2img.json")
+
+
+# Patch community model filenames to known downloadable names.
+_RES4LYF_MODEL_PATCHES: dict[str, str] = {
+    "ae.sft": "ae.safetensors",
+    "chroma-unlocked-v37-detail-calibrated.safetensors": "chroma-unlocked-v37.safetensors",
+}
+
+
+def _patch_model_names(workflow: dict) -> dict:
+    import copy
+    workflow = copy.deepcopy(workflow)
+    for node in workflow.get("nodes", []):
+        wv = node.get("widgets_values")
+        if isinstance(wv, list):
+            for i, val in enumerate(wv):
+                if isinstance(val, str) and val in _RES4LYF_MODEL_PATCHES:
+                    wv[i] = _RES4LYF_MODEL_PATCHES[val]
+        elif isinstance(wv, dict):
+            for k, val in wv.items():
+                if isinstance(val, str) and val in _RES4LYF_MODEL_PATCHES:
+                    wv[k] = _RES4LYF_MODEL_PATCHES[val]
+    return workflow
+
+
 @pytest.mark.skipif(not _res4lyf_installed(), reason="res4lyf not installed")
 def test_res4lyf_workflow_converts():
     """Verify a RES4LYF example workflow converts when the package is installed via serve-pip."""
-    import importlib.metadata
     from comfy.nodes.package import import_all_nodes_in_workspace
     from comfy.execution_context import context_add_custom_nodes
     from comfy.component_model.workflow_convert import convert_ui_to_api
 
-    dist = importlib.metadata.distribution("res4lyf")
-    workflow_path = dist._path.parent / "_appmana_facade_res4lyf/_vendor/RES4LYF/example_workflows/chroma txt2img.json"
-    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+    workflow = json.loads(open(_res4lyf_workflow_path(), encoding="utf-8").read())
 
     nodes = import_all_nodes_in_workspace()
     with context_add_custom_nodes(nodes):
@@ -101,3 +127,31 @@ def test_res4lyf_workflow_converts():
     assert len(result) > 0
     class_types = {v["class_type"] for v in result.values() if isinstance(v, dict)}
     assert "ClownsharKSampler_Beta" in class_types or "ClownModelLoader" in class_types
+
+
+@pytest.mark.skipif(not _res4lyf_installed(), reason="res4lyf not installed")
+@pytest.mark.xfail(reason="ProcessPoolExecutor subprocess does not inherit custom node context; needs embedded client fix")
+@pytest.mark.asyncio
+@pytest.mark.timeout(600)
+async def test_res4lyf_workflow_executes():
+    """Execute the patched chroma txt2img workflow end-to-end."""
+    from comfy.client.embedded_comfy_client import Comfy
+    from comfy.cli_args import default_configuration
+    from tests.custom_nodes.test_custom_node_execution import _apply_cost_reduction
+
+    workflow = json.loads(open(_res4lyf_workflow_path(), encoding="utf-8").read())
+    workflow = _patch_model_names(workflow)
+    workflow = _apply_cost_reduction(workflow)
+
+    from comfy.nodes.package import import_all_nodes_in_workspace
+    from comfy.execution_context import context_add_custom_nodes
+
+    config = default_configuration()
+    config.database_url = "sqlite:///:memory:"
+
+    nodes = import_all_nodes_in_workspace()
+    with context_add_custom_nodes(nodes):
+        async with Comfy(configuration=config) as client:
+            outputs = await client.queue_prompt(workflow)
+
+    assert outputs is not None
