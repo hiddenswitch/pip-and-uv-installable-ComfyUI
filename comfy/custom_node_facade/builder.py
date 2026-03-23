@@ -202,8 +202,8 @@ class FacadeCacheStore:
         self._prefix = str(prefix)
         self._fs, self._root = fsspec.core.url_to_fs(self._prefix)
 
-    def wheel_path(self, project: FacadeProject, filename: str) -> str:
-        return self._join(f"v{_FACADE_BUILD_REVISION}", canonicalize_project_name(project.canonical_name), filename)
+    def wheel_path(self, project: FacadeProject, filename: str, revision: int = _FACADE_BUILD_REVISION) -> str:
+        return self._join(f"v{revision}", canonicalize_project_name(project.canonical_name), filename)
 
     def exists(self, path: str) -> bool:
         return bool(self._fs.exists(path))
@@ -261,10 +261,12 @@ class FacadeWheelBuilder:
         registry: FacadeRegistryProtocol,
         *,
         cache_prefix: str | os.PathLike[str],
+        cache_revision: int | None = None,
     ) -> None:
         self._session = session
         self._registry = registry
         self._cache = FacadeCacheStore(cache_prefix)
+        self._cache_revision = cache_revision or _FACADE_BUILD_REVISION
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     async def build_wheel(
@@ -285,7 +287,7 @@ class FacadeWheelBuilder:
             span.set_attribute("facade.node_id", resolved_project.node_id)
             span.set_attribute("facade.version", resolved_version.version)
             wheel_name = self.wheel_filename(resolved_project, resolved_version.version)
-            wheel_path = self._cache.wheel_path(resolved_project, wheel_name)
+            wheel_path = self._cache.wheel_path(resolved_project, wheel_name, self._cache_revision)
             span.set_attribute("facade.wheel_path", wheel_path)
             if self._cache.exists(wheel_path):
                 span.set_attribute("facade.cache_hit", True)

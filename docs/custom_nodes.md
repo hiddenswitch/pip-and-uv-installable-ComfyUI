@@ -531,6 +531,23 @@ For nodes without published versions on the Comfy Node Registry, `inject_version
 
 Use `snapshot-pip-registry` to pre-generate a sqlite snapshot of the full registry for faster startup. The snapshot can be served directly from disk (no decompression needed for `.db` files) and updated periodically by a separate process.
 
+#### Wheel cache and invalidation
+
+Built wheels are cached on disk at `{cache-prefix}/v{revision}/{project}/{filename}.whl`. The revision is `_FACADE_BUILD_REVISION` in `comfy/custom_node_facade/builder.py` (currently 2). When dependency rewriting rules change (e.g. adding a package to `_FACADE_STRIP_VERSION_DEPENDENCIES` or `_FACADE_EXPANDED_DEPENDENCIES`), bump this number to invalidate all cached wheels. The revision can also be overridden at runtime:
+
+```bash
+comfyui serve-pip --pip-facade-cache-revision=3
+```
+
+#### Dependency rewriting
+
+The facade rewrites certain dependencies in generated wheel metadata:
+
+- **Stripped versions**: `numpy`, `jax`, `jaxlib`, `image-reward`, `timm` are emitted without version constraints so the resolver picks the latest compatible version.
+- **opencv homogenization**: All opencv variants (`opencv-python`, `opencv-python-headless`, `opencv-contrib-python`, `opencv-contrib-python-headless`) are rewritten to bare `opencv-python-headless`.
+- **onnxruntime platform expansion**: `onnxruntime` (and all variants) is expanded to platform-conditional dependencies: `onnxruntime` on macOS/ARM Linux, `onnxruntime-gpu` on x86 Linux and Windows.
+- **URL dependency stripping**: URL dependencies like `sam2 @ git+https://...` are rewritten to plain package names.
+
 #### Using `pyproject.toml` for projects with existing `requirements.txt`
 
 Suppose your custom nodes called `my_comfyui_nodes` has a folder layout that looks like this:

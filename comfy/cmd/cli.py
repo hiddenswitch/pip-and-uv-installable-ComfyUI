@@ -172,6 +172,7 @@ _LOGGING_OPTS: list[tuple] = [
 _PIP_FACADE_OPTS: list[tuple] = [
     ("pip_facade_registry_base_url", str, typer.Option("https://api.comfy.org", "--pip-facade-registry-base-url", help="Base URL for the Comfy registry API used to resolve custom node versions.")),
     ("pip_facade_cache_prefix", Optional[str], typer.Option(None, "--pip-facade-cache-prefix", help="Writable fsspec URI prefix where generated facade wheels are cached, e.g. /var/cache/comfyui, file:///var/cache/comfyui, or s3://bucket/prefix.")),
+    ("pip_facade_cache_revision", Optional[int], typer.Option(None, "--pip-facade-cache-revision", help="Override the wheel cache revision. Changing this invalidates all cached wheels.")),
     ("pip_facade_only_known_nodes", bool, typer.Option(False, "--pip-facade-only-known-nodes", help="Only expose nodes covered by the local custom node compatibility registry.")),
     ("pip_facade_snapshot_uri", Optional[str], typer.Option(None, "--pip-facade-snapshot-uri", help="Read facade registry metadata from this fsspec URI instead of querying the live registry API, e.g. file:///data/registry.sqlite.xz, s3://bucket/registry.sqlite.xz, or pkg://comfy.custom_nodes/pip_facade_registry_snapshot.sqlite.xz.")),
 ]

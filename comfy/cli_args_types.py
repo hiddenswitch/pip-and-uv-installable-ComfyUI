@@ -367,6 +367,7 @@ class Configuration(dict):
         self.refresh_manager_models: bool = False
         self.pip_facade_registry_base_url: str = "https://api.comfy.org"
         self.pip_facade_cache_prefix: Optional[str] = None
+        self.pip_facade_cache_revision: Optional[int] = None
         self.pip_facade_only_known_nodes: bool = False
         self.pip_facade_snapshot_uri: Optional[str] = None
         self.pip_facade_snapshot_output: Optional[str] = None

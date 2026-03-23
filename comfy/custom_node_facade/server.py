@@ -50,7 +50,8 @@ def create_facade_app(
                     only_known_nodes=configuration.pip_facade_only_known_nodes,
                 )
                 span.set_attribute("facade.registry_base_url", configuration.pip_facade_registry_base_url)
-            builder = FacadeWheelBuilder(session, registry, cache_prefix=cache_prefix)
+            cache_revision = getattr(configuration, "pip_facade_cache_revision", None)
+            builder = FacadeWheelBuilder(session, registry, cache_prefix=cache_prefix, cache_revision=cache_revision)
             application["facade_session"] = session
             application["facade_registry"] = registry
             application["facade_builder"] = builder
