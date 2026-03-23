@@ -30,11 +30,13 @@ _FACADE_ALWAYS_SKIPPED_DEPENDENCIES = frozenset({
 })
 
 _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
+    "image-reward",
     "jax",
     "jaxlib",
     "numpy",
     "opencv-contrib-python-headless",
     "opencv-python-headless",
+    "timm",
 })
 
 # Dependencies that should be expanded to platform-specific variants.
