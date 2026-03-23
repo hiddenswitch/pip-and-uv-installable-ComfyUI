@@ -270,12 +270,48 @@ def _protect_sys_path():
     sibling modules importable.  We allow mutations during import (some nodes
     need them for intra-package imports) but restore the original path list
     afterward so that one node's path additions don't leak to later nodes.
+
+    Before restoring, any directories the node added are scanned for Python
+    packages not yet in ``sys.modules``.  Those packages are pre-registered
+    with ``spec_from_file_location`` so that lazy imports at execution time
+    still resolve (e.g. ``custom_mmpkg`` from comfyui_controlnet_aux).
     """
-    snapshot = list(sys.path)
+    snapshot = set(sys.path)
+    snapshot_list = list(sys.path)
     try:
         yield
     finally:
-        sys.path[:] = snapshot
+        added = [p for p in sys.path if p not in snapshot]
+        for directory in added:
+            _register_packages_from_directory(directory)
+        sys.path[:] = snapshot_list
+
+
+def _register_packages_from_directory(directory: str) -> None:
+    """Register importable packages found in *directory* into ``sys.modules``.
+
+    Only creates the module spec and placeholder; actual execution is deferred
+    to first attribute access via the spec loader.
+    """
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return
+    for name in entries:
+        if name.startswith((".", "_")):
+            continue
+        if name in sys.modules:
+            continue
+        candidate = join(directory, name)
+        init_py = join(candidate, "__init__.py")
+        if isdir(candidate) and isfile(init_py):
+            spec = importlib.util.spec_from_file_location(
+                name, init_py,
+                submodule_search_locations=[candidate],
+            )
+            mod = importlib.util.module_from_spec(spec)
+            mod.__path__ = [candidate]
+            sys.modules[name] = mod
 
 
 @contextmanager
