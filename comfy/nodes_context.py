@@ -8,10 +8,25 @@ from .nodes.package import import_all_nodes_in_workspace
 from .nodes.package_typing import ExportedNodes, exported_nodes_view
 
 _nodes_local = threading.local()
+_nodes_global_lock = threading.Lock()
+_nodes_global: ExportedNodes | None = None
+
+
+def _load_nodes_once() -> ExportedNodes:
+    global _nodes_global
+    if _nodes_global is not None:
+        return _nodes_global
+    with _nodes_global_lock:
+        if _nodes_global is not None:
+            return _nodes_global
+        _nodes_global = import_all_nodes_in_workspace()
+        return _nodes_global
 
 
 def invalidate():
-    _nodes_local.nodes = lazy_object_proxy.Proxy(import_all_nodes_in_workspace)
+    global _nodes_global
+    _nodes_global = None
+    _nodes_local.nodes = lazy_object_proxy.Proxy(_load_nodes_once)
 
 
 def get_nodes() -> ExportedNodes:
@@ -19,7 +34,7 @@ def get_nodes() -> ExportedNodes:
     try:
         nodes = _nodes_local.nodes
     except (LookupError, AttributeError):
-        nodes = _nodes_local.nodes = lazy_object_proxy.Proxy(import_all_nodes_in_workspace)
+        nodes = _nodes_local.nodes = lazy_object_proxy.Proxy(_load_nodes_once)
 
     if len(current_ctx.custom_nodes) == 0:
         return nodes

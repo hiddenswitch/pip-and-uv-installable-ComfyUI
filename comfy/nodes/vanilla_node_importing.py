@@ -210,10 +210,6 @@ _MODEL_NAME_TO_HF_REPO: dict[str, str] = {
 }
 
 
-def _apply_pre_exec_patches(module: types.ModuleType, module_name: str, module_path: str) -> None:
-    """Patch module state before exec_module runs __init__.py."""
-    pass
-
 
 def _apply_post_import_patches(module_name: str) -> None:
     """Apply patches to custom-node submodules after they finish importing.
@@ -361,8 +357,6 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
                 raise AttributeError(f"module {_prefix!r} has no attribute {name!r}")
 
             module.__getattr__ = _submodule_getattr
-
-        _apply_pre_exec_patches(module, module_name, module_path)
 
         with _exec_mitigations(module, module_path) as mitigated_exported_nodes, _stdout_intercept(module_name):
             module_spec.loader.exec_module(module)

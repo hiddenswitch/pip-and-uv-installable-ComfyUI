@@ -130,7 +130,6 @@ def test_res4lyf_workflow_converts():
 
 
 @pytest.mark.skipif(not _res4lyf_installed(), reason="res4lyf not installed")
-@pytest.mark.xfail(reason="ProcessPoolExecutor subprocess does not inherit custom node context; needs embedded client fix")
 @pytest.mark.asyncio
 @pytest.mark.timeout(600)
 async def test_res4lyf_workflow_executes():
@@ -143,15 +142,11 @@ async def test_res4lyf_workflow_executes():
     workflow = _patch_model_names(workflow)
     workflow = _apply_cost_reduction(workflow)
 
-    from comfy.nodes.package import import_all_nodes_in_workspace
-    from comfy.execution_context import context_add_custom_nodes
-
     config = default_configuration()
     config.database_url = "sqlite:///:memory:"
 
-    nodes = import_all_nodes_in_workspace()
-    with context_add_custom_nodes(nodes):
-        async with Comfy(configuration=config) as client:
-            outputs = await client.queue_prompt(workflow)
+    async with Comfy(configuration=config) as client:
+        outputs = await client.queue_prompt(workflow)
 
     assert outputs is not None
+    assert len(outputs) > 0
