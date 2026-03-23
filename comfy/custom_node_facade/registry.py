@@ -5,6 +5,7 @@ from ..cmd.main_pre import tracer
 import asyncio
 import json
 import logging
+import os
 import platform
 import re
 import shutil
@@ -136,26 +137,55 @@ class SnapshotFacadeRegistry:
     def __init__(self, *, snapshot_uri: str) -> None:
         self._snapshot_uri = snapshot_uri
         self._db_path: str | None = None
-        self._projects_lock = asyncio.Lock()
+        self._lock = asyncio.Lock()
+        self._projects: list[FacadeProject] = []
+        self._alias_cache: dict[str, str] = {}
+        self._versions_cache: dict[str, list[FacadeVersion]] = {}
+        self._loaded_mtime: float = 0.0
+
+    def _file_path(self) -> str | None:
+        if self._snapshot_uri.startswith("file://"):
+            return self._snapshot_uri.removeprefix("file://")
+        if not self._snapshot_uri.startswith(("pkg://", "s3://", "http://", "https://")):
+            return self._snapshot_uri
+        return None
+
+    def _needs_reload(self) -> bool:
+        path = self._file_path()
+        if path is None:
+            return not self._projects
+        try:
+            mtime = os.stat(path).st_mtime
+        except OSError:
+            return not self._projects
+        return mtime != self._loaded_mtime
+
+    async def _ensure_loaded(self) -> None:
+        if not self._needs_reload():
+            return
+        async with self._lock:
+            if not self._needs_reload():
+                return
+            projects, aliases, versions = await asyncio.to_thread(self._load_all)
+            self._projects = projects
+            self._alias_cache = aliases
+            self._versions_cache = versions
+            path = self._file_path()
+            if path:
+                try:
+                    self._loaded_mtime = os.stat(path).st_mtime
+                except OSError:
+                    pass
 
     async def list_projects(self) -> list[FacadeProject]:
-        conn = await asyncio.to_thread(self._open_db)
-        try:
-            projects, aliases = self._read_projects(conn)
-        finally:
-            conn.close()
-        self._alias_cache = aliases
-        return projects
+        await self._ensure_loaded()
+        return self._projects
 
     async def get_project(self, name: str) -> FacadeProject | None:
+        await self._ensure_loaded()
         canonical = canonicalize_project_name(name)
-        conn = await asyncio.to_thread(self._open_db)
-        try:
-            projects, aliases = self._read_projects(conn)
-        finally:
-            conn.close()
-        target = aliases.get(canonical, canonical)
-        for project in projects:
+        target = self._alias_cache.get(canonical, canonical)
+        for project in self._projects:
             if project.canonical_name == target:
                 return project
         return None
@@ -164,11 +194,8 @@ class SnapshotFacadeRegistry:
         resolved = await self.get_project(project) if isinstance(project, str) else project
         if resolved is None:
             return []
-        conn = await asyncio.to_thread(self._open_db)
-        try:
-            return self._read_versions(conn, resolved.node_id)
-        finally:
-            conn.close()
+        await self._ensure_loaded()
+        return self._versions_cache.get(resolved.node_id, [])
 
     async def get_version(self, project: FacadeProject | str, version: str) -> FacadeVersion | None:
         for item in await self.list_versions(project):
@@ -182,61 +209,60 @@ class SnapshotFacadeRegistry:
             return project.canonical_name
         return canonicalize_project_name(dependency_id)
 
-    def _open_db(self) -> sqlite3.Connection:
-        path = self._resolve_path()
-        conn = sqlite3.connect(path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _load_all(self) -> tuple[list[FacadeProject], dict[str, str], dict[str, list[FacadeVersion]]]:
+        path = self._file_path()
+        if path is not None:
+            db_path = path
+            cleanup = False
+        else:
+            db_path = self._materialize_snapshot()
+            cleanup = True
+        try:
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            try:
+                projects = [
+                    FacadeProject(
+                        canonical_name=row["canonical_name"],
+                        display_name=row["display_name"],
+                        node_id=row["node_id"],
+                        repo_url=row["repo_url"],
+                        repo_name=row["repo_name"],
+                        description=row["description"],
+                        aliases=tuple(json.loads(row["aliases_json"])),
+                        extra_requirements=tuple(json.loads(row["extra_requirements_json"])),
+                        skip_requirements=frozenset(json.loads(row["skip_requirements_json"])),
+                        depends_on=tuple(json.loads(row["depends_on_json"])),
+                        latest_version=row["latest_version"],
+                    )
+                    for row in conn.execute("SELECT * FROM projects ORDER BY canonical_name")
+                ]
+                raw_versions: dict[str, list[FacadeVersion]] = {}
+                for row in conn.execute("SELECT * FROM versions ORDER BY node_id, version"):
+                    raw_versions.setdefault(row["node_id"], []).append(
+                        FacadeVersion(
+                            version=row["version"],
+                            download_url=row["download_url"],
+                            dependencies=tuple(json.loads(row["dependencies_json"])),
+                            deprecated=bool(row["deprecated"]),
+                        )
+                    )
+            finally:
+                conn.close()
+        finally:
+            if cleanup:
+                Path(db_path).unlink(missing_ok=True)
 
-    def _resolve_path(self) -> str:
-        if self._snapshot_uri.startswith("file://"):
-            return self._snapshot_uri.removeprefix("file://")
-        if self._db_path is not None:
-            return self._db_path
-        self._db_path = self._materialize_snapshot()
-        return self._db_path
-
-    @staticmethod
-    def _read_projects(conn: sqlite3.Connection) -> tuple[list[FacadeProject], dict[str, str]]:
-        projects = [
-            FacadeProject(
-                canonical_name=row["canonical_name"],
-                display_name=row["display_name"],
-                node_id=row["node_id"],
-                repo_url=row["repo_url"],
-                repo_name=row["repo_name"],
-                description=row["description"],
-                aliases=tuple(json.loads(row["aliases_json"])),
-                extra_requirements=tuple(json.loads(row["extra_requirements_json"])),
-                skip_requirements=frozenset(json.loads(row["skip_requirements_json"])),
-                depends_on=tuple(json.loads(row["depends_on_json"])),
-                latest_version=row["latest_version"],
-            )
-            for row in conn.execute(
-                "SELECT * FROM projects ORDER BY canonical_name"
-            )
-        ]
+        versions_cache: dict[str, list[FacadeVersion]] = {}
+        for node_id, versions in raw_versions.items():
+            filtered = _filter_pep440_versions(versions)
+            if filtered:
+                versions_cache[node_id] = _sort_versions(filtered)
         aliases: dict[str, str] = {}
         for project in projects:
             for alias in project.aliases:
                 aliases[alias] = project.canonical_name
-        return projects, aliases
-
-    @staticmethod
-    def _read_versions(conn: sqlite3.Connection, node_id: str) -> list[FacadeVersion]:
-        raw = [
-            FacadeVersion(
-                version=row["version"],
-                download_url=row["download_url"],
-                dependencies=tuple(json.loads(row["dependencies_json"])),
-                deprecated=bool(row["deprecated"]),
-            )
-            for row in conn.execute(
-                "SELECT * FROM versions WHERE node_id = ? ORDER BY version",
-                (node_id,),
-            )
-        ]
-        return _sort_versions(_filter_pep440_versions(raw))
+        return projects, aliases, versions_cache
 
     def _materialize_snapshot(self) -> str:
         with tempfile.NamedTemporaryFile(
