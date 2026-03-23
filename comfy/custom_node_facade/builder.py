@@ -36,6 +36,24 @@ _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "opencv-python-headless",
 })
 
+# Dependencies that should be expanded to platform-specific variants.
+# Each entry maps a canonical name to the list of requirements that replace it.
+_ONNXRUNTIME_DEPS: list[str] = [
+    'onnxruntime; sys_platform == "darwin"',
+    'onnxruntime; sys_platform == "linux" and platform_machine == "aarch64"',
+    'onnxruntime-gpu; sys_platform == "linux" and platform_machine == "x86_64"',
+    'onnxruntime-gpu; sys_platform == "win32"',
+]
+
+_FACADE_EXPANDED_DEPENDENCIES: dict[str, list[str]] = {
+    "onnxruntime": _ONNXRUNTIME_DEPS,
+    "onnxruntime-gpu": _ONNXRUNTIME_DEPS,
+    "onnxruntime-directml": _ONNXRUNTIME_DEPS,
+    "onnxruntime-rocm": _ONNXRUNTIME_DEPS,
+    "onnxruntime-openvino": _ONNXRUNTIME_DEPS,
+    "onnxruntime-silicon": _ONNXRUNTIME_DEPS,
+}
+
 
 def _wheel_distribution_name(name: str) -> str:
     return _WHEEL_NAME_RE.sub("_", name)
@@ -298,6 +316,12 @@ class FacadeWheelBuilder:
             stripped = _strip_url_dependency(stripped)
             dep_name = _parse_requirement_name(stripped)
             if dep_name in skipped or dep_name == canonicalize_project_name(project.canonical_name):
+                continue
+            if dep_name in _FACADE_EXPANDED_DEPENDENCIES:
+                for expanded in _FACADE_EXPANDED_DEPENDENCIES[dep_name]:
+                    if expanded not in seen:
+                        seen.add(expanded)
+                        filtered.append(expanded)
                 continue
             if dep_name in _FACADE_STRIP_VERSION_DEPENDENCIES:
                 stripped = dep_name

@@ -121,6 +121,41 @@ def test_version_constraints_stripped_from_pinned_dependencies(tmp_path: Path):
         assert "Requires-Dist: scipy>=1.0" in metadata
 
 
+def test_onnxruntime_expanded_to_platform_variants(tmp_path: Path):
+    project = FacadeProject(
+        canonical_name="test-onnx-node",
+        display_name="Test",
+        node_id="test-onnx-node",
+        repo_url="https://github.com/test/test",
+        repo_name="test",
+        description="",
+        aliases=(),
+        extra_requirements=(),
+        skip_requirements=frozenset({"torch"}),
+        depends_on=(),
+        latest_version="1.0.0",
+    )
+    version = FacadeVersion(
+        version="1.0.0",
+        download_url="https://example.invalid/node.zip",
+        dependencies=("onnxruntime", "pillow"),
+        deprecated=False,
+    )
+    archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    wheel_path = str(tmp_path / "test-onnx-node" / "test_onnx_node-1.0.0-py3-none-any.whl")
+    builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        metadata = wheel.read("test_onnx_node-1.0.0.dist-info/METADATA").decode("utf-8")
+        assert 'sys_platform == "darwin"' in metadata
+        assert "onnxruntime-gpu" in metadata
+        assert 'sys_platform == "win32"' in metadata
+        assert "Requires-Dist: pillow" in metadata
+        bare = [l for l in metadata.splitlines() if l == "Requires-Dist: onnxruntime"]
+        assert bare == [], f"bare onnxruntime without marker: {bare}"
+
+
 def test_injected_project_has_github_archive_version():
     from comfy.custom_node_facade.registry import FacadeRegistry
     from comfy.component_model.node_registry import CustomNodeSpec
