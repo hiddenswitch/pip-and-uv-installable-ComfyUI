@@ -15,7 +15,7 @@ from comfy_api_nodes.util import (
     upload_image_to_comfyapi,
     validate_string,
 )
-from comfy_extras.nodes_images import SVG
+from comfy_extras.nodes.nodes_images import SVG
 
 
 class QuiverTextToSVGNode(IO.ComfyNode):

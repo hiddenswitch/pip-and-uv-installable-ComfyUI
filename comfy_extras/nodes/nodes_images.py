@@ -7,11 +7,12 @@ import math
 import torch
 from typing_extensions import override
 
+import comfy.utils
 from comfy.cmd import folder_paths
 from comfy_api.latest import IO, UI, ComfyExtension
 from comfy.execution_context import current_execution_context
 from comfy.nodes.common import MAX_RESOLUTION
-from comfy.utils import common_upscale
+SVG = IO.SVG.Type  # TODO: temporary solution for backward compatibility, will be removed later.
 
 
 class ImageCrop(IO.ComfyNode):
@@ -40,7 +41,7 @@ class ImageCrop(IO.ComfyNode):
         y = min(y, image.shape[1] - 1)
         to_x = width + x
         to_y = height + y
-        img = image[:, y:to_y, x:to_x, :]
+        img = image[:,y:to_y, x:to_x, :]
         return IO.NodeOutput(img)
 
     crop = execute  # TODO: remove
@@ -114,7 +115,7 @@ class RepeatImageBatch(IO.ComfyNode):
 
     @classmethod
     def execute(cls, image, amount) -> IO.NodeOutput:
-        s = image.repeat((amount, 1, 1, 1))
+        s = image.repeat((amount, 1,1,1))
         return IO.NodeOutput(s)
 
     repeat = execute  # TODO: remove
@@ -225,7 +226,6 @@ class SaveAnimatedPNG(IO.ComfyNode):
             inputs=[
                 IO.Image.Input("images"),
                 IO.String.Input("filename_prefix", default="ComfyUI"),
-
                 IO.Float.Input("fps", default=6.0, min=0.01, max=1000.0, step=0.01),
                 IO.Int.Input("compress_level", default=4, min=0, max=9, advanced=True),
             ],
@@ -307,7 +307,7 @@ class ImageStitch(IO.ComfyNode):
             else:  # up, down
                 target_w, target_h = w1, int(w1 / aspect_ratio)
 
-            image2 = common_upscale(
+            image2 = comfy.utils.common_upscale(
                 image2.movedim(-1, 1), target_w, target_h, "lanczos", "disabled"
             ).movedim(1, -1)
 
@@ -365,7 +365,7 @@ class ImageStitch(IO.ComfyNode):
                             *image1.shape[:-1],
                             max_channels - image1.shape[-1],
                             device=image1.device,
-                        ),
+                            ),
                     ],
                     dim=-1,
                 )
@@ -377,7 +377,7 @@ class ImageStitch(IO.ComfyNode):
                             *image2.shape[:-1],
                             max_channels - image2.shape[-1],
                             device=image2.device,
-                        ),
+                            ),
                     ],
                     dim=-1,
                 )
@@ -454,7 +454,7 @@ class ResizeAndPadImage(IO.ComfyNode):
 
         image_permuted = image.permute(0, 3, 1, 2)
 
-        resized = common_upscale(image_permuted, new_width, new_height, interpolation, "disabled")
+        resized = comfy.utils.common_upscale(image_permuted, new_width, new_height, interpolation, "disabled")
 
         pad_value = 0.0 if padding_color == "black" else 1.0
         padded = torch.full(
@@ -506,20 +506,40 @@ class SaveSVGNode(IO.ComfyNode):
             metadata_dict["prompt"] = cls.hidden.prompt
         if cls.hidden.extra_pnginfo is not None:
             metadata_dict.update(cls.hidden.extra_pnginfo)
+
+        # Convert metadata to JSON string
         metadata_json = json.dumps(metadata_dict, indent=2) if metadata_dict else None
+
 
         for batch_number, svg_bytes in enumerate(svg.data):
             filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
             file = f"{filename_with_batch_num}_{counter:05}_.svg"
+
+            # Read SVG content
             svg_bytes.seek(0)
             svg_content = svg_bytes.read().decode('utf-8')
 
+            # Inject metadata if available
             if metadata_json:
-                metadata_element = f'  <metadata><![CDATA[\n{metadata_json}\n]]></metadata>\n'
-                svg_content = re.sub(r'(<svg[^>]*>)', lambda m: m.group(1) + '\n' + metadata_element, svg_content, flags=re.UNICODE)
+                # Create metadata element with CDATA section
+                metadata_element = f"""  <metadata>
+                <![CDATA[
+            {metadata_json}
+                ]]>
+            </metadata>
+            """
+                # Insert metadata after opening svg tag using regex with a replacement function
+                def replacement(match):
+                    # match.group(1) contains the captured <svg> tag
+                    return match.group(1) + '\n' + metadata_element
 
+                # Apply the substitution
+                svg_content = re.sub(r'(<svg[^>]*>)', replacement, svg_content, flags=re.UNICODE)
+
+            # Write the modified SVG to file
             with open(os.path.join(full_output_folder, file), 'wb') as svg_file:
                 svg_file.write(svg_content.encode('utf-8'))
+
             results.append(UI.SavedResult(filename=file, subfolder=subfolder, type=IO.FolderType.output))
             counter += 1
         return IO.NodeOutput(ui={"images": results})
@@ -654,11 +674,11 @@ class ImageScaleToMaxDimension(IO.ComfyNode):
             width = largest_size
 
         samples = image.movedim(-1, 1)
-        s = common_upscale(samples, width, height, upscale_method, "disabled")
+        s = comfy.utils.common_upscale(samples, width, height, upscale_method, "disabled")
         s = s.movedim(1, -1)
         return IO.NodeOutput(s)
 
-    upscale = execute  # TODO: remove
+    upscale = execute    # TODO: remove
 
 
 class SplitImageToTileList(IO.ComfyNode):
