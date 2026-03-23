@@ -69,6 +69,7 @@ from .model_sampling import StableCascadeSampling, COSMOS_RFLOW, ModelSamplingCo
 from .ops import Operations
 from .patcher_extension import WrapperExecutor, WrappersMP, get_all_wrappers
 from .ldm.lumina.model import NextDiTPixelSpace
+from .context_windows import slice_cond
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +305,12 @@ class BaseModel(torch.nn.Module):
                         cond_concat.append(torch.zeros_like(noise))
             data = torch.cat(cond_concat, dim=1)
             return data
+        return None
+
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        """Override in subclasses to handle model-specific cond slicing for context windows.
+        Return a sliced cond object, or None to fall through to default handling.
+        Use comfy.context_windows.slice_cond() for common cases."""
         return None
 
     def extra_conds(self, **kwargs):
@@ -970,9 +977,10 @@ class LongCatImage(Flux):
         transformer_options = transformer_options.copy()
         rope_opts = transformer_options.get("rope_options", {})
         rope_opts = dict(rope_opts)
+        pe_len = float(c_crossattn.shape[1]) if c_crossattn is not None else 512.0
         rope_opts.setdefault("shift_t", 1.0)
-        rope_opts.setdefault("shift_y", 512.0)
-        rope_opts.setdefault("shift_x", 512.0)
+        rope_opts.setdefault("shift_y", pe_len)
+        rope_opts.setdefault("shift_x", pe_len)
         transformer_options["rope_options"] = rope_opts
         return super()._apply_model(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
 
@@ -1425,6 +1433,11 @@ class WAN21_Vace(WAN21):
         out['vace_strength'] = conds.CONDConstant(vace_strength)
         return out
 
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        if cond_key == "vace_context":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=3, retain_index_list=retain_index_list)
+        return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
+
 
 class WAN21_Camera(WAN21):
     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
@@ -1479,6 +1492,11 @@ class WAN21_HuMo(WAN21):
 
         return out
 
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        if cond_key == "audio_embed":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=1)
+        return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
+
 
 class WAN22_Animate(WAN21):
     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
@@ -1496,6 +1514,13 @@ class WAN22_Animate(WAN21):
         if pose_latents is not None:
             out['pose_latents'] = conds.CONDRegular(self.process_latent_in(pose_latents))
         return out
+
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        if cond_key == "face_pixel_values":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=2, temporal_scale=4, temporal_offset=1)
+        if cond_key == "pose_latents":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=2, temporal_offset=1)
+        return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
 
 
 class WAN22_S2V(WAN21):
@@ -1533,6 +1558,11 @@ class WAN22_S2V(WAN21):
         if reference_motion is not None:
             out['reference_motion'] = reference_motion.shape
         return out
+
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        if cond_key == "audio_embed":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=1)
+        return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
 
 
 class WAN22(WAN21):
