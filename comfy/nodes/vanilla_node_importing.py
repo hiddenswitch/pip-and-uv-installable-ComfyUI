@@ -343,6 +343,15 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
         sys.modules[module_name] = module
 
         if not isfile(module_path):
+            # Clear stale submodule entries so that relative imports during
+            # exec_module trigger fresh imports and bind submodules into this
+            # new module's __dict__.  Without this, Python reuses cached
+            # submodules from sys.modules and skips the parent binding, causing
+            # NameError for bare submodule references (e.g. RES4LYF's
+            # ``res4lyf.init()`` after ``from .res4lyf import RESplain``).
+            _stale_prefix = module_name + "."
+            for _key in [k for k in sys.modules if k.startswith(_stale_prefix)]:
+                del sys.modules[_key]
             # Package modules loaded via spec_from_file_location may not bind
             # submodule references to the parent namespace after
             # ``from .sub import name``.  Install a __getattr__ (PEP 562) that
