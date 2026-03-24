@@ -127,7 +127,6 @@ def facade_snapshot_path(tmp_path_factory: pytest.TempPathFactory, mock_registry
     return snapshot_path
 
 
-@pytest.mark.slow
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node(tmp_path: Path):
     src_root = Path(__file__).resolve().parents[2]
@@ -318,7 +317,6 @@ def test_serve_pip_can_install_comfyui_layerstyle(tmp_path: Path):
             server.wait(timeout=10)
 
 
-@pytest.mark.slow
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
     tmp_path: Path,
