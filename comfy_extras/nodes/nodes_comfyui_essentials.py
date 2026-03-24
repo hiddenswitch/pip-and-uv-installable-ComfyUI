@@ -85,8 +85,6 @@ class SimpleMath(CustomNode):
         functions = self._FUNCTIONS
 
         def eval_(node):
-            if isinstance(node, ast.Num):
-                return node.n
             if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
                 return node.value
             if isinstance(node, ast.Name):
