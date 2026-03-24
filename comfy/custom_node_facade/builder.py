@@ -24,8 +24,39 @@ import fsspec
 from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
-_FACADE_BUILD_REVISION = 2
+_FACADE_BUILD_REVISION = 3
 _FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class PyPIRewriteSpec:
+    """A PyPI package to re-serve with patched dependency metadata."""
+    name: str
+    version: str
+    wheel_url: str
+    dependencies: tuple[str, ...]
+
+
+PYPI_REWRITE_PACKAGES: list[PyPIRewriteSpec] = [
+    PyPIRewriteSpec(
+        name="image-reward",
+        version="1.5",
+        wheel_url="https://files.pythonhosted.org/packages/ea/df/b2e66a6f93494ac43d2cfb77475e0321e062b765ec35a368a07decf22a1d/image_reward-1.5-py3-none-any.whl",
+        dependencies=(
+            "timm",
+            "transformers>=4.27.4",
+            "fairscale",
+            "huggingface-hub>=0.13.4",
+            "diffusers>=0.16.0",
+            "accelerate>=0.16.0",
+            "datasets>=2.11.0",
+        ),
+    ),
+]
+
+_PYPI_REWRITE_INDEX: dict[str, PyPIRewriteSpec] = {
+    canonicalize_project_name(spec.name): spec for spec in PYPI_REWRITE_PACKAGES
+}
 
 _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "image-reward",
@@ -299,6 +330,9 @@ class FacadeWheelBuilder:
                 if self._cache.exists(wheel_path):
                     span.set_attribute("facade.cache_hit_after_lock", True)
                     return self._cache.cached_wheel(wheel_path)
+                rewrite = _PYPI_REWRITE_INDEX.get(resolved_project.canonical_name)
+                if rewrite is not None:
+                    return await self._build_rewrite_wheel(rewrite, resolved_project, resolved_version, wheel_path)
                 with tracer.start_as_current_span("Download Facade Source Archive") as download_span:
                     download_span.set_attribute("facade.download_url", resolved_version.download_url)
                     async with self._session.get(resolved_version.download_url) as response:
@@ -436,6 +470,55 @@ class FacadeWheelBuilder:
     def wheel_filename(project: FacadeProject, version: str) -> str:
         dist_name = _wheel_distribution_name(project.canonical_name)
         return f"{dist_name}-{version}-py3-none-any.whl"
+
+    async def _build_rewrite_wheel(
+        self,
+        rewrite: PyPIRewriteSpec,
+        project: FacadeProject,
+        version: FacadeVersion,
+        wheel_path: str,
+    ) -> CachedWheel:
+        """Download a PyPI wheel and re-pack it with patched METADATA."""
+        with tracer.start_as_current_span("Build Rewrite Wheel") as span:
+            span.set_attribute("facade.rewrite_url", rewrite.wheel_url)
+            async with self._session.get(rewrite.wheel_url) as response:
+                response.raise_for_status()
+                wheel_bytes = await response.read()
+            span.set_attribute("facade.wheel_bytes", len(wheel_bytes))
+            await asyncio.to_thread(
+                self._patch_wheel_metadata, wheel_bytes, project, version, list(rewrite.dependencies), wheel_path,
+            )
+            return self._cache.cached_wheel(wheel_path)
+
+    def _patch_wheel_metadata(
+        self,
+        wheel_bytes: bytes,
+        project: FacadeProject,
+        version: FacadeVersion,
+        dependencies: list[str],
+        wheel_path: str,
+    ) -> None:
+        """Rewrite METADATA inside a wheel zip and cache the result."""
+        new_metadata = _render_metadata(project, version, dependencies)
+        with tempfile.NamedTemporaryFile(prefix="comfyui_rewrite_", suffix=".whl", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            with zipfile.ZipFile(io.BytesIO(wheel_bytes), "r") as src, \
+                 zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+                metadata_suffix = ".dist-info/METADATA"
+                record_suffix = ".dist-info/RECORD"
+                for item in src.infolist():
+                    data = src.read(item.filename)
+                    if item.filename.endswith(metadata_suffix):
+                        data = new_metadata
+                    elif item.filename.endswith(record_suffix):
+                        # RECORD will be invalid after patching; pip/uv don't
+                        # validate it for remote installs, so write an empty one.
+                        data = b""
+                    dst.writestr(item, data)
+            self._cache.copy_from(tmp_path, wheel_path)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     async def read_cached_wheel(self, wheel: CachedWheel) -> bytes:
         with tracer.start_as_current_span("Read Cached Facade Wheel") as span:

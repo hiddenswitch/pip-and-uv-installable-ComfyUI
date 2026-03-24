@@ -318,6 +318,92 @@ def test_serve_pip_can_install_comfyui_layerstyle(tmp_path: Path):
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
+def test_serve_pip_rewrites_image_reward_with_relaxed_timm(tmp_path: Path):
+    """Verify that image-reward is served with relaxed timm/fairscale pins.
+
+    The upstream image-reward==1.5 on PyPI pins timm==0.6.13, which conflicts
+    with other packages. The facade should serve a patched version that relaxes
+    these pins so uv can resolve the dependency tree.
+    """
+    src_root = Path(__file__).resolve().parents[2]
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+
+    port = _find_free_port()
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(src_root) if not existing_pythonpath else f"{src_root}{os.pathsep}{existing_pythonpath}"
+
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "comfy.cmd.main",
+            "serve-pip",
+            "--listen",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--pip-facade-cache-prefix",
+            str(tmp_path / "wheel-cache"),
+            "--pip-facade-only-known-nodes",
+            "--logging-level",
+            "INFO",
+        ],
+        cwd=src_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    try:
+        _wait_for_http(f"http://127.0.0.1:{port}/readyz", server)
+
+        # Verify the simple index lists image-reward
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/simple/") as resp:
+            index_html = resp.read().decode()
+        assert "image-reward" in index_html, "image-reward not listed in simple index"
+
+        # Install image-reward from the facade (no-deps to avoid pulling the world)
+        result = subprocess.run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
+                "--target",
+                str(site_dir),
+                "--no-deps",
+                "--index-url",
+                f"http://127.0.0.1:{port}/simple/",
+                "image-reward==1.5",
+            ],
+            cwd=src_root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        # Verify it installed and has patched metadata (no timm==0.6.13 pin)
+        dist_info = list(site_dir.glob("image_reward-*.dist-info"))
+        assert dist_info, f"image-reward dist-info not found in {list(site_dir.iterdir())}"
+        metadata = (dist_info[0] / "METADATA").read_text(encoding="utf-8")
+        assert "timm" in metadata, "timm not in dependencies"
+        assert "timm (==0.6.13)" not in metadata, "timm pin was not relaxed"
+        assert "fairscale (==0.4.13)" not in metadata, "fairscale pin was not relaxed"
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=10)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
     tmp_path: Path,
     facade_snapshot_path: Path,

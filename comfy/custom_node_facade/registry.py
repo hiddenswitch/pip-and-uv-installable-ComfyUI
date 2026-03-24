@@ -258,6 +258,14 @@ class SnapshotFacadeRegistry:
             filtered = _filter_pep440_versions(versions)
             if filtered:
                 versions_cache[node_id] = _sort_versions(filtered)
+
+        rewrite_projects, rewrite_versions = _rewrite_projects_and_versions()
+        for rp in rewrite_projects:
+            if not any(p.canonical_name == rp.canonical_name for p in projects):
+                projects.append(rp)
+        for node_id, rv in rewrite_versions.items():
+            versions_cache.setdefault(node_id, []).extend(rv)
+
         aliases: dict[str, str] = {}
         for project in projects:
             for alias in project.aliases:
@@ -280,6 +288,38 @@ class SnapshotFacadeRegistry:
             Path(temp_path).unlink(missing_ok=True)
             raise
         return temp_path
+
+
+def _rewrite_projects_and_versions() -> tuple[list[FacadeProject], dict[str, list[FacadeVersion]]]:
+    """Build synthetic FacadeProject/FacadeVersion entries for PyPI rewrite packages."""
+    from .builder import PYPI_REWRITE_PACKAGES
+    projects: list[FacadeProject] = []
+    versions: dict[str, list[FacadeVersion]] = {}
+    for spec in PYPI_REWRITE_PACKAGES:
+        canonical = canonicalize_project_name(spec.name)
+        project = FacadeProject(
+            canonical_name=canonical,
+            display_name=spec.name,
+            node_id=canonical,
+            repo_url="",
+            repo_name=canonical,
+            description=f"Patched {spec.name} with relaxed dependency pins",
+            aliases=(canonical,),
+            extra_requirements=(),
+            skip_requirements=frozenset(),
+            depends_on=(),
+            latest_version=spec.version,
+        )
+        projects.append(project)
+        versions[canonical] = [
+            FacadeVersion(
+                version=spec.version,
+                download_url=spec.wheel_url,
+                dependencies=spec.dependencies,
+                deprecated=False,
+            )
+        ]
+    return projects, versions
 
 
 class _OverlayIndex:
@@ -447,6 +487,12 @@ class FacadeRegistry:
             elif spec.inject_version is not None:
                 project = self._build_injected_project(spec)
                 projects_by_name.setdefault(project.canonical_name, project)
+
+        rewrite_projects, rewrite_versions = _rewrite_projects_and_versions()
+        for rp in rewrite_projects:
+            projects_by_name.setdefault(rp.canonical_name, rp)
+        for node_id, rv in rewrite_versions.items():
+            self._versions_cache.setdefault(node_id, []).extend(rv)
 
         projects = sorted(projects_by_name.values(), key=lambda project: project.canonical_name)
         self._alias_cache = {}
