@@ -134,15 +134,14 @@ def _stub_package_name(name: str) -> str:
     return f"_appmana_facade_{identifier}"
 
 
-def _subprocess_run(args: list[str], **kwargs) -> subprocess.CompletedProcess[bytes]:
-    """Run a subprocess, using shell on Windows to resolve Git Bash tools."""
-    if os.name == "nt":
-        return subprocess.run(["sh", "-c", " ".join(args)], **kwargs)
-    return subprocess.run(args, **kwargs)
-
-
 def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
-    result = _subprocess_run(
+    if os.name != "nt" and shutil.which("find") is not None:
+        return _build_record_from_tree_unix(tree)
+    return _build_record_from_tree_python(tree)
+
+
+def _build_record_from_tree_unix(tree: Path) -> list[tuple[str, str, str]]:
+    result = subprocess.run(
         ["find", ".", "-type", "f", "-print0"],
         cwd=str(tree),
         capture_output=True,
@@ -151,7 +150,7 @@ def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
         raise RuntimeError(f"find failed: {result.stderr.decode(errors='replace')}")
     files = sorted(f for f in result.stdout.decode().split("\0") if f)
 
-    result = _subprocess_run(
+    result = subprocess.run(
         ["xargs", "-0", "sha256sum"],
         cwd=str(tree),
         input=result.stdout,
@@ -174,6 +173,20 @@ def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
         full = tree / rel
         size = full.stat().st_size
         digest = hash_map.get(rel, "")
+        records.append((rel, f"sha256={digest}", str(size)))
+    return records
+
+
+def _build_record_from_tree_python(tree: Path) -> list[tuple[str, str, str]]:
+    import hashlib
+    records: list[tuple[str, str, str]] = []
+    for full in sorted(tree.rglob("*")):
+        if not full.is_file():
+            continue
+        rel = full.relative_to(tree).as_posix()
+        size = full.stat().st_size
+        raw = hashlib.sha256(full.read_bytes()).digest()
+        digest = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
         records.append((rel, f"sha256={digest}", str(size)))
     return records
 
@@ -496,14 +509,22 @@ class FacadeWheelBuilder:
             (tree / dist_info / "RECORD").write_bytes(record_buf.getvalue().encode("utf-8"))
 
             # Create the zip with system zip (constant memory, follows symlinks)
+            # Falls back to Python zipfile on Windows where zip is unavailable
             temp_wheel = staging / "wheel.whl"
-            result = _subprocess_run(
-                ["zip", "-q", "-r", "-0", str(temp_wheel), "."],
-                cwd=str(tree),
-                capture_output=True,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"zip failed: {result.stderr.decode(errors='replace')}")
+            if shutil.which("zip") is not None and os.name != "nt":
+                result = subprocess.run(
+                    ["zip", "-q", "-r", "-0", str(temp_wheel), "."],
+                    cwd=str(tree),
+                    capture_output=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(f"zip failed: {result.stderr.decode(errors='replace')}")
+            else:
+                with zipfile.ZipFile(temp_wheel, "w", compression=zipfile.ZIP_STORED) as zf:
+                    for root, _dirs, files in os.walk(tree, followlinks=True):
+                        for fname in sorted(files):
+                            full = Path(root) / fname
+                            zf.write(full, full.relative_to(tree))
 
             self._cache.copy_from(str(temp_wheel), wheel_path)
 
