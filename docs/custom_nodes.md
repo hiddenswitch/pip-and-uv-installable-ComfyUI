@@ -77,33 +77,13 @@ The installation process for ComfyUI-Manager requires two steps: installing its 
 3.  **Restart ComfyUI.**
     After the cloning is complete, restart ComfyUI. You should now see a "Manager" button in the menu.
 
-### PyPi Install
-
-[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager/tree/manager-v4)
-
-**ComfyUI-Manager** is an extension that allows you to easily install, update, and manage custom nodes for ComfyUI.
-
-### Setup
-
-1. Install the manager dependencies:
-   ```bash
-   pip install -r manager_requirements.txt
-   ```
-
-2. Enable the manager with the `--enable-manager` flag when running ComfyUI:
-   ```bash
-   python main.py --enable-manager
-   ```
-
-### Command Line Options
+### ComfyUI-Manager Command Line Options
 
 | Flag | Description |
 |------|-------------|
 | `--enable-manager` | Enable ComfyUI-Manager |
 | `--enable-manager-legacy-ui` | Use the legacy manager UI instead of the new UI (requires `--enable-manager`) |
 | `--disable-manager-ui` | Disable the manager UI and endpoints while keeping background features like security checks and scheduled installation completion (requires `--enable-manager`) |
-
-
 
 ### Vanilla Custom Nodes
 
