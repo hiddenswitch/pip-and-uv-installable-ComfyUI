@@ -461,7 +461,7 @@ def find_modules_at_depth(
         current_depth += 1
         if current_depth == depth:
             result.append(model)
-            logging.debug(f"Found module at depth {depth}: {name} ({model.__class__.__name__})")
+            logger.debug(f"Found module at depth {depth}: {name} ({model.__class__.__name__})")
             return result
 
     # Recurse into children
@@ -712,7 +712,7 @@ def _create_weight_adapter(
     shape = module.weight.shape
     lora_params = {}
 
-    logging.debug(f"Creating weight adapter for {key} with shape {shape}")
+    logger.debug(f"Creating weight adapter for {key} with shape {shape}")
 
     if len(shape) >= 2:
         alpha = float(existing_weights.get(f"{key}.alpha", 1.0))
@@ -846,10 +846,10 @@ def _setup_lora_adapters_bypass(mp, existing_weights, algorithm, lora_dtype, ran
                 # Only use bypass for adapters that have h() method (lora/lokr/oft)
                 if isinstance(adapter, BiasDiff):
                     mp.add_weight_wrapper(key, adapter)
-                    logging.debug(f"[BypassMode] Added 1D weight adapter (weight wrapper) for {key}")
+                    logger.debug(f"[BypassMode] Added 1D weight adapter (weight wrapper) for {key}")
                 else:
                     bypass_manager.add_adapter(key, adapter, strength=1.0)
-                    logging.debug(f"[BypassMode] Added weight adapter (bypass) for {key}")
+                    logger.debug(f"[BypassMode] Added weight adapter (bypass) for {key}")
 
             if hasattr(m, "bias") and m.bias is not None:
                 # Bias adapters still use weight wrapper (bias is usually not quantized)
@@ -858,7 +858,7 @@ def _setup_lora_adapters_bypass(mp, existing_weights, algorithm, lora_dtype, ran
                 key = f"{n}.bias"
                 mp.add_weight_wrapper(key, bias_adapter)
                 all_weight_adapters.append(bias_adapter)
-                logging.debug(f"[BypassMode] Added bias adapter (weight wrapper) for {key}")
+                logger.debug(f"[BypassMode] Added bias adapter (weight wrapper) for {key}")
 
     return lora_sd, all_weight_adapters, bypass_manager
 
@@ -1152,7 +1152,7 @@ class TrainLoraNode(io.ComfyNode):
                 use_grad_scaler = True
                 # Warn about fp16 accumulation instability during training
                 if PerformanceFeature.Fp16Accumulation in args.fast:
-                    logging.warning(
+                    logger.warning(
                         "WARNING: FP16 model detected with fp16_accumulation enabled. "
                         "This combination can be numerically unstable during training and may cause NaN values. "
                         "Suggested fixes: 1) Set training_dtype to 'bf16', or 2) Disable fp16_accumulation (remove from --fast flags)."
@@ -1181,7 +1181,7 @@ class TrainLoraNode(io.ComfyNode):
             # Setup LoRA adapters
             bypass_manager = None
             if bypass_mode:
-                logging.debug("Using bypass mode for training")
+                logger.debug("Using bypass mode for training")
                 lora_sd, all_weight_adapters, bypass_manager = _setup_lora_adapters_bypass(
                     mp, existing_weights, algorithm, lora_dtype, rank
                 )
@@ -1201,7 +1201,7 @@ class TrainLoraNode(io.ComfyNode):
                 modules_to_patch = find_modules_at_depth(
                         mp.model.diffusion_model, depth=checkpoint_depth
                 )
-                logging.info(f"Gradient checkpointing: patching {len(modules_to_patch)} modules at depth {checkpoint_depth}")
+                logger.info(f"Gradient checkpointing: patching {len(modules_to_patch)} modules at depth {checkpoint_depth}")
                 for m in modules_to_patch:
                     patch(m, offloading=offloading)
 
@@ -1257,7 +1257,7 @@ class TrainLoraNode(io.ComfyNode):
                 bypass_injections = bypass_manager.create_injections(mp.model)
                 for injection in bypass_injections:
                     injection.inject(mp)
-                logging.debug(f"[BypassMode] Injected {bypass_manager.get_hook_count()} bypass hooks")
+                logger.debug(f"[BypassMode] Injected {bypass_manager.get_hook_count()} bypass hooks")
 
             # Run training loop
             try:
@@ -1277,7 +1277,7 @@ class TrainLoraNode(io.ComfyNode):
                 if bypass_injections is not None:
                     for injection in bypass_injections:
                         injection.eject(mp)
-                    logging.debug("[BypassMode] Ejected bypass hooks")
+                    logger.debug("[BypassMode] Ejected bypass hooks")
                 for m in mp.model.modules():
                     unpatch(m)
             del train_sampler, optimizer

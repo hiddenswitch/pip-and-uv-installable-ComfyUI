@@ -722,7 +722,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                         should_retry = True
 
                     if should_retry:
-                        logging.warning(
+                        logger.warning(
                             "HTTP %s %s -> %s. Waiting %.2fs (%s).",
                             method,
                             url,

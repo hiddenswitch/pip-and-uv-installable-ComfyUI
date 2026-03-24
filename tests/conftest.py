@@ -1,4 +1,7 @@
 import logging
+
+logger = logging.getLogger(__name__)
+
 import multiprocessing
 import os
 import pathlib
@@ -121,7 +124,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
         env = os.environ.copy()
         if otel_endpoint:
             env["OTEL_EXPORTER_OTLP_ENDPOINT"] = otel_endpoint
-            logging.info(f"Configuring services to export traces to: {otel_endpoint}")
+            logger.info(f"Configuring services to export traces to: {otel_endpoint}")
 
         # NOTE: use --cwd=, not -w=, for the working directory argument.
         # Click does not treat '=' as a separator for short options: -w=/path

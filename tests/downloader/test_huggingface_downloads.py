@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+
+logger = logging.getLogger(__name__)
 import shutil
 
 import pytest
@@ -76,7 +78,7 @@ async def test_known_repos(tmp_path_factory):
         # test downloading the repo and observing a cache hit on second access
         try:
             KNOWN_HUGGINGFACE_MODEL_REPOS.remove(test_repo_id)
-            logging.error("unexpected, the test_repo_id was already in the KNOWN_HUGGINGFACE_MODEL_REPOS symbol")
+            logger.error("unexpected, the test_repo_id was already in the KNOWN_HUGGINGFACE_MODEL_REPOS symbol")
         except KeyError:
             known_repos = get_huggingface_repo_list()
             assert test_repo_id not in known_repos

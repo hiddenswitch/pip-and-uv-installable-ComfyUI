@@ -1,5 +1,7 @@
 import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 from typing import Dict, Optional
 
 from PIL import Image
@@ -75,7 +77,7 @@ class ComfyClient:
         try:
             outputs = await self.embedded_client.queue_prompt(graph.finalize(), prompt_id=prompt_id, partial_execution_targets=partial_execution_targets)
         except (RuntimeError, DependencyCycleError) as exc_info:
-            logging.warning("error when queueing prompt", exc_info=exc_info)
+            logger.warning("error when queueing prompt", exc_info=exc_info)
             outputs = {}
         result = RunResult(prompt_id=prompt_id)
         result.outputs = outputs

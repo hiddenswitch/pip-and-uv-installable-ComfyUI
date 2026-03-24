@@ -123,7 +123,7 @@ def log_request_response(
         except Exception as e:
             logger.error("Error writing API log to %s: %s", filepath, str(e))
     except Exception as _log_e:
-        logging.debug("[DEBUG] log_request_response failed: %s", _log_e)
+        logger.debug("[DEBUG] log_request_response failed: %s", _log_e)
 
 
 if __name__ == '__main__':

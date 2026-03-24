@@ -25,6 +25,8 @@ from comfy.ldm.wan.model_multitalk import InfiniteTalkOuterSampleWrapper, MultiT
 
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 class WanImageToVideo(io.ComfyNode):
     @classmethod
@@ -1451,7 +1453,7 @@ class WanInfiniteTalkToVideo(io.ComfyNode):
 
             audio_start = frame_offset
             audio_end = audio_start + length
-            logging.info(f"InfiniteTalk: Processing audio frames {audio_start} - {audio_end}")
+            logger.info(f"InfiniteTalk: Processing audio frames {audio_start} - {audio_end}")
 
             motion_frames_latent = vae.encode(motion_frames[:, :, :, :3])
             trim_image = motion_frame_count
