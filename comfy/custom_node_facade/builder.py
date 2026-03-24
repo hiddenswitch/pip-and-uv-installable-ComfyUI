@@ -24,7 +24,7 @@ import fsspec
 from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
-_FACADE_BUILD_REVISION = 3
+_FACADE_BUILD_REVISION = 4
 _FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset()
 
 
@@ -96,6 +96,7 @@ _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "jax",
     "jaxlib",
     "numpy",
+    "protobuf",
     "timm",
 })
 
