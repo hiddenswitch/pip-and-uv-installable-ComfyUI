@@ -219,6 +219,7 @@ def _apply_post_import_patches(module_name: str) -> None:
     ``from_pretrained`` can resolve and cache automatically.
     """
     _patch_segformer_model_resolution(module_name)
+    _patch_dsine_custom_hf_download(module_name)
 
 
 def _patch_segformer_model_resolution(module_name: str) -> None:
@@ -260,6 +261,54 @@ def _patch_segformer_model_resolution(module_name: str) -> None:
         mod.get_segmentation = _patched_get_seg
         logger.info("Patched segformer_ultra.get_segmentation to resolve model names to HuggingFace repos")
         break
+
+
+def _patch_dsine_custom_hf_download(module_name: str) -> None:
+    """Replace DSINE's local custom_hf_download with the shared one from util.
+
+    DSINE's ``custom_hf_download`` computes ``annotator_ckpts_path`` from
+    ``__file__``, which resolves to site-packages when installed via the
+    facade. The shared ``custom_hf_download`` from ``custom_controlnet_aux.util``
+    uses the environment variable / config, which the download interception
+    already handles correctly.
+
+    The DSINE submodule is loaded lazily (only when the preprocessor runs),
+    so we wrap ``builtins.__import__`` to patch the module right after it loads.
+    """
+    util_mod = sys.modules.get("custom_controlnet_aux.util")
+    if util_mod is None or not hasattr(util_mod, "custom_hf_download"):
+        return
+
+    # Already loaded
+    dsine_mod = sys.modules.get("custom_controlnet_aux.dsine")
+    if dsine_mod is not None:
+        _do_patch_dsine(dsine_mod, util_mod)
+        return
+
+    # Wrap __import__ to catch the lazy load
+    import builtins
+    original_import = builtins.__import__
+    shared_fn = util_mod.custom_hf_download
+
+    def _import_hook(name, *args, **kwargs):
+        result = original_import(name, *args, **kwargs)
+        if name == "custom_controlnet_aux.dsine":
+            builtins.__import__ = original_import
+            mod = sys.modules.get("custom_controlnet_aux.dsine")
+            if mod is not None:
+                _do_patch_dsine(mod, util_mod)
+        return result
+
+    builtins.__import__ = _import_hook
+
+
+def _do_patch_dsine(dsine_mod, util_mod) -> None:
+    if not hasattr(dsine_mod, "custom_hf_download"):
+        return
+    if dsine_mod.custom_hf_download is util_mod.custom_hf_download:
+        return
+    dsine_mod.custom_hf_download = util_mod.custom_hf_download
+    logger.info("Patched DSINE custom_hf_download to use shared util version")
 
 
 @contextmanager
