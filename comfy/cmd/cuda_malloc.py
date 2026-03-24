@@ -2,8 +2,8 @@ import importlib.util
 import os
 import subprocess
 
-from ..cli_args import args, PerformanceFeature, enables_dynamic_vram
-import comfy_aimdo.control
+from ..cli_args_types import PerformanceFeature
+from ..execution_context import current_execution_context
 
 #Can't use pytorch to get the GPU names because the cuda malloc has to be set before the first import.
 def get_gpu_names():
@@ -85,6 +85,8 @@ try:
             version = module.__version__
 except:
     pass
+
+args = current_execution_context().configuration
 
 if not args.cuda_malloc:
     try:
