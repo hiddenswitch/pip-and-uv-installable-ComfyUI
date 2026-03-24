@@ -43,7 +43,7 @@ def get_gpu_names():
             for l in out.split(b'\n'):
                 if len(l) > 0:
                     gpu_names.add(l.decode('utf-8').split(' (UUID')[0])
-        except IOError as error:
+        except IOError:
             pass
         return gpu_names
 

@@ -218,7 +218,7 @@ def _render_metadata(
 
 
 def _render_entrypoint_module(project: FacadeProject) -> bytes:
-    return f"""from __future__ import annotations
+    return """from __future__ import annotations
 
 from pathlib import Path
 
