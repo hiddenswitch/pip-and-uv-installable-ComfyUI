@@ -7,7 +7,7 @@ from comfy.distributed.process_pool_executor import ProcessPoolExecutor
 
 # Example context variable
 my_var = contextvars.ContextVar('my_var', default=None)
-cvpickle.register_contextvar(my_var, module=__name__)
+cvpickle.register_contextvar(my_var, module=__name__, validate=False)
 
 
 def worker_function():

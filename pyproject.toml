@@ -70,7 +70,7 @@ dependencies = [
     "can_ada",
     "fsspec",
     "natsort",
-    "OpenEXR",
+    "OpenEXR; python_version < '3.14'",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-sdk>=1.29.0",
     "opentelemetry-exporter-otlp>=1.29.0",
