@@ -244,6 +244,83 @@ print('MATCHED', matched[0])
 
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
+def test_serve_pip_can_install_comfyui_layerstyle(tmp_path: Path):
+    """Verify that comfyui-layerstyle can be downloaded and installed.
+
+    This catches regressions like missing system tools (zip, sha256sum) in the
+    container image that cause 500 errors during on-demand wheel builds.
+    """
+    src_root = Path(__file__).resolve().parents[2]
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+
+    port = _find_free_port()
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(src_root) if not existing_pythonpath else f"{src_root}{os.pathsep}{existing_pythonpath}"
+
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "comfy.cmd.main",
+            "serve-pip",
+            "--listen",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--pip-facade-cache-prefix",
+            str(tmp_path / "wheel-cache"),
+            "--pip-facade-only-known-nodes",
+            "--logging-level",
+            "INFO",
+        ],
+        cwd=src_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    try:
+        _wait_for_http(f"http://127.0.0.1:{port}/readyz", server)
+
+        result = subprocess.run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
+                "--target",
+                str(site_dir),
+                "--no-deps",
+                "--extra-index-url",
+                f"http://127.0.0.1:{port}/simple/",
+                "comfyui-layerstyle",
+            ],
+            cwd=src_root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "comfyui-layerstyle" in result.stdout.lower() or "comfyui_layerstyle" in result.stdout.lower() or result.returncode == 0
+
+        # Verify the wheel was actually installed with content
+        installed = list(site_dir.glob("_appmana_facade_*"))
+        assert installed, f"Expected facade package in {site_dir}, found: {list(site_dir.iterdir())}"
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=10)
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
     tmp_path: Path,
     facade_snapshot_path: Path,
