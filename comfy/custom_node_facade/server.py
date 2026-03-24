@@ -12,7 +12,7 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX
+from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, SUPPORTED_CUDA_VARIANTS
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
@@ -74,26 +74,33 @@ def create_facade_app(
         status = 200 if ready else 503
         return web.json_response({"ok": ready, "live": True, "ready": ready}, status=status)
 
-    async def index(_: web.Request) -> web.Response:
+    async def _build_index(cuda: str) -> web.Response:
         with tracer.start_as_current_span("Serve Pip Facade Index") as span:
+            span.set_attribute("facade.cuda", cuda)
             registry: FacadeRegistryProtocol = app["facade_registry"]
             projects = await registry.list_projects()
             span.set_attribute("facade.project_count", len(projects))
             names = sorted({project.canonical_name for project in projects} | set(PYPI_PROXY_INDEX.keys()))
+            prefix = f"/simple/{cuda}" if cuda != DEFAULT_CUDA_VARIANT else "/simple"
             links = "\n".join(
-                f'<a href="/simple/{name}/">{html.escape(name)}</a><br/>'
+                f'<a href="{prefix}/{name}/">{html.escape(name)}</a><br/>'
                 for name in names
             )
             return web.Response(text=_simple_html("Simple Index", links), content_type="text/html")
 
-    async def project_page(request: web.Request) -> web.Response:
+    async def index(_: web.Request) -> web.Response:
+        return await _build_index(DEFAULT_CUDA_VARIANT)
+
+    async def _build_project_page(request: web.Request, cuda: str) -> web.Response:
         with tracer.start_as_current_span("Serve Pip Facade Project Index") as span:
+            span.set_attribute("facade.cuda", cuda)
             project_name = canonicalize_project_name(request.match_info["project"])
             proxy = PYPI_PROXY_INDEX.get(project_name)
             if proxy is not None:
-                span.set_attribute("facade.proxy_upstream", proxy.upstream_index_url)
+                upstream_url = proxy.upstream_index_url(cuda)
+                span.set_attribute("facade.proxy_upstream", upstream_url)
                 session: aiohttp.ClientSession = app["facade_session"]
-                async with session.get(proxy.upstream_index_url) as upstream:
+                async with session.get(upstream_url) as upstream:
                     upstream.raise_for_status()
                     body = await upstream.text()
                 return web.Response(text=body, content_type="text/html")
@@ -153,11 +160,29 @@ def create_facade_app(
     app.router.add_get("/livez", liveness)
     app.router.add_get("/readyz", readiness)
     app.router.add_get("/healthz", readiness)
+    async def simple_one_segment(request: web.Request) -> web.Response:
+        """Handles /simple/{segment}/ — either a CUDA variant index or a project page."""
+        segment = request.match_info["segment"]
+        if segment in SUPPORTED_CUDA_VARIANTS:
+            return await _build_index(segment)
+        # Treat as project name with default CUDA
+        request.match_info["project"] = segment
+        return await _build_project_page(request, DEFAULT_CUDA_VARIANT)
+
+    async def simple_two_segments(request: web.Request) -> web.Response:
+        """Handles /simple/{first}/{second}/ — CUDA variant + project."""
+        first = request.match_info["first"]
+        if first not in SUPPORTED_CUDA_VARIANTS:
+            raise web.HTTPNotFound(text=f"Unsupported CUDA variant: {first}")
+        request.match_info["project"] = request.match_info["second"]
+        return await _build_project_page(request, first)
+
     app.router.add_get("/simple", index)
     app.router.add_get("/simple/", index)
-    app.router.add_get("/simple/{project}/", project_page)
+    app.router.add_get("/simple/{first}/{second}/", simple_two_segments)
+    app.router.add_get("/simple/{segment}/", simple_one_segment)
     app.router.add_get("/packages/{project}/{version}/{filename}", package_download)
-    app.router.add_get("/{project}/", project_page)
+    app.router.add_get("/{segment}/", simple_one_segment)
     return app
 
 

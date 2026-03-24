@@ -59,21 +59,31 @@ _PYPI_REWRITE_INDEX: dict[str, PyPIRewriteSpec] = {
 }
 
 
+DEFAULT_CUDA_VARIANT = "cu130"
+SUPPORTED_CUDA_VARIANTS = ("cu128", "cu130")
+
+
 @dataclass(frozen=True)
 class PyPIProxySpec:
-    """A package whose simple index page is proxied from an upstream URL."""
-    name: str
-    upstream_index_url: str
+    """A package whose simple index page is proxied from an upstream URL template.
 
+    ``upstream_index_url_template`` contains a ``{cuda}`` placeholder that is
+    replaced at request time with the selected CUDA variant (e.g. ``cu130``).
+    """
+    name: str
+    upstream_index_url_template: str
+
+    def upstream_index_url(self, cuda: str = DEFAULT_CUDA_VARIANT) -> str:
+        return self.upstream_index_url_template.format(cuda=cuda)
 
 PYPI_PROXY_PACKAGES: list[PyPIProxySpec] = [
     PyPIProxySpec(
         name="sageattention",
-        upstream_index_url="https://appmana.github.io/forks-sageattention-stable-abi/cu130/sageattention/",
+        upstream_index_url_template="https://appmana.github.io/forks-sageattention-stable-abi/{cuda}/sageattention/",
     ),
     PyPIProxySpec(
         name="nunchaku",
-        upstream_index_url="https://appmana.github.io/forks-nunchaku-stable-abi/cu130/nunchaku/",
+        upstream_index_url_template="https://appmana.github.io/forks-nunchaku-stable-abi/{cuda}/nunchaku/",
     ),
 ]
 
