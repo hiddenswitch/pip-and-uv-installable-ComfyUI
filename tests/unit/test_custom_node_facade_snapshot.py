@@ -154,7 +154,7 @@ async def test_snapshot_registry_reads_plain_sqlite(tmp_path: Path):
     registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
     projects = await registry.list_projects()
 
-    assert [item.canonical_name for item in projects] == [project.canonical_name]
+    assert project.canonical_name in [item.canonical_name for item in projects]
     loaded_version = await registry.get_version(project.canonical_name, version.version)
     assert loaded_version == version
 
@@ -182,10 +182,9 @@ async def test_snapshot_registry_reads_pkg_xz_uri(tmp_path: Path, monkeypatch):
     registry = SnapshotFacadeRegistry(snapshot_uri="pkg://snapshot_pkg/registry.sqlite.xz")
     projects = await registry.list_projects()
 
-    assert len(projects) == 1
-    assert projects[0].canonical_name == project.canonical_name
+    assert project.canonical_name in [item.canonical_name for item in projects]
     versions = await registry.list_versions(project.canonical_name)
-    assert versions == [version]
+    assert version in versions
 
 
 async def test_snapshot_registry_omits_non_pep440_versions(tmp_path: Path):

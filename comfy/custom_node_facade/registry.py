@@ -209,9 +209,13 @@ class SnapshotFacadeRegistry:
             return project.canonical_name
         return canonicalize_project_name(dependency_id)
 
+    @staticmethod
+    def _needs_decompression(path: str) -> bool:
+        return path.endswith((".xz", ".gz", ".bz2", ".zst"))
+
     def _load_all(self) -> tuple[list[FacadeProject], dict[str, str], dict[str, list[FacadeVersion]]]:
         path = self._file_path()
-        if path is not None:
+        if path is not None and not self._needs_decompression(path):
             db_path = path
             cleanup = False
         else:
