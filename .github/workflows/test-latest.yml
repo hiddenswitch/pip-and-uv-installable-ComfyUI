@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Latest Python + PyTorch
+
+on: [push]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  latest:
+    name: Python 3.14 PyTorch latest (CPU)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm git python uv zip
+
+      - uses: actions/checkout@v4
+
+      - name: Create venv
+        run: |
+          uv venv --python 3.14 .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install ComfyUI
+        run: |
+          uv pip install --torch-backend=auto ".[dev]"
+
+      - name: Environment info
+        run: |
+          python --version
+          python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available())"
+
+      - name: Lint
+        run: |
+          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+
+      - name: Unit tests
+        run: |
+          pytest -v --tb=long tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
