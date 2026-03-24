@@ -188,7 +188,6 @@ class TestPipInterception:
             assert "hello" in result.stdout
 
 
-@pytest.mark.slow
 @pytest.mark.git_clone
 class TestWanVideoWrapperDownloadInterception:
 
