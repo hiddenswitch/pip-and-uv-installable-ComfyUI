@@ -404,6 +404,90 @@ def test_serve_pip_rewrites_image_reward_with_relaxed_timm(tmp_path: Path):
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
+def test_serve_pip_can_install_comfyui_nunchaku_with_nunchaku_dep(tmp_path: Path):
+    """Verify that comfyui-nunchaku includes nunchaku as a dependency and that
+    nunchaku resolves from the proxied GitHub Pages index."""
+    src_root = Path(__file__).resolve().parents[2]
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+
+    port = _find_free_port()
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(src_root) if not existing_pythonpath else f"{src_root}{os.pathsep}{existing_pythonpath}"
+
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "comfy.cmd.main",
+            "serve-pip",
+            "--listen",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--pip-facade-cache-prefix",
+            str(tmp_path / "wheel-cache"),
+            "--pip-facade-only-known-nodes",
+            "--logging-level",
+            "INFO",
+        ],
+        cwd=src_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    try:
+        _wait_for_http(f"http://127.0.0.1:{port}/readyz", server)
+
+        # Verify the simple index lists nunchaku (proxied from GitHub Pages)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/simple/nunchaku/") as resp:
+            nunchaku_html = resp.read().decode()
+        assert ".whl" in nunchaku_html, "nunchaku index should contain wheel links"
+
+        # Install comfyui-nunchaku (no-deps) and verify nunchaku is in its metadata
+        subprocess.run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
+                "--target",
+                str(site_dir),
+                "--no-deps",
+                "--extra-index-url",
+                f"http://127.0.0.1:{port}/simple/",
+                "comfyui-nunchaku",
+            ],
+            cwd=src_root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        installed = list(site_dir.glob("_appmana_facade_*"))
+        assert installed, f"Expected facade package in {site_dir}, found: {list(site_dir.iterdir())}"
+
+        dist_info = list(site_dir.glob("comfyui_nunchaku-*.dist-info"))
+        assert dist_info, f"comfyui-nunchaku dist-info not found in {list(site_dir.iterdir())}"
+        metadata = (dist_info[0] / "METADATA").read_text(encoding="utf-8")
+        assert "nunchaku" in metadata.lower(), "nunchaku should be in Requires-Dist"
+        # Verify the platform marker is present (not installed on macOS)
+        assert "darwin" in metadata, "nunchaku dep should have sys_platform != darwin marker"
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=10)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
     tmp_path: Path,
     facade_snapshot_path: Path,

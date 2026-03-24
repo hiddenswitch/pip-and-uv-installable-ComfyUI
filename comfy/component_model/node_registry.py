@@ -87,6 +87,14 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         depends_on=("ComfyUI-Impact-Pack", "ComfyUI-segment-anything-2"),
     ),
     CustomNodeSpec(
+        node_id="ComfyUI-nunchaku",
+        repo_url="https://github.com/nunchaku-tech/ComfyUI-nunchaku",
+        display_name="ComfyUI-nunchaku",
+        extra_requirements=[
+            'nunchaku; sys_platform != "darwin"',
+        ],
+    ),
+    CustomNodeSpec(
         node_id="ComfyUI-Advanced-ControlNet",
         repo_url="https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
         display_name="ComfyUI-Advanced-ControlNet",
