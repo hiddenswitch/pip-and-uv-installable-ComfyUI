@@ -242,7 +242,6 @@ print('MATCHED', matched[0])
             server.wait(timeout=10)
 
 
-@pytest.mark.slow
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_comfyui_layerstyle(tmp_path: Path):
     """Verify that comfyui-layerstyle can be downloaded and installed.
