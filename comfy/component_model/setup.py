@@ -125,6 +125,13 @@ def setup_tracing(config: Configuration):
         return
     _tracing_initialized = True
 
+    try:
+        _setup_tracing_impl(config)
+    except Exception:
+        logger.debug("Failed to initialize OpenTelemetry tracing", exc_info=True)
+
+
+def _setup_tracing_impl(config: Configuration):
     from opentelemetry import trace, metrics
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
