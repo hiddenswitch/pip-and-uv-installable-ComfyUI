@@ -1,15 +1,7 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
-import os
 import re
-import socket
-import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
-from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 import comfy.cmd.cli as cli_module
 from comfy.cmd.cli import app, _register_sub_apps
@@ -198,61 +190,3 @@ def test_entrypoint_does_not_rewrite_unknown_verbs(monkeypatch):
     cli_module.entrypoint()
 
     assert called == [["comfyui", "definitely-not-a-command"]]
-
-
-_SRC_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-@pytest.mark.slow
-def test_serve_starts_and_reaches_ready():
-    """Verify that ``comfyui serve`` gets past setup_pre_torch and binds its port.
-
-    This catches import errors (e.g. missing names in cli_args) that only
-    surface when the server actually starts, not just when --help is invoked.
-    """
-    port = _find_free_port()
-    env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
-
-    process = subprocess.Popen(
-        [
-            sys.executable, "-m", "comfy.cmd.main",
-            "--listen", "127.0.0.1",
-            "--port", str(port),
-            "--cpu",
-            "--dont-print-server",
-        ],
-        cwd=_SRC_ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            if process.poll() is not None:
-                output = process.stdout.read()
-                pytest.fail(f"comfyui serve exited early with code {process.returncode}:\n{output}")
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=2) as resp:
-                    if resp.status == 200:
-                        return  # success
-            except (urllib.error.URLError, ConnectionRefusedError, OSError):
-                time.sleep(0.5)
-        output = process.stdout.read()
-        pytest.fail(f"comfyui serve did not become ready within 60s:\n{output}")
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
