@@ -134,8 +134,15 @@ def _stub_package_name(name: str) -> str:
     return f"_appmana_facade_{identifier}"
 
 
+def _subprocess_run(args: list[str], **kwargs) -> subprocess.CompletedProcess[bytes]:
+    """Run a subprocess, using shell on Windows to resolve Git Bash tools."""
+    if os.name == "nt":
+        return subprocess.run(["sh", "-c", " ".join(args)], **kwargs)
+    return subprocess.run(args, **kwargs)
+
+
 def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
-    result = subprocess.run(
+    result = _subprocess_run(
         ["find", ".", "-type", "f", "-print0"],
         cwd=str(tree),
         capture_output=True,
@@ -144,7 +151,7 @@ def _build_record_from_tree(tree: Path) -> list[tuple[str, str, str]]:
         raise RuntimeError(f"find failed: {result.stderr.decode(errors='replace')}")
     files = sorted(f for f in result.stdout.decode().split("\0") if f)
 
-    result = subprocess.run(
+    result = _subprocess_run(
         ["xargs", "-0", "sha256sum"],
         cwd=str(tree),
         input=result.stdout,
@@ -490,7 +497,7 @@ class FacadeWheelBuilder:
 
             # Create the zip with system zip (constant memory, follows symlinks)
             temp_wheel = staging / "wheel.whl"
-            result = subprocess.run(
+            result = _subprocess_run(
                 ["zip", "-q", "-r", "-0", str(temp_wheel), "."],
                 cwd=str(tree),
                 capture_output=True,

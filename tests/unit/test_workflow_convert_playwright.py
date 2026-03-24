@@ -30,7 +30,6 @@ _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
     # Frontend bug: compressWidgetInputSlots shrinks SubgraphNode input
     # array but resolveInput still indexes by original slot, going OOB.
     "gsc_starter_2": ("SimpleMath+ extra 'a', KSamplerAdvanced steps=8 vs 4",),
-    "video-wan21_scail": ("SimpleMath+ extra 'a', unknown node num_frames",),
     "image_flux2_klein_image_edit_9b_distilled": ("subgraph boundary inputs",),
     # Frontend bug: duplicate inner links to same subgraph output slot
     # cause resolveSubgraphOutputLink to return undefined.

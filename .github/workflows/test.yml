@@ -44,7 +44,7 @@ jobs:
             stable_abi_cuda: ""
     steps:
       - run: |
-          apt-get update && apt-get install -y --no-install-recommends libxcb1
+          apt-get update && apt-get install -y --no-install-recommends libxcb1 zip unzip
         name: Install system dependencies
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -147,6 +147,9 @@ jobs:
             container: "rocm/pytorch:rocm7.0_ubuntu24.04_py3.12_pytorch_release_2.7.1"
     steps:
       - run: |
+          apt-get update && apt-get install -y --no-install-recommends zip unzip
+        name: Install system dependencies
+      - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - name: Align ROCm to Image
@@ -239,8 +242,8 @@ jobs:
         with:
           path: src
       - run: |
-          apt-get install -y libsndfile1 libxcb1 --no-install-recommends
-        name: sndfile Dependency
+          apt-get install -y libsndfile1 libxcb1 zip unzip --no-install-recommends
+        name: Install runtime dependencies
       - name: Write Overrides
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true

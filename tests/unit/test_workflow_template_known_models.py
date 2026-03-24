@@ -29,11 +29,6 @@ _SUPPORTED_REPO_MARKERS = (
 )
 
 _WIDGET_ONLY_EXPECTED = {
-    "video-wan21_scail": {
-        "Wan21-14B-SCAIL-preview_comfy_bf16.safetensors",
-        "lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
-        "yolov10m.onnx",
-    },
     "video_wanmove_480p": {
         "Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors",
         "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
