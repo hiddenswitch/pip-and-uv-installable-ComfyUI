@@ -12,8 +12,8 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeWheelBuilder
-from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry
+from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX
+from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -79,14 +79,25 @@ def create_facade_app(
             registry: FacadeRegistryProtocol = app["facade_registry"]
             projects = await registry.list_projects()
             span.set_attribute("facade.project_count", len(projects))
+            names = sorted({project.canonical_name for project in projects} | set(PYPI_PROXY_INDEX.keys()))
             links = "\n".join(
-                f'<a href="/simple/{project.canonical_name}/">{html.escape(project.canonical_name)}</a><br/>'
-                for project in projects
+                f'<a href="/simple/{name}/">{html.escape(name)}</a><br/>'
+                for name in names
             )
             return web.Response(text=_simple_html("Simple Index", links), content_type="text/html")
 
     async def project_page(request: web.Request) -> web.Response:
         with tracer.start_as_current_span("Serve Pip Facade Project Index") as span:
+            project_name = canonicalize_project_name(request.match_info["project"])
+            proxy = PYPI_PROXY_INDEX.get(project_name)
+            if proxy is not None:
+                span.set_attribute("facade.proxy_upstream", proxy.upstream_index_url)
+                session: aiohttp.ClientSession = app["facade_session"]
+                async with session.get(proxy.upstream_index_url) as upstream:
+                    upstream.raise_for_status()
+                    body = await upstream.text()
+                return web.Response(text=body, content_type="text/html")
+
             registry: FacadeRegistryProtocol = app["facade_registry"]
             builder: FacadeWheelBuilder = app["facade_builder"]
             project = await registry.get_project(request.match_info["project"])

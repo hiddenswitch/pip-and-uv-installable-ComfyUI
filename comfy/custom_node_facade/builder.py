@@ -58,6 +58,29 @@ _PYPI_REWRITE_INDEX: dict[str, PyPIRewriteSpec] = {
     canonicalize_project_name(spec.name): spec for spec in PYPI_REWRITE_PACKAGES
 }
 
+
+@dataclass(frozen=True)
+class PyPIProxySpec:
+    """A package whose simple index page is proxied from an upstream URL."""
+    name: str
+    upstream_index_url: str
+
+
+PYPI_PROXY_PACKAGES: list[PyPIProxySpec] = [
+    PyPIProxySpec(
+        name="sageattention",
+        upstream_index_url="https://appmana.github.io/forks-sageattention-stable-abi/cu130/sageattention/",
+    ),
+    PyPIProxySpec(
+        name="nunchaku",
+        upstream_index_url="https://appmana.github.io/forks-nunchaku-stable-abi/cu130/nunchaku/",
+    ),
+]
+
+PYPI_PROXY_INDEX: dict[str, PyPIProxySpec] = {
+    canonicalize_project_name(spec.name): spec for spec in PYPI_PROXY_PACKAGES
+}
+
 _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "image-reward",
     "jax",
