@@ -51,7 +51,7 @@ class ExecutionContext:
 
 comfyui_execution_context: Final[ContextVar] = ContextVar("comfyui_execution_context", default=ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub(), configuration=Configuration(), preview_method_override=None))
 # enables context var propagation across process boundaries for process pool executors
-cvpickle.register_contextvar(comfyui_execution_context, __name__)
+cvpickle.register_contextvar(comfyui_execution_context, __name__, validate=False)
 
 
 def current_execution_context() -> ExecutionContext:
