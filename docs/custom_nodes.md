@@ -25,12 +25,15 @@ The default index (`/simple/`) serves CUDA 13.0 binaries for packages like `nunc
 
 ```bash
 # CUDA 13.0 (default)
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-nunchaku
 
 # CUDA 13.0 (explicit)
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130 sageattention
 uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130 comfyui-nunchaku
 
 # CUDA 12.8
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128 sageattention
 uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128 comfyui-nunchaku
 ```
 
