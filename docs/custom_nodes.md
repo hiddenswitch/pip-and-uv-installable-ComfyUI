@@ -19,6 +19,23 @@ Or with pip:
 pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-wanvideowrapper
 ```
 
+### Selecting a CUDA version
+
+The default index (`/simple/`) serves CUDA 13.0 binaries for packages like `nunchaku` and `sageattention`. To install CUDA 12.8 builds instead, use the `/simple/cu128` index:
+
+```bash
+# CUDA 13.0 (default)
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-nunchaku
+
+# CUDA 13.0 (explicit)
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130 comfyui-nunchaku
+
+# CUDA 12.8
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128 comfyui-nunchaku
+```
+
+All other packages (custom nodes, patched dependencies) are identical across CUDA variants.
+
 To find which packages a workflow needs:
 
 ```bash
