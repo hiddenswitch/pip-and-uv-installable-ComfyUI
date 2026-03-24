@@ -219,7 +219,7 @@ def _apply_post_import_patches(module_name: str) -> None:
     ``from_pretrained`` can resolve and cache automatically.
     """
     _patch_segformer_model_resolution(module_name)
-    _patch_dsine_custom_hf_download(module_name)
+    _install_deferred_controlnet_patches(module_name)
 
 
 def _patch_segformer_model_resolution(module_name: str) -> None:
@@ -263,52 +263,143 @@ def _patch_segformer_model_resolution(module_name: str) -> None:
         break
 
 
-def _patch_dsine_custom_hf_download(module_name: str) -> None:
-    """Replace DSINE's local custom_hf_download with the shared one from util.
+def _install_deferred_controlnet_patches(module_name: str) -> None:
+    """Install patches for lazily-loaded controlnet-aux submodules.
 
-    DSINE's ``custom_hf_download`` computes ``annotator_ckpts_path`` from
-    ``__file__``, which resolves to site-packages when installed via the
-    facade. The shared ``custom_hf_download`` from ``custom_controlnet_aux.util``
-    uses the environment variable / config, which the download interception
-    already handles correctly.
-
-    The DSINE submodule is loaded lazily (only when the preprocessor runs),
-    so we wrap ``builtins.__import__`` to patch the module right after it loads.
+    Controlnet-aux loads preprocessor implementations on demand. We install a
+    single ``builtins.__import__`` hook that applies all pending patches as
+    their target modules are imported.
     """
     util_mod = sys.modules.get("custom_controlnet_aux.util")
-    if util_mod is None or not hasattr(util_mod, "custom_hf_download"):
+    if util_mod is None:
         return
 
-    # Already loaded
-    dsine_mod = sys.modules.get("custom_controlnet_aux.dsine")
-    if dsine_mod is not None:
-        _do_patch_dsine(dsine_mod, util_mod)
+    # --- Patch definitions keyed by module name ---
+    # Each value is a callable(module) that applies the patch.
+    pending: dict[str, list] = {}
+
+    # DSINE: replace local custom_hf_download with the shared one from util
+    if hasattr(util_mod, "custom_hf_download"):
+        shared_hf = util_mod.custom_hf_download
+
+        def _patch_dsine(mod):
+            if hasattr(mod, "custom_hf_download") and mod.custom_hf_download is not shared_hf:
+                mod.custom_hf_download = shared_hf
+                logger.info("Patched DSINE custom_hf_download to use shared util version")
+
+        pending.setdefault("custom_controlnet_aux.dsine", []).append(_patch_dsine)
+
+    # Pipeline .to() patches: fix device placement for HuggingFace pipeline wrappers.
+    # These detectors use transformers.pipeline() which auto-selects CUDA, but
+    # their to() only moves self.pipe.model without updating self.pipe.device.
+    _PIPELINE_CLASSES = {
+        "custom_controlnet_aux.depth_anything": ("DepthAnythingDetector",),
+        "custom_controlnet_aux.zoe": ("ZoeDetector", "ZoeDepthAnythingDetector"),
+    }
+
+    def _make_pipeline_patcher(class_names):
+        def _patch(mod):
+            for cls_name in class_names:
+                cls = getattr(mod, cls_name, None)
+                if cls is None or not hasattr(cls, "to"):
+                    continue
+                original_to = cls.to
+
+                def _patched_to(self, device, _orig=original_to):
+                    _orig(self, device)
+                    if hasattr(self, "pipe"):
+                        import torch  # pylint: disable=import-outside-toplevel
+                        self.pipe.device = torch.device(device) if isinstance(device, str) else device
+                        self.pipe.model = self.pipe.model.to(device)
+                    return self
+
+                cls.to = _patched_to
+                logger.info("Patched %s.%s.to() for proper pipeline device placement", mod.__name__, cls_name)
+        return _patch
+
+    for mod_name, cls_names in _PIPELINE_CLASSES.items():
+        pending.setdefault(mod_name, []).append(_make_pipeline_patcher(cls_names))
+
+    # custom_torch_download: default ckpts_dir bakes in the site-packages path.
+    # Replace it to download to torch hub cache instead.
+    def _patch_torch_download(mod):
+        if not hasattr(mod, "custom_torch_download"):
+            return
+
+        def _patched_torch_download(filename, ckpts_dir=None):
+            import torch  # pylint: disable=import-outside-toplevel
+            model_url = "https://download.pytorch.org/models/" + filename
+            cache_dir = torch.hub.get_dir()
+            local_dir = os.path.join(cache_dir, "checkpoints")
+            os.makedirs(local_dir, exist_ok=True)
+            model_path = os.path.join(local_dir, filename)
+            if not os.path.exists(model_path):
+                torch.hub.download_url_to_file(model_url, model_path, progress=True)
+            return model_path
+
+        mod.custom_torch_download = _patched_torch_download
+        logger.info("Patched custom_torch_download to use torch hub cache")
+
+    pending.setdefault("custom_controlnet_aux.util", []).append(_patch_torch_download)
+
+    # DepthAnythingV2: image2tensor hardcodes CUDA device selection.
+    # Patch it to use the model's device instead.
+    def _patch_depth_anything_v2(mod):
+        cls = getattr(mod, "DepthAnythingV2Detector", None)
+        if cls is None:
+            return
+        original_call = cls.__call__
+
+        def _patched_call(self, *args, **kwargs):
+            # Temporarily patch the DPT model's image2tensor to use self.device
+            model = self.model
+            if hasattr(model, "image2tensor"):
+                original_i2t = model.image2tensor
+
+                def _patched_i2t(raw_image, input_size=518, _orig=original_i2t, _device=self.device):
+                    import torch as _torch  # pylint: disable=import-outside-toplevel
+                    image, hw = _orig(raw_image, input_size)
+                    return image.to(_device), hw
+
+                model.image2tensor = _patched_i2t
+                try:
+                    return original_call(self, *args, **kwargs)
+                finally:
+                    model.image2tensor = original_i2t
+            return original_call(self, *args, **kwargs)
+
+        cls.__call__ = _patched_call
+        logger.info("Patched DepthAnythingV2Detector.__call__ for proper device placement")
+
+    pending.setdefault("custom_controlnet_aux.depth_anything_v2", []).append(_patch_depth_anything_v2)
+
+    # Apply patches for modules already loaded
+    for mod_name in list(pending):
+        mod = sys.modules.get(mod_name)
+        if mod is not None:
+            for fn in pending.pop(mod_name):
+                fn(mod)
+
+    if not pending:
         return
 
-    # Wrap __import__ to catch the lazy load
-    import builtins
+    # Install a single __import__ hook for all remaining deferred patches
+    import builtins  # pylint: disable=import-outside-toplevel
     original_import = builtins.__import__
-    shared_fn = util_mod.custom_hf_download
 
     def _import_hook(name, *args, **kwargs):
         result = original_import(name, *args, **kwargs)
-        if name == "custom_controlnet_aux.dsine":
-            builtins.__import__ = original_import
-            mod = sys.modules.get("custom_controlnet_aux.dsine")
+        patches = pending.pop(name, None)
+        if patches:
+            mod = sys.modules.get(name)
             if mod is not None:
-                _do_patch_dsine(mod, util_mod)
+                for fn in patches:
+                    fn(mod)
+            if not pending:
+                builtins.__import__ = original_import
         return result
 
     builtins.__import__ = _import_hook
-
-
-def _do_patch_dsine(dsine_mod, util_mod) -> None:
-    if not hasattr(dsine_mod, "custom_hf_download"):
-        return
-    if dsine_mod.custom_hf_download is util_mod.custom_hf_download:
-        return
-    dsine_mod.custom_hf_download = util_mod.custom_hf_download
-    logger.info("Patched DSINE custom_hf_download to use shared util version")
 
 
 @contextmanager

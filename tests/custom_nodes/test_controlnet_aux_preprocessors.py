@@ -129,9 +129,17 @@ def _files_in_tree(root: Path) -> set[str]:
     return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()}
 
 
+_XFAIL_PREPROCESSORS = {
+    "MeshGraphormer-DepthMapPreprocessor": "upstream ImportError: load_tf_weights_in_bert missing from bundled bert",
+}
+
+
 @pytest.mark.parametrize("preprocessor", _preprocessor_names)
 @pytest.mark.asyncio
 async def test_aio_preprocessor(preprocessor: str, tmp_path: Path):
+    reason = _XFAIL_PREPROCESSORS.get(preprocessor)
+    if reason:
+        pytest.xfail(reason)
     from comfy.client.embedded_comfy_client import Comfy
 
     base_dir = tmp_path / "base"
