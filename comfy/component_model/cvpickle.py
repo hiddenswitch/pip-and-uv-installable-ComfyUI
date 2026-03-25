@@ -47,7 +47,16 @@ import contextvars
 import copyreg
 import importlib
 import types
-from pickle import _getattribute
+import sys
+
+if sys.version_info >= (3, 14):
+    def _getattribute(obj, name):
+        from pickle import _getattribute as _ga
+        # Python 3.14: _getattribute takes an iterable of path components, returns obj
+        result = _ga(obj, name.split("."))
+        return result, None
+else:
+    from pickle import _getattribute
 
 
 class _ContextVarProxy:
