@@ -26,21 +26,17 @@ jobs:
 
       - name: Install ComfyUI
         run: |
-          . .venv/bin/activate
-          uv pip install --torch-backend=auto ".[dev]"
+          .venv/bin/uv pip install --torch-backend=auto ".[dev]"
 
       - name: Environment info
         run: |
-          . .venv/bin/activate
-          python --version
-          python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available())"
+          .venv/bin/python --version
+          .venv/bin/python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available())"
 
       - name: Lint
         run: |
-          . .venv/bin/activate
-          python -m pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          .venv/bin/python -m pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
 
       - name: Unit tests
         run: |
-          . .venv/bin/activate
-          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          .venv/bin/python -m pytest -v --tb=long tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
