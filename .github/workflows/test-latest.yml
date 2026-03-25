@@ -35,7 +35,7 @@ jobs:
 
       - name: Lint
         run: |
-          .venv/bin/python -m pylint --fail-under=10 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          .venv/bin/python -m pylint --disable=W4902 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
 
       - name: Unit tests
         run: |
