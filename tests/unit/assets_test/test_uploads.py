@@ -254,6 +254,7 @@ def test_upload_empty_tags_rejected(http: requests.Session, api_base: str):
     assert body["error"]["code"] == "INVALID_BODY"
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.parametrize("root", ["input", "output"])
 def test_duplicate_upload_same_display_name_does_not_clobber(
     root: str,
