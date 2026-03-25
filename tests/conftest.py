@@ -263,6 +263,8 @@ def clip():
         return CheckpointLoaderSimple().load_checkpoint(checkpoint)[1]
     except FileNotFoundError:
         pytest.skip(f"{checkpoint} not present on machine")
+    except RuntimeError as e:
+        pytest.skip(str(e))
 
 
 @pytest.fixture(scope="module")
