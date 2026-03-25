@@ -38,9 +38,9 @@ jobs:
       - name: Lint
         run: |
           . .venv/bin/activate
-          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          python -m pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
 
       - name: Unit tests
         run: |
           . .venv/bin/activate
-          pytest -v --tb=long tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
