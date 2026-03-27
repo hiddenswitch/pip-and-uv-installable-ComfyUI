@@ -25,7 +25,13 @@ def eval_python(inputs=5, outputs=5, name=None, input_is_list=None, output_is_li
     if name is None:
         name = f"EvalPython_{inputs}_{outputs}"
 
-    default_code = f"""
+    if output_is_list:
+        default_code = """
+print("Hello World!")
+return [value0]
+"""
+    else:
+        default_code = f"""
 print("Hello World!")
 return {", ".join([f"value{i}" for i in range(inputs)])}
 """
