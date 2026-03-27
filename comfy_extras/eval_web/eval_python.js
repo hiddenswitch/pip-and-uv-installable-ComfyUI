@@ -44,80 +44,140 @@ const aceLoadPromise = new Promise((resolve) => {
   }
 });
 
-// todo: do we really want to do this here?
 await aceLoadPromise;
+
 const findWidget = (node, value, attr = "name", func = "find") => {
   return node?.widgets ? node.widgets[func]((w) => (Array.isArray(value) ? value.includes(w[attr]) : w[attr] === value)) : null;
 };
 
-const makeElement = (tag, attrs = {}) => {
-  if (!tag) tag = "div";
-  const element = document.createElement(tag);
-  Object.keys(attrs).forEach((key) => {
-    const currValue = attrs[key];
-    if (key === "class") {
-      if (Array.isArray(currValue)) {
-        element.classList.add(...currValue);
-      } else if (currValue instanceof String || typeof currValue === "string") {
-        element.className = currValue;
-      }
-    } else if (key === "dataset") {
-      try {
-        if (Array.isArray(currValue)) {
-          currValue.forEach((datasetArr) => {
-            const [prop, propval] = Object.entries(datasetArr)[0];
-            element.dataset[prop] = propval;
-          });
-        } else {
-          Object.entries(currValue).forEach((datasetArr) => {
-            const [prop, propval] = datasetArr;
-            element.dataset[prop] = propval;
-          });
-        }
-      } catch (err) {
-        // todo: what is this trying to do?
-      }
-    } else if (key === "style") {
-      if (typeof currValue === "object" && !Array.isArray(currValue) && Object.keys(currValue).length) {
-        Object.assign(element[key], currValue);
-      } else if (typeof currValue === "object" && Array.isArray(currValue) && currValue.length) {
-        element[key] = [...currValue];
-      } else if (currValue instanceof String || typeof currValue === "string") {
-        element[key] = currValue;
-      }
-    } else if (["for"].includes(key)) {
-      element.setAttribute(key, currValue);
-    } else if (key === "children") {
-      element.append(...(currValue instanceof Array ? currValue : [currValue]));
-    } else if (key === "parent") {
-      currValue.append(element);
-    } else {
-      element[key] = currValue;
-    }
-  });
-  return element;
+// Trigger workflow change tracking
+const markWorkflowChanged = () => {
+  app?.extensionManager?.workflow?.activeWorkflow?.changeTracker?.checkState();
 };
 
-const getPosition = (node, ctx, w_width, y, n_height) => {
-  const margin = 5;
+// Detect nodes 2.0: addDOMWidget exists and creates managed widgets
+const useNodes2 = typeof app?.canvas?.graph?.getNodeById === "function"
+  && typeof document.querySelector?.(".dom-widget") !== "undefined";
 
+// Shared: create ACE editor on a container element
+const initAceEditor = (container, defaultValue) => {
+  const editor = ace.edit(container);
+  editor.setTheme("ace/theme/monokai");
+  editor.session.setMode("ace/mode/python");
+  editor.setOptions({
+    enableAutoIndent: true,
+    enableLiveAutocompletion: true,
+    enableBasicAutocompletion: true,
+    fontFamily: "monospace",
+  });
+  if (defaultValue) {
+    editor.setValue(defaultValue);
+    editor.clearSelection();
+  }
+  return editor;
+};
+
+
+// ============================================================
+// Nodes 2.0: Use addDOMWidget for Vue-managed positioning
+// DomWidgets.vue handles subgraph visibility automatically.
+// ============================================================
+
+const codeEditorV2 = (node, inputName, inputData) => {
+  const defaultValue = inputData[1]?.default || "";
+
+  // Create the container element for the ACE editor
+  const container = document.createElement("div");
+  container.style.cssText = `
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    --comfy-widget-min-height: 200;
+    --comfy-widget-height: 50%;
+  `;
+
+  const editor = initAceEditor(container, defaultValue);
+
+  // Use addDOMWidget: the frontend's DomWidgets.vue manages positioning,
+  // visibility, z-index, and subgraph awareness automatically.
+  const widget = node.addDOMWidget(inputName, "code_block_python", container, {
+    hideOnZoom: true,
+    getValue: () => editor.getValue(),
+    setValue: (v) => {
+      if (editor.getValue() !== v) {
+        editor.setValue(v);
+        editor.clearSelection();
+      }
+    },
+    getMinHeight: () => 200,
+    getHeight: () => "50%",
+  });
+
+  // Store editor reference for onConfigure
+  widget.editor = editor;
+
+  editor.getSession().on("change", () => {
+    markWorkflowChanged();
+  });
+
+  // Resize editor when widget resizes
+  widget.options.afterResize = () => {
+    editor.resize();
+  };
+
+  return widget;
+};
+
+
+// ============================================================
+// Nodes 1.0 (legacy): Manual DOM positioning with draw()
+// Requires explicit subgraph-change hiding via onDrawForeground.
+// ============================================================
+
+const allCodeWidgetsV1 = new Set();
+
+const setupGraphChangeListenerV1 = (() => {
+  let installed = false;
+  return () => {
+    if (installed) return;
+    installed = true;
+
+    const hideStaleEditors = () => {
+      // app.canvas.graph is the currently displayed graph (follows subgraph
+      // navigation). app.graph stays on the root graph and must not be used.
+      const currentGraph = app.canvas?.graph;
+      if (!currentGraph) return;
+      for (const w of allCodeWidgetsV1) {
+        if (w._ownerNode?.graph !== currentGraph) {
+          w.codeElement.hidden = true;
+        }
+      }
+    };
+
+    const tryHook = () => {
+      const canvas = app.canvas;
+      if (!canvas) {
+        requestAnimationFrame(tryHook);
+        return;
+      }
+      const origDraw = canvas.onDrawForeground;
+      canvas.onDrawForeground = function () {
+        origDraw?.apply(this, arguments);
+        hideStaleEditors();
+      };
+    };
+    tryHook();
+  };
+})();
+
+const getPositionV1 = (node, ctx, w_width, y, n_height) => {
+  const margin = 5;
   const rect = ctx.canvas.getBoundingClientRect();
   const transform = ctx.getTransform();
   const scale = app.canvas.ds.scale;
-
-  // The context is already transformed to draw at the widget position
-  // transform.e and transform.f give us the canvas coordinates (in canvas pixels)
-  // We need to convert these to screen pixels by accounting for the canvas scale
-  // rect gives us the canvas element's position on the page
-
-  // The transform matrix has scale baked in (transform.a = transform.d = scale)
-  // transform.e and transform.f are the translation in canvas-pixel space
   const canvasPixelToScreenPixel = rect.width / ctx.canvas.width;
-
   const x = transform.e * canvasPixelToScreenPixel + rect.left;
   const y_pos = transform.f * canvasPixelToScreenPixel + rect.top;
-
-  // Convert widget dimensions from canvas coordinates to screen pixels
   const scaledWidth = w_width * scale;
   const scaledHeight = (n_height - y - 15) * scale;
   const scaledMargin = margin * scale;
@@ -137,49 +197,7 @@ const getPosition = (node, ctx, w_width, y, n_height) => {
   };
 };
 
-// Track all code editor widgets so we can hide them on graph change
-const allCodeWidgets = new Set();
-
-// Listen for graph changes (entering/exiting subgraphs) to hide editors
-// whose nodes are no longer in the active graph. draw() is not called for
-// nodes outside the active graph, so the draw-based check is insufficient.
-const setupGraphChangeListener = (() => {
-  let installed = false;
-  return () => {
-    if (installed) return;
-    installed = true;
-
-    const hideStaleEditors = () => {
-      // app.canvas.graph is the currently displayed graph (follows subgraph
-      // navigation). app.graph stays on the root graph and must not be used.
-      const currentGraph = app.canvas?.graph;
-      if (!currentGraph) return;
-      for (const w of allCodeWidgets) {
-        if (w._ownerNode?.graph !== currentGraph) {
-          w.codeElement.hidden = true;
-        }
-      }
-    };
-
-    // Hook into canvas onDrawForeground which fires every frame
-    const tryHook = () => {
-      const canvas = app.canvas;
-      if (!canvas) {
-        requestAnimationFrame(tryHook);
-        return;
-      }
-      const origDraw = canvas.onDrawForeground;
-      canvas.onDrawForeground = function () {
-        origDraw?.apply(this, arguments);
-        hideStaleEditors();
-      };
-    };
-    tryHook();
-  };
-})();
-
-// Create code editor widget
-const codeEditor = (node, inputName, inputData) => {
+const codeEditorV1 = (node, inputName, inputData) => {
   const widget = {
     type: "code_block_python",
     name: inputName,
@@ -196,30 +214,21 @@ const codeEditor = (node, inputName, inputData) => {
         return;
       }
 
-      Object.assign(this.codeElement.style, getPosition(node, ctx, widgetWidth, y, node.size[1]));
+      Object.assign(this.codeElement.style, getPositionV1(node, ctx, widgetWidth, y, node.size[1]));
     },
     computeSize() {
       return [500, 250];
     },
   };
 
-  widget.codeElement = makeElement("pre", {
-    innerHTML: widget.value,
-  });
+  widget.codeElement = document.createElement("pre");
+  widget.codeElement.textContent = widget.value;
 
-  widget.editor = ace.edit(widget.codeElement);
-  widget.editor.setTheme("ace/theme/monokai");
-  widget.editor.session.setMode("ace/mode/python");
-  widget.editor.setOptions({
-    enableAutoIndent: true,
-    enableLiveAutocompletion: true,
-    enableBasicAutocompletion: true,
-    fontFamily: "monospace",
-  });
+  widget.editor = initAceEditor(widget.codeElement, widget.value);
   widget.codeElement.hidden = true;
 
   document.body.appendChild(widget.codeElement);
-  allCodeWidgets.add(widget);
+  allCodeWidgetsV1.add(widget);
 
   const originalCollapse = node.collapse;
   node.collapse = function () {
@@ -227,23 +236,35 @@ const codeEditor = (node, inputName, inputData) => {
     widget.codeElement.hidden = !!this.flags?.collapsed;
   };
 
-  setupGraphChangeListener();
+  setupGraphChangeListenerV1();
 
   return widget;
 };
 
-// Trigger workflow change tracking
-const markWorkflowChanged = () => {
-  app?.extensionManager?.workflow?.activeWorkflow?.changeTracker?.checkState();
-};
 
-// Register extensions
+// ============================================================
+// Register extension: picks v2 or v1 based on addDOMWidget
+// ============================================================
+
 app.registerExtension({
   name: "Comfy.EvalPython",
   getCustomWidgets(app) {
     return {
       CODE_BLOCK_PYTHON: (node, inputName, inputData) => {
-        const widget = codeEditor(node, inputName, inputData);
+        // Nodes 2.0: use addDOMWidget for Vue-managed lifecycle
+        if (typeof node.addDOMWidget === "function") {
+          const widget = codeEditorV2(node, inputName, inputData);
+
+          widget.editor.getSession().on("change", () => {
+            // widget.value is managed by getValue/setValue options
+            markWorkflowChanged();
+          });
+
+          return widget;
+        }
+
+        // Nodes 1.0 fallback: manual DOM management
+        const widget = codeEditorV1(node, inputName, inputData);
 
         widget.editor.getSession().on("change", () => {
           widget.value = widget.editor.getValue();
@@ -254,7 +275,7 @@ app.registerExtension({
           for (const w of this.widgets) {
             if (w?.codeElement) {
               w.codeElement.remove();
-              allCodeWidgets.delete(w);
+              allCodeWidgetsV1.delete(w);
             }
           }
         };
