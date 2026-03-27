@@ -134,9 +134,6 @@ EvalPython_List_1 = eval_python(inputs=1, outputs=1, name="EvalPython_List_1", i
 EvalPython_1_List = eval_python(inputs=1, outputs=1, name="EvalPython_1_List", input_is_list=None, output_is_list=(True,))
 EvalPython_List_List = eval_python(inputs=1, outputs=1, name="EvalPython_List_List", input_is_list=True, output_is_list=(True,))
 
-export_custom_nodes()
-export_package_as_web_directory("comfy_extras.eval_web")
-
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EvalPython_1_1": "Eval Python (1 in, 1 out)",
     "EvalPython_5_5": "Eval Python (5 in, 5 out)",
@@ -144,3 +141,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "EvalPython_1_List": "Eval Python (1 in, List out)",
     "EvalPython_List_List": "Eval Python (List in, List out)",
 }
+
+export_custom_nodes()
+export_package_as_web_directory("comfy_extras.eval_web")
