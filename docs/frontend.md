@@ -214,3 +214,45 @@ app.registerExtension({
 4. **Widget `computeSize()`**: Return `[width, height]` to reserve space in the node layout. The `draw()` callback handles actual positioning of the DOM overlay.
 
 5. **Z-index**: Use `app.graph._nodes.indexOf(node)` or the frontend's `getDomWidgetZIndex()` to layer widgets correctly.
+
+## Eval Nodes
+
+The eval nodes (`EvalPython_1_1`, `EvalPython_5_5`, etc.) allow executing Python code directly in the workflow. They require the `--enable-eval` flag:
+
+```bash
+comfyui serve --enable-eval
+```
+
+### Variants
+
+| Node | Inputs | Outputs | Description |
+|------|--------|---------|-------------|
+| EvalPython_1_1 | 1 | 1 | Single value in, single value out |
+| EvalPython_5_5 | 5 | 5 | Multiple values in/out |
+| EvalPython_1_List | 1 | 1 (list) | Scalar in, list out |
+| EvalPython_List_1 | 1 (list) | 1 | List in, scalar out |
+| EvalPython_List_List | 1 (list) | 1 (list) | List in, list out |
+
+### Syntax
+
+Use `return` for standard output:
+
+```python
+return value0 * 2, value1 + 10
+```
+
+Use `yield` for generator output. For scalar nodes, each yield becomes a positional output:
+
+```python
+yield value0 * 2
+yield value1 + 10
+```
+
+For list output nodes, yields are collected into a list:
+
+```python
+yield 512
+yield 1024
+yield 1536
+# outputs: [512, 1024, 1536]
+```
