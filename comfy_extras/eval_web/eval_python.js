@@ -145,7 +145,8 @@ const codeEditor = (node, inputName, inputData) => {
     options: { hideOnZoom: true },
     value: inputData[1]?.default || "",
     draw(ctx, node, widgetWidth, y) {
-      const hidden = node.flags?.collapsed || (!!this.options.hideOnZoom && app.canvas.ds.scale < 0.5) || this.type === "converted-widget" || this.type === "hidden" || this.type === "converted-widget";
+      const notInActiveGraph = node.graph && app.graph && node.graph !== app.graph;
+      const hidden = notInActiveGraph || node.flags?.collapsed || (!!this.options.hideOnZoom && app.canvas.ds.scale < 0.5) || this.type === "converted-widget" || this.type === "hidden" || this.type === "converted-widget";
 
       this.codeElement.hidden = hidden;
 
