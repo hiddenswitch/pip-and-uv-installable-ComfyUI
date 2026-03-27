@@ -137,6 +137,44 @@ const getPosition = (node, ctx, w_width, y, n_height) => {
   };
 };
 
+// Track all code editor widgets so we can hide them on graph change
+const allCodeWidgets = new Set();
+
+// Listen for graph changes (entering/exiting subgraphs) to hide editors
+// whose nodes are no longer in the active graph. draw() is not called for
+// nodes outside the active graph, so the draw-based check is insufficient.
+const setupGraphChangeListener = (() => {
+  let installed = false;
+  return () => {
+    if (installed) return;
+    installed = true;
+
+    const hideStaleEditors = () => {
+      const currentGraph = app.graph;
+      for (const w of allCodeWidgets) {
+        if (w._ownerNode?.graph !== currentGraph) {
+          w.codeElement.hidden = true;
+        }
+      }
+    };
+
+    // Hook into canvas onDrawForeground which fires every frame
+    const tryHook = () => {
+      const canvas = app.canvas;
+      if (!canvas) {
+        requestAnimationFrame(tryHook);
+        return;
+      }
+      const origDraw = canvas.onDrawForeground;
+      canvas.onDrawForeground = function () {
+        origDraw?.apply(this, arguments);
+        hideStaleEditors();
+      };
+    };
+    tryHook();
+  };
+})();
+
 // Create code editor widget
 const codeEditor = (node, inputName, inputData) => {
   const widget = {
@@ -144,9 +182,9 @@ const codeEditor = (node, inputName, inputData) => {
     name: inputName,
     options: { hideOnZoom: true },
     value: inputData[1]?.default || "",
+    _ownerNode: node,
     draw(ctx, node, widgetWidth, y) {
-      const notInActiveGraph = node.graph && app.graph && node.graph !== app.graph;
-      const hidden = notInActiveGraph || node.flags?.collapsed || (!!this.options.hideOnZoom && app.canvas.ds.scale < 0.5) || this.type === "converted-widget" || this.type === "hidden" || this.type === "converted-widget";
+      const hidden = node.flags?.collapsed || (!!this.options.hideOnZoom && app.canvas.ds.scale < 0.5) || this.type === "converted-widget" || this.type === "hidden";
 
       this.codeElement.hidden = hidden;
 
@@ -178,12 +216,15 @@ const codeEditor = (node, inputName, inputData) => {
   widget.codeElement.hidden = true;
 
   document.body.appendChild(widget.codeElement);
+  allCodeWidgets.add(widget);
 
   const originalCollapse = node.collapse;
   node.collapse = function () {
     originalCollapse.apply(this, arguments);
     widget.codeElement.hidden = !!this.flags?.collapsed;
   };
+
+  setupGraphChangeListener();
 
   return widget;
 };
@@ -210,6 +251,7 @@ app.registerExtension({
           for (const w of this.widgets) {
             if (w?.codeElement) {
               w.codeElement.remove();
+              allCodeWidgets.delete(w);
             }
           }
         };
