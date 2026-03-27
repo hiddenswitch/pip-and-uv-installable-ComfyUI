@@ -228,6 +228,8 @@ jobs:
             container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
     steps:
       - run: |
+          # Prefer IPv4 to work around pods lacking IPv6 egress
+          echo 'precedence ::ffff:0:0/96  100' > /etc/gai.conf
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y software-properties-common curl
