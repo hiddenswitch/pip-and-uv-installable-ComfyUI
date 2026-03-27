@@ -275,6 +275,24 @@ def _validate_mutex(params: dict, group_name: str, fields: tuple[str, ...]):
         raise typer.BadParameter(f"Only one of {flags} can be set ({group_name})")
 
 
+def _parse_listen_address(value: str) -> tuple[str, int | None]:
+    """Parse an optional port from a listen address.
+
+    Supports ``host:port``, ``[ipv6]:port``, and bare addresses.
+    Returns ``(host, port)`` where port is None if not specified.
+    """
+    # [ipv6]:port
+    if value.startswith("[") and "]:" in value:
+        bracket_end = value.index("]:")
+        return value[1:bracket_end], int(value[bracket_end + 2:])
+    # host:port (but not bare IPv6 like :: or ::1)
+    if ":" in value and value.count(":") == 1:
+        host, port_str = value.rsplit(":", 1)
+        if port_str.isdigit():
+            return host, int(port_str)
+    return value, None
+
+
 def _build_config(params: dict) -> Configuration:
     """Build Configuration from Typer-parsed parameters."""
     _validate_mutex(params, "VRAM mode", VRAM_MODES)
@@ -322,6 +340,14 @@ def _build_config(params: dict) -> Configuration:
         filtered["auto_launch"] = False
     if filtered.get("force_fp16"):
         filtered["fp16_unet"] = True
+
+    # Parse host:port from --listen (e.g. "0.0.0.0:8189" or "[::]:8189")
+    if "listen" in filtered:
+        listen_val = filtered["listen"]
+        parsed_host, parsed_port = _parse_listen_address(listen_val)
+        if parsed_port is not None:
+            filtered["listen"] = parsed_host
+            filtered["port"] = parsed_port
 
     config = Configuration(**filtered)
     return config

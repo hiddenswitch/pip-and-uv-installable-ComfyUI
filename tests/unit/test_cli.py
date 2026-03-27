@@ -201,6 +201,44 @@ def test_entrypoint_does_not_rewrite_unknown_verbs(monkeypatch):
     assert called == [["comfyui", "definitely-not-a-command"]]
 
 
+class TestParseListenAddress:
+    def test_bare_ipv4(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("0.0.0.0") == ("0.0.0.0", None)
+
+    def test_ipv4_with_port(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("0.0.0.0:8189") == ("0.0.0.0", 8189)
+
+    def test_bare_ipv6(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("::") == ("::", None)
+
+    def test_ipv6_loopback(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("::1") == ("::1", None)
+
+    def test_bracketed_ipv6_with_port(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("[::]:8189") == ("::", 8189)
+
+    def test_bracketed_ipv6_loopback_with_port(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("[::1]:8189") == ("::1", 8189)
+
+    def test_hostname_with_port(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("localhost:9000") == ("localhost", 9000)
+
+    def test_hostname_bare(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("localhost") == ("localhost", None)
+
+    def test_comma_separated_not_split(self):
+        from comfy.cmd.cli import _parse_listen_address
+        assert _parse_listen_address("0.0.0.0,::") == ("0.0.0.0,::", None)
+
+
 _SRC_ROOT = Path(__file__).resolve().parents[2]
 
 
