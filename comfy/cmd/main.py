@@ -288,9 +288,8 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     loop = asyncio.get_event_loop()
     server = server_module.PromptServer(loop)
 
-    folder_paths.create_directories()
-
     if args.enable_manager and not args.disable_manager_ui:
+        folder_paths.create_directories()
         manager_start()
 
     if args.external_address is not None:
