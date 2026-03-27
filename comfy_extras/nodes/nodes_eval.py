@@ -86,6 +86,19 @@ return {", ".join([f"value{i}" for i in range(inputs)])}
 
             exec(wrapped_code, globals_for_eval)
             results = globals_for_eval["_eval_func"](*value_args)
+
+            # Support generator functions: yield produces output elements.
+            # For list output nodes, yields are collected into a list for
+            # the first output slot. For scalar nodes, each yield becomes
+            # a positional output.
+            import types
+            if isinstance(results, types.GeneratorType):
+                collected = list(results)
+                if output_is_list:
+                    results = (collected,)
+                else:
+                    results = tuple(collected)
+
             if not isinstance(results, tuple):
                 results = (results,)
 

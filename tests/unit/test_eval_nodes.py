@@ -681,3 +681,174 @@ def test_eval_python_list_empty_list(eval_context):
         value0=[]
     )
     assert result == ([],)
+
+
+def test_eval_python_yield_single(eval_context):
+    """Test yield produces a single-element tuple"""
+    node = EvalPython_5_5()
+    result = node.exec_py(
+        pycode="yield 42",
+        value0=0, value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == (42, None, None, None, None)
+
+
+def test_eval_python_yield_multiple(eval_context):
+    """Test multiple yields produce a tuple of values"""
+    node = EvalPython_5_5()
+    code = """
+yield 1
+yield 2
+yield 3
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=0, value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == (1, 2, 3, None, None)
+
+
+def test_eval_python_yield_all_five(eval_context):
+    """Test yielding exactly five values fills all outputs"""
+    node = EvalPython_5_5()
+    code = """
+yield 'a'
+yield 'b'
+yield 'c'
+yield 'd'
+yield 'e'
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=0, value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == ('a', 'b', 'c', 'd', 'e')
+
+
+def test_eval_python_yield_excess_truncated(eval_context):
+    """Test that excess yields are truncated"""
+    node = EvalPython_5_5()
+    code = """
+for i in range(10):
+    yield i
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=0, value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == (0, 1, 2, 3, 4)
+
+
+def test_eval_python_yield_with_inputs(eval_context):
+    """Test yield using input values"""
+    node = EvalPython_5_5()
+    code = """
+yield value0 * 2
+yield value1 * 3
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=5, value1=10, value2=0, value3=0, value4=0
+    )
+    assert result == (10, 30, None, None, None)
+
+
+def test_eval_python_yield_with_loop(eval_context):
+    """Test yield inside a loop"""
+    node = EvalPython_5_5()
+    code = """
+for x in value0:
+    yield x * 2
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=[1, 2, 3], value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == (2, 4, 6, None, None)
+
+
+def test_eval_python_yield_single_output_node(eval_context):
+    """Test yield with a single-output node"""
+    from comfy_extras.nodes.nodes_eval import EvalPython_1_1
+    node = EvalPython_1_1()
+    result = node.exec_py(
+        pycode="yield 42",
+        value0=0
+    )
+    assert result == (42,)
+
+
+def test_eval_python_yield_single_output_multiple_yields(eval_context):
+    """Test multiple yields with single-output node truncates to first"""
+    from comfy_extras.nodes.nodes_eval import EvalPython_1_1
+    node = EvalPython_1_1()
+    code = """
+yield 1
+yield 2
+yield 3
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=0
+    )
+    assert result == (1,)
+
+
+def test_eval_python_yield_list_output(eval_context):
+    """Test yield with list output node collects yields into a list"""
+    node = EvalPython_1_List()
+    code = """
+yield 1
+yield 2
+yield 3
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=0
+    )
+    assert result == ([1, 2, 3],)
+
+
+def test_eval_python_yield_list_output_from_loop(eval_context):
+    """Test yield in a loop with list output"""
+    node = EvalPython_1_List()
+    code = """
+for i in range(value0):
+    yield i * 10
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=4
+    )
+    assert result == ([0, 10, 20, 30],)
+
+
+def test_eval_python_yield_list_list(eval_context):
+    """Test yield with list input and list output"""
+    node = EvalPython_List_List()
+    code = """
+for x in value0:
+    yield x ** 2
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=[1, 2, 3, 4]
+    )
+    assert result == ([1, 4, 9, 16],)
+
+
+def test_eval_python_yield_conditional(eval_context):
+    """Test conditional yields"""
+    node = EvalPython_5_5()
+    code = """
+if value0 > 10:
+    yield "big"
+else:
+    yield "small"
+yield value0
+"""
+    result = node.exec_py(
+        pycode=code,
+        value0=15, value1=0, value2=0, value3=0, value4=0
+    )
+    assert result == ("big", 15, None, None, None)
