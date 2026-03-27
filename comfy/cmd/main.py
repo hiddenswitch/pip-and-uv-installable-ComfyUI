@@ -291,6 +291,8 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
 
     # Start manager UI if enabled
     if args.enable_manager and not args.disable_manager_ui:
+        for p in folder_paths.get_folder_paths("custom_nodes"):
+            os.makedirs(p, exist_ok=True)
         manager_start()
 
     if args.external_address is not None:
