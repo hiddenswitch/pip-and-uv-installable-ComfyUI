@@ -150,7 +150,10 @@ const setupGraphChangeListener = (() => {
     installed = true;
 
     const hideStaleEditors = () => {
-      const currentGraph = app.graph;
+      // app.canvas.graph is the currently displayed graph (follows subgraph
+      // navigation). app.graph stays on the root graph and must not be used.
+      const currentGraph = app.canvas?.graph;
+      if (!currentGraph) return;
       for (const w of allCodeWidgets) {
         if (w._ownerNode?.graph !== currentGraph) {
           w.codeElement.hidden = true;
