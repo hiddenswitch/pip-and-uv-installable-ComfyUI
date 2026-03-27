@@ -37,6 +37,7 @@ from .. import __version__
 from .. import interruption, model_management
 from .. import node_helpers
 from .. import utils
+from ..app.lsp import LspManager
 from ..api_server.routes.internal.internal_routes import InternalRoutes
 from ..app.assets.services.asset_management import resolve_hash_to_path
 from ..app.assets.services.ingest import register_file_in_place
@@ -1311,6 +1312,10 @@ class PromptServer(ExecutorToClientProgress):
                 api_routes.route(route.method, "/api" + route.path)(route.handler, **route.kwargs)
         self.app.add_routes(api_routes)
         self.app.add_routes(self.routes)
+
+        # LSP WebSocket for eval node code intelligence
+        self._lsp_manager = LspManager()
+        self.app.router.add_get("/ws/lsp", self._lsp_manager.handle_websocket)
 
         # Add routes from web extensions.
         for name, dir in self.nodes.EXTENSION_WEB_DIRS.items():

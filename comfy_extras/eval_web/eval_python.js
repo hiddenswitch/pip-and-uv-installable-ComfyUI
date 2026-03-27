@@ -25,26 +25,61 @@
  */
 import { app } from "../../scripts/app.js";
 
-// Load Ace editor using script tag for Safari compatibility
-// The noconflict build includes AMD loader that works in all browsers
-let ace;
-const aceLoadPromise = new Promise((resolve) => {
-  if (window.ace) {
-    ace = window.ace;
-    resolve();
-  } else {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/ace-builds@1.43.4/src-noconflict/ace.js";
-    script.onload = () => {
-      ace = window.ace;
-      ace.config.set("basePath", "https://cdn.jsdelivr.net/npm/ace-builds@1.43.4/src-noconflict");
-      resolve();
-    };
-    document.head.appendChild(script);
-  }
+// All ace/LSP assets are served from the extension's web directory
+const _extBase = "/extensions/comfy_extras.nodes.nodes_eval";
+
+const _loadScript = (path) => new Promise((resolve) => {
+  const s = document.createElement("script");
+  s.src = `${_extBase}/${path}`;
+  s.onload = resolve;
+  s.onerror = resolve;
+  document.head.appendChild(s);
 });
 
-await aceLoadPromise;
+// Load Ace editor and extensions
+let ace;
+if (window.ace) {
+  ace = window.ace;
+} else {
+  await _loadScript("ace.js");
+  ace = window.ace;
+}
+// Set basePath so ace can find modes/themes/extensions from our directory
+ace.config.set("basePath", _extBase);
+
+// Load language_tools for autocompletion (must be after ace)
+await _loadScript("ext-language_tools.js");
+
+// Load ace-linters LSP support (optional, degrades gracefully)
+// language-client.js provides the LanguageClient class for socket mode
+// ace-language-client.js provides AceLanguageClient which wires it to ACE
+let AceLanguageClient;
+await _loadScript("language-client.js");
+await _loadScript("ace-language-client.js");
+AceLanguageClient = window.AceLanguageClient;
+
+// LSP provider singleton: connects all editors to /ws/lsp via basedpyright
+let lspProvider = null;
+let lspEditorCounter = 0;
+const getLspProvider = () => {
+  if (lspProvider) return lspProvider;
+  if (!AceLanguageClient) return null;
+  try {
+    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${window.location.host}/ws/lsp`;
+    // language-client.js is already loaded (exports LanguageClient to window)
+    // The module callback must return an object with a LanguageClient property
+    lspProvider = AceLanguageClient.for({
+      modes: "python",
+      type: "socket",
+      socket: new WebSocket(wsUrl),
+      module: () => Promise.resolve(window),
+    });
+  } catch (e) {
+    console.warn("LSP provider failed:", e);
+  }
+  return lspProvider;
+};
 
 const findWidget = (node, value, attr = "name", func = "find") => {
   return node?.widgets ? node.widgets[func]((w) => (Array.isArray(value) ? value.includes(w[attr]) : w[attr] === value)) : null;
@@ -68,8 +103,18 @@ const initAceEditor = (container, defaultValue) => {
     enableAutoIndent: true,
     enableLiveAutocompletion: true,
     enableBasicAutocompletion: true,
+    enableSnippets: true,
     fontFamily: "monospace",
   });
+  // Connect to LSP for code intelligence (autocomplete, imports)
+  const provider = getLspProvider();
+  if (provider) {
+    provider.registerEditor(editor);
+    provider.setSessionFilePath(editor.session, {
+      filePath: `eval_node_${lspEditorCounter++}.py`,
+    });
+  }
+
   if (defaultValue) {
     editor.setValue(defaultValue);
     editor.clearSelection();

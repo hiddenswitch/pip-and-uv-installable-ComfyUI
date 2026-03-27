@@ -93,6 +93,7 @@ dependencies = [
     "soundfile>=0.13 ; sys_platform != 'darwin'",
     "soundfile>=0.12,<0.13 ; sys_platform == 'darwin'",
     "watchdog",
+    "basedpyright",
     "networkx>=2.6.3",
     "joblib",
     "jaxtyping",
