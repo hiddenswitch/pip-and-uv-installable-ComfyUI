@@ -289,9 +289,8 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     loop = asyncio.get_event_loop()
     server = server_module.PromptServer(loop)
 
-    folder_paths.create_directories()
-
     if args.enable_manager and not args.disable_manager_ui:
+        folder_paths.create_directories()
         manager_start()
 
     if args.external_address is not None:
@@ -359,7 +358,6 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         logger.debug(f"Setting input directory to: {input_dir}")
         folder_paths.set_input_directory(input_dir)
 
-    # now that nodes are loaded, create directories
     folder_paths.create_directories()
 
     if len(args.workflows) > 0:
