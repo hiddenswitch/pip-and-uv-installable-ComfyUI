@@ -29,10 +29,7 @@ logger = logging.getLogger(__name__)
 # This gives pyright the correct context: value0..valueN are parameters,
 # logger and print are available, and return/yield are valid.
 _WRAPPER_PREFIX = """\
-from typing import Any, Generator
-logger: Any
-def print(*args: Any) -> None: ...
-
+# pyright: reportUnusedVariable=false, reportUnusedParameter=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedFunction=false, reportUnusedImport=false
 def _eval_func(value0=None, value1=None, value2=None, value3=None, value4=None):
 """
 _WRAPPER_LINES = _WRAPPER_PREFIX.count("\n")
@@ -216,15 +213,18 @@ class LspManager:
         # Diagnostics notification
         if method == "textDocument/publishDiagnostics":
             diagnostics = params.get("diagnostics", [])
+            adjusted = []
             for diag in diagnostics:
-                if "range" in diag:
-                    diag["range"]["start"] = _adjust_position_to_editor(diag["range"]["start"])
-                    diag["range"]["end"] = _adjust_position_to_editor(diag["range"]["end"])
-                # Filter out diagnostics in the wrapper prefix (negative lines)
-                params["diagnostics"] = [
-                    d for d in diagnostics
-                    if d.get("range", {}).get("start", {}).get("line", 0) >= 0
-                ]
+                if "range" not in diag:
+                    continue
+                start_line = diag["range"]["start"].get("line", 0)
+                # Drop diagnostics that originate in the wrapper prefix
+                if start_line < _WRAPPER_LINES:
+                    continue
+                diag["range"]["start"] = _adjust_position_to_editor(diag["range"]["start"])
+                diag["range"]["end"] = _adjust_position_to_editor(diag["range"]["end"])
+                adjusted.append(diag)
+            params["diagnostics"] = adjusted
 
         # Completion response
         if isinstance(result, dict) and "items" in result:
@@ -258,7 +258,7 @@ class LspManager:
         config = {
             "pythonPath": sys.executable,
             "pythonVersion": f"{sys.version_info.major}.{sys.version_info.minor}",
-            "typeCheckingMode": "basic",
+            "typeCheckingMode": "off",
         }
         with open(os.path.join(workspace, "pyrightconfig.json"), "w") as f:
             json.dump(config, f)
