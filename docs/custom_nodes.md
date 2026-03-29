@@ -764,14 +764,14 @@ options:
 You can now start `comfyui` with:
 
 ```shell
-uv run --no-sync comfyui --openai-api-key=abcdefg12345
+uv run comfyui --openai-api-key=abcdefg12345
 ```
 
 or set the environment variable you specified:
 
 ```shell
 export OPENAI_API_KEY=abcdefg12345
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 or add it to your config file:
@@ -790,7 +790,7 @@ Since `comfyui` looks for a `config.yaml` in your current working directory by d
 `config.yaml` is located in your current working directory:
 
 ```shell
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 Your entry point for adding configuration options should **not** import your nodes. This gives you the opportunity to

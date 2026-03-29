@@ -13,7 +13,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 ### Linux — AMD RX 7000 (RDNA 3)
@@ -26,7 +26,7 @@ mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui --fp32-vae
+uv run comfyui --fp32-vae
 ```
 
 ### Linux — AMD RX 9000 (RDNA 4)
@@ -39,7 +39,7 @@ mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui --fp32-vae
+uv run comfyui --fp32-vae
 ```
 
 ### Linux — Intel Arc / Max / iGPU (XPU, Ubuntu)
@@ -98,7 +98,7 @@ mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.11
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 python -c "import torch; print(torch.xpu.is_available())"
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 If you are installing directly on Ubuntu instead of using the container, verify that these work before installing ComfyUI:
@@ -140,7 +140,7 @@ uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 python -c "import torch; print(torch.cuda.is_available()); print(torch.version.hip)"
-uv run --no-sync comfyui --fp32-vae
+uv run comfyui --fp32-vae
 ```
 
 For Ubuntu host setup, the key rule is: install the ROCm stack that matches your GPU family first, then install the matching PyTorch wheels. Do not mix a generic CPU torch wheel with ROCm expectations. On bare metal, verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI itself.
@@ -166,7 +166,7 @@ mkdir ~\Documents\ComfyUI_Workspace
 cd ~\Documents\ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 ### Windows — AMD RX 7000 (RDNA 3)
@@ -181,7 +181,7 @@ cd ~\Documents\ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui --fp32-vae
+uv run comfyui --fp32-vae
 ```
 
 ### Windows — AMD RX 9000 (RDNA 4)
@@ -196,7 +196,7 @@ cd ~\Documents\ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui --fp32-vae
+uv run comfyui --fp32-vae
 ```
 
 ### macOS (Apple Silicon)
@@ -207,7 +207,7 @@ HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
 mkdir -p ~/Documents/ComfyUI_Workspace && cd ~/Documents/ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 #### FP8 Support on MPS
@@ -220,13 +220,13 @@ To start ComfyUI again after closing your terminal, `cd` into your workspace and
 
 ```shell
 cd ~/ComfyUI_Workspace
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 On Windows:
 ```powershell
 cd ~\Documents\ComfyUI_Workspace
-uv run --no-sync comfyui
+uv run comfyui
 ```
 
 ### Upgrading
@@ -263,16 +263,6 @@ uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 ```
 
 **RX 6000 (RDNA 2) and RX 5000 (RDNA 1):** These architectures are no longer well supported by AMD. There are no architecture-specific builds available.
-
-## Why `--no-sync`?
-
-By default, `uv run` performs a project sync before running the command. This means it checks the lockfile, resolves dependencies, and potentially modifies your environment every time you run ComfyUI. This is undesirable because:
-
-- It adds startup latency
-- It can unexpectedly change your installed packages
-- It can fail if network is unavailable
-
-Using `--no-sync` skips this automatic sync. You already installed packages explicitly with `uv pip install`, so there is no need for `uv run` to re-resolve them. See the [uv documentation on automatic sync](https://docs.astral.sh/uv/concepts/projects/sync/#automatic-lock-and-sync) for more details.
 
 ## CUDA and PyTorch
 
@@ -422,7 +412,7 @@ caddy reverse-proxy --from localhost:443 --to localhost:8188 --tls self_signed
 If you have 16GB of VRAM or less, start ComfyUI with `--novram`:
 
 ```shell
-uv run --no-sync comfyui --novram
+uv run comfyui --novram
 ```
 
 Despite the name, `--novram` does not prevent GPU usage. It aggressively offloads model weights from VRAM when they are not actively needed. On modern systems with fast PCIe connections, this has minimal impact on inference speed while allowing you to run much larger models.
@@ -441,7 +431,7 @@ For diffusion models, the amount of the model resident in VRAM at any given time
 If your system has swap enabled and you have less than 16GB of VRAM, you should disable pinned memory:
 
 ```shell
-uv run --no-sync comfyui --novram --disable-pinned-memory
+uv run comfyui --novram --disable-pinned-memory
 ```
 
 Pinned (page-locked) memory cannot be swapped out by the OS. On memory-constrained systems with swap enabled, this can cause the remaining unpinned memory to thrash to disk, resulting in worse performance than not using pinned memory at all.
@@ -451,7 +441,7 @@ Pinned (page-locked) memory cannot be swapped out by the OS. On memory-constrain
 If you have an Ampere GPU (RTX 30 series, A100) or newer (RTX 40 series, RTX 50 series), enable cuBLAS optimizations:
 
 ```shell
-uv run --no-sync comfyui --fast cublas_ops
+uv run comfyui --fast cublas_ops
 ```
 
 This uses optimized cuBLAS matrix multiplication kernels that are available on compute capability 8.0+ hardware.
@@ -549,7 +539,7 @@ uv pip install --no-build-isolation "sageattention@git+https://github.com/woct0r
 #### Running with SageAttention
 
 ```shell
-uv run --no-sync comfyui --use-sage-attention
+uv run comfyui --use-sage-attention
 ```
 
 ### Nunchaku (CUDA only)

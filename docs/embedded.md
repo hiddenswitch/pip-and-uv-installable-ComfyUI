@@ -414,7 +414,7 @@ config.disable_known_models = True
 Or via CLI:
 
 ```bash
-uv run --no-sync comfyui --disable-known-models
+uv run comfyui --disable-known-models
 ```
 
 ## When to Use `--novram`
@@ -434,7 +434,7 @@ config.novram = True
 Or via CLI:
 
 ```bash
-uv run --no-sync comfyui --novram
+uv run comfyui --novram
 ```
 
 Without `--novram`, ComfyUI will sometimes OOM because you are using your computer interactively and it has less VRAM than it expected during inference. `--novram` reduces peak VRAM usage, making it less likely to OOM due to interactive use. `--guess-settings` will choose `--novram` when you have other applications using your GPU.

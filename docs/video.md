@@ -32,7 +32,7 @@ See the [SageAttention installation instructions](installing.md#sageattention) f
 To start ComfyUI with it:
 
 ```shell
-uv run --no-sync comfyui --use-sage-attention
+uv run comfyui --use-sage-attention
 ```
 
 ![with_sage_attention.webp](./docs/assets/with_sage_attention.webp)
@@ -52,7 +52,7 @@ uv pip install --no-build-isolation flash_attn
 To start ComfyUI with it:
 
 ```shell
-uv run --no-sync comfyui --use-flash-attention
+uv run comfyui --use-flash-attention
 ```
 
 ![with_sage_attention.webp](./docs/assets/with_sage_attention.webp)
