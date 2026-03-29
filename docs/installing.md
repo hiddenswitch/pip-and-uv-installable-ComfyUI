@@ -2,86 +2,79 @@
 
 ## Installing
 
-These instructions will install an interactive ComfyUI using the command line. Find your platform and GPU below and copy-paste the complete sequence of commands.
+Find your platform and GPU below and copy-paste the commands. Models used by workflows are downloaded automatically.
 
-When you run workflows that use well-known models, they will be downloaded automatically.
+### Prerequisites
 
-### Linux — NVIDIA (CUDA)
+Install `uv`, create a workspace, and activate a virtual environment:
 
+**Linux / macOS:**
 ```shell
 curl -LsSf https://astral.sh/uv/install.sh | sh
 mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.12
+```
+
+**Windows (PowerShell):**
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+choco install -y uv
+mkdir ~\Documents\ComfyUI_Workspace
+cd ~\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+```
+
+Then follow the GPU-specific instructions below.
+
+### NVIDIA (CUDA)
+
+```shell
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run comfyui
 ```
 
-### Linux — AMD RX 7000 (RDNA 3)
+### AMD RX 7000 (RDNA 3)
 
-Requires the latest AMDGPU driver.
+Requires the latest AMDGPU/Adrenaline driver.
 
 ```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
-uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run comfyui --fp32-vae
 ```
 
-### Linux — AMD RX 9000 (RDNA 4)
+### AMD RX 9000 (RDNA 4)
 
-Requires the latest AMDGPU driver.
+Requires the latest AMDGPU/Adrenaline driver.
 
 ```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
-uv venv --python 3.12
 uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run comfyui --fp32-vae
 ```
 
-### Linux — Intel Arc / Max / iGPU (XPU, Ubuntu)
+### Intel Arc / Max / iGPU (XPU, Linux)
 
-Use XPU when `torch.xpu.is_available()` is true. On Ubuntu, the host needs both:
+Use XPU when `torch.xpu.is_available()` is true. The host needs a recent Intel GPU kernel/firmware stack exposing `/dev/dri/renderD*` and the Intel userland compute stack.
 
-- a recent Intel GPU kernel/firmware stack that exposes `/dev/dri/renderD*`
-- the Intel userland compute stack used by XPU workloads
-
-In this repo, the CI lane itself runs inside Intel's XPU PyTorch container:
+The easiest path is Intel's XPU PyTorch container:
 
 ```shell
 docker run --rm -it --device /dev/dri intel/intel-extension-for-pytorch:2.8.10-xpu bash
 ```
 
-That container provides the XPU-enabled PyTorch userspace. The host still has to provide the kernel-side GPU support. Our worker provisioning currently does two Intel-specific things:
+For bare Ubuntu, install the Intel GPU runtime first:
 
-- uses Ubuntu 24.04 HWE kernel on workers
-- patches DG2/Arc firmware by installing upstream `dg2_guc_70.bin`, rebuilding initramfs, and holding `linux-firmware`
-
-The Kubernetes runner hook also requires the Intel device plugin resources:
-
-- `gpu.intel.com/xe: 1`
-- `gpu.intel.com/family: A_Series`
-
-The Intel PPA / Intel graphics repo below is about the userland compute runtime. It does not replace the need for the host kernel driver and firmware.
-
-For Ubuntu desktop/client GPUs, Intel's documented package flow is:
-
-**Ubuntu 24.04 / newer desktop path**
+**Ubuntu 24.04+:**
 ```shell
-sudo apt-get update
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:kobuk-team/intel-graphics
 sudo apt-get update
-sudo apt-get install -y libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc
-sudo apt-get install -y libze-dev intel-ocloc
+sudo apt-get install -y libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc libze-dev intel-ocloc
 ```
 
-**Ubuntu 22.04 path**
+**Ubuntu 22.04:**
 ```shell
-sudo apt-get update
 wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
   sudo gpg --yes --dearmor --output /usr/share/keyrings/intel-graphics.gpg
 echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu jammy unified" | \
@@ -90,38 +83,20 @@ sudo apt update
 sudo apt-get install -y libze-intel-gpu1 libze1 intel-opencl-icd clinfo libze-dev intel-ocloc
 ```
 
-Inside that environment:
+Then install ComfyUI (use Python 3.11 for XPU):
 
 ```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
 uv venv --python 3.11
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 python -c "import torch; print(torch.xpu.is_available())"
 uv run comfyui
 ```
 
-If you are installing directly on Ubuntu instead of using the container, verify that these work before installing ComfyUI:
+If `torch.xpu.is_available()` is false, fix the Intel driver/runtime stack first.
 
-```shell
-python -c "import torch; print(torch.xpu.is_available())"
-python -c "import torch; print(torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'no xpu')"
-clinfo | grep "Device Name"
-```
+### AMD ROCm (Ubuntu Host Setup)
 
-If `torch.xpu.is_available()` is false, fix the Intel driver/runtime stack first. ComfyUI will not make XPU appear if the base PyTorch/XPU environment is not healthy.
-
-### Linux — AMD ROCm (Ubuntu)
-
-Use ROCm when `torch.cuda.is_available()` is true on an AMD system with a ROCm build of PyTorch. On Ubuntu, the host needs:
-
-- the AMDGPU kernel driver
-- ROCm userland compatible with your GPU architecture
-- a ROCm PyTorch build matching that architecture
-
-Unlike the Intel XPU lane, our ROCm CI lane uses a ROCm PyTorch container but still depends on the host AMDGPU/ROCK kernel stack and `/dev/kfd` / `/dev/dri` being healthy before the container starts.
-
-AMD's documented Ubuntu flow is to install the `amdgpu-install` package first, then install the ROCm stack from that package. For example:
+For bare Ubuntu with AMD GPUs, install the AMDGPU/ROCm stack before installing PyTorch. The host needs the AMDGPU kernel driver and ROCm userland matching your GPU architecture.
 
 ```shell
 sudo apt update
@@ -129,83 +104,29 @@ wget https://repo.radeon.com/amdgpu-install/6.4.1/ubuntu/noble/amdgpu-install_6.
 sudo apt install ./amdgpu-install_6.4.60401-1_all.deb
 ```
 
-After that, install the ROCm components appropriate for your machine, then install the matching ROCm PyTorch wheels. For ComfyUI, the important part is that the host AMDGPU/ROCm stack must be working before you install torch or start a ROCm container.
-
-For RDNA 3 and newer consumer GPUs, this repo uses AMD's architecture-specific nightly wheels. The pattern is:
-
-```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
-uv venv --python 3.12
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-python -c "import torch; print(torch.cuda.is_available()); print(torch.version.hip)"
-uv run comfyui --fp32-vae
-```
-
-For Ubuntu host setup, the key rule is: install the ROCm stack that matches your GPU family first, then install the matching PyTorch wheels. Do not mix a generic CPU torch wheel with ROCm expectations. On bare metal, verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI itself.
-
-Verify the ROCm path before debugging ComfyUI itself:
+Then follow the RDNA 3/RDNA 4 instructions above. The key rule: install the ROCm stack first, then install PyTorch from the matching architecture-specific index. Do not mix a generic CPU torch wheel with ROCm expectations. Verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI.
 
 ```shell
 python -c "import torch; print(torch.cuda.is_available())"
 python -c "import torch; print(torch.version.hip)"
-python -c "import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no rocm device')"
 ```
 
 If those checks fail, fix the ROCm driver/runtime installation first.
 
-### Windows — NVIDIA (CUDA)
-
-Open **Windows PowerShell**, then:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-choco install -y uv
-mkdir ~\Documents\ComfyUI_Workspace
-cd ~\Documents\ComfyUI_Workspace
-uv venv --python 3.12
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui
-```
-
-### Windows — AMD RX 7000 (RDNA 3)
-
-Requires the latest Adrenaline driver. Open **Windows PowerShell**, then:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-choco install -y uv
-mkdir ~\Documents\ComfyUI_Workspace
-cd ~\Documents\ComfyUI_Workspace
-uv venv --python 3.12
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui --fp32-vae
-```
-
-### Windows — AMD RX 9000 (RDNA 4)
-
-Requires the latest Adrenaline driver. Open **Windows PowerShell**, then:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-choco install -y uv
-mkdir ~\Documents\ComfyUI_Workspace
-cd ~\Documents\ComfyUI_Workspace
-uv venv --python 3.12
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui --fp32-vae
-```
-
 ### macOS (Apple Silicon)
+
+For the prerequisites, use Homebrew instead of `curl`:
 
 ```shell
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
 mkdir -p ~/Documents/ComfyUI_Workspace && cd ~/Documents/ComfyUI_Workspace
 uv venv --python 3.12
+```
+
+Then:
+
+```shell
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run comfyui
 ```

@@ -155,7 +155,7 @@ Run `uv pip install "git+https://github.com/owner/repository"`, replacing the `g
 
 ### Self-Hosting the Package Index
 
-The `serve-pip` command runs a local PEP 503 package index backed by the Comfy registry:
+The `serve-pip` command runs a local PEP 503 "simple" index backed by the Comfy registry. The facade builds wheels on demand from ComfyUI-Manager registry metadata, injects dependency metadata, and loads the actual nodes through the existing vanilla custom-node mitigation layer.
 
 ```bash
 comfyui serve-pip --listen 0.0.0.0 --port 8190
@@ -167,7 +167,16 @@ Then install from it:
 uv pip install --extra-index-url http://localhost:8190/simple/ comfyui-wanvideowrapper
 ```
 
-Use `--pip-facade-only-known-nodes` to restrict to tested nodes. Use `--pip-facade-cache-prefix` to control where generated wheels are cached. Use `snapshot-pip-registry` to pre-generate a sqlite snapshot for faster startup.
+The wheel cache can be a normal directory or any writable fsspec URI:
+
+```bash
+comfyui serve-pip --pip-facade-cache-prefix=/tmp/comfyui-pip-facade
+comfyui serve-pip --pip-facade-cache-prefix=s3://my-bucket/comfyui/pip-facade
+```
+
+Use `--pip-facade-only-known-nodes` to restrict to tested nodes. Use `snapshot-pip-registry` to pre-generate a sqlite snapshot for faster startup.
+
+The installed wheel is only a transport wrapper. It exposes a `comfyui.custom_nodes` entry point, points ComfyUI at the vendored custom-node directory, and then the node is imported as a vanilla custom node with the same compatibility shims used for `custom_nodes/` clones.
 
 ---
 
