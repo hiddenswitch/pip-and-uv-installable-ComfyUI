@@ -345,7 +345,7 @@ def facade_server_all_nodes(tmp_path: Path) -> Generator[FacadeServer, None, Non
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_comfyui_ltxvideo(facade_server_all_nodes: FacadeServer):
-    """Verify that ComfyUI-LTXVideo can be downloaded and installed.
+    """Verify that ComfyUI-LTXVideo can be downloaded, installed, and loaded.
 
     The Lightricks/ComfyUI-LTXVideo repo uses ``master`` as its default branch.
     This test catches regressions where the facade assumes ``main`` and gets a
@@ -355,6 +355,50 @@ def test_serve_pip_can_install_comfyui_ltxvideo(facade_server_all_nodes: FacadeS
 
     installed = list(facade_server_all_nodes.site_dir.glob("_appmana_facade_*"))
     assert installed, f"Expected facade package in {facade_server_all_nodes.site_dir}, found: {list(facade_server_all_nodes.site_dir.iterdir())}"
+
+    probe_script = """
+from __future__ import annotations
+
+from importlib.metadata import entry_points
+from pathlib import Path
+
+from comfy.nodes.package import _extract_vanilla_custom_node_roots
+from comfy.nodes.vanilla_node_importing import _vanilla_load_custom_nodes_1
+from comfy_compatibility.vanilla import prepare_vanilla_environment
+
+prepare_vanilla_environment()
+
+entry_point = next(
+    ep for ep in entry_points().select(group='comfyui.custom_nodes')
+    if ep.name == 'comfyui-ltxvideo'
+)
+module = entry_point.load()
+roots = _extract_vanilla_custom_node_roots(module)
+assert roots, 'facade entry point did not expose any vanilla custom node roots'
+repo_path = Path(roots[0]) / 'ComfyUI-LTXVideo'
+assert repo_path.exists(), repo_path
+exported = _vanilla_load_custom_nodes_1(str(repo_path))
+keys = set(exported.NODE_CLASS_MAPPINGS.keys())
+assert 'LTXVImgToVideoConditionOnly' in keys, f'LTXVImgToVideoConditionOnly not found in {sorted(keys)[:10]}'
+print('MATCHED LTXVImgToVideoConditionOnly')
+"""
+
+    existing = facade_server_all_nodes.env.get("PYTHONPATH", "")
+    probe_env = facade_server_all_nodes.env.copy()
+    probe_env["PYTHONPATH"] = (
+        f"{facade_server_all_nodes.site_dir}{os.pathsep}{_SRC_ROOT}"
+        if not existing
+        else f"{facade_server_all_nodes.site_dir}{os.pathsep}{_SRC_ROOT}{os.pathsep}{existing}"
+    )
+    probe = subprocess.run(
+        [sys.executable, "-c", probe_script],
+        cwd=_SRC_ROOT,
+        env=probe_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "MATCHED" in probe.stdout
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")

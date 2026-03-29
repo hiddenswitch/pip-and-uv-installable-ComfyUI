@@ -98,6 +98,62 @@ class _NodeShim:
         self.__node_class_mappings().deactivate()
 
 
+class _ComfyExtrasRedirectFinder:
+    """Meta path finder that redirects ``comfy_extras.<name>`` to ``comfy_extras.nodes.<name>``.
+
+    Vanilla custom nodes import modules like ``comfy_extras.nodes_custom_sampler``
+    which in this fork live under ``comfy_extras.nodes.nodes_custom_sampler``.
+    """
+
+    _resolving: set = set()
+
+    def find_spec(self, fullname: str, path=None, target=None):
+        if not fullname.startswith("comfy_extras."):
+            return None
+        parts = fullname.split(".")
+        if len(parts) != 2:
+            return None
+        short_name = parts[1]
+        if short_name == "nodes" or short_name.startswith("_"):
+            return None
+        canonical = f"comfy_extras.nodes.{short_name}"
+        if canonical in self._resolving:
+            return None
+        self._resolving.add(canonical)
+        try:
+            import importlib
+            import importlib.util
+            spec = importlib.util.find_spec(canonical)
+            if spec is None:
+                return None
+            return importlib.util.spec_from_loader(
+                fullname,
+                loader=_ComfyExtrasRedirectLoader(canonical),
+                origin=spec.origin,
+            )
+        except (ModuleNotFoundError, ValueError):
+            return None
+        finally:
+            self._resolving.discard(canonical)
+
+
+class _ComfyExtrasRedirectLoader:
+    def __init__(self, canonical: str):
+        self._canonical = canonical
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        import importlib
+        real = importlib.import_module(self._canonical)
+        module.__dict__.update(real.__dict__)
+        module.__wrapped__ = real
+        sys.modules[module.__name__] = real
+        import comfy_extras
+        setattr(comfy_extras, self._canonical.split(".")[-1], real)
+
+
 @wrapt.synchronized
 def prepare_vanilla_environment():
     global _in_environment
@@ -157,8 +213,10 @@ def prepare_vanilla_environment():
     # NormalCrafter and others import bare 'model_management'
     from comfy import model_management
     sys.modules['model_management'] = model_management
-    comfy_extras_mitigation: Dict[str, types.ModuleType] = {}
     import comfy_extras
+    if not any(isinstance(f, _ComfyExtrasRedirectFinder) for f in sys.meta_path):
+        sys.meta_path.append(_ComfyExtrasRedirectFinder())
+    comfy_extras_mitigation: Dict[str, types.ModuleType] = {}
     for module_name, module in sys.modules.items():
         if not module_name.startswith("comfy_extras.nodes"):
             continue
