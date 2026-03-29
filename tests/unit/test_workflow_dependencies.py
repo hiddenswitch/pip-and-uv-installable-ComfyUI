@@ -7,8 +7,12 @@ import pytest
 from comfy.component_model.workflow_dependencies import (
     VIRTUAL_NODE_TYPES,
     extract_class_types_from_workflow,
-    resolve_workflow_packages,
+    resolve_workflow_packages_versioned,
 )
+
+
+def _package_names(workflow, builtin=frozenset()):
+    return [name for name, _ in resolve_workflow_packages_versioned(workflow, builtin_class_types=builtin)]
 
 
 def test_primitive_node_excluded_from_packages():
@@ -27,8 +31,7 @@ def test_primitive_node_excluded_from_packages():
     assert "MarkdownNote" in class_types
     assert "Reroute" in class_types
 
-    builtin = frozenset({"KSampler"})
-    packages = resolve_workflow_packages(workflow, builtin_class_types=builtin)
+    packages = _package_names(workflow, builtin=frozenset({"KSampler"}))
     assert packages == []
 
 
@@ -44,8 +47,7 @@ def test_uuid_subgraph_nodes_excluded():
             {"id": 2, "type": "e805dea3-d9c7-4e74-924c-8b2d21f5e623"},
         ]
     }
-    builtin = frozenset({"KSampler"})
-    packages = resolve_workflow_packages(workflow, builtin_class_types=builtin)
+    packages = _package_names(workflow, builtin=frozenset({"KSampler"}))
     assert packages == []
 
 
@@ -66,8 +68,7 @@ def test_resolve_with_custom_nodes():
             {"id": 3, "type": "PrimitiveNode"},
         ]
     }
-    builtin = frozenset({"KSampler"})
-    packages = resolve_workflow_packages(workflow, builtin_class_types=builtin)
+    packages = _package_names(workflow, builtin=frozenset({"KSampler"}))
     assert "comfyui-videohelpersuite" in packages
     assert len(packages) >= 1
 
