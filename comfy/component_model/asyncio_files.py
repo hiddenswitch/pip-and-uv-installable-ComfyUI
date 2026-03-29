@@ -1,10 +1,12 @@
 import asyncio
+import json
 
 try:
     from collections.abc import Buffer
 except ImportError:
     from typing_extensions import Buffer
 from io import BytesIO
+from pathlib import Path
 from typing import Literal, AsyncGenerator
 
 import fsspec
@@ -15,6 +17,19 @@ import shlex
 
 
 from .uris import is_uri as _is_uri
+
+
+def load_workflow_json(source: str) -> dict:
+    """Load a single workflow JSON from a file path, URI, or literal JSON string.
+
+    Supports the same input types as :func:`stream_json_objects` except stdin.
+    """
+    if source.lstrip().startswith("{"):
+        return json.loads(source)
+    if _is_uri(source):
+        with fsspec.open(source, mode="rb") as f:
+            return json.load(f)
+    return json.loads(Path(source).read_text(encoding="utf-8"))
 
 
 async def stream_json_objects(source_path_or_stdin: str | Literal["-"]) -> AsyncGenerator[dict, None]:

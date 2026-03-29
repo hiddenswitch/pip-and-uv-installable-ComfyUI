@@ -524,9 +524,9 @@ def worker(
 
 
 
-@app.command(name="post-workflow", context_settings=_COMFYUI_ENV)
+@app.command(name="run-workflow", context_settings=_COMFYUI_ENV)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
-def post_workflow(
+def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
     disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
@@ -722,38 +722,7 @@ def snapshot_pip_registry(**kwargs):
     run_snapshot_pip_registry(config)
 
 
-@app.command(name="workflow-deps")
-def workflow_deps(
-    workflow_file: str = typer.Argument(..., help="Path to a workflow JSON file (UI or API format)."),
-    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
-):
-    """List custom node packages required by a workflow."""
-    from ..component_model.workflow_dependencies import resolve_workflow_packages
-
-    path = Path(workflow_file)
-    if not path.exists():
-        typer.echo(f"File not found: {path}", err=True)
-        raise typer.Exit(1)
-    workflow = json.loads(path.read_text(encoding="utf-8"))
-    packages = resolve_workflow_packages(workflow, snapshot_uri=snapshot_uri)
-    for pkg in packages:
-        typer.echo(pkg)
-
-
-@app.command(name="workflow-requirements")
-def workflow_requirements(
-    workflow_file: str = typer.Argument(..., help="Path to a workflow JSON file (UI or API format)."),
-    format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
-    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
-):
-    """Print custom node packages required by a workflow in pip requirements format."""
-    from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
-
-    path = Path(workflow_file)
-    if not path.exists():
-        typer.echo(f"File not found: {path}", err=True)
-        raise typer.Exit(1)
-    workflow = json.loads(path.read_text(encoding="utf-8"))
+def _load_core_class_types() -> frozenset[str]:
     from ..nodes.package import _import_and_enumerate_nodes_in_module
     from ..nodes.package_typing import ExportedNodes
     from functools import reduce
@@ -765,10 +734,24 @@ def workflow_requirements(
         map(_import_and_enumerate_nodes_in_module, [base_nodes, comfy_extras_nodes, comfy_api_nodes]),
         ExportedNodes(),
     )
+    return frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys())
+
+
+@app.command(name="workflow-requirements")
+def workflow_requirements(
+    workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
+    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
+):
+    """Print custom node packages required by a workflow in pip requirements format."""
+    from ..component_model.asyncio_files import load_workflow_json
+    from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
+
+    workflow = load_workflow_json(workflow_file)
     packages = resolve_workflow_packages_versioned(
         workflow,
         snapshot_uri=snapshot_uri,
-        builtin_class_types=frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys()),
+        builtin_class_types=_load_core_class_types(),
     )
 
     for name, version in packages:
@@ -862,7 +845,7 @@ def _register_sub_apps():
 _KNOWN_COMMANDS = frozenset({
     "serve", "serve-pip", "worker", "stop", "logs",
     "models", "workflows", "nodes", "jobs", "env",
-    "post-workflow", "list-workflow-templates",
+    "run-workflow", "workflow-requirements", "list-workflow-templates",
     "list-models", "create-directories", "integrity-check",
     "snapshot-pip-registry",
 })

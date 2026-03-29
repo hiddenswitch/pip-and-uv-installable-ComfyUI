@@ -127,13 +127,13 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
 
 def entrypoint():
     warnings.warn(
-        "comfyui-workflow is deprecated. Use: comfyui post-workflow",
+        "comfyui-workflow is deprecated. Use: comfyui run-workflow",
         DeprecationWarning,
         stacklevel=1,
     )
     import sys
     from ..cmd.cli import app
-    sys.argv = [sys.argv[0], "post-workflow"] + sys.argv[1:]
+    sys.argv = [sys.argv[0], "run-workflow"] + sys.argv[1:]
     app()
 
 

@@ -96,7 +96,7 @@ def workflows_run(
 
 @workflows_app.command(name="submit")
 def workflows_submit(
-    workflows: list[str] = typer.Argument(..., help="Workflow JSON files to submit."),
+    workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, or literal JSON."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
     set_overrides: Optional[list[str]] = typer.Option(None, "--set", help="Override node inputs: node_id.inputs.field=value"),
     prompt: Optional[str] = typer.Option(None, "--prompt", help="Override positive prompt."),
@@ -138,9 +138,11 @@ async def _submit_workflows(
     )
     from ..entrypoints.workflow import _apply_sets
 
+    from ..component_model.asyncio_files import load_workflow_json
+
     console = Console()
     for wf_path in workflows:
-        obj = json.loads(Path(wf_path).read_text())
+        obj = load_workflow_json(wf_path)
         if is_ui_workflow(obj):
             obj = convert_ui_to_api(obj)
 
@@ -177,14 +179,15 @@ async def _submit_workflows(
 
 @workflows_app.command(name="convert")
 def workflows_convert(
-    file: str = typer.Argument(..., help="Workflow JSON file to convert."),
+    file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
     output: Optional[str] = typer.Option(None, "-o", "--output", help="Output file. Defaults to stdout."),
 ):
     """Convert a UI workflow to API format."""
     from pathlib import Path
+    from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import convert_ui_to_api
 
-    workflow = json.loads(Path(file).read_text())
+    workflow = load_workflow_json(file)
     api_workflow = convert_ui_to_api(workflow)
     result = json.dumps(api_workflow, indent=2)
     if output:
@@ -196,7 +199,7 @@ def workflows_convert(
 
 @workflows_app.command(name="show")
 def workflows_show(
-    file: str = typer.Argument(..., help="Workflow JSON file or template name."),
+    file: str = typer.Argument(..., help="Workflow file, URI, template name, or literal JSON."),
     format: str = typer.Option("command", "--format", help="Output format: command or table."),
 ):
     """Show a copy-pasteable invocation command for a workflow."""
@@ -206,15 +209,16 @@ def workflows_show(
     from .workflow_templates import (
         _detect_supported_params, _build_example_invocation, TemplateInfo,
     )
+    from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
 
     path = Path(file)
-    if path.exists():
-        workflow = json.loads(path.read_text())
-    else:
+    try:
+        workflow = load_workflow_json(file)
+    except (FileNotFoundError, OSError):
         from .workflow_templates import resolve_template
         resolved = resolve_template(file)
-        workflow = json.loads(Path(resolved).read_text())
+        workflow = load_workflow_json(resolved)
         path = Path(resolved)
 
     if is_ui_workflow(workflow):
@@ -238,6 +242,27 @@ def workflows_show(
         console.print(_build_example_invocation(tmpl), highlight=False)
     else:
         typer.echo(_build_example_invocation(tmpl))
+
+
+@workflows_app.command(name="requirements")
+def workflows_requirements(
+    workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
+    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI."),
+):
+    """Print custom node packages required by a workflow."""
+    from .cli import workflow_requirements as _workflow_requirements
+    _workflow_requirements(workflow_file=workflow_file, format=format, snapshot_uri=snapshot_uri)
+
+
+@workflows_app.command(name="ls", hidden=True)
+def workflows_ls(
+    format: str = typer.Option("table", "--format", help="Output format: table or json."),
+    template_dir: Optional[list[str]] = typer.Option(None, "--template-dir", help="Extra directories to scan."),
+    all_templates: bool = typer.Option(False, "-a", "--all", help="Include API-key-requiring templates."),
+):
+    """Alias for list."""
+    workflows_list(format=format, template_dir=template_dir, all_templates=all_templates)
 
 
 def _show_current_values(table, workflow: dict, params: list[str]):

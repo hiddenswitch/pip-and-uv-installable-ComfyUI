@@ -42,7 +42,7 @@ All other packages (custom nodes, patched dependencies) are identical across CUD
 To find which packages a workflow needs:
 
 ```bash
-comfyui workflow-deps path/to/workflow.json
+comfyui workflow-requirements path/to/workflow.json
 ```
 
 ## Other Installation Methods

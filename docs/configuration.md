@@ -23,7 +23,7 @@ comfyui --help
 | Command | Description |
 |---------|-------------|
 | `serve` | Start the ComfyUI server (default command) |
-| `post-workflow` | Execute workflow(s) and exit |
+| `run-workflow` | Execute workflow(s) and exit |
 | `worker` | Run as a distributed queue worker |
 | `create-directories` | Create default model/input/output/temp directories |
 | `list-workflow-templates` | List available workflow templates |
@@ -58,7 +58,7 @@ config.guess_settings = True
 
 ```bash
 comfyui serve --guess-settings
-comfyui post-workflow my_workflow.json --guess-settings
+comfyui run-workflow my_workflow.json --guess-settings
 ```
 
 What it detects:

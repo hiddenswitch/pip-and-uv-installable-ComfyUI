@@ -295,32 +295,32 @@ async with Comfy(configuration=config) as client:
         print(f"{workflow_path.name}: {outputs}")
 ```
 
-## Headless Workflow Execution with `post-workflow`
+## Headless Workflow Execution with `run-workflow`
 
-The `post-workflow` subcommand executes workflows and exits without starting the web server. Both API-format and UI-format workflow files are accepted. Outputs are printed as JSON to stdout, and application logging goes to stderr.
+The `run-workflow` subcommand executes workflows and exits without starting the web server. Both API-format and UI-format workflow files are accepted. Outputs are printed as JSON to stdout, and application logging goes to stderr.
 
 **Run a single workflow file:**
 
 ```bash
-comfyui post-workflow my_workflow.json
+comfyui run-workflow my_workflow.json
 ```
 
 **Run multiple workflow files:**
 
 ```bash
-comfyui post-workflow workflow1.json workflow2.json
+comfyui run-workflow workflow1.json workflow2.json
 ```
 
 **Read workflows from stdin (use `-`):**
 
 ```bash
-cat my_workflow.json | comfyui post-workflow -
+cat my_workflow.json | comfyui run-workflow -
 ```
 
 **Pipe a literal JSON workflow:**
 
 ```bash
-echo '{"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"v1-5-pruned-emaonly.safetensors"}}}' | comfyui post-workflow -
+echo '{"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"v1-5-pruned-emaonly.safetensors"}}}' | comfyui run-workflow -
 ```
 
 The input stream supports concatenated JSON objects — multiple `{}{}{}` objects in sequence will each be executed as a separate workflow. Each workflow's outputs are printed as a single JSON line to stdout.
@@ -328,16 +328,16 @@ The input stream supports concatenated JSON objects — multiple `{}{}{}` object
 **Override prompt text, seed, or steps:**
 
 ```bash
-comfyui post-workflow my_workflow.json --prompt "a cat on the moon" --steps 20 --seed 42
+comfyui run-workflow my_workflow.json --prompt "a cat on the moon" --steps 20 --seed 42
 ```
 
 Combine with performance flags:
 
 ```bash
-comfyui post-workflow my_workflow.json --guess-settings
+comfyui run-workflow my_workflow.json --guess-settings
 ```
 
-Run `comfyui post-workflow --help` for the full list of options.
+Run `comfyui run-workflow --help` for the full list of options.
 
 ## Adding Known Models for Automatic Download
 

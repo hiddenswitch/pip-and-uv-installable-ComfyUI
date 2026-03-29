@@ -48,8 +48,8 @@ def test_worker_help():
     assert "distributed-queue" in _plain(result.output)
 
 
-def test_post_workflow_help():
-    result = runner.invoke(app, ["post-workflow", "--help"])
+def test_run_workflow_help():
+    result = runner.invoke(app, ["run-workflow", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "--prompt" in out
