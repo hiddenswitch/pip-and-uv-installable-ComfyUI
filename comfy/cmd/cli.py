@@ -408,7 +408,7 @@ def main(ctx: typer.Context):
         ctx.invoke(serve)
 
 
-@app.command(context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True})
+@app.command(context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True}, rich_help_panel="Server")
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def serve(
     ctx: typer.Context,
@@ -489,7 +489,7 @@ def serve(
 
 
 
-@app.command(context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True})
+@app.command(context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True}, rich_help_panel="Server")
 @_with_options(_ALL_SHARED_OPTS)
 def worker(
     ctx: typer.Context,
@@ -524,7 +524,7 @@ def worker(
 
 
 
-@app.command(name="run-workflow", context_settings=_COMFYUI_ENV)
+@app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows")
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
@@ -566,7 +566,7 @@ def run_workflow(
 
 
 
-@app.command(name="create-directories", context_settings=_COMFYUI_ENV)
+@app.command(name="create-directories", context_settings=_COMFYUI_ENV, rich_help_panel="Environment", hidden=True)
 def create_directories_cmd(
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
@@ -599,7 +599,7 @@ def create_directories_cmd(
 
 
 
-@app.command(name="list-workflow-templates", context_settings=_COMFYUI_ENV)
+@app.command(name="list-workflow-templates", context_settings=_COMFYUI_ENV, hidden=True)
 def list_workflow_templates(
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     template_dir: Optional[list[str]] = typer.Option(None, "--template-dir", help="Extra directories to scan."),
@@ -619,7 +619,7 @@ def list_workflow_templates(
     )
 
 
-@app.command(name="list-models", context_settings=_COMFYUI_ENV)
+@app.command(name="list-models", context_settings=_COMFYUI_ENV, hidden=True)
 def list_models_cmd(
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder (checkpoints, loras, vae, etc)."),
@@ -670,7 +670,7 @@ def list_models_cmd(
 
 
 
-@app.command(name="serve-pip")
+@app.command(name="serve-pip", rich_help_panel="Package Index")
 @_with_options(_LOGGING_OPTS, _PIP_FACADE_OPTS)
 def serve_pip(
     listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on."),
@@ -690,7 +690,7 @@ def serve_pip(
     run_serve_pip(config)
 
 
-@app.command(name="snapshot-pip-registry")
+@app.command(name="snapshot-pip-registry", rich_help_panel="Package Index")
 @_with_options(_LOGGING_OPTS, _PIP_FACADE_OPTS, _PIP_FACADE_SNAPSHOT_OPTS)
 def snapshot_pip_registry(**kwargs):
     """Snapshot the resolved facade registry into a compact SQLite artifact."""
@@ -720,7 +720,7 @@ def _load_core_class_types() -> frozenset[str]:
     return frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys())
 
 
-@app.command(name="workflow-requirements")
+@app.command(name="workflow-requirements", rich_help_panel="Workflows")
 def workflow_requirements(
     workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
     format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
@@ -746,7 +746,7 @@ def workflow_requirements(
             typer.echo(name)
 
 
-@app.command(name="stop")
+@app.command(name="stop", rich_help_panel="Daemon")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
     pid_file: Optional[str] = typer.Option(None, "--pid-file", help="PID file path (default: ~/.comfyui/comfyui.pid)."),
@@ -767,7 +767,7 @@ def stop(
         raise typer.Exit(1)
 
 
-@app.command(name="logs")
+@app.command(name="logs", rich_help_panel="Daemon")
 def logs(
     follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
@@ -818,11 +818,11 @@ def _register_sub_apps():
     from .sub_jobs import jobs_app
     from .sub_env import env_app
 
-    app.add_typer(models_app, name="models", help="Manage models.")
-    app.add_typer(workflows_app, name="workflows", help="Run and manage workflows.")
-    app.add_typer(nodes_app, name="nodes", help="Inspect installed nodes.")
-    app.add_typer(jobs_app, name="jobs", help="List and cancel server jobs.")
-    app.add_typer(env_app, name="env", help="Environment and diagnostics.")
+    app.add_typer(models_app, name="models", help="Manage models.", rich_help_panel="Workflows")
+    app.add_typer(workflows_app, name="workflows", help="Run and manage workflows.", rich_help_panel="Workflows")
+    app.add_typer(nodes_app, name="nodes", help="Inspect installed nodes.", rich_help_panel="Workflows")
+    app.add_typer(jobs_app, name="jobs", help="List and cancel server jobs.", rich_help_panel="Daemon")
+    app.add_typer(env_app, name="env", help="Environment and diagnostics.", rich_help_panel="Environment")
 
 
 _KNOWN_COMMANDS = frozenset({
