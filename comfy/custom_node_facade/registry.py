@@ -590,7 +590,7 @@ class FacadeRegistry:
         )
 
     def _seed_injected_version(self, spec: CustomNodeSpec, node_id: str) -> None:
-        download_url = self._github_archive_url(spec.repo_url, spec.git_ref or "main")
+        download_url = self._github_archive_url(spec.repo_url, spec.git_ref)
         version = FacadeVersion(
             version=spec.inject_version,
             download_url=download_url,
@@ -643,11 +643,15 @@ class FacadeRegistry:
         )
 
     @staticmethod
-    def _github_archive_url(repo_url: str, ref: str = "main") -> str:
+    def _github_archive_url(repo_url: str, ref: str | None = None) -> str:
         url = repo_url.rstrip("/")
         if url.endswith(".git"):
             url = url[:-4]
-        return f"{url}/archive/refs/heads/{ref}.zip"
+        parsed = urlparse(url)
+        path = parsed.path.strip("/")
+        if ref is not None:
+            return f"https://api.github.com/repos/{path}/zipball/{ref}"
+        return f"https://api.github.com/repos/{path}/zipball"
 
     def _build_injected_project(self, spec: CustomNodeSpec) -> FacadeProject:
         """Create a FacadeProject for a spec that has no CNR entry."""
@@ -658,7 +662,7 @@ class FacadeRegistry:
         skip_requirements = set(CustomNodeManager.DEFAULT_SKIP)
         skip_requirements.update(spec.skip_requirements)
 
-        download_url = self._github_archive_url(spec.repo_url, spec.git_ref or "main")
+        download_url = self._github_archive_url(spec.repo_url, spec.git_ref)
         version = FacadeVersion(
             version=spec.inject_version,
             download_url=download_url,

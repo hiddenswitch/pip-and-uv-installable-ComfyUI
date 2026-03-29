@@ -180,7 +180,23 @@ def test_injected_project_has_github_archive_version():
     versions = registry._versions_cache["test-injected-node"]
     assert len(versions) == 1
     assert versions[0].version == "0.1.0"
-    assert versions[0].download_url == "https://github.com/TestOrg/TestRepo/archive/refs/heads/main.zip"
+    assert versions[0].download_url == "https://api.github.com/repos/TestOrg/TestRepo/zipball/main"
+
+
+def test_github_archive_url_uses_zipball_for_default_branch():
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    # No ref: uses zipball endpoint that resolves to the repo's default branch
+    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo")
+    assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball"
+
+    # Explicit ref: uses zipball with that ref
+    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo", "master")
+    assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball/master"
+
+    # Strips trailing .git
+    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo.git")
+    assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball"
 
 
 def test_extract_vanilla_custom_node_roots(tmp_path: Path):

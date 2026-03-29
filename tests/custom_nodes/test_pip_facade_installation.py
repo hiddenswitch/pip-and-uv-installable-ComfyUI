@@ -302,6 +302,61 @@ def test_serve_pip_can_install_comfyui_nunchaku_with_nunchaku_dep(facade_server:
     assert "darwin" in metadata, "nunchaku dep should have sys_platform != darwin marker"
 
 
+@pytest.fixture
+def facade_server_all_nodes(tmp_path: Path) -> Generator[FacadeServer, None, None]:
+    """Start a serve-pip process without --pip-facade-only-known-nodes."""
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+
+    port = _find_free_port()
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
+
+    process = subprocess.Popen(
+        [
+            sys.executable, "-m", "comfy.cmd.main", "serve-pip",
+            "--listen", "127.0.0.1",
+            "--port", str(port),
+            "--pip-facade-cache-prefix", str(tmp_path / "wheel-cache"),
+            "--logging-level", "INFO",
+        ],
+        cwd=_SRC_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        _wait_for_http(f"http://127.0.0.1:{port}/readyz", process)
+        yield FacadeServer(
+            base_url=f"http://127.0.0.1:{port}",
+            env=env,
+            site_dir=site_dir,
+        )
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
+def test_serve_pip_can_install_comfyui_ltxvideo(facade_server_all_nodes: FacadeServer):
+    """Verify that ComfyUI-LTXVideo can be downloaded and installed.
+
+    The Lightricks/ComfyUI-LTXVideo repo uses ``master`` as its default branch.
+    This test catches regressions where the facade assumes ``main`` and gets a
+    404 from GitHub, returning a 500 to the pip client.
+    """
+    _uv_install(facade_server_all_nodes, "comfyui-ltxvideo", no_deps=True)
+
+    installed = list(facade_server_all_nodes.site_dir.glob("_appmana_facade_*"))
+    assert installed, f"Expected facade package in {facade_server_all_nodes.site_dir}, found: {list(facade_server_all_nodes.site_dir.iterdir())}"
+
+
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for facade install test")
 def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
     tmp_path: Path,
