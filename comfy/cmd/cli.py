@@ -746,6 +746,13 @@ def workflow_requirements(
             typer.echo(name)
 
 
+@app.command(name="start", rich_help_panel="Daemon")
+def start():
+    """Start ComfyUI as a background daemon with auto-detected settings."""
+    sys.argv = [sys.argv[0], "serve", "--daemon", "--guess-settings"]
+    app()
+
+
 @app.command(name="stop", rich_help_panel="Daemon")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
@@ -826,7 +833,7 @@ def _register_sub_apps():
 
 
 _KNOWN_COMMANDS = frozenset({
-    "serve", "serve-pip", "worker", "stop", "logs",
+    "serve", "serve-pip", "worker", "start", "stop", "logs",
     "models", "workflows", "nodes", "jobs", "env",
     "run-workflow", "workflow-requirements", "list-workflow-templates",
     "list-models", "create-directories",
