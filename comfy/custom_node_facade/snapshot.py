@@ -15,7 +15,7 @@ from pathlib import Path
 import aiohttp
 
 from ..component_model.configuration import Configuration
-from .registry import FacadeProject, FacadeRegistry, FacadeVersion
+from .registry import FacadeProject, FacadeRegistry, FacadeVersion, normalize_repo_url
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,61 @@ def _resolve_compression(output_path: Path, compression: str) -> str:
     return compression
 
 
+_EXTENSION_NODE_MAP_URL = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/extension-node-map.json"
+
+
+def _parse_extension_node_map(data: dict) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for repo_url, value in data.items():
+        if isinstance(value, list) and value:
+            for class_type in value[0]:
+                mapping.setdefault(class_type, repo_url)
+    return mapping
+
+
+async def _load_class_type_to_repo(session: aiohttp.ClientSession) -> dict[str, str]:
+    """Return *class_type -> repo_url* from the latest extension-node-map, with bundled fallback."""
+    try:
+        async with session.get(_EXTENSION_NODE_MAP_URL) as response:
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+            return _parse_extension_node_map(data)
+    except Exception:
+        logger.debug("Failed to fetch live extension-node-map, using bundled fallback")
+        from importlib.resources import files as resource_files
+        path = resource_files("comfyui_manager").joinpath("extension-node-map.json")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return _parse_extension_node_map(data)
+
+
+def _build_class_type_rows(
+    projects: list[FacadeProject],
+    class_type_to_repo: dict[str, str],
+) -> list[tuple[str, str]]:
+    """Build ``(class_type, canonical_name)`` rows by joining extension-node-map against projects."""
+    from .registry import repo_basename, canonicalize_project_name
+
+    repo_to_canonical: dict[str, str] = {}
+    for project in projects:
+        if project.repo_url:
+            repo_to_canonical[normalize_repo_url(project.repo_url)] = project.canonical_name
+
+    rows: list[tuple[str, str]] = []
+    for class_type, repo_url in class_type_to_repo.items():
+        norm = normalize_repo_url(repo_url)
+        canonical = repo_to_canonical.get(norm)
+        if canonical is None:
+            canonical = canonicalize_project_name(repo_basename(repo_url))
+        rows.append((class_type, canonical))
+    return rows
+
+
 def _write_snapshot_sqlite(
     sqlite_path: Path,
     *,
     projects: list[FacadeProject],
     versions_by_node_id: dict[str, list[FacadeVersion]],
+    class_type_rows: list[tuple[str, str]],
     base_url: str,
     only_known_nodes: bool,
 ) -> None:
@@ -79,6 +129,12 @@ def _write_snapshot_sqlite(
             ) WITHOUT ROWID
         """)
         connection.execute("CREATE INDEX versions_by_node_id ON versions (node_id)")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS class_types (
+                class_type TEXT PRIMARY KEY,
+                canonical_name TEXT NOT NULL
+            ) WITHOUT ROWID
+        """)
 
         project_rows = [
             (
@@ -127,6 +183,11 @@ def _write_snapshot_sqlite(
             version_rows,
         )
 
+        connection.executemany(
+            "INSERT OR IGNORE INTO class_types (class_type, canonical_name) VALUES (?, ?)",
+            class_type_rows,
+        )
+
         metadata_rows = [
             ("format", "appmana-comfyui-pip-facade-registry-snapshot"),
             ("schema_version", _SCHEMA_VERSION),
@@ -148,6 +209,7 @@ def write_facade_registry_snapshot(
     *,
     projects: list[FacadeProject],
     versions_by_node_id: dict[str, list[FacadeVersion]],
+    class_type_rows: list[tuple[str, str]] | None = None,
     base_url: str,
     only_known_nodes: bool,
     compression: str = "auto",
@@ -166,6 +228,7 @@ def write_facade_registry_snapshot(
             sqlite_path,
             projects=projects,
             versions_by_node_id=versions_by_node_id,
+            class_type_rows=class_type_rows or [],
             base_url=base_url,
             only_known_nodes=only_known_nodes,
         )
@@ -194,11 +257,15 @@ async def snapshot_facade_registry(configuration: Configuration) -> Path:
             span.set_attribute("facade.only_known_nodes", configuration.pip_facade_only_known_nodes)
             projects = await registry.list_projects()
             versions_by_node_id = await _collect_versions(registry, projects)
+            class_type_to_repo = await _load_class_type_to_repo(session)
+            class_type_rows = _build_class_type_rows(projects, class_type_to_repo)
+            span.set_attribute("facade.class_type_count", len(class_type_rows))
             snapshot_path = await asyncio.to_thread(
                 write_facade_registry_snapshot,
                 output_path,
                 projects=projects,
                 versions_by_node_id=versions_by_node_id,
+                class_type_rows=class_type_rows,
                 base_url=configuration.pip_facade_registry_base_url,
                 only_known_nodes=configuration.pip_facade_only_known_nodes,
                 compression=configuration.pip_facade_snapshot_compression,

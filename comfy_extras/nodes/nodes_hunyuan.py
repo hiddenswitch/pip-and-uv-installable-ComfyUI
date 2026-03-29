@@ -15,8 +15,7 @@ from comfy.model_downloader import get_filename_list_with_downloadable, get_full
 
 import comfy.utils
 
-# Re-export for vanilla custom nodes that import from this module's upstream location
-from .nodes_latent_upscaler import LatentUpscaleModelLoader
+from .nodes_latent_upscaler import LatentUpscaleModelLoader  # noqa: F401 — upstream compat
 
 class CLIPTextEncodeHunyuanDiT(io.ComfyNode):
     @classmethod

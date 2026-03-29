@@ -740,6 +740,46 @@ def workflow_deps(
         typer.echo(pkg)
 
 
+@app.command(name="workflow-requirements")
+def workflow_requirements(
+    workflow_file: str = typer.Argument(..., help="Path to a workflow JSON file (UI or API format)."),
+    format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
+    snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
+):
+    """Print custom node packages required by a workflow in pip requirements format."""
+    from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
+
+    path = Path(workflow_file)
+    if not path.exists():
+        typer.echo(f"File not found: {path}", err=True)
+        raise typer.Exit(1)
+    workflow = json.loads(path.read_text(encoding="utf-8"))
+    from ..nodes.package import _import_and_enumerate_nodes_in_module
+    from ..nodes.package_typing import ExportedNodes
+    from functools import reduce
+    from ..nodes import base_nodes
+    from comfy_extras import nodes as comfy_extras_nodes
+    import comfy_api_nodes
+    core_nodes = reduce(
+        lambda x, y: x.update(y),
+        map(_import_and_enumerate_nodes_in_module, [base_nodes, comfy_extras_nodes, comfy_api_nodes]),
+        ExportedNodes(),
+    )
+    packages = resolve_workflow_packages_versioned(
+        workflow,
+        snapshot_uri=snapshot_uri,
+        builtin_class_types=frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys()),
+    )
+
+    for name, version in packages:
+        if format == "requirements_txt_versioned" and version:
+            typer.echo(f"{name}>={version}")
+        elif format == "requirements_txt_locked" and version:
+            typer.echo(f"{name}=={version}")
+        else:
+            typer.echo(name)
+
+
 @app.command(name="stop")
 def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),

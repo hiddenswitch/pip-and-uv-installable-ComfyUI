@@ -67,8 +67,9 @@ class CustomNodeManager:
         results = []
         for root in custom_nodes_roots:
             for folder_name in CustomNodeManager.EXAMPLE_WORKFLOW_FOLDER_NAMES:
-                for filepath in glob.glob(os.path.join(root, f'*/{folder_name}/*.json')):
-                    node_name = os.path.basename(os.path.dirname(os.path.dirname(filepath)))
+                for filepath in glob.glob(os.path.join(root, f'*/{folder_name}/**/*.json'), recursive=True):
+                    rel = os.path.relpath(filepath, root)
+                    node_name = rel.split(os.sep, 1)[0]
                     workflow_name = os.path.splitext(os.path.basename(filepath))[0]
                     results.append((node_name, workflow_name, filepath))
         return results
