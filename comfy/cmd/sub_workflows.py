@@ -250,7 +250,45 @@ def workflows_requirements(
     format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
     snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI."),
 ):
-    """Print custom node packages required by a workflow."""
+    """Print custom node packages required by a workflow in pip requirements format.
+
+    Analyzes a workflow to determine which custom node packages are needed,
+    then prints them as pip-installable package names. Use this to set up a
+    new environment before running a workflow.
+
+    \b
+    Output formats:
+      requirements_txt           Package names only (default)
+      requirements_txt_versioned Package names with >=version
+      requirements_txt_locked    Package names with ==version
+
+    \b
+    Install all requirements for a workflow:
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r <(comfyui workflows requirements workflow.json)
+
+    \b
+    Or save to a file and install:
+      comfyui workflows requirements workflow.json > requirements-nodes.txt
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r requirements-nodes.txt
+
+    \b
+    Also download the models the workflow needs:
+      comfyui models from-workflow workflow.json
+
+    \b
+    Full setup for a new workflow:
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r <(comfyui workflows requirements workflow.json)
+      comfyui models from-workflow workflow.json
+      comfyui run-workflow workflow.json --guess-settings
+
+    \b
+    Accepts file paths, URIs, or literal JSON:
+      comfyui workflows requirements workflow.json
+      comfyui workflows requirements https://example.com/workflow.json
+    """
     from .cli import workflow_requirements as _workflow_requirements
     _workflow_requirements(workflow_file=workflow_file, format=format, snapshot_uri=snapshot_uri)
 

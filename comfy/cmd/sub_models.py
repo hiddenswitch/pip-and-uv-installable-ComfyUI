@@ -205,8 +205,8 @@ def models_from_workflow(
 
     \b
     Full setup for a new workflow:
-      comfyui workflow-requirements workflow.json | \\
-        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r <(comfyui workflows requirements workflow.json)
       comfyui models from-workflow workflow.json
       comfyui run-workflow workflow.json --guess-settings
     """

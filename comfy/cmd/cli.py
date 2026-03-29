@@ -648,8 +648,8 @@ def run_workflow(
 
     \b
     Install custom nodes and models before running:
-      comfyui workflow-requirements workflow.json | \\
-        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r <(comfyui workflows requirements workflow.json)
       comfyui models from-workflow workflow.json
 
     \b
@@ -867,44 +867,13 @@ def _load_core_class_types() -> frozenset[str]:
     return frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys())
 
 
-@app.command(name="workflow-requirements", rich_help_panel="Workflows")
+@app.command(name="workflow-requirements", rich_help_panel="Workflows", hidden=True)
 def workflow_requirements(
     workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
     format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
     snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
 ):
-    """Print custom node packages required by a workflow in pip requirements format.
-
-    Analyzes a workflow to determine which custom node packages are needed,
-    then prints them as pip-installable package names. Use this to set up a
-    new environment before running a workflow.
-
-    \b
-    Output formats:
-      requirements_txt           Package names only (default)
-      requirements_txt_versioned Package names with >=version
-      requirements_txt_locked    Package names with ==version
-
-    \b
-    Install all requirements for a workflow:
-      comfyui workflow-requirements workflow.json | \\
-        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
-
-    \b
-    Or save to a file:
-      comfyui workflow-requirements workflow.json > requirements-nodes.txt
-      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
-        -r requirements-nodes.txt
-
-    \b
-    Also download the models:
-      comfyui models from-workflow workflow.json
-
-    \b
-    Accepts file paths, URIs, or literal JSON:
-      comfyui workflow-requirements workflow.json
-      comfyui workflow-requirements https://example.com/workflow.json
-    """
+    """Print custom node packages required by a workflow in pip requirements format."""
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
 

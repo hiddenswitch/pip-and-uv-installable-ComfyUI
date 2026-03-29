@@ -39,10 +39,11 @@ uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128 comfyui-
 
 All other packages (custom nodes, patched dependencies) are identical across CUDA variants.
 
-To find which packages a workflow needs:
+To find and install the packages a workflow needs:
 
 ```bash
-comfyui workflow-requirements path/to/workflow.json
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ \
+  -r <(comfyui workflows requirements path/to/workflow.json)
 ```
 
 ## Other Installation Methods
