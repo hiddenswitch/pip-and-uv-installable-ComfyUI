@@ -784,10 +784,9 @@ def workflow_requirements(
 
 
 @app.command(name="start", rich_help_panel="Daemon")
-def start():
+def start(ctx: typer.Context):
     """Start ComfyUI as a background daemon with auto-detected settings."""
-    sys.argv = [sys.argv[0], "serve", "--daemon", "--guess-settings"]
-    app()
+    ctx.invoke(serve, daemon=True, guess_settings=True)
 
 
 @app.command(name="stop", rich_help_panel="Daemon")

@@ -193,8 +193,6 @@ def models_from_workflow(
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
     """Download models referenced by a workflow."""
-    import sys as _sys
-
     _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
                 extra_model_paths_config=extra_model_paths_config)
 
@@ -242,18 +240,11 @@ def models_from_workflow(
         return
 
     for folder_name, filename in sorted(model_refs):
-        local_path = folder_paths.get_full_path(folder_name, filename)
         if dry_run:
-            if local_path:
-                typer.echo(f"{folder_name}/{filename}")
-            else:
-                typer.echo(f"{folder_name}/{filename}", err=True)
+            found = folder_paths.get_full_path(folder_name, filename)
         else:
-            path = get_or_download(folder_name, filename)
-            if path:
-                typer.echo(f"{folder_name}/{filename}")
-            else:
-                typer.echo(f"{folder_name}/{filename}", err=True)
+            found = get_or_download(folder_name, filename)
+        typer.echo(f"{folder_name}/{filename}", err=not found)
 
 
 @models_app.command(name="paths", context_settings=_COMFYUI_ENV)

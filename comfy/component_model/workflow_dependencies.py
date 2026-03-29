@@ -15,6 +15,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -41,74 +42,52 @@ _UUID_RE = re.compile(
 _DEFAULT_SNAPSHOT_URI = "pkg://comfy.custom_nodes/pip_facade_registry_snapshot.sqlite.xz"
 
 
-def _open_snapshot(snapshot_uri: str | None = None) -> tuple[sqlite3.Connection, Path]:
-    """Open a facade snapshot DB, returning ``(connection, temp_path)``."""
+@contextmanager
+def _open_snapshot(snapshot_uri: str | None = None):
+    """Context manager that yields a SQLite connection to the facade snapshot."""
     if snapshot_uri is None:
         snapshot_uri = _DEFAULT_SNAPSHOT_URI
     with tempfile.NamedTemporaryFile(
         prefix="comfyui_deps_snapshot_", suffix=".sqlite", delete=False,
     ) as tmp:
         temp_path = Path(tmp.name)
-    with fsspec.open(snapshot_uri, mode="rb", compression="infer") as source:
-        with open(temp_path, "wb") as dest:
-            shutil.copyfileobj(source, dest)
-    return sqlite3.connect(temp_path), temp_path
-
-
-def _load_class_type_to_package_from_snapshot(snapshot_uri: str | None = None) -> dict[str, str]:
-    """Return *class_type -> canonical_name* from the snapshot's ``class_types`` table."""
-    conn, temp_path = _open_snapshot(snapshot_uri)
     try:
+        with fsspec.open(snapshot_uri, mode="rb", compression="infer") as source:
+            with open(temp_path, "wb") as dest:
+                shutil.copyfileobj(source, dest)
+        conn = sqlite3.connect(temp_path)
         try:
-            rows = conn.execute("SELECT class_type, canonical_name FROM class_types").fetchall()
-        except sqlite3.OperationalError:
-            return {}
-        return dict(rows)
+            yield conn
+        finally:
+            conn.close()
     finally:
-        conn.close()
         temp_path.unlink(missing_ok=True)
 
 
-def _load_package_versions_from_snapshot(snapshot_uri: str | None = None) -> dict[str, str]:
-    """Return *canonical_name -> latest_version* from a facade snapshot DB."""
-    conn, temp_path = _open_snapshot(snapshot_uri)
-    try:
-        rows = conn.execute(
+def _load_snapshot_data(
+    snapshot_uri: str | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return ``(class_type_to_package, package_versions)`` from a single snapshot open."""
+    with _open_snapshot(snapshot_uri) as conn:
+        try:
+            ct_rows = conn.execute("SELECT class_type, canonical_name FROM class_types").fetchall()
+        except sqlite3.OperationalError:
+            ct_rows = []
+        ver_rows = conn.execute(
             "SELECT canonical_name, latest_version FROM projects WHERE latest_version IS NOT NULL"
         ).fetchall()
-        return {name: version for name, version in rows if version}
-    finally:
-        conn.close()
-        temp_path.unlink(missing_ok=True)
-
-
-def build_class_type_to_package(
-    *,
-    snapshot_uri: str | None = None,
-    builtin_class_types: frozenset[str] = frozenset(),
-) -> dict[str, str]:
-    """Build a mapping from class_type to canonical package name.
-
-    Built-in class types (those shipped with ComfyUI itself) are excluded.
-    """
-    result = _load_class_type_to_package_from_snapshot(snapshot_uri)
-    for ct in builtin_class_types:
-        result.pop(ct, None)
-    return result
+    return dict(ct_rows), {name: version for name, version in ver_rows if version}
 
 
 def extract_class_types_from_workflow(workflow: dict[str, Any]) -> set[str]:
     """Extract all node class_type values from a workflow (UI or API format)."""
     class_types: set[str] = set()
 
-    # UI format: {"nodes": [{"type": "KSampler", ...}, ...]}
     if "nodes" in workflow:
         for node in workflow.get("nodes", []):
             node_type = node.get("type")
             if node_type:
                 class_types.add(node_type)
-
-    # API format: {"1": {"class_type": "KSampler", "inputs": {...}}, ...}
     else:
         for node_data in workflow.values():
             if isinstance(node_data, dict):
@@ -119,13 +98,13 @@ def extract_class_types_from_workflow(workflow: dict[str, Any]) -> set[str]:
     return class_types
 
 
-def resolve_workflow_packages(
+def resolve_workflow_packages_versioned(
     workflow: dict[str, Any],
     *,
     snapshot_uri: str | None = None,
     builtin_class_types: frozenset[str] | None = None,
-) -> list[str]:
-    """Return sorted list of package names required by *workflow*.
+) -> list[tuple[str, str | None]]:
+    """Return sorted list of ``(package_name, version_or_None)`` for *workflow*.
 
     Excludes built-in nodes, virtual/UI-only nodes, and subgraph component
     nodes (UUID-style type names).
@@ -136,21 +115,17 @@ def resolve_workflow_packages(
         builtin_class_types = frozenset(nodes.NODE_CLASS_MAPPINGS.keys())
 
     class_types = extract_class_types_from_workflow(workflow)
-    mapping = build_class_type_to_package(
-        snapshot_uri=snapshot_uri,
-        builtin_class_types=builtin_class_types,
-    )
+    ct_to_pkg, versions = _load_snapshot_data(snapshot_uri)
+
+    for ct in builtin_class_types:
+        ct_to_pkg.pop(ct, None)
 
     packages: set[str] = set()
     unresolved: list[str] = []
     for ct in sorted(class_types):
-        if ct in VIRTUAL_NODE_TYPES:
+        if ct in VIRTUAL_NODE_TYPES or _UUID_RE.match(ct) or ct in builtin_class_types:
             continue
-        if _UUID_RE.match(ct):
-            continue
-        if ct in builtin_class_types:
-            continue
-        pkg = mapping.get(ct)
+        pkg = ct_to_pkg.get(ct)
         if pkg and pkg not in CORE_PACKAGES:
             packages.add(pkg)
         elif not pkg:
@@ -159,20 +134,4 @@ def resolve_workflow_packages(
     if unresolved:
         logger.warning("Unresolved node types: %s", ", ".join(unresolved))
 
-    return sorted(packages)
-
-
-def resolve_workflow_packages_versioned(
-    workflow: dict[str, Any],
-    *,
-    snapshot_uri: str | None = None,
-    builtin_class_types: frozenset[str] | None = None,
-) -> list[tuple[str, str | None]]:
-    """Return sorted list of ``(package_name, version_or_None)`` for *workflow*."""
-    packages = resolve_workflow_packages(
-        workflow,
-        snapshot_uri=snapshot_uri,
-        builtin_class_types=builtin_class_types,
-    )
-    versions = _load_package_versions_from_snapshot(snapshot_uri)
-    return [(pkg, versions.get(pkg)) for pkg in packages]
+    return [(pkg, versions.get(pkg)) for pkg in sorted(packages)]

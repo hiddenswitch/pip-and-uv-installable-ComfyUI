@@ -11,6 +11,7 @@ from contextlib import contextmanager, nullcontext
 from functools import partial
 from importlib.util import find_spec
 from pathlib import Path
+import threading
 from threading import RLock
 from typing import Dict
 
@@ -105,7 +106,8 @@ class _ComfyExtrasRedirectFinder:
     which in this fork live under ``comfy_extras.nodes.nodes_custom_sampler``.
     """
 
-    _resolving: set = set()
+    def __init__(self):
+        self._resolving = threading.local()
 
     def find_spec(self, fullname: str, path=None, target=None):
         if not fullname.startswith("comfy_extras."):
@@ -117,11 +119,13 @@ class _ComfyExtrasRedirectFinder:
         if short_name == "nodes" or short_name.startswith("_"):
             return None
         canonical = f"comfy_extras.nodes.{short_name}"
-        if canonical in self._resolving:
+        active = getattr(self._resolving, "active", None)
+        if active is None:
+            active = self._resolving.active = set()
+        if canonical in active:
             return None
-        self._resolving.add(canonical)
+        active.add(canonical)
         try:
-            import importlib
             import importlib.util
             spec = importlib.util.find_spec(canonical)
             if spec is None:
@@ -134,7 +138,7 @@ class _ComfyExtrasRedirectFinder:
         except (ModuleNotFoundError, ValueError):
             return None
         finally:
-            self._resolving.discard(canonical)
+            active.discard(canonical)
 
 
 class _ComfyExtrasRedirectLoader:
@@ -147,8 +151,6 @@ class _ComfyExtrasRedirectLoader:
     def exec_module(self, module):
         import importlib
         real = importlib.import_module(self._canonical)
-        module.__dict__.update(real.__dict__)
-        module.__wrapped__ = real
         sys.modules[module.__name__] = real
         import comfy_extras
         setattr(comfy_extras, self._canonical.split(".")[-1], real)
