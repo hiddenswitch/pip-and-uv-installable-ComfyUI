@@ -183,6 +183,79 @@ def models_download(
         raise typer.Exit(1)
 
 
+@models_app.command(name="from-workflow", context_settings=_COMFYUI_ENV)
+def models_from_workflow(
+    workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Check availability without downloading."),
+    cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
+    base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
+    base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
+    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
+):
+    """Download models referenced by a workflow."""
+    import sys as _sys
+
+    _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
+                extra_model_paths_config=extra_model_paths_config)
+
+    from ..component_model.asyncio_files import load_workflow_json
+    from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
+    from ..model_downloader import (
+        _known_models_db, get_or_download, canonicalize_path,
+    )
+    from . import folder_paths
+
+    workflow = load_workflow_json(workflow_file)
+    if is_ui_workflow(workflow):
+        workflow = convert_ui_to_api(workflow)
+
+    # Build filename -> (folder_name, downloadable) index from known models
+    filename_index: dict[str, list[tuple[str, object]]] = {}
+    for db in _known_models_db:
+        for folder_name in db.folder_names:
+            for item in db:
+                for name in [str(item), item.filename, item.save_with_filename] + list(item.alternate_filenames):
+                    key = canonicalize_path(name)
+                    if key:
+                        filename_index.setdefault(key, []).append((folder_name, item))
+
+    # Extract all string input values from the workflow
+    model_refs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for node_data in workflow.values():
+        if not isinstance(node_data, dict):
+            continue
+        for value in (node_data.get("inputs") or {}).values():
+            if not isinstance(value, str) or not value:
+                continue
+            key = canonicalize_path(value)
+            if key in seen:
+                continue
+            seen.add(key)
+            matches = filename_index.get(key)
+            if matches:
+                folder_name = matches[0][0]
+                model_refs.append((folder_name, value))
+
+    if not model_refs:
+        typer.echo("No model references found in workflow.", err=True)
+        return
+
+    for folder_name, filename in sorted(model_refs):
+        local_path = folder_paths.get_full_path(folder_name, filename)
+        if dry_run:
+            if local_path:
+                typer.echo(f"{folder_name}/{filename}")
+            else:
+                typer.echo(f"{folder_name}/{filename}", err=True)
+        else:
+            path = get_or_download(folder_name, filename)
+            if path:
+                typer.echo(f"{folder_name}/{filename}")
+            else:
+                typer.echo(f"{folder_name}/{filename}", err=True)
+
+
 @models_app.command(name="paths", context_settings=_COMFYUI_ENV)
 def models_paths(
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),

@@ -61,7 +61,7 @@ def nodes_default(
         obj_class = exported_nodes.NODE_CLASS_MAPPINGS[cls_name]
         display = exported_nodes.NODE_DISPLAY_NAME_MAPPINGS.get(cls_name, cls_name)
         category = getattr(obj_class, "CATEGORY", "sd")
-        output_types = ", ".join(getattr(obj_class, "RETURN_TYPES", []))
+        output_types = ", ".join(str(t) for t in getattr(obj_class, "RETURN_TYPES", []))
         rows.append((cls_name, display, category, output_types))
 
     if format == "json":
@@ -85,6 +85,7 @@ def nodes_default(
 
 @nodes_app.command(name="ls", context_settings=_COMFYUI_ENV)
 def nodes_ls(
+    ctx: typer.Context,
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
@@ -92,7 +93,6 @@ def nodes_ls(
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
     """List installed node classes."""
-    ctx = typer.Context(nodes_default)
     nodes_default(ctx, format=format, cwd=cwd, base_directory=base_directory,
                   base_paths=base_paths, extra_model_paths_config=extra_model_paths_config)
 
