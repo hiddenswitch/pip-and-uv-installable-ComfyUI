@@ -31,10 +31,47 @@ from ..cli_args_types import (
 
 logger = logging.getLogger(__name__)
 
+
+class _ComfyGroup(typer.core.TyperGroup):
+    """Custom group that renders compact help for ``-h`` and full help for ``--help``."""
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        if _short_help_requested():
+            self._format_short_help(ctx, formatter)
+        else:
+            super().format_help(ctx, formatter)
+
+    def _format_short_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        from .. import __version__
+        formatter.write(f"comfyui {__version__}\n\n")
+        formatter.write("usage: comfyui <command> [options]\n\n")
+
+        commands = []
+        for name in self.list_commands(ctx):
+            cmd = self.get_command(ctx, name)
+            if cmd is None or cmd.hidden:
+                continue
+            commands.append((name, cmd.get_short_help_str(limit=60)))
+
+        if commands:
+            max_name = max(len(n) for n, _ in commands)
+            for name, short_help in commands:
+                formatter.write(f"  {name:<{max_name}}  {short_help}\n")
+
+        formatter.write(f"\nRun 'comfyui <command> --help' for detailed usage.\n")
+
+
+def _short_help_requested() -> bool:
+    """True when the user passed ``-h`` (not ``--help``)."""
+    return "-h" in sys.argv and "--help" not in sys.argv
+
+
 app = typer.Typer(
     name="comfyui",
     no_args_is_help=False,
     add_completion=False,
+    cls=_ComfyGroup,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 _COMFYUI_ENV = {"auto_envvar_prefix": "COMFYUI"}
