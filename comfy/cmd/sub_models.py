@@ -90,6 +90,7 @@ def models_default(
 
 @models_app.command(name="ls", context_settings=_COMFYUI_ENV)
 def models_ls(
+    ctx: typer.Context,
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
@@ -98,7 +99,6 @@ def models_ls(
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
     """List locally downloaded models."""
-    ctx = typer.Context(models_default)
     models_default(ctx, folder=folder, format=format, cwd=cwd, base_directory=base_directory,
                    base_paths=base_paths, extra_model_paths_config=extra_model_paths_config)
 
