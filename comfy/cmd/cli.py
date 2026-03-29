@@ -669,23 +669,6 @@ def list_models_cmd(
     list_models(format=format, folder=folder, include_manager=not no_manager, check_exists=check_exists)
 
 
-@app.command(name="integrity-check", context_settings=_COMFYUI_ENV)
-def integrity_check(
-    cwd: Optional[str] = typer.Option(None, "-w", "--cwd"),
-    base_directory: Optional[str] = typer.Option(None, "--base-directory"),
-    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config"),
-):
-    """Print system diagnostics and verify installation integrity."""
-    from ..component_model.setup import setup_pre_torch
-    params = {k: v for k, v in locals().items() if k != "ctx"}
-    params.setdefault("base_paths", [])
-    params["extra_model_paths_config"] = params.get("extra_model_paths_config") or []
-    config = _build_config(params)
-    setup_pre_torch(config)
-    _set_config_context(config)
-    from .integrity_check import run_integrity_check
-    run_integrity_check(config)
-
 
 @app.command(name="serve-pip")
 @_with_options(_LOGGING_OPTS, _PIP_FACADE_OPTS)
@@ -846,7 +829,7 @@ _KNOWN_COMMANDS = frozenset({
     "serve", "serve-pip", "worker", "stop", "logs",
     "models", "workflows", "nodes", "jobs", "env",
     "run-workflow", "workflow-requirements", "list-workflow-templates",
-    "list-models", "create-directories", "integrity-check",
+    "list-models", "create-directories",
     "snapshot-pip-registry",
 })
 

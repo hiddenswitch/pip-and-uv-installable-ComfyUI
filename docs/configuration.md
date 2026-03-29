@@ -26,9 +26,8 @@ comfyui --help
 | `run-workflow` | Execute workflow(s) and exit |
 | `worker` | Run as a distributed queue worker |
 | `create-directories` | Create default model/input/output/temp directories |
-| `list-workflow-templates` | List available workflow templates |
-| `list-models` | List known downloadable models |
-| `integrity-check` | Print system diagnostics and verify installation integrity |
+| `workflow-requirements` | List custom node packages required by a workflow |
+| `env check` | Print system diagnostics and verify installation integrity |
 
 When no subcommand is given, `serve` is used by default (e.g. `comfyui --novram` is equivalent to `comfyui serve --novram`).
 
