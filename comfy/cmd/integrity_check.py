@@ -262,7 +262,7 @@ def _check_fp8_mps() -> _CheckResult:
 def _section_package_versions(console: Console):
     packages = [
         "comfyui-frontend-package",
-        "comfyui_kitchen",
+        "comfy-kitchen",
         "comfyui-workflow-templates",
         "comfy-aimdo",
         "torch",
