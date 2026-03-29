@@ -492,7 +492,60 @@ def serve(
     refresh_manager_models: bool = typer.Option(False, "--refresh-manager-models", help="Fetch latest model list from GitHub."),
     **kwargs,
 ):
-    """Start the ComfyUI server (default command)."""
+    """Start the ComfyUI server (default command).
+
+    When no subcommand is given, comfyui defaults to serve. Use --guess-settings
+    to auto-detect optimal hardware configuration (recommended for most users).
+
+    \b
+    VRAM Management:
+      --novram             Aggressively offload all model weights from GPU after
+                           each operation. Use when you have 16 GB VRAM or less,
+                           or when running large models. Despite the name, the GPU
+                           is still used for computation.
+      --lowvram            Keep some UNet layers on GPU but offload most. Less
+                           aggressive than --novram, better throughput but uses
+                           more VRAM.
+      --normalvram         Default balanced mode. Models are loaded onto GPU as
+                           needed and kept resident when memory allows.
+      --highvram           Keep all models in GPU memory. Fastest, but requires
+                           enough VRAM to hold all loaded models simultaneously.
+      --disable-dynamic-vram
+                           Disable runtime VRAM monitoring (PyTorch 2.8+). By
+                           default, ComfyUI checks actual RAM and VRAM usage at
+                           inference time to decide whether to offload. This flag
+                           reverts to static size estimates.
+      --reserve-vram N     Keep N GB of VRAM free for other applications. ComfyUI
+                           subtracts this from available VRAM when deciding what
+                           fits on GPU.
+
+    \b
+    Performance (--fast):
+      cublas_ops           Use optimized cuBLAS matrix multiply on NVIDIA Ampere+
+                           (RTX 30xx, 40xx, 50xx, A100). Auto-enabled by
+                           --guess-settings on NVIDIA GPUs.
+      fp16_accumulation    Use FP16 for accumulation. Faster but lower precision.
+      fp8_matrix_mult      Use FP8 for matrix multiplication.
+      autotune             Enable CUDA autotuning for kernel selection.
+      dynamic_vram         Enable runtime VRAM monitoring (default on PyTorch 2.8+).
+    \b
+      Example: comfyui serve --fast cublas_ops,fp16_accumulation
+
+    \b
+    Precision:
+      Model-specific precision flags (--fp16-vae, --fp32-vae, --bf16-unet, etc.)
+      override the default auto-detection. Use --fp32-vae on AMD GPUs if you see
+      VAE decode artifacts. Use --force-fp16 to halve memory usage globally.
+
+    \b
+    Examples:
+      comfyui serve --guess-settings
+      comfyui serve --novram --fast cublas_ops
+      comfyui serve --listen 0.0.0.0 --port 8188
+      comfyui serve --daemon --guess-settings
+      comfyui serve --fp32-vae --use-sage-attention
+      comfyui serve --workflows my_workflow.json --prompt "a sunset" --steps 20
+    """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
     _daemon = daemon
@@ -535,7 +588,17 @@ def worker(
     block_runtime_package_installation: bool = typer.Option(True, "--block-runtime-package-installation", help="Block runtime installs (default True for workers)."),
     **kwargs,
 ):
-    """Run as a distributed queue worker."""
+    """Run as a distributed queue worker.
+
+    Connects to a RabbitMQ broker and pulls workflow execution requests from a
+    shared queue. Multiple workers can process jobs in parallel. Use with
+    'comfyui serve --distributed-queue-frontend' on the frontend side.
+
+    \b
+    Example:
+      comfyui worker --distributed-queue-connection-uri amqp://guest:guest@rabbitmq:5672/
+      comfyui worker --distributed-queue-connection-uri amqp://... --guess-settings
+    """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
     params = _collect_params(locals(), kwargs)
@@ -569,7 +632,34 @@ def run_workflow(
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
     **kwargs,
 ):
-    """Execute workflow(s) and exit."""
+    """Execute workflow(s) and exit.
+
+    Run one or more workflows without starting the web server. Results are
+    printed as JSON to stdout; logs go to stderr. Accepts file paths, URIs
+    (https://, hf://, s3://), literal JSON strings, or '-' for stdin.
+
+    \b
+    Override workflow parameters inline:
+      --prompt "a cat"     Replace the positive text prompt
+      --steps 20           Override sampling steps
+      --seed 42            Set a fixed seed
+      --set 5.inputs.denoise=0.8
+                           Override any node input by ID
+
+    \b
+    Install custom nodes and models before running:
+      comfyui workflow-requirements workflow.json | \\
+        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
+      comfyui models from-workflow workflow.json
+
+    \b
+    Examples:
+      comfyui run-workflow workflow.json --guess-settings
+      comfyui run-workflow workflow.json --prompt "a sunset" --steps 20 --seed 42
+      comfyui run-workflow https://example.com/workflow.json
+      cat workflow.json | comfyui run-workflow -
+      comfyui run-workflow workflow.json --novram --fast cublas_ops
+    """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
     params = _collect_params(locals(), kwargs)
@@ -714,7 +804,27 @@ def serve_pip(
     port: int = typer.Option(8190, help="Set the listen port."),
     **kwargs,
 ):
-    """Serve a PEP 503 simple index for facade-packaged custom nodes."""
+    """Serve a PEP 503 simple index for facade-packaged custom nodes.
+
+    Builds pip-installable wheels on demand from ComfyUI ecosystem custom nodes.
+    Combines ComfyUI-Manager's registry with the Comfy Node Registry (CNR) API,
+    injects dependency metadata, and serves wheels through a standard pip index.
+
+    The public instance is at https://nodes.appmana.com. Self-host for air-gapped
+    environments or to control which nodes are available.
+
+    \b
+    Wheel cache: generated wheels are cached to avoid rebuilding. Use any writable
+    fsspec URI (local path, s3://, etc.):
+      --pip-facade-cache-prefix /var/cache/comfyui
+      --pip-facade-cache-prefix s3://bucket/prefix
+
+    \b
+    Examples:
+      comfyui serve-pip --listen 0.0.0.0 --port 8190
+      comfyui serve-pip --pip-facade-only-known-nodes
+      uv pip install --extra-index-url http://localhost:8190/simple/ comfyui-ltxvideo
+    """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
     params = _collect_params(locals(), kwargs)
@@ -763,7 +873,38 @@ def workflow_requirements(
     format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
     snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
 ):
-    """Print custom node packages required by a workflow in pip requirements format."""
+    """Print custom node packages required by a workflow in pip requirements format.
+
+    Analyzes a workflow to determine which custom node packages are needed,
+    then prints them as pip-installable package names. Use this to set up a
+    new environment before running a workflow.
+
+    \b
+    Output formats:
+      requirements_txt           Package names only (default)
+      requirements_txt_versioned Package names with >=version
+      requirements_txt_locked    Package names with ==version
+
+    \b
+    Install all requirements for a workflow:
+      comfyui workflow-requirements workflow.json | \\
+        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
+
+    \b
+    Or save to a file:
+      comfyui workflow-requirements workflow.json > requirements-nodes.txt
+      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
+        -r requirements-nodes.txt
+
+    \b
+    Also download the models:
+      comfyui models from-workflow workflow.json
+
+    \b
+    Accepts file paths, URIs, or literal JSON:
+      comfyui workflow-requirements workflow.json
+      comfyui workflow-requirements https://example.com/workflow.json
+    """
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
 
@@ -785,7 +926,19 @@ def workflow_requirements(
 
 @app.command(name="start", rich_help_panel="Daemon")
 def start(ctx: typer.Context):
-    """Start ComfyUI as a background daemon with auto-detected settings."""
+    """Start ComfyUI as a background daemon with auto-detected settings.
+
+    Equivalent to 'comfyui serve --daemon --guess-settings'. Detects your GPU,
+    RAM, and available acceleration libraries, then starts ComfyUI in the
+    background. Use 'comfyui stop' to shut it down and 'comfyui logs -f' to
+    watch output.
+
+    \b
+    Examples:
+      comfyui start
+      comfyui logs -f
+      comfyui stop
+    """
     ctx.invoke(serve, daemon=True, guess_settings=True)
 
 
@@ -794,7 +947,11 @@ def stop(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL for HTTP fallback."),
     pid_file: Optional[str] = typer.Option(None, "--pid-file", help="PID file path (default: ~/.comfyui/comfyui.pid)."),
 ):
-    """Stop the ComfyUI daemon."""
+    """Stop the ComfyUI daemon.
+
+    Reads the PID from ~/.comfyui/comfyui.pid and sends SIGTERM. Falls back to
+    the HTTP /interrupt endpoint if the PID file is missing.
+    """
     from .daemon import stop_daemon, default_pid_file
 
     pf = pid_file or default_pid_file()
@@ -816,7 +973,18 @@ def logs(
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
     log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
 ):
-    """Tail server logs."""
+    """Tail server logs.
+
+    Without -f, prints the current log contents. With -f, follows the log file
+    in real time (like tail -f). Tries the HTTP /internal/logs/raw endpoint
+    first, falls back to reading ~/.comfyui/comfyui.log directly.
+
+    \b
+    Examples:
+      comfyui logs
+      comfyui logs -f
+      comfyui logs --server http://remote:8188
+    """
     from .daemon import default_log_file
 
     lf = log_file or default_log_file()

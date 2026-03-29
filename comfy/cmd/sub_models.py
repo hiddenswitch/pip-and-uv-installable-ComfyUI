@@ -192,7 +192,24 @@ def models_from_workflow(
     base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
-    """Download models referenced by a workflow."""
+    """Download models referenced by a workflow.
+
+    Scans workflow node inputs for model filenames and matches them against
+    the known models database (HuggingFace, CivitAI, and other sources).
+    Models already on disk are skipped.
+
+    \b
+    With --dry-run, prints found models to stdout and missing models to stderr
+    without downloading anything. Useful for checking what a workflow needs:
+      comfyui models from-workflow workflow.json --dry-run
+
+    \b
+    Full setup for a new workflow:
+      comfyui workflow-requirements workflow.json | \\
+        xargs uv pip install --extra-index-url https://nodes.appmana.com/simple/
+      comfyui models from-workflow workflow.json
+      comfyui run-workflow workflow.json --guess-settings
+    """
     _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
                 extra_model_paths_config=extra_model_paths_config)
 
