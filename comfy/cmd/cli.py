@@ -387,6 +387,8 @@ def _build_config(params: dict) -> Configuration:
             filtered["port"] = parsed_port
 
     config = Configuration(**filtered)
+    if "database_url" in filtered:
+        config._database_url_explicit = True
     return config
 
 

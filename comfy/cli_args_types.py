@@ -356,6 +356,7 @@ class Configuration(dict):
         self.front_end_root: Optional[str] = None
         self.comfy_api_base: str = "https://api.comfy.org"
         self.database_url: str = db_config()
+        self._database_url_explicit: bool = False
         self.enable_assets: bool = False
         self.disable_assets_autoscan: bool = False
         self.default_device: Optional[int] = None

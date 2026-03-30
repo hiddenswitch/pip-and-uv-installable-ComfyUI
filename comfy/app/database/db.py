@@ -63,23 +63,16 @@ def get_db_path():
 
 _db_lock = None
 
-def _acquire_file_lock(db_path):
-    """Acquire an OS-level file lock to prevent multi-process access.
-
-    Uses filelock for cross-platform support (macOS, Linux, Windows).
-    The OS automatically releases the lock when the process exits, even on crashes.
-    """
+def _acquire_file_lock(db_path) -> bool:
+    """Try to acquire an OS-level file lock. Returns True on success, False on contention."""
     global _db_lock
     lock_path = db_path + ".lock"
     _db_lock = FileLock(lock_path)
     try:
         _db_lock.acquire(timeout=0)
+        return True
     except Timeout:
-        raise RuntimeError(
-            f"Could not acquire lock on database '{db_path}'. "
-            "Another ComfyUI process may already be using it. "
-            "Use --database-url to specify a separate database file."
-        )
+        return False
 
 
 def _is_memory_db(db_url):
@@ -88,13 +81,15 @@ def _is_memory_db(db_url):
 
 
 def init_db():
-    db_url = current_execution_context().configuration.database_url
-    logger.debug(f"Database URL: {db_url}")
+    config = current_execution_context().configuration
+    db_url = config.database_url
+    explicit = getattr(config, "_database_url_explicit", False)
+    logger.debug(f"Database URL: {db_url} (explicit={explicit})")
 
     if _is_memory_db(db_url):
         _init_memory_db(db_url)
     else:
-        _init_file_db(db_url)
+        _init_file_db(db_url, use_chain_hash=not explicit)
 
 
 def _init_memory_db(db_url):
@@ -170,35 +165,44 @@ def _find_best_source_db(db_dir, db_basename, db_ext, script, exclude_path):
     return best_path
 
 
-def _init_file_db(db_url):
+def _init_file_db(db_url, use_chain_hash: bool = True):
     """Initialize a file-backed SQLite database using Alembic migrations.
 
-    The database filename includes a hash of the migration revision chain,
-    so each distinct set of migrations gets its own file. When a new chain
-    is seen for the first time, the most recent compatible database is
-    copied as a starting point before running any pending migrations.
+    When use_chain_hash is True (default, for auto-generated URLs), the
+    database filename includes a hash of the migration revision chain so
+    each distinct set of migrations gets its own file.
+
+    When use_chain_hash is False (user-provided --database-url), the URL
+    is used exactly as given.
+
+    If the file lock cannot be acquired, falls back to an in-memory database
+    so multiple instances can coexist without crashing.
     """
     config = get_alembic_config()
     script = ScriptDirectory.from_config(config)
-    chain_hash = _compute_chain_hash(script)
     target_rev = script.get_current_head()
 
-    # Derive chain-specific database path
     original_path = db_url.split("///", 1)[1]
-    db_dir = os.path.dirname(original_path)
-    base, ext = os.path.splitext(os.path.basename(original_path))
-    db_path = os.path.join(db_dir, f"{base}-{chain_hash}{ext}")
-    db_url = f"sqlite:///{db_path}"
-    config.set_main_option("sqlalchemy.url", db_url)
 
-    # If this chain's db doesn't exist, snapshot from the best compatible one
-    db_exists = os.path.exists(db_path)
-    if not db_exists:
-        source = _find_best_source_db(db_dir, base, ext, script, db_path)
-        if source:
-            logger.info(f"Snapshotting database from '{source}' to '{db_path}'")
-            shutil.copy(source, db_path)
-            db_exists = True
+    if use_chain_hash:
+        chain_hash = _compute_chain_hash(script)
+        db_dir = os.path.dirname(original_path)
+        base, ext = os.path.splitext(os.path.basename(original_path))
+        db_path = os.path.join(db_dir, f"{base}-{chain_hash}{ext}")
+        db_url = f"sqlite:///{db_path}"
+
+        db_exists = os.path.exists(db_path)
+        if not db_exists:
+            source = _find_best_source_db(db_dir, base, ext, script, db_path)
+            if source:
+                logger.info(f"Snapshotting database from '{source}' to '{db_path}'")
+                shutil.copy(source, db_path)
+                db_exists = True
+    else:
+        db_path = original_path
+        db_exists = os.path.exists(db_path)
+
+    config.set_main_option("sqlalchemy.url", db_url)
 
     engine = create_engine(db_url)
 
@@ -232,7 +236,15 @@ def _init_file_db(db_url):
             raise e
 
     conn.close()
-    _acquire_file_lock(db_path)
+
+    if not _acquire_file_lock(db_path):
+        engine.dispose()
+        logger.warning(
+            f"Database '{db_path}' is locked by another process. "
+            "Falling back to in-memory database for this instance."
+        )
+        _init_memory_db("sqlite:///:memory:")
+        return
 
     global Session
     Session = sessionmaker(bind=engine)
