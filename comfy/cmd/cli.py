@@ -221,7 +221,7 @@ _PIP_FACADE_SNAPSHOT_OPTS: list[tuple] = [
 ]
 
 _MISC_OPTS: list[tuple] = [
-    ("guess_settings", bool, typer.Option(False, "--guess-settings", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.).")),
+    ("guess_settings", bool, typer.Option(False, "-g", "--guess-settings", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.).")),
     ("database_url", Optional[str], typer.Option(None, "--database-url", help="Specify the database URL, e.g. 'sqlite:///:memory:'.")),
     ("panic_when", Optional[list[str]], typer.Option(None, "--panic-when", help="List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.")),
     ("executor_factory", str, typer.Option("ThreadPoolExecutor", "--executor-factory", help="Either ThreadPoolExecutor or ProcessPoolExecutor.")),
@@ -658,7 +658,11 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
 
     # Filter out already-installed packages
     from importlib.metadata import distributions
-    installed = {d.metadata["Name"].lower().replace("_", "-") for d in distributions()}
+    installed: set[str] = set()
+    for d in distributions():
+        name = (d.metadata or {}).get("Name")
+        if name:
+            installed.add(name.lower().replace("_", "-"))
     missing = sorted(p for p in packages if p not in installed)
     if not missing:
         return

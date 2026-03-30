@@ -152,7 +152,7 @@ class TestBuildExampleInvocation:
             supported_params=["prompt", "seed"],
         )
         result = _build_example_invocation(tmpl)
-        assert result == 'comfyui workflows run my_template --prompt "your text here" --seed 42'
+        assert result == 'comfyui workflows run my_template -ag --prompt "your text here" --seed 42'
 
     def test_fallback_to_name(self):
         tmpl = TemplateInfo(
@@ -160,12 +160,12 @@ class TestBuildExampleInvocation:
             supported_params=["prompt"],
         )
         result = _build_example_invocation(tmpl)
-        assert result == 'comfyui workflows run My Workflow --prompt "your text here"'
+        assert result == 'comfyui workflows run My Workflow -ag --prompt "your text here"'
 
     def test_no_params(self):
         tmpl = TemplateInfo(name="bare", source="package", template_id="bare")
         result = _build_example_invocation(tmpl)
-        assert result == "comfyui workflows run bare"
+        assert result == "comfyui workflows run bare -ag"
 
     def test_all_params(self):
         tmpl = TemplateInfo(

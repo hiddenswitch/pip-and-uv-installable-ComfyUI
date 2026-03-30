@@ -212,9 +212,11 @@ def _populate_supported_params(templates: list[TemplateInfo]) -> None:
             logger.debug(f"Could not read template {tmpl.path}")
 
 
-def _build_example_invocation(tmpl: TemplateInfo) -> str:
+def _build_example_invocation(tmpl: TemplateInfo, include_all: bool = True) -> str:
     name = tmpl.template_id or tmpl.name
     parts = [f"comfyui workflows run {name}"]
+    if include_all:
+        parts.append("-ag")
 
     placeholders = {
         "prompt": '--prompt "your text here"',
