@@ -57,14 +57,22 @@ def workflows_list(
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def workflows_run(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, '-' for stdin, or literal JSON."),
+    all: bool = typer.Option(False, "--all", "-a", help="Install missing custom nodes and download missing models before running."),
     disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
     **kwargs,
 ):
-    """Execute workflow(s) locally and exit."""
+    """Execute workflow(s) locally and exit.
+
+    With --all, automatically install missing custom nodes from
+    nodes.appmana.com and download missing models before running.
+    """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
+    _all = all
     params = _collect_params(locals(), kwargs)
+    params.pop("all", None)
+    params.pop("_all", None)
 
     if params.get("output") is not None:
         params["output_directory"] = params["output"]
@@ -75,12 +83,20 @@ def workflows_run(
 
     config = _build_config(params)
 
+    if _all:
+        from .cli import _install_workflow_requirements
+        _install_workflow_requirements(config.workflows)
+
     setup_pre_torch(config)
     _set_config_context(config)
     setup_post_torch(config)
 
     from ..component_model.entrypoints_common import configure_application_paths
     configure_application_paths(config)
+
+    if _all:
+        from .cli import _download_workflow_models
+        _download_workflow_models(config.workflows)
 
     from ..execution_context import context_configuration
     from ..nodes.package import import_all_nodes_in_workspace

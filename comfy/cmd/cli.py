@@ -624,10 +624,100 @@ def worker(
 
 
 
+_NODES_INDEX_URL = "https://nodes.appmana.com/simple/"
+
+
+def _install_workflow_requirements(workflow_sources: list[str]) -> None:
+    """Install missing custom node packages for the given workflows."""
+    import shutil
+    import subprocess
+
+    from ..component_model.asyncio_files import load_workflow_json
+    from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
+
+    uv = shutil.which("uv")
+    if uv is None:
+        logger.warning("uv not found, skipping custom node installation")
+        return
+
+    packages: set[str] = set()
+    for source in workflow_sources:
+        if source == "-":
+            continue
+        try:
+            workflow = load_workflow_json(source)
+        except Exception:
+            continue
+        for name, _ in resolve_workflow_packages_versioned(
+            workflow, builtin_class_types=_load_core_class_types(),
+        ):
+            packages.add(name)
+
+    if not packages:
+        return
+
+    # Filter out already-installed packages
+    from importlib.metadata import distributions
+    installed = {d.metadata["Name"].lower().replace("_", "-") for d in distributions()}
+    missing = sorted(p for p in packages if p not in installed)
+    if not missing:
+        return
+
+    logger.info("Installing custom nodes: %s", ", ".join(missing))
+    cmd = [uv, "pip", "install", "--python", sys.executable,
+           "--extra-index-url", _NODES_INDEX_URL] + missing
+    subprocess.run(cmd, check=True)
+
+
+def _download_workflow_models(workflow_sources: list[str]) -> None:
+    """Download missing models for the given workflows."""
+    from ..component_model.asyncio_files import load_workflow_json
+    from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
+    from ..model_downloader import _known_models_db, get_or_download, canonicalize_path
+    from . import folder_paths
+
+    filename_index: dict[str, list[tuple[str, object]]] = {}
+    for db in _known_models_db:
+        for folder_name in db.folder_names:
+            for item in db:
+                for name in [str(item), item.filename, item.save_with_filename] + list(item.alternate_filenames):
+                    key = canonicalize_path(name)
+                    if key:
+                        filename_index.setdefault(key, []).append((folder_name, item))
+
+    seen: set[str] = set()
+    for source in workflow_sources:
+        if source == "-":
+            continue
+        try:
+            workflow = load_workflow_json(source)
+        except Exception:
+            continue
+        if is_ui_workflow(workflow):
+            workflow = convert_ui_to_api(workflow)
+        for node_data in workflow.values():
+            if not isinstance(node_data, dict):
+                continue
+            for value in (node_data.get("inputs") or {}).values():
+                if not isinstance(value, str) or not value:
+                    continue
+                key = canonicalize_path(value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                matches = filename_index.get(key)
+                if matches:
+                    folder_name = matches[0][0]
+                    if not folder_paths.get_full_path(folder_name, value):
+                        logger.info("Downloading %s/%s", folder_name, value)
+                        get_or_download(folder_name, value)
+
+
 @app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows")
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
+    all: bool = typer.Option(False, "--all", "-a", help="Install missing custom nodes and download missing models before running."),
     disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
     **kwargs,
@@ -639,6 +729,11 @@ def run_workflow(
     (https://, hf://, s3://), literal JSON strings, or '-' for stdin.
 
     \b
+    With --all, automatically install missing custom nodes from
+    nodes.appmana.com and download missing models before running:
+      comfyui run-workflow workflow.json --all --guess-settings
+
+    \b
     Override workflow parameters inline:
       --prompt "a cat"     Replace the positive text prompt
       --steps 20           Override sampling steps
@@ -647,22 +742,19 @@ def run_workflow(
                            Override any node input by ID
 
     \b
-    Install custom nodes and models before running:
-      uv pip install --extra-index-url https://nodes.appmana.com/simple/ \\
-        -r <(comfyui workflows requirements workflow.json)
-      comfyui models from-workflow workflow.json
-
-    \b
     Examples:
-      comfyui run-workflow workflow.json --guess-settings
+      comfyui run-workflow workflow.json --all --guess-settings
       comfyui run-workflow workflow.json --prompt "a sunset" --steps 20 --seed 42
-      comfyui run-workflow https://example.com/workflow.json
+      comfyui run-workflow https://example.com/workflow.json --all
       cat workflow.json | comfyui run-workflow -
       comfyui run-workflow workflow.json --novram --fast cublas_ops
     """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
+    _all = all
     params = _collect_params(locals(), kwargs)
+    params.pop("all", None)
+    params.pop("_all", None)
 
     if params.get("output") is not None:
         params["output_directory"] = params["output"]
@@ -673,12 +765,18 @@ def run_workflow(
 
     config = _build_config(params)
 
+    if _all:
+        _install_workflow_requirements(config.workflows)
+
     setup_pre_torch(config)
     _set_config_context(config)
     setup_post_torch(config)
 
     from ..component_model.entrypoints_common import configure_application_paths
     configure_application_paths(config)
+
+    if _all:
+        _download_workflow_models(config.workflows)
 
     from ..execution_context import context_configuration
     from ..nodes.package import import_all_nodes_in_workspace
