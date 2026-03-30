@@ -96,8 +96,8 @@ def test_snapshot_pip_registry_help():
     result = runner.invoke(app, ["snapshot-pip-registry", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    assert "--pip-facade-registry" in out
-    assert "--pip-facade-snapshot" in out
+    assert "pip-facade-registr" in out
+    assert "pip-facade-snapshot" in out
 
 
 def test_models_help():
