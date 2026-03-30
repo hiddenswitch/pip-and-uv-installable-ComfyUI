@@ -111,6 +111,7 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
         from ..cli_args import args
         configuration = args
     resolved = [_resolve_workflow(w) for w in workflows]
+    show_progress = not getattr(configuration, "disable_progress", False) and os.isatty(2)
     async with Comfy(configuration=configuration) as comfy:
         for workflow in resolved:
             obj: dict
@@ -118,11 +119,59 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
                 obj = _ensure_api_format(obj)
                 obj = _apply_overrides(obj, configuration)
                 try:
-                    res = await comfy.queue_prompt_api(obj)
+                    if show_progress:
+                        res = await _run_with_progress(comfy, obj)
+                    else:
+                        res = await comfy.queue_prompt_api(obj)
                     typer.echo(json.dumps(res.outputs))
                 except asyncio.CancelledError:
                     logger.info("Exiting gracefully.")
                     break
+
+
+async def _run_with_progress(comfy: Comfy, prompt: dict):
+    """Execute a prompt with a rich progress bar on stderr."""
+    from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+    import sys
+
+    task = comfy.queue_with_progress(prompt)
+    node_tasks: dict[str, int] = {}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=__import__("rich.console", fromlist=["Console"]).Console(stderr=True),
+        transient=True,
+    ) as progress:
+        overall = progress.add_task("Running workflow", total=None)
+
+        async for notification in task.progress():
+            if notification.event == "progress":
+                data = notification.data
+                value = data.get("value", 0)
+                total = data.get("max", 100)
+                node_id = data.get("node")
+                if node_id and node_id not in node_tasks:
+                    node_tasks[node_id] = progress.add_task(f"Node {node_id}", total=total)
+                if node_id and node_id in node_tasks:
+                    progress.update(node_tasks[node_id], completed=value, total=total)
+            elif notification.event == "execution_cached":
+                cached = notification.data.get("nodes", [])
+                for nid in cached:
+                    if nid not in node_tasks:
+                        node_tasks[nid] = progress.add_task(f"Node {nid} (cached)", total=1)
+                    progress.update(node_tasks[nid], completed=1, total=1)
+            elif notification.event == "executing":
+                node_id = notification.data.get("node")
+                if node_id:
+                    progress.update(overall, description=f"Executing node {node_id}")
+
+        progress.update(overall, description="Done", completed=1, total=1)
+
+    return await task.get()
 
 
 def entrypoint():

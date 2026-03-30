@@ -338,11 +338,13 @@ def _print_detail_panel(tmpl: TemplateInfo):
     if tmpl.bundle:
         lines.append(f"[bold]Bundle:[/bold] {tmpl.bundle}")
     if tmpl.supported_params:
-        lines.append(f"[bold]Supported params:[/bold] --{'  --'.join(tmpl.supported_params)}")
+        lines.append(f"[bold]Params:[/bold] --{'  --'.join(tmpl.supported_params)}")
+    if tmpl.path:
+        lines.append(f"[bold]Path:[/bold] {tmpl.path}")
     stderr.print("\n".join(lines))
 
     stderr.print()
-    stderr.print("[bold]Example:[/bold]")
+    stderr.print("[bold]Run with:[/bold]")
     stdout.print(_build_example_invocation(tmpl), highlight=False)
 
 
