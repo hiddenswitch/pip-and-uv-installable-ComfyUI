@@ -370,9 +370,6 @@ class ModelPatcher(ModelManageable, PatchSupport):
     def model_mmap_residency(self, free=False):
         return model_management.module_mmap_residency(self.model, free=free)
 
-    def get_ram_usage(self):
-        return self.model_size()
-
     def loaded_size(self):
         return self._memory_measurements.model_loaded_weight_memory
 

@@ -72,6 +72,7 @@ from .text_encoders import newbie
 from .text_encoders import anima
 from .text_encoders import ace15
 from .text_encoders import longcat_image
+from .text_encoders import qwen_35
 
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
@@ -292,9 +293,6 @@ class CLIP:
         n.apply_hooks_to_conds = self.apply_hooks_to_conds
         return n
 
-    def get_ram_usage(self):
-        return self.patcher.get_ram_usage()
-
     def add_patches(self, patches, strength_patch=1.0, strength_model=1.0):
         return self.patcher.add_patches(patches, strength_patch, strength_model)
 
@@ -440,13 +438,13 @@ class CLIP:
     def get_key_patches(self):
         return self.patcher.get_key_patches()
 
-    def generate(self, tokens, do_sample=True, max_length=256, temperature=1.0, top_k=50, top_p=0.95, min_p=0.0, repetition_penalty=1.0, seed=None):
+    def generate(self, tokens, do_sample=True, max_length=256, temperature=1.0, top_k=50, top_p=0.95, min_p=0.0, repetition_penalty=1.0, seed=None, presence_penalty=0.0):
         self.cond_stage_model.reset_clip_options()
 
         self.load_model(tokens)
         self.cond_stage_model.set_clip_options({"layer": None})
         self.cond_stage_model.set_clip_options({"execution_device": self.patcher.load_device})
-        return self.cond_stage_model.generate(tokens, do_sample=do_sample, max_length=max_length, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, repetition_penalty=repetition_penalty, seed=seed)
+        return self.cond_stage_model.generate(tokens, do_sample=do_sample, max_length=max_length, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, repetition_penalty=repetition_penalty, seed=seed, presence_penalty=presence_penalty)
 
     def decode(self, token_ids, skip_special_tokens=True):
         return self.tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
@@ -577,12 +575,19 @@ class VAE:
                         old_memory_used_decode = self.memory_used_decode
                         self.memory_used_decode = lambda shape, dtype: old_memory_used_decode(shape, dtype) * 4.0
 
+                    decoder_ch = sd['decoder.conv_in.weight'].shape[0] // ddconfig['ch_mult'][-1]
+                    if decoder_ch != ddconfig['ch']:
+                        decoder_ddconfig = ddconfig.copy()
+                        decoder_ddconfig['ch'] = decoder_ch
+                    else:
+                        decoder_ddconfig = None
+
                     if 'post_quant_conv.weight' in sd:
-                        self.first_stage_model = AutoencoderKL(ddconfig=ddconfig, embed_dim=sd['post_quant_conv.weight'].shape[1])
+                        self.first_stage_model = AutoencoderKL(ddconfig=ddconfig, embed_dim=sd['post_quant_conv.weight'].shape[1], **({"decoder_ddconfig": decoder_ddconfig} if decoder_ddconfig is not None else {}))
                     else:
                         self.first_stage_model = AutoencodingEngine(regularizer_config={'target': "comfy.ldm.models.autoencoder.DiagonalGaussianRegularizer"},
                                                                     encoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Encoder", 'params': ddconfig},
-                                                                    decoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Decoder", 'params': ddconfig})
+                                                                    decoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Decoder", 'params': decoder_ddconfig if decoder_ddconfig is not None else ddconfig})
             elif "decoder.layers.1.layers.0.beta" in sd:
                 config = {}
                 param_key = None
@@ -882,9 +887,6 @@ class VAE:
             return self.size
         self.size = module_size(self.first_stage_model)
         return self.size
-
-    def get_ram_usage(self):
-        return self.model_size()
 
     def throw_exception_if_invalid(self):
         if self.first_stage_model is None:
@@ -1310,6 +1312,11 @@ class TEModel(Enum):
     QWEN3_8B = 20
     QWEN3_06B = 21
     GEMMA_3_4B_VISION = 22
+    QWEN35_08B = 23
+    QWEN35_2B = 24
+    QWEN35_4B = 25
+    QWEN35_9B = 26
+    QWEN35_27B = 27
 
 
 def detect_te_model(sd):
@@ -1349,6 +1356,17 @@ def detect_te_model(sd):
             return TEModel.QWEN25_3B
         if weight.shape[0] == 512:
             return TEModel.QWEN25_7B
+    if "model.language_model.layers.0.linear_attn.A_log" in sd and "model.language_model.layers.0.input_layernorm.weight" in sd:
+        weight = sd['model.language_model.layers.0.input_layernorm.weight']
+        if weight.shape[0] == 1024:
+            return TEModel.QWEN35_08B
+        if weight.shape[0] == 2560:
+            return TEModel.QWEN35_4B
+        if weight.shape[0] == 4096:
+            return TEModel.QWEN35_9B
+        if weight.shape[0] == 5120:
+            return TEModel.QWEN35_27B
+        return TEModel.QWEN35_2B
     if "model.layers.0.post_attention_layernorm.weight" in sd:
         weight = sd['model.layers.0.post_attention_layernorm.weight']
         if 'model.layers.0.self_attn.q_norm.weight' in sd:
@@ -1382,11 +1400,12 @@ def t5xxl_detect(clip_data):
 
 
 def llama_detect(clip_data):
-    weight_name = "model.layers.0.self_attn.k_proj.weight"
+    weight_names = ["model.layers.0.self_attn.k_proj.weight", "model.layers.0.linear_attn.in_proj_a.weight"]
 
     for sd in clip_data:
-        if weight_name in sd:
-            return hunyuan_video.llama_detect(sd)
+        for weight_name in weight_names:
+            if weight_name in sd:
+                return hunyuan_video.llama_detect(sd)
 
     return {}
 
@@ -1516,6 +1535,11 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
         elif te_model == TEModel.JINA_CLIP_2:
             clip_target.clip = jina_clip_2.JinaClip2TextModelWrapper
             clip_target.tokenizer = jina_clip_2.JinaClip2TokenizerWrapper
+        elif te_model in (TEModel.QWEN35_08B, TEModel.QWEN35_2B, TEModel.QWEN35_4B, TEModel.QWEN35_9B, TEModel.QWEN35_27B):
+            clip_data[0] = comfy.utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
+            qwen35_type = {TEModel.QWEN35_08B: "qwen35_08b", TEModel.QWEN35_2B: "qwen35_2b", TEModel.QWEN35_4B: "qwen35_4b", TEModel.QWEN35_9B: "qwen35_9b", TEModel.QWEN35_27B: "qwen35_27b"}[te_model]
+            clip_target.clip = qwen_35.te(**llama_detect(clip_data), model_type=qwen35_type)
+            clip_target.tokenizer = qwen_35.tokenizer(model_type=qwen35_type)
         elif te_model == TEModel.QWEN3_06B:
             clip_target.clip = anima.te(**llama_detect(clip_data))
             clip_target.tokenizer = anima.AnimaTokenizer
@@ -1824,15 +1848,18 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
         model_options = {}
     dtype = model_options.get("dtype", None)
 
+    custom_operations = model_options.get("custom_operations", None)
+    if custom_operations is None:
+        sd, metadata = comfy.utils.convert_old_quants(sd, "", metadata=metadata)
+
     # Allow loading unets from checkpoint files
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)
     temp_sd = utils.state_dict_prefix_replace(sd, {diffusion_model_prefix: ""}, filter_keys=True)
     if len(temp_sd) > 0:
         sd = temp_sd
+        if custom_operations is None:
+            sd, metadata = utils.convert_old_quants(sd, "", metadata=metadata)
 
-    custom_operations = model_options.get("custom_operations", None)
-    if custom_operations is None:
-        sd, metadata = utils.convert_old_quants(sd, "", metadata=metadata)
     parameters = utils.calculate_parameters(sd)
     weight_dtype = utils.weight_dtype(sd)
     load_device = model_management.get_torch_device()

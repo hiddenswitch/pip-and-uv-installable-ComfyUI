@@ -60,6 +60,7 @@ from .ldm.kandinsky5 import model as kadinsky5_model
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
 from .ldm.wan.model_animate import AnimateWanModel
+from .ldm.rt_detr.rtdetr_v4 import RTv4
 from .model_management_types import ModelManageable
 from .ldm.ace import ace_step15
 from .ldm.ace.ace_step15 import AceStepConditionGenerationModel
@@ -929,7 +930,7 @@ class Flux(BaseModel):
         return torch.cat((image, mask), dim=1)
 
     def encode_adm(self, **kwargs):
-        return kwargs["pooled_output"]
+        return kwargs.get("pooled_output", None)
 
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
@@ -1104,6 +1105,10 @@ class LTXAV(BaseModel):
         guide_attention_entries = kwargs.get("guide_attention_entries", None)
         if guide_attention_entries is not None:
             out['guide_attention_entries'] = conds.CONDConstant(guide_attention_entries)
+
+        ref_audio = kwargs.get("ref_audio", None)
+        if ref_audio is not None:
+            out['ref_audio'] = conds.CONDConstant(ref_audio)
 
         return out
 
@@ -2025,3 +2030,7 @@ class Kandinsky5Image(Kandinsky5):
 
     def concat_cond(self, **kwargs):
         return None
+
+class RT_DETR_v4(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=RTv4)

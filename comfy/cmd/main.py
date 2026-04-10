@@ -27,6 +27,8 @@ from ..distributed.server_stub import ServerStub
 from ..execution_context import current_execution_context
 from ..nodes.package import import_all_nodes_in_workspace
 from ..nodes_context import get_nodes
+from ..app.assets.seeder import asset_seeder
+from ..app.assets.services import register_output_files
 
 logger = logging.getLogger(__name__)
 _shutdown_event = threading.Event()
@@ -86,6 +88,38 @@ def handle_comfyui_manager_unavailable(args: Configuration):
     args.enable_manager = False
 
 
+def _collect_output_absolute_paths(history_result: dict) -> list[str]:
+    """Extract absolute file paths for output items from a history result."""
+    paths: list[str] = []
+    seen: set[str] = set()
+    for node_output in history_result.get("outputs", {}).values():
+        for items in node_output.values():
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_type = item.get("type")
+                if item_type not in ("output", "temp"):
+                    continue
+                base_dir = folder_paths.get_directory_by_type(item_type)
+                if base_dir is None:
+                    continue
+                base_dir = os.path.abspath(base_dir)
+                filename = item.get("filename")
+                if not filename:
+                    continue
+                abs_path = os.path.abspath(
+                    os.path.join(base_dir, item.get("subfolder", ""), filename)
+                )
+                if not abs_path.startswith(base_dir + os.sep) and abs_path != base_dir:
+                    continue
+                if abs_path not in seen:
+                    seen.add(abs_path)
+                    paths.append(abs_path)
+    return paths
+
+
 async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
     from . import execution
     from ..component_model import queue_types
@@ -100,7 +134,11 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
     elif args.cache_none:
         cache_type = execution.CacheType.NONE
 
-    e = execution.PromptExecutor(server_instance, cache_type=cache_type, cache_args={"lru": args.cache_lru, "ram": args.cache_ram})
+    cache_ram = args.cache_ram
+    if cache_ram < 0:
+        cache_ram = min(32.0, max(4.0, model_management.total_ram * 0.25 / 1024.0))
+
+    e = execution.PromptExecutor(server_instance, cache_type=cache_type, cache_args={"lru": args.cache_lru, "ram": cache_ram})
     last_gc_collect = 0
     need_gc = False
     gc_collect_interval = 10.0
@@ -160,6 +198,10 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
             else:
                 logger.info("Prompt executed in {:.2f} seconds".format(execution_time))
 
+            if not asset_seeder.is_disabled() and e.history_result is not None:
+                paths = _collect_output_absolute_paths(e.history_result)
+                register_output_files(paths, job_id=prompt_id)
+
         flags = q.get_flags()
         free_memory = flags.get("free_memory", False)
 
@@ -181,6 +223,10 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
                 last_gc_collect = current_time
                 need_gc = False
                 hook_breaker_ac10a0.restore_functions()
+
+                if not asset_seeder.is_disabled():
+                    asset_seeder.enqueue_enrich(roots=("output",), compute_hashes=True)
+                    asset_seeder.resume()
 
 
 def prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
