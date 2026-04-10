@@ -165,7 +165,7 @@ _CACHE_OPTS: list[tuple] = [
     ("cache_classic", bool, typer.Option(False, "--cache-classic", help="Use the old style (aggressive) caching.")),
     ("cache_lru", int, typer.Option(0, "--cache-lru", help="Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.")),
     ("cache_none", bool, typer.Option(False, "--cache-none", help="Reduced RAM/VRAM usage at the expense of executing every node for each run.")),
-    ("cache_ram", float, typer.Option(0, "--cache-ram", help="Use RAM pressure caching with the specified headroom threshold in GB.")),
+    ("cache_ram", float, typer.Option(0, "--cache-ram", help="Use RAM pressure caching with the specified headroom threshold. Default (when no value is provided): 25%% of system RAM (min 4GB, max 32GB).")),
 ]
 
 _PREVIEW_OPTS: list[tuple] = [
@@ -1122,6 +1122,7 @@ _BARE_FLAG_DEFAULTS: dict[str, str] = {
     "--listen": "0.0.0.0,::",
     "--enable-cors-header": "*",
     "--enable-cors": "*",
+    "--cache-ram": "-1.0",
 }
 """Flags that argparse accepted with ``nargs='?'``.
 

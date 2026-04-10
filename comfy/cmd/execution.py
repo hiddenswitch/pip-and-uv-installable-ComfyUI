@@ -496,7 +496,7 @@ def format_value(x) -> FormattedValue:
 
 def _is_intermediate_output(dynprompt, node_id):
     class_type = dynprompt.get_node(node_id)["class_type"]
-    class_def = nodes.NODE_CLASS_MAPPINGS[class_type]
+    class_def = get_nodes().NODE_CLASS_MAPPINGS[class_type]
     return getattr(class_def, 'HAS_INTERMEDIATE_OUTPUT', False)
 
 def _send_cached_ui(server, node_id, display_node_id, cached, prompt_id, ui_outputs):
@@ -889,9 +889,9 @@ class PromptExecutor:
         self.add_message("execution_start", {"prompt_id": prompt_id}, broadcast=False)
 
         self._notify_prompt_lifecycle("start", prompt_id)
-        ram_headroom = int(self.cache_args["ram"] * (1024 ** 3))
+        ram_headroom = int(self.cache_args.get("ram", 0) * (1024 ** 3))
         ram_release_callback = self.caches.outputs.ram_release if self.cache_type == CacheType.RAM_PRESSURE else None
-        comfy.memory_management.set_ram_cache_release_state(ram_release_callback, ram_headroom)
+        memory_management.set_ram_cache_release_state(ram_release_callback, ram_headroom)
 
         try:
             with torch.inference_mode() if inference_mode else nullcontext():
@@ -945,8 +945,8 @@ class PromptExecutor:
                         execution_list.complete_node_execution()
 
                     if self.cache_type == CacheType.RAM_PRESSURE:
-                        comfy.model_management.free_memory(0, None, pins_required=ram_headroom, ram_required=ram_headroom)
-                        comfy.memory_management.extra_ram_release(ram_headroom)
+                        model_management.free_memory(0, None, pins_required=ram_headroom, ram_required=ram_headroom)
+                        memory_management.extra_ram_release(ram_headroom)
                 else:
                     # Only execute when the while-loop ends without break
                     # Send cached UI for intermediate output nodes that weren't executed
@@ -974,7 +974,7 @@ class PromptExecutor:
                 if model_management.DISABLE_SMART_MEMORY:
                     model_management.unload_all_models()
         finally:
-            comfy.memory_management.set_ram_cache_release_state(None, 0)
+            memory_management.set_ram_cache_release_state(None, 0)
             self._notify_prompt_lifecycle("end", prompt_id)
 
     @property

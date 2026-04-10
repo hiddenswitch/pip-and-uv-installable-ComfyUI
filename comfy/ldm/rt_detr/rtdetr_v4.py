@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-import comfy.model_management
-from comfy.ldm.modules.attention import optimized_attention_for_device
+from ... import model_management
+from ...ldm.modules.attention import optimized_attention_for_device
 
 COCO_CLASSES = [
     'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
@@ -545,6 +545,7 @@ class TransformerDecoder(nn.Module):
         output_detach = pred_corners_undetach = 0
 
         dec_bboxes, dec_logits = [], []
+        ref_pts_initial = ref_pts
 
         for i, layer in enumerate(self.layers):
             ref_input    = ref_pts.unsqueeze(2)           # [bs, Lq, 1, 4]
@@ -705,7 +706,7 @@ class RTv4(nn.Module):
 
         self.num_classes = num_classes
         self.num_queries = num_queries
-        self.load_device = comfy.model_management.get_torch_device()
+        self.load_device = model_management.get_torch_device()
 
     def _forward(self, x: torch.Tensor):
         return self.decoder(self.encoder(self.backbone(x)))

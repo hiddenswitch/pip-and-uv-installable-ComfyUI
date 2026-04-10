@@ -803,13 +803,18 @@ class Qwen35ImageTokenizer(sd1_clip.SD1Tokenizer):
 
 
 class Qwen35ClipModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="hidden", layer_idx=-2, dtype=None, attention_mask=True, model_options={}, model_type="qwen35_2b"):
+    def __init__(self, device="cpu", layer="hidden", layer_idx=-2, dtype=None, attention_mask=True, model_options=None, model_type="qwen35_2b", textmodel_json_config=None):
+        if model_options is None:
+            model_options = {}
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
+
         class Qwen35_(Qwen35):
             pass
 
         Qwen35_.model_type = model_type
 
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={},
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config,
                          dtype=dtype, special_tokens={"pad": 248044}, layer_norm_hidden_state=False,
                          model_class=Qwen35_, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 

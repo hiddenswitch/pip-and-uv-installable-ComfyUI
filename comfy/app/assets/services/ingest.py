@@ -155,7 +155,7 @@ def register_output_files(
             ):
                 registered += 1
         except Exception:
-            logging.exception("Failed to register output: %s", abs_path)
+            logger.exception("Failed to register output: %s", abs_path)
     return registered
 
 

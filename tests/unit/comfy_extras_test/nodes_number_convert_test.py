@@ -6,7 +6,7 @@ mock_nodes.MAX_RESOLUTION = 16384
 mock_server = MagicMock()
 
 with patch.dict("sys.modules", {"nodes": mock_nodes, "server": mock_server}):
-    from comfy_extras.nodes_number_convert import NumberConvertNode
+    from comfy_extras.nodes.nodes_number_convert import NumberConvertNode
 
 
 class TestNumberConvertExecute:

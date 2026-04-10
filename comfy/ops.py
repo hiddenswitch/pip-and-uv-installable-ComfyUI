@@ -957,7 +957,7 @@ class QuantLinearFunc(torch.autograd.Function):
         ctx.has_bias = bias is not None
         ctx.compute_dtype = compute_dtype
         ctx.weight_requires_grad = weight.requires_grad
-        ctx.fp8_bwd = comfy.model_management.training_fp8_bwd
+        ctx.fp8_bwd = model_management.training_fp8_bwd
 
         if ctx.fp8_bwd:
             # Cache FP8 quantized input — half the memory of bf16

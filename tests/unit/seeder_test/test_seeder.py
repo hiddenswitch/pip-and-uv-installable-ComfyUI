@@ -802,7 +802,7 @@ class TestEnqueueEnrichHandoff:
             return []
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             fresh_seeder.start(roots=("models",), phase=ScanPhase.FAST)
             assert reached.wait(timeout=2.0)
@@ -857,7 +857,7 @@ class TestEnqueueEnrichHandoff:
         fresh_seeder.start_enrich = tracking_start_enrich
 
         with patch(
-            "app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
+            "comfy.app.assets.seeder.collect_paths_for_roots", side_effect=slow_collect
         ):
             # Start a scan
             fresh_seeder.start(roots=("models",), phase=ScanPhase.FAST)
@@ -911,13 +911,13 @@ class TestEnqueueEnrichHandoff:
             return []
 
         with (
-            patch("app.assets.seeder.dependencies_available", return_value=True),
-            patch("app.assets.seeder.sync_root_safely", return_value=set()),
-            patch("app.assets.seeder.collect_paths_for_roots", side_effect=gated_collect),
-            patch("app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
-            patch("app.assets.seeder.insert_asset_specs", return_value=0),
-            patch("app.assets.seeder.get_unenriched_assets_for_roots", side_effect=gated_get_unenriched),
-            patch("app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
+            patch("comfy.app.assets.seeder.dependencies_available", return_value=True),
+            patch("comfy.app.assets.seeder.sync_root_safely", return_value=set()),
+            patch("comfy.app.assets.seeder.collect_paths_for_roots", side_effect=gated_collect),
+            patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], set(), 0)),
+            patch("comfy.app.assets.seeder.insert_asset_specs", return_value=0),
+            patch("comfy.app.assets.seeder.get_unenriched_assets_for_roots", side_effect=gated_get_unenriched),
+            patch("comfy.app.assets.seeder.enrich_assets_batch", return_value=(0, 0)),
         ):
             # 1. Start fast scan
             fresh_seeder.start(roots=("models",), phase=ScanPhase.FAST)

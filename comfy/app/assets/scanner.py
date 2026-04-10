@@ -500,7 +500,7 @@ def enrich_asset(
     ref = get_reference_by_id(session, reference_id)
     if ref is None or ref.mtime_ns != initial_mtime_ns:
         session.rollback()
-        logging.info(
+        logger.info(
             "Ref %s mtime changed during enrichment, discarding stale result",
             reference_id,
         )

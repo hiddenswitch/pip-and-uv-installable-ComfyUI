@@ -234,7 +234,7 @@ class _AssetSeeder:
                     "roots": roots,
                     "compute_hashes": compute_hashes,
                 }
-            logging.info("Enrich scan queued (roots=%s)", self._pending_enrich["roots"])
+            logger.info("Enrich scan queued (roots=%s)", self._pending_enrich["roots"])
         return False
 
     def cancel(self) -> bool:
@@ -653,7 +653,7 @@ class _AssetSeeder:
                         roots=pending["roots"],
                         compute_hashes=pending["compute_hashes"],
                     ):
-                        logging.warning(
+                        logger.warning(
                             "Pending enrich scan could not start (roots=%s)",
                             pending["roots"],
                         )

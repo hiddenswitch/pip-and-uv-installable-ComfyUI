@@ -1,11 +1,11 @@
-"""Tests for app.assets.seeder – enqueue_enrich and pending-queue behaviour."""
+"""Tests for comfy.app.assets.seeder – enqueue_enrich and pending-queue behaviour."""
 
 import threading
 from unittest.mock import patch
 
 import pytest
 
-from app.assets.seeder import Progress, _AssetSeeder, State
+from comfy.app.assets.seeder import Progress, _AssetSeeder, State
 
 
 @pytest.fixture()
@@ -161,11 +161,11 @@ class TestEnqueueEnrichMergesPending:
 class TestPendingEnrichDrain:
     """Verify that _run_scan drains _pending_enrich via start_enrich."""
 
-    @patch("app.assets.seeder.dependencies_available", return_value=True)
-    @patch("app.assets.seeder.get_all_known_prefixes", return_value=[])
-    @patch("app.assets.seeder.sync_root_safely", return_value=set())
-    @patch("app.assets.seeder.collect_paths_for_roots", return_value=[])
-    @patch("app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
+    @patch("comfy.app.assets.seeder.dependencies_available", return_value=True)
+    @patch("comfy.app.assets.seeder.get_all_known_prefixes", return_value=[])
+    @patch("comfy.app.assets.seeder.sync_root_safely", return_value=set())
+    @patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[])
+    @patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
     def test_pending_enrich_starts_after_scan(self, *_mocks):
         """After a fast scan finishes, the pending enrich should be started."""
         seeder = _AssetSeeder()
@@ -186,11 +186,11 @@ class TestPendingEnrichDrain:
 
         assert seeder._pending_enrich is None
 
-    @patch("app.assets.seeder.dependencies_available", return_value=True)
-    @patch("app.assets.seeder.get_all_known_prefixes", return_value=[])
-    @patch("app.assets.seeder.sync_root_safely", return_value=set())
-    @patch("app.assets.seeder.collect_paths_for_roots", return_value=[])
-    @patch("app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
+    @patch("comfy.app.assets.seeder.dependencies_available", return_value=True)
+    @patch("comfy.app.assets.seeder.get_all_known_prefixes", return_value=[])
+    @patch("comfy.app.assets.seeder.sync_root_safely", return_value=set())
+    @patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[])
+    @patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
     def test_pending_cleared_even_when_start_fails(self, *_mocks):
         """_pending_enrich should be cleared even if start_enrich returns False."""
         seeder = _AssetSeeder()
@@ -205,11 +205,11 @@ class TestPendingEnrichDrain:
 
         assert seeder._pending_enrich is None
 
-    @patch("app.assets.seeder.dependencies_available", return_value=True)
-    @patch("app.assets.seeder.get_all_known_prefixes", return_value=[])
-    @patch("app.assets.seeder.sync_root_safely", return_value=set())
-    @patch("app.assets.seeder.collect_paths_for_roots", return_value=[])
-    @patch("app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
+    @patch("comfy.app.assets.seeder.dependencies_available", return_value=True)
+    @patch("comfy.app.assets.seeder.get_all_known_prefixes", return_value=[])
+    @patch("comfy.app.assets.seeder.sync_root_safely", return_value=set())
+    @patch("comfy.app.assets.seeder.collect_paths_for_roots", return_value=[])
+    @patch("comfy.app.assets.seeder.build_asset_specs", return_value=([], {}, 0))
     def test_no_drain_when_no_pending(self, *_mocks):
         """start_enrich should not be called when there is no pending request."""
         seeder = _AssetSeeder()

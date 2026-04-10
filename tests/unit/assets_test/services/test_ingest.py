@@ -259,9 +259,9 @@ class TestIngestExistingFileTagFK:
         file_path = temp_dir / "output.png"
         file_path.write_bytes(b"image data")
 
-        with patch("app.assets.services.ingest.create_session", _create_session), \
+        with patch("comfy.app.assets.services.ingest.create_session", _create_session), \
              patch(
-                 "app.assets.services.ingest.get_name_and_tags_from_asset_path",
+                 "comfy.app.assets.services.ingest.get_name_and_tags_from_asset_path",
                  return_value=("output.png", ["output"]),
              ):
             result = ingest_existing_file(

@@ -72,7 +72,7 @@ from .text_encoders import newbie
 from .text_encoders import anima
 from .text_encoders import ace15
 from .text_encoders import longcat_image
-from .text_encoders import qwen_35
+from .text_encoders import qwen35 as qwen_35
 
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
@@ -1536,7 +1536,7 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = jina_clip_2.JinaClip2TextModelWrapper
             clip_target.tokenizer = jina_clip_2.JinaClip2TokenizerWrapper
         elif te_model in (TEModel.QWEN35_08B, TEModel.QWEN35_2B, TEModel.QWEN35_4B, TEModel.QWEN35_9B, TEModel.QWEN35_27B):
-            clip_data[0] = comfy.utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
+            clip_data[0] = utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
             qwen35_type = {TEModel.QWEN35_08B: "qwen35_08b", TEModel.QWEN35_2B: "qwen35_2b", TEModel.QWEN35_4B: "qwen35_4b", TEModel.QWEN35_9B: "qwen35_9b", TEModel.QWEN35_27B: "qwen35_27b"}[te_model]
             clip_target.clip = qwen_35.te(**llama_detect(clip_data), model_type=qwen35_type)
             clip_target.tokenizer = qwen_35.tokenizer(model_type=qwen35_type)
@@ -1850,7 +1850,7 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
 
     custom_operations = model_options.get("custom_operations", None)
     if custom_operations is None:
-        sd, metadata = comfy.utils.convert_old_quants(sd, "", metadata=metadata)
+        sd, metadata = utils.convert_old_quants(sd, "", metadata=metadata)
 
     # Allow loading unets from checkpoint files
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)

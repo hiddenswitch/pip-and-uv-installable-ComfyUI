@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.assets.services.path_utils import get_asset_category_and_relative_path
+from comfy.app.assets.services.path_utils import get_asset_category_and_relative_path
 
 
 @pytest.fixture
@@ -21,13 +21,13 @@ def fake_dirs():
         for d in (input_dir, output_dir, temp_dir, models_dir):
             d.mkdir(parents=True)
 
-        with patch("app.assets.services.path_utils.folder_paths") as mock_fp:
+        with patch("comfy.app.assets.services.path_utils.folder_paths") as mock_fp:
             mock_fp.get_input_directory.return_value = str(input_dir)
             mock_fp.get_output_directory.return_value = str(output_dir)
             mock_fp.get_temp_directory.return_value = str(temp_dir)
 
             with patch(
-                "app.assets.services.path_utils.get_comfy_models_folders",
+                "comfy.app.assets.services.path_utils.get_comfy_models_folders",
                 return_value=[("checkpoints", [str(models_dir)])],
             ):
                 yield {

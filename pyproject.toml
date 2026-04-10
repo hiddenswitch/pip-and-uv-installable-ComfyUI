@@ -163,6 +163,9 @@ dev = [
     "astroid",
     "nvidia-ml-py",
     "playwright",
+    "comfyui-ollama",
+    "comfyui-sam2",
+    "comfyui-custom-scripts",
 ]
 
 [project.scripts]
@@ -176,6 +179,15 @@ pkg = "comfy.component_model.package_filesystem:PkgResourcesFileSystem"
 [project.urls]
 Homepage = "https://github.com/comfyanonymous/ComfyUI"
 Repository = "https://github.com/comfyanonymous/ComfyUI"
+
+[[tool.uv.index]]
+name = "appmana-nodes"
+url = "https://nodes.appmana.com/simple"
+
+[tool.uv.sources]
+comfyui-ollama = { index = "appmana-nodes" }
+comfyui-sam2 = { index = "appmana-nodes" }
+comfyui-custom-scripts = { index = "appmana-nodes" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -129,7 +129,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
     cache_type = execution.CacheType.CLASSIC
     if args.cache_lru > 0:
         cache_type = execution.CacheType.LRU
-    elif args.cache_ram > 0:
+    elif args.cache_ram != 0:
         cache_type = execution.CacheType.RAM_PRESSURE
     elif args.cache_none:
         cache_type = execution.CacheType.NONE
