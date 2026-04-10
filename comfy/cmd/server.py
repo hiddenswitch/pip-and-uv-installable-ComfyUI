@@ -320,6 +320,7 @@ class PromptServer(ExecutorToClientProgress):
 
         self.on_prompt_handlers = []
         self.nodes: ExportedNodes = ExportedNodes()
+        self.restart_requested: bool = False
 
         @routes.get('/ws')
         async def websocket_handler(request):
@@ -1044,6 +1045,25 @@ class PromptServer(ExecutorToClientProgress):
                     self.prompt_queue.delete_history_item(id_to_delete)
 
             return web.Response(status=200)
+
+        @routes.post("/api/v1/reboot")
+        async def post_api_v1_reboot(request: web.Request) -> web.Response:
+            logger.info("Reboot requested via API")
+            self.restart_requested = True
+
+            # Schedule the shutdown *after* the response is sent.
+            # Cancelling all running tasks causes asyncio.gather in
+            # start_server to raise CancelledError, which triggers the
+            # finally block (prompt worker shutdown) and then os.execv.
+            async def _shutdown():
+                await asyncio.sleep(0.5)
+                for task in asyncio.all_tasks(self.loop):
+                    if task is not asyncio.current_task():
+                        task.cancel()
+
+            self.loop.create_task(_shutdown())
+
+            return web.json_response({"status": "restarting"})
 
         @routes.get("/api/v1/prompts/{prompt_id}")
         async def get_api_v1_prompts_prompt_id(request: web.Request) -> web.Response | web.FileResponse:

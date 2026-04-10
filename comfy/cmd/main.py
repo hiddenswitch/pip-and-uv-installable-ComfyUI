@@ -395,6 +395,19 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         if distributed:
             await q.close()
 
+    if server.restart_requested:
+        # Reconstruct a command that works after os.execv.
+        # When invoked via ``python -m comfy.cmd.main``, sys.argv[0] is
+        # the file path, which breaks relative imports if executed
+        # directly.  Detect this and use ``-m`` instead.
+        argv0 = sys.argv[0]
+        if argv0.endswith(("main.py", "main.pyc")) and os.path.isfile(argv0):
+            restart_args = [sys.executable, "-m", "comfy.cmd.main"] + sys.argv[1:]
+        else:
+            restart_args = [sys.executable] + sys.argv
+        logger.info("Restarting server via os.execv(%s, %s)", sys.executable, restart_args)
+        os.execv(sys.executable, restart_args)
+
 
 def entrypoint():
     """Delegates to the Typer CLI."""

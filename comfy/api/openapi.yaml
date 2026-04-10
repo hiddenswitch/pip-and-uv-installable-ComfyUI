@@ -941,6 +941,29 @@ paths:
                 properties:
                   error:
                     type: string
+  /api/v1/reboot:
+    post:
+      operationId: reboot
+      summary: (API) Reboot server
+      description: |
+        Restart the ComfyUI server process. The server shuts down gracefully
+        (stopping prompt workers and closing connections), then replaces the
+        current process via `os.execv` with the same command-line arguments.
+
+        The response is sent before the shutdown begins. Clients should
+        poll the server until it becomes available again.
+      responses:
+        200:
+          description: |
+            The server accepted the reboot request and will restart shortly.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: restarting
   /api/v1/prompts/{prompt_id}:
     get:
       operationId: get_prompt
