@@ -1118,6 +1118,40 @@ _KNOWN_COMMANDS = frozenset({
 })
 
 
+_BARE_FLAG_DEFAULTS: dict[str, str] = {
+    "--listen": "0.0.0.0,::",
+    "--enable-cors-header": "*",
+    "--enable-cors": "*",
+}
+"""Flags that argparse accepted with ``nargs='?'``.
+
+Typer/Click options always consume an argument, so a bare ``--listen``
+(without a value) fails with *"Option '--listen' requires an argument"*.
+We expand these in ``sys.argv`` before Click sees them.
+"""
+
+
+def _expand_bare_flags(argv: list[str]) -> list[str]:
+    """Insert default values for flags listed in :data:`_BARE_FLAG_DEFAULTS`
+    when they appear without a following value (end-of-args or next token
+    starts with ``-``).
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in _BARE_FLAG_DEFAULTS:
+            next_token = argv[i + 1] if i + 1 < len(argv) else None
+            if next_token is None or next_token.startswith("-"):
+                out.append(token)
+                out.append(_BARE_FLAG_DEFAULTS[token])
+                i += 1
+                continue
+        out.append(token)
+        i += 1
+    return out
+
+
 def entrypoint():
     """Main CLI entrypoint. Defaults to 'serve' when no subcommand is given."""
     _register_sub_apps()
@@ -1126,5 +1160,7 @@ def entrypoint():
         sys.argv.insert(1, "serve")
     elif sys.argv[1].startswith("-") and sys.argv[1] not in ("--help", "-h"):
         sys.argv.insert(1, "serve")
+
+    sys.argv[:] = _expand_bare_flags(sys.argv)
 
     app()

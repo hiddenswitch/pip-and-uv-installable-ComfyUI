@@ -105,7 +105,7 @@ dependencies = [
     "pebble>=5.0.7",
     "openai",
     "anthropic",
-    "pydantic-ai>=0.0.36; python_version>='3.11'",
+    "pydantic-ai-slim[openai,anthropic,google]>=0.0.36; python_version>='3.11'",
     "google-generativeai",
     "humanize",
     "lightning",

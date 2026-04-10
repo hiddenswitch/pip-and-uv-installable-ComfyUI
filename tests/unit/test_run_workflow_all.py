@@ -108,6 +108,13 @@ def test_load_core_class_types_returns_frozenset():
     assert "CheckpointLoaderSimple" in result
 
 
+_ANSI_RE = __import__("re").compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
 def test_run_workflow_help_shows_all_flag():
     """Verify --all and -a appear in run-workflow help."""
     from typer.testing import CliRunner
@@ -116,8 +123,9 @@ def test_run_workflow_help_shows_all_flag():
     runner = CliRunner()
     result = runner.invoke(app, ["run-workflow", "--help"])
     assert result.exit_code == 0
-    assert "--all" in result.output
-    assert "-a" in result.output
+    out = _plain(result.output)
+    assert "--all" in out
+    assert "-a" in out
 
 
 def test_run_workflow_help_shows_guess_settings_short():
@@ -128,4 +136,5 @@ def test_run_workflow_help_shows_guess_settings_short():
     runner = CliRunner()
     result = runner.invoke(app, ["run-workflow", "--help"])
     assert result.exit_code == 0
-    assert "-g" in result.output
+    out = _plain(result.output)
+    assert "-g" in out

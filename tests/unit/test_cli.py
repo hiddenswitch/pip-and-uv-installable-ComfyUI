@@ -190,6 +190,50 @@ def test_entrypoint_defaults_to_serve_when_first_arg_is_option(monkeypatch):
     assert called == [["comfyui", "serve", "--listen", "0.0.0.0"]]
 
 
+def test_entrypoint_expands_bare_listen(monkeypatch):
+    """Bare --listen (no value) should be expanded to --listen 0.0.0.0,::"""
+    called = []
+    monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
+    monkeypatch.setattr(cli_module, "app", lambda: called.append(list(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["comfyui", "--listen"])
+
+    cli_module.entrypoint()
+
+    assert called == [["comfyui", "serve", "--listen", "0.0.0.0,::"]]
+
+
+def test_entrypoint_does_not_expand_listen_with_value(monkeypatch):
+    """--listen with an explicit value should be left alone."""
+    called = []
+    monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
+    monkeypatch.setattr(cli_module, "app", lambda: called.append(list(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["comfyui", "--listen", "192.168.1.1"])
+
+    cli_module.entrypoint()
+
+    assert called == [["comfyui", "serve", "--listen", "192.168.1.1"]]
+
+
+def test_expand_bare_flags_at_end():
+    from comfy.cmd.cli import _expand_bare_flags
+    assert _expand_bare_flags(["prog", "--listen"]) == ["prog", "--listen", "0.0.0.0,::"]
+
+
+def test_expand_bare_flags_before_another_flag():
+    from comfy.cmd.cli import _expand_bare_flags
+    assert _expand_bare_flags(["prog", "--listen", "--port", "8188"]) == ["prog", "--listen", "0.0.0.0,::", "--port", "8188"]
+
+
+def test_expand_bare_flags_with_value():
+    from comfy.cmd.cli import _expand_bare_flags
+    assert _expand_bare_flags(["prog", "--listen", "1.2.3.4"]) == ["prog", "--listen", "1.2.3.4"]
+
+
+def test_expand_bare_flags_enable_cors():
+    from comfy.cmd.cli import _expand_bare_flags
+    assert _expand_bare_flags(["prog", "--enable-cors-header"]) == ["prog", "--enable-cors-header", "*"]
+
+
 def test_entrypoint_does_not_rewrite_unknown_verbs(monkeypatch):
     called = []
     monkeypatch.setattr(cli_module, "_register_sub_apps", lambda: None)
