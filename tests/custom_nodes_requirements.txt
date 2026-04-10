@@ -1,0 +1,20 @@
+# Pip-installable custom nodes for testing.
+# Install with: uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple
+comfyui-ollama
+comfyui-sam2
+comfyui-custom-scripts
+comfyui-kjnodes
+comfyui-impact-pack
+comfyui-inspire-pack
+comfyui-ipadapter-plus
+comfyui-advanced-controlnet
+comfyui-videohelpersuite
+comfyui-gguf
+comfyui-essentials
+comfyui-florence2
+comfyui-animatediff-evolved
+comfyui-frame-interpolation
+comfyui-crystools
+comfyui-detail-daemon
+comfyui-nunchaku
+comfyui-prompt-combinator

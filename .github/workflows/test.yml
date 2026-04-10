@@ -92,7 +92,13 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
+          export UV_PRERELEASE=allow
           uv pip install --torch-backend=auto ".[dev]" --inexact
+      - name: Install custom nodes
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.runner.stable_abi_cuda != ''
         run: |
@@ -187,6 +193,11 @@ jobs:
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
+      - name: Install custom nodes
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_PYTHON=/opt/venv/bin/python
+          uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -267,6 +278,11 @@ jobs:
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
+      - name: Install custom nodes
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -345,7 +361,10 @@ jobs:
           cat overrides.txt
       - name: Install ComfyUI
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt ".[dev]" --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --prerelease allow ".[dev]" --inexact
+      - name: Install custom nodes
+        run: |
+          uv pip install --python C:/venv/Scripts/python.exe -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.runner.stable_abi_cuda != ''
         run: |
@@ -383,7 +402,10 @@ jobs:
       - name: Install ComfyUI
         run: |
           uv venv --python 3.12
-          uv pip install --torch-backend=auto '.[dev]' --inexact
+          uv pip install --torch-backend=auto --prerelease allow '.[dev]' --inexact
+      - name: Install custom nodes
+        run: |
+          uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do
