@@ -72,15 +72,23 @@ async def _run_graph(builder: GraphBuilder) -> dict:
 # Package installation checks
 # ---------------------------------------------------------------------------
 
+_requires_ollama = pytest.mark.skipif(not _is_installed("comfyui-ollama"), reason="comfyui-ollama not installed")
+_requires_sam2 = pytest.mark.skipif(not _is_installed("comfyui-sam2"), reason="comfyui-sam2 not installed")
+_requires_custom_scripts = pytest.mark.skipif(not _is_installed("comfyui-custom-scripts"), reason="comfyui-custom-scripts not installed")
+
+
 class TestPackagesInstalled:
+    @_requires_ollama
     def test_ollama_installed(self):
-        assert _is_installed("comfyui-ollama"), "comfyui-ollama not installed"
+        assert _is_installed("comfyui-ollama")
 
+    @_requires_sam2
     def test_sam2_installed(self):
-        assert _is_installed("comfyui-sam2"), "comfyui-sam2 not installed"
+        assert _is_installed("comfyui-sam2")
 
+    @_requires_custom_scripts
     def test_custom_scripts_installed(self):
-        assert _is_installed("comfyui-custom-scripts"), "comfyui-custom-scripts not installed"
+        assert _is_installed("comfyui-custom-scripts")
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +98,7 @@ class TestPackagesInstalled:
 class TestNodeRegistration:
     """Verify that custom node classes appear in NODE_CLASS_MAPPINGS."""
 
+    @_requires_ollama
     def test_ollama_nodes_registered(self):
         _load_nodes()
         from comfy.nodes_context import get_nodes
@@ -97,6 +106,7 @@ class TestNodeRegistration:
         for name in ("OllamaOptionsV2", "OllamaConnectivityV2", "OllamaGenerateV2", "OllamaChat"):
             assert name in mappings, f"{name} not registered"
 
+    @_requires_sam2
     def test_sam2_nodes_registered(self):
         _load_nodes()
         from comfy.nodes_context import get_nodes
@@ -109,6 +119,7 @@ class TestNodeRegistration:
         ):
             assert name in mappings, f"{name} not registered"
 
+    @_requires_custom_scripts
     def test_custom_scripts_nodes_registered(self):
         _load_nodes()
         from comfy.nodes_context import get_nodes
@@ -121,6 +132,7 @@ class TestNodeRegistration:
 # Workflow execution: comfyui-custom-scripts
 # ---------------------------------------------------------------------------
 
+@_requires_custom_scripts
 class TestCustomScriptsExecution:
     """Execute custom-scripts nodes via GraphBuilder + embedded client."""
 
@@ -193,6 +205,7 @@ class TestCustomScriptsExecution:
 # Direct execution: comfyui-sam2 (no-model nodes)
 # ---------------------------------------------------------------------------
 
+@_requires_sam2
 class TestSAM2Execution:
     """Execute SAM2 utility nodes directly (no model files needed)."""
 
@@ -227,6 +240,7 @@ class TestSAM2Execution:
 # Direct execution: comfyui-ollama (no-server nodes)
 # ---------------------------------------------------------------------------
 
+@_requires_ollama
 class TestOllamaExecution:
     """Execute ollama nodes that don't require a running server."""
 
