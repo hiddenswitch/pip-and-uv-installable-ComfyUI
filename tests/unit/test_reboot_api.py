@@ -130,7 +130,10 @@ def _server_is_down(port: int) -> bool:
         return True
 
 
-@pytest.mark.slow
+@pytest.mark.skipif(
+    sys.version_info < (3, 12),
+    reason="server startup too slow on Python <3.12 containers"
+)
 def test_reboot_restarts_server_process():
     """Start a real server, POST /api/v1/reboot, verify it comes back up.
 
