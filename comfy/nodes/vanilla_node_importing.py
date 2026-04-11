@@ -386,18 +386,26 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
     # Install a single __import__ hook for all remaining deferred patches
     import builtins  # pylint: disable=import-outside-toplevel
     original_import = builtins.__import__
+    _in_hook = False
 
     def _import_hook(name, *args, **kwargs):
-        result = original_import(name, *args, **kwargs)
-        patches = pending.pop(name, None)
-        if patches:
-            mod = sys.modules.get(name)
-            if mod is not None:
-                for fn in patches:
-                    fn(mod)
-            if not pending:
-                builtins.__import__ = original_import
-        return result
+        nonlocal _in_hook
+        if _in_hook:
+            return original_import(name, *args, **kwargs)
+        _in_hook = True
+        try:
+            result = original_import(name, *args, **kwargs)
+            patches = pending.pop(name, None)
+            if patches:
+                mod = sys.modules.get(name)
+                if mod is not None:
+                    for fn in patches:
+                        fn(mod)
+                if not pending:
+                    builtins.__import__ = original_import
+            return result
+        finally:
+            _in_hook = False
 
     builtins.__import__ = _import_hook
 

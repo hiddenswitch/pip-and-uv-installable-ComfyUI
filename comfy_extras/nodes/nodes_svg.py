@@ -2,8 +2,6 @@ import logging
 
 import numpy as np
 import torch
-import vtracer
-import logging
 from PIL import Image
 
 from comfy.nodes.package_typing import CustomNode
@@ -44,6 +42,7 @@ class ImageToSVG(CustomNode):
     CATEGORY = "image/svg"
 
     def convert_to_svg(self, image, colormode, hierarchical, mode, filter_speckle, color_precision, layer_difference, corner_threshold, length_threshold, max_iterations, splice_threshold, path_precision):
+        import vtracer  # pylint: disable=import-outside-toplevel
         svg_strings = []
 
         for i in image:
