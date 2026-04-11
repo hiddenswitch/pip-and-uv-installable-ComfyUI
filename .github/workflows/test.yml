@@ -134,7 +134,7 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          pytest -v --tb=long --capture=no --timeout=120 -p no:faulthandler tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |

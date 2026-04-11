@@ -7,6 +7,7 @@ execute through the embedded client using GraphBuilder workflows.
 from __future__ import annotations
 
 import importlib.metadata
+import sys
 
 import pytest
 import torch
@@ -133,6 +134,7 @@ class TestNodeRegistration:
 # ---------------------------------------------------------------------------
 
 @_requires_custom_scripts
+@pytest.mark.skipif(sys.version_info >= (3, 14), reason="comfyui-custom-scripts uses ast.Num removed in 3.14")
 class TestCustomScriptsExecution:
     """Execute custom-scripts nodes via GraphBuilder + embedded client."""
 
