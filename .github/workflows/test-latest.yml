@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Install system dependencies
         run: |
-          pacman -Syu --noconfirm git python uv zip base-devel libxcb
+          pacman -Syu --noconfirm git python uv zip base-devel libxcb mesa
 
       - uses: actions/checkout@v4
 
