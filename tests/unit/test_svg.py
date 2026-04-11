@@ -1,19 +1,19 @@
+import sys
+
 import pytest
 import torch
 
 from comfy_extras.nodes.nodes_svg import ImageToSVG, SVGToImage
 
-SKIP_SKIA = False
+_SKIP_SKIA = False
 try:
     import skia
 except (ImportError, ModuleNotFoundError):
-    SKIP_SKIA = True
+    _SKIP_SKIA = True
 
-SKIP_VTRACER = False
-try:
-    import vtracer
-except (ImportError, ModuleNotFoundError, OSError):
-    SKIP_VTRACER = True
+# vtracer's Rust/PyO3 binding segfaults on Python 3.14+
+# https://github.com/visioncortex/vtracer/issues — filed upstream
+_SKIP_VTRACER = sys.version_info >= (3, 14)
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def sample_image():
     return torch.rand((1, 64, 64, 3))
 
 
-@pytest.mark.skipif(SKIP_VTRACER, reason="vtracer not available")
+@pytest.mark.skipif(_SKIP_VTRACER, reason="vtracer segfaults on Python 3.14+")
 def test_image_to_svg(sample_image):
     image_to_svg_node = ImageToSVG()
 
@@ -34,7 +34,7 @@ def test_image_to_svg(sample_image):
     assert svg_result[0].startswith('<?xml')
 
 
-@pytest.mark.skipif(SKIP_SKIA, reason="skia not available")
+@pytest.mark.skipif(_SKIP_SKIA, reason="skia not available")
 def test_svg_to_image():
     svg_to_image_node = SVGToImage()
 

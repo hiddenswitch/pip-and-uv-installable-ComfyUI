@@ -385,7 +385,12 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
 
     # Install a single __import__ hook for all remaining deferred patches
     import builtins  # pylint: disable=import-outside-toplevel
+
+    # Walk the chain of any previously-installed _import_hook closures to find
+    # the real built-in __import__, so re-entrant calls never loop back to us.
     original_import = builtins.__import__
+    while getattr(original_import, '_is_deferred_patch_hook', False):
+        original_import = original_import._original_import
     _in_hook = False
 
     def _import_hook(name, *args, **kwargs):
@@ -407,6 +412,8 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
         finally:
             _in_hook = False
 
+    _import_hook._is_deferred_patch_hook = True
+    _import_hook._original_import = original_import
     builtins.__import__ = _import_hook
 
 
