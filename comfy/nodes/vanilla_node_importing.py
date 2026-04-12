@@ -33,6 +33,23 @@ from ..execution_context import current_execution_context
 logger = logging.getLogger(__name__)
 
 
+# ast.Num, ast.Str, ast.Bytes, ast.NameConstant, and ast.Ellipsis were deprecated in
+# Python 3.8 and removed in 3.14, along with the legacy `.n` and `.s` attributes on
+# ast.Constant. Many custom nodes still use them (e.g. comfyui-custom-scripts'
+# MathExpression). Restore them as aliases of ast.Constant so `isinstance(node, ast.Num)`
+# and `node.n` continue to work on 3.14+.
+if sys.version_info >= (3, 14):
+    import ast as _ast  # pylint: disable=import-outside-toplevel
+    for _legacy_name in ("Num", "Str", "Bytes", "NameConstant", "Ellipsis"):
+        if not hasattr(_ast, _legacy_name):
+            setattr(_ast, _legacy_name, _ast.Constant)
+    if not hasattr(_ast.Constant, "n"):
+        _ast.Constant.n = property(lambda self: self.value)
+    if not hasattr(_ast.Constant, "s"):
+        _ast.Constant.s = property(lambda self: self.value)
+    del _ast, _legacy_name
+
+
 def _stamp_relative_python_modules(node_class_mappings: dict[str, type]) -> None:
     for node_class in node_class_mappings.values():
         node_class.RELATIVE_PYTHON_MODULE = resolve_python_module_name(node_class)
