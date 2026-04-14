@@ -1008,3 +1008,227 @@ class TestFindMediaNodes:
             "1": {"inputs": {}, "class_type": "LoadImage"},
         }
         assert find_audio_load_nodes(prompt) == []
+
+
+# ---------------------------------------------------------------------------
+# --add-lora / --compile
+# ---------------------------------------------------------------------------
+
+from comfy.component_model.prompt_utils import (  # noqa: E402
+    add_loras,
+    enable_compile,
+    _parse_add_lora_spec,
+    _find_model_splice_point,
+    _find_model_chain_tail,
+    _find_clip_splice_point,
+)
+
+
+def _sdxl_like_workflow() -> dict:
+    """Minimal Checkpoint → KSampler graph with one pre-existing LoraLoader."""
+    return {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sdxl.safetensors"}},
+        "2": {"class_type": "LoraLoader", "inputs": {
+            "model": ["1", 0], "clip": ["1", 1],
+            "lora_name": "existing.safetensors",
+            "strength_model": 0.7, "strength_clip": 0.7,
+        }},
+        "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "cat", "clip": ["2", 1]}},
+        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry", "clip": ["2", 1]}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+        "6": {"class_type": "KSampler", "inputs": {
+            "model": ["2", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["5", 0],
+            "seed": 0, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
+        }},
+        "7": {"class_type": "VAEDecode", "inputs": {"samples": ["6", 0], "vae": ["1", 2]}},
+    }
+
+
+def _flux_like_workflow() -> dict:
+    """UNETLoader + DualCLIPLoader + SamplerCustomAdvanced (no Checkpoint)."""
+    return {
+        "10": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux.safetensors", "weight_dtype": "default"}},
+        "11": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "t5.sft", "clip_name2": "l.sft", "type": "flux"}},
+        "12": {"class_type": "ModelSamplingFlux", "inputs": {
+            "model": ["10", 0], "max_shift": 1.15, "base_shift": 0.5, "width": 1024, "height": 1024,
+        }},
+        "13": {"class_type": "CLIPTextEncode", "inputs": {"text": "cat", "clip": ["11", 0]}},
+        "14": {"class_type": "BasicGuider", "inputs": {"model": ["12", 0], "conditioning": ["13", 0]}},
+        "15": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}},
+        "16": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
+        "17": {"class_type": "BasicScheduler", "inputs": {"model": ["12", 0], "scheduler": "normal", "steps": 20, "denoise": 1.0}},
+        "18": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+        "19": {"class_type": "SamplerCustomAdvanced", "inputs": {
+            "noise": ["15", 0], "guider": ["14", 0], "sampler": ["16", 0], "sigmas": ["17", 0], "latent_image": ["18", 0],
+        }},
+    }
+
+
+class TestParseAddLoraSpec:
+    def test_bare_name(self):
+        assert _parse_add_lora_spec("foo.safetensors") == ("foo.safetensors", 1.0, 1.0)
+
+    def test_name_weight(self):
+        assert _parse_add_lora_spec("foo.safetensors:0.8") == ("foo.safetensors", 0.8, 0.8)
+
+    def test_name_model_clip_weights(self):
+        assert _parse_add_lora_spec("foo.safetensors:0.8:0.4") == ("foo.safetensors", 0.8, 0.4)
+
+    def test_windows_path_with_colon_not_misparsed(self):
+        # C:\loras\foo.safetensors has a colon but no float suffix — treat as name.
+        assert _parse_add_lora_spec(r"C:\loras\foo.safetensors") == (r"C:\loras\foo.safetensors", 1.0, 1.0)
+
+    def test_hf_uri(self):
+        name, sm, sc = _parse_add_lora_spec("hf://owner/repo/lora.safetensors:0.5")
+        assert name == "hf://owner/repo/lora.safetensors"
+        assert sm == 0.5 and sc == 0.5
+
+
+class TestAddLorasSdxl:
+    def test_splice_point_is_checkpoint_loader(self):
+        wf = _sdxl_like_workflow()
+        assert _find_model_splice_point(wf) == "1"
+        assert _find_clip_splice_point(wf) == "1"
+
+    def test_splice_point_is_earliest_predecessor_not_tail(self):
+        """The new LoRA must splice AFTER the Checkpoint, BEFORE the
+        existing LoraLoader — not at the chain tail next to the sampler."""
+        wf = _sdxl_like_workflow()
+        patched = add_loras(wf, ["new.safetensors:0.9"])
+
+        new_ids = [nid for nid, node in patched.items()
+                   if node["class_type"] == "LoraLoader" and node["inputs"].get("lora_name") == "new.safetensors"]
+        assert len(new_ids) == 1
+        new_id = new_ids[0]
+
+        # New LoRA's inputs come from the Checkpoint.
+        assert patched[new_id]["inputs"]["model"] == ["1", 0]
+        assert patched[new_id]["inputs"]["clip"] == ["1", 1]
+        # Existing LoraLoader's model/clip got rewired to the new LoRA's outputs.
+        assert patched["2"]["inputs"]["model"] == [new_id, 0]
+        assert patched["2"]["inputs"]["clip"] == [new_id, 1]
+        # VAE output of Checkpoint is untouched (slot 2 not rewired).
+        assert patched["7"]["inputs"]["vae"] == ["1", 2]
+        # KSampler still points at the existing LoraLoader, unchanged.
+        assert patched["6"]["inputs"]["model"] == ["2", 0]
+
+    def test_strength_parsing(self):
+        wf = _sdxl_like_workflow()
+        patched = add_loras(wf, ["a.safetensors:0.8"])
+        node = next(n for n in patched.values()
+                    if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == "a.safetensors")
+        assert node["inputs"]["strength_model"] == 0.8
+        assert node["inputs"]["strength_clip"] == 0.8
+
+    def test_separate_model_and_clip_strengths(self):
+        wf = _sdxl_like_workflow()
+        patched = add_loras(wf, ["a.safetensors:0.8:0.2"])
+        node = next(n for n in patched.values()
+                    if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == "a.safetensors")
+        assert node["inputs"]["strength_model"] == 0.8
+        assert node["inputs"]["strength_clip"] == 0.2
+
+    def test_multiple_loras_stack(self):
+        wf = _sdxl_like_workflow()
+        patched = add_loras(wf, ["a.safetensors:0.5", "b.safetensors:0.3"])
+        new_loras = [n for n in patched.values()
+                     if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") in ("a.safetensors", "b.safetensors")]
+        assert len(new_loras) == 2
+
+    def test_deepcopy_doesnt_mutate_input(self):
+        wf = _sdxl_like_workflow()
+        before = json.dumps(wf, sort_keys=True)
+        add_loras(wf, ["a.safetensors"])
+        assert json.dumps(wf, sort_keys=True) == before
+
+
+class TestAddLorasFlux:
+    def test_model_only_when_clip_chain_is_separate(self):
+        """Flux workflows have a separate DualCLIPLoader; the inserted LoRA
+        uses LoraLoader (both model+clip) since both producers exist."""
+        wf = _flux_like_workflow()
+        patched = add_loras(wf, ["flux_style.safetensors:0.6"])
+        new = next(n for n in patched.values()
+                   if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == "flux_style.safetensors")
+        assert new["inputs"]["model"] == ["10", 0]
+        assert new["inputs"]["clip"] == ["11", 0]
+
+    def test_splices_before_model_sampling_flux(self):
+        """ModelSamplingFlux is a passthrough; the LoRA must land between
+        the UNETLoader and ModelSamplingFlux so the patch is applied to the
+        base weights before time-step reshaping."""
+        wf = _flux_like_workflow()
+        patched = add_loras(wf, ["flux_style.safetensors"])
+        new_id = next(nid for nid, n in patched.items()
+                      if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == "flux_style.safetensors")
+        assert patched["12"]["inputs"]["model"] == [new_id, 0]
+
+
+class TestAddLorasUrls:
+    def test_hf_uri_passes_through_unchanged(self):
+        wf = _sdxl_like_workflow()
+        patched = add_loras(wf, ["hf://owner/repo/lora.safetensors:0.5"])
+        node = next(n for n in patched.values()
+                    if n["class_type"] == "LoraLoader"
+                    and n["inputs"].get("lora_name") == "hf://owner/repo/lora.safetensors")
+        assert node["inputs"]["strength_model"] == 0.5
+
+    def test_civitai_url_passes_through_unchanged(self):
+        wf = _sdxl_like_workflow()
+        url = "https://civitai.com/api/download/models/12345"
+        patched = add_loras(wf, [url])
+        assert any(n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == url
+                   for n in patched.values())
+
+
+class TestEnableCompile:
+    def test_splices_at_chain_tail_not_root(self):
+        """TorchCompileModel must wrap the FINAL patched model (after LoRAs
+        and ModelSamplingFlux) so the compiled graph includes all patches."""
+        wf = _flux_like_workflow()
+        patched = enable_compile(wf)
+        compile_id = next(nid for nid, n in patched.items() if n["class_type"] == "TorchCompileModel")
+        # Compile input is the ModelSamplingFlux (chain tail), not the UNETLoader.
+        assert patched[compile_id]["inputs"]["model"] == ["12", 0]
+        # The guider/scheduler now point at the compile node.
+        assert patched["14"]["inputs"]["model"] == [compile_id, 0]
+        assert patched["17"]["inputs"]["model"] == [compile_id, 0]
+
+    def test_compile_after_add_lora_wraps_lora(self):
+        wf = _flux_like_workflow()
+        patched = add_loras(wf, ["foo.safetensors"])
+        patched = enable_compile(patched)
+        compile_id = next(nid for nid, n in patched.items() if n["class_type"] == "TorchCompileModel")
+        # Compile's upstream should be ModelSamplingFlux which feeds from the new LoRA.
+        assert patched[compile_id]["inputs"]["model"] == ["12", 0]
+        new_lora_id = next(nid for nid, n in patched.items()
+                           if n["class_type"] == "LoraLoader" and n["inputs"].get("lora_name") == "foo.safetensors")
+        # ModelSamplingFlux's model input is the newly inserted LoRA.
+        assert patched["12"]["inputs"]["model"] == [new_lora_id, 0]
+
+    def test_idempotent_when_workflow_has_torch_compile(self):
+        wf = _sdxl_like_workflow()
+        wf["99"] = {"class_type": "TorchCompileModel", "inputs": {"model": ["2", 0]}}
+        patched = enable_compile(wf)
+        compiled = [nid for nid, n in patched.items() if n["class_type"] == "TorchCompileModel"]
+        assert compiled == ["99"]
+
+    def test_no_op_when_no_model_producer(self):
+        wf = {"1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hi"}}}
+        patched = enable_compile(wf)
+        assert not any(n["class_type"] == "TorchCompileModel" for n in patched.values())
+
+
+class TestFindChainTail:
+    def test_tail_is_tail_of_lora_chain_and_model_sampling(self):
+        wf = _flux_like_workflow()
+        # UNET (10) → ModelSamplingFlux (12) → BasicGuider/BasicScheduler
+        assert _find_model_chain_tail(wf) == "12"
+
+    def test_tail_stops_before_guider(self):
+        """BasicGuider takes MODEL but is not treated as a passthrough for
+        this purpose — compile must wrap before the guider."""
+        wf = _flux_like_workflow()
+        tail = _find_model_chain_tail(wf)
+        # The guider (14) is a consumer of tail but not IS tail.
+        assert tail != "14"

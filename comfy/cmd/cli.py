@@ -223,7 +223,7 @@ _PIP_FACADE_SNAPSHOT_OPTS: list[tuple] = [
 ]
 
 _MISC_OPTS: list[tuple] = [
-    ("guess_settings", bool, typer.Option(False, "-g", "--guess-settings", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.).")),
+    ("guess_settings", bool, typer.Option(False, "-g", "--guess-settings", envvar="COMFYUI_GUESS_SETTINGS", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Set env var COMFYUI_GUESS_SETTINGS=1 to enable by default.")),
     ("database_url", Optional[str], typer.Option(None, "--database-url", help="Specify the database URL, e.g. 'sqlite:///:memory:'.")),
     ("panic_when", Optional[list[str]], typer.Option(None, "--panic-when", help="List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.")),
     ("executor_factory", str, typer.Option("ThreadPoolExecutor", "--executor-factory", help="Either ThreadPoolExecutor or ProcessPoolExecutor.")),
@@ -247,6 +247,8 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("audio", Optional[list[str]], typer.Option(None, "--audio", help="Override audio inputs in workflows. Accepts file paths or URIs.")),
     ("output", Optional[str], typer.Option(None, "-o", "--output", help="Override the output directory for workflows.")),
     ("set", Optional[list[str]], typer.Option(None, "--set", help="Override arbitrary node inputs. Format: node_id.inputs.field=value")),
+    ("add_lora", Optional[list[str]], typer.Option(None, "--add-lora", help="Inject a LoRA into the workflow. Format: name[:strength_model[:strength_clip]]. Bare name looks up in models/loras/; paths, hf:// URIs, and https:// URLs (including civitai.com) are resolved through the model downloader. Repeat to stack multiple LoRAs.")),
+    ("compile", bool, typer.Option(False, "--compile", help="Wrap the workflow's MODEL chain tail with TorchCompileModel for a 2-4x step-time speedup after a first-run compile cost.")),
 ]
 
 _COMPUTE_OPTS = (
@@ -262,7 +264,7 @@ _ALL_SHARED_OPTS = (
 _NULLABLE_LIST_FIELDS = frozenset({
     "fast", "base_paths", "extra_model_paths_config", "panic_when",
     "whitelist_custom_nodes", "blacklist_custom_nodes", "workflows",
-    "image", "video", "audio", "set",
+    "image", "video", "audio", "set", "add_lora",
     "enable_comfy_kitchen_backends", "disable_comfy_kitchen_backends",
 })
 

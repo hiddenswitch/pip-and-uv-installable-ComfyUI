@@ -1207,6 +1207,17 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                             if _basename(val) in combo_options:
                                 continue
 
+                        # Fallback: model-combo inputs (lora_name, ckpt_name,
+                        # unet_name, ...) accept URIs that resolve through
+                        # the model_downloader at execute time — hf://,
+                        # https://..., s3://..., civitai.com/models/...
+                        # Let those through rather than forcing users to
+                        # pre-download.
+                        if isinstance(val, str):
+                            from ..component_model.uris import is_uri as _is_uri
+                            if _is_uri(val) or val.startswith(("https://civitai.com/", "http://civitai.com/")):
+                                continue
+
                         input_config = info
                         list_info = ""
 

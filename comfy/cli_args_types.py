@@ -388,6 +388,8 @@ class Configuration(dict):
         self.batch_size: Optional[int] = None
         self.checkpoint: Optional[str] = None
         self.set: list[str] = []
+        self.add_lora: Optional[list[str]] = None
+        self.compile: bool = False
 
         for key, value in kwargs.items():
             self[key] = value

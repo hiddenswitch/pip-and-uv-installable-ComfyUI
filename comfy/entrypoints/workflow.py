@@ -60,6 +60,7 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         replace_images, replace_videos, replace_audios,
         replace_cfg, replace_sampler, replace_scheduler, replace_denoise,
         replace_width, replace_height, replace_batch_size, replace_checkpoint,
+        add_loras, enable_compile,
     )
 
     if configuration.prompt is not None:
@@ -94,6 +95,14 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         obj = replace_audios(obj, configuration.audio)
     if configuration.set:
         obj = _apply_sets(obj, configuration.set)
+    # LoRAs must splice in BEFORE --compile so the compiled graph captures
+    # the LoRA patches. add_loras inserts right after the root loader
+    # (earliest predecessor of the sampler); enable_compile wraps the
+    # chain tail (latest predecessor of the sampler).
+    if configuration.add_lora:
+        obj = add_loras(obj, configuration.add_lora)
+    if configuration.compile:
+        obj = enable_compile(obj)
     return obj
 
 

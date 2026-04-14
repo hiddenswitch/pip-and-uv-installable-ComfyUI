@@ -393,3 +393,357 @@ def replace_batch_size(prompt: dict, batch_size: int) -> dict:
 
 def replace_checkpoint(prompt: dict, ckpt_name: str) -> dict:
     return _replace_field_in_nodes(prompt, _CHECKPOINT_CLASS_TYPES, "ckpt_name", ckpt_name)
+
+
+# --add-lora / --compile
+#
+# Node class_types that emit a MODEL link that a LoRA or TorchCompileModel
+# node can splice after. The set mirrors the loaders we enumerate in the
+# ComfyUI loaders registry; keep in sync with base_nodes.py when adding new
+# root-level model producers.
+_MODEL_PRODUCER_CLASS_TYPES = frozenset({
+    "CheckpointLoader",
+    "CheckpointLoaderSimple",
+    "unCLIPCheckpointLoader",
+    "UNETLoader",
+    "DiffusionModelLoader",
+    "ImageOnlyCheckpointLoader",
+    "UnetLoaderGGUF",
+    "NunchakuFluxDiTLoader",
+})
+
+# class_types that already accept a MODEL input *and* a MODEL output, i.e.
+# they are themselves LoRA / model-mod stack stages. When present after a
+# root loader, the new LoRA is spliced at the END of this stack (closest to
+# the loader's output, farthest from the sampler) so it behaves like a
+# prepended entry in a LoRA chain.
+_MODEL_PASSTHROUGH_CLASS_TYPES = frozenset({
+    "LoraLoader",
+    "LoraLoaderModelOnly",
+    "ModelSamplingDiscrete",
+    "ModelSamplingContinuousEDM",
+    "ModelSamplingSD3",
+    "ModelSamplingFlux",
+    "ModelSamplingAuraFlow",
+    "ModelSamplingStableCascade",
+    "ModelSamplingLTXV",
+    "CFGGuider",  # lives between model and sampler; not a passthrough but worth noting
+})
+
+_CLIP_PRODUCER_CLASS_TYPES = frozenset({
+    "CheckpointLoader",
+    "CheckpointLoaderSimple",
+    "unCLIPCheckpointLoader",
+    "CLIPLoader",
+    "DualCLIPLoader",
+    "TripleCLIPLoader",
+    "QuadrupleCLIPLoader",
+})
+
+
+def _allocate_node_id(prompt: dict) -> str:
+    """Return a fresh node id that doesn't collide with existing keys.
+
+    Workflow ids in converted-subgraph form can look like ``"75:72"``, and UI
+    format uses arbitrary strings. Rather than trying to parse, we pick an
+    integer above the largest integer-looking id we see. This keeps new ids
+    visually distinct from subgraph ids.
+    """
+    max_int = 0
+    for nid in prompt.keys():
+        # Strip the subgraph prefix like "75:" if present so compound ids
+        # don't prevent us from finding the real maximum.
+        tail = nid.rsplit(":", 1)[-1]
+        try:
+            max_int = max(max_int, int(tail))
+        except ValueError:
+            continue
+    candidate = max_int + 1
+    while str(candidate) in prompt:
+        candidate += 1
+    return str(candidate)
+
+
+def _find_model_splice_point(prompt: dict) -> Optional[str]:
+    """Return the MODEL loader node id the new LoRA should be spliced AFTER.
+
+    The LoRA must load "as early as possible" — walking backward from the
+    sampler, the node directly after the root loader. Returning the root
+    loader itself means the splice lands between the loader and whatever
+    passthrough chain (existing LoRAs, ``ModelSamplingFlux`` etc.) it
+    already feeds, so the user's LoRA applies on top of the base weights
+    before any other patch.
+    """
+    roots = [nid for nid, node in prompt.items()
+             if node.get("class_type") in _MODEL_PRODUCER_CLASS_TYPES]
+    if not roots:
+        return None
+    # Disambiguate when multiple loaders exist: pick the one whose MODEL
+    # output reaches a sampler.
+    sampler_feeding = [r for r in roots if _produces_for(prompt, r, _SAMPLER_UP_CLASS_TYPES)]
+    return (sampler_feeding or roots)[0]
+
+
+def _find_clip_splice_point(prompt: dict) -> Optional[str]:
+    """Return the CLIP loader node id the new LoRA should be spliced AFTER.
+
+    Like :func:`_find_model_splice_point`, we splice right at the root so
+    the LoRA runs before any existing LoRA / CLIP patch chain.
+    """
+    roots = [nid for nid, node in prompt.items()
+             if node.get("class_type") in _CLIP_PRODUCER_CLASS_TYPES]
+    if not roots:
+        return None
+    return roots[0]
+
+
+def _find_model_chain_tail(prompt: dict) -> Optional[str]:
+    """Return the node id at the END of the MODEL chain (just before the sampler).
+
+    Opposite end from :func:`_find_model_splice_point`. ``torch.compile``
+    should wrap the final patched model, so the TorchCompileModel splice
+    point sits AFTER all LoRAs / ``ModelSampling*`` / ``CFGGuider`` stages.
+    Walks forward from the earliest root loader through passthroughs until
+    the next consumer is a sampler / guider (non-passthrough).
+    """
+    root = _find_model_splice_point(prompt)
+    if root is None:
+        return None
+    tail = root
+    while True:
+        consumers = _consumers_of_model_output(prompt, tail)
+        if len(consumers) != 1:
+            return tail
+        cid = consumers[0]
+        if prompt[cid].get("class_type") not in _MODEL_PASSTHROUGH_CLASS_TYPES:
+            return tail
+        tail = cid
+
+
+# Class types whose presence downstream of a loader means the loader is the
+# "main" MODEL source (used to disambiguate when multiple loaders exist).
+_SAMPLER_UP_CLASS_TYPES = frozenset({
+    "KSampler",
+    "KSamplerAdvanced",
+    "SamplerCustom",
+    "SamplerCustomAdvanced",
+    "CFGGuider",
+    "BasicGuider",
+})
+
+
+def _produces_for(prompt: dict, source_id: str, target_class_types: frozenset, max_depth: int = 8) -> bool:
+    """Return True if *source_id*'s MODEL output flows into a node whose class is in *target_class_types*."""
+    frontier = {source_id}
+    visited: set[str] = set()
+    for _ in range(max_depth):
+        if not frontier:
+            return False
+        next_frontier: set[str] = set()
+        for nid in frontier:
+            if nid in visited:
+                continue
+            visited.add(nid)
+            if prompt.get(nid, {}).get("class_type") in target_class_types:
+                return True
+            for consumer in _consumers_of_model_output(prompt, nid):
+                next_frontier.add(consumer)
+        frontier = next_frontier
+    return False
+
+
+def _consumers_of_output(prompt: dict, source_id: str, slot: int) -> list[str]:
+    """Return node ids that reference ``[source_id, slot]`` in any input."""
+    out = []
+    for nid, node in prompt.items():
+        for value in node.get("inputs", {}).values():
+            if _is_node_ref(value) and str(value[0]) == source_id and int(value[1]) == slot:
+                out.append(nid)
+                break
+    return out
+
+
+def _consumers_of_model_output(prompt: dict, source_id: str) -> list[str]:
+    """MODEL is output 0 for every loader and LoraLoader in core nodes."""
+    return _consumers_of_output(prompt, source_id, 0)
+
+
+def _consumers_of_clip_output(prompt: dict, source_id: str) -> list[str]:
+    """CLIP output slot depends on class_type; enumerate explicitly."""
+    source_cls = prompt.get(source_id, {}).get("class_type", "")
+    slot = {
+        "CheckpointLoader": 1,
+        "CheckpointLoaderSimple": 1,
+        "unCLIPCheckpointLoader": 1,
+        "CLIPLoader": 0,
+        "DualCLIPLoader": 0,
+        "TripleCLIPLoader": 0,
+        "QuadrupleCLIPLoader": 0,
+        "LoraLoader": 1,
+    }.get(source_cls)
+    if slot is None:
+        return []
+    return _consumers_of_output(prompt, source_id, slot)
+
+
+def _parse_add_lora_spec(spec: str) -> tuple[str, float, float]:
+    """Parse ``name[:strength_model[:strength_clip]]`` → ``(name, sm, sc)``.
+
+    A single numeric suffix applies to both model and clip. Works for URI
+    names that contain colons (``hf://…``, ``https://…``) and for Windows
+    paths (``C:\\loras\\foo``): a colon is only consumed as a weight
+    separator when the suffix actually parses as a float.
+    """
+    # 3-part form: name + strength_model + strength_clip (two trailing floats).
+    parts3 = spec.rsplit(":", 2)
+    if len(parts3) == 3:
+        name, a, b = parts3
+        try:
+            return name, float(a), float(b)
+        except ValueError:
+            pass
+    # 2-part form: name + single strength (one trailing float).
+    parts2 = spec.rsplit(":", 1)
+    if len(parts2) == 2:
+        name, b = parts2
+        try:
+            w = float(b)
+            return name, w, w
+        except ValueError:
+            pass
+    return spec, 1.0, 1.0
+
+
+def _materialize_lora_name(name_or_path: str) -> str:
+    """Pass *name_or_path* straight through to :class:`LoraLoader`.
+
+    LoraLoader → ``get_full_path_or_raise("loras", ...)`` →
+    ``comfy.model_downloader.get_or_download`` already handles:
+      * bare filenames (looked up in ``models/loras/``)
+      * local paths (resolved through folder_paths)
+      * ``hf://owner/repo/path`` URIs
+      * ``https://civitai.com/...`` and generic ``http(s)://`` URLs
+      * any fsspec scheme (``s3://``, ``gcs://``, ``file://``, ...)
+    The workflow-side combo validator is relaxed in
+    :func:`comfy.cmd.execution.validate_inputs` to allow URIs through.
+    """
+    return name_or_path
+
+
+def add_loras(prompt: dict, specs: list[str]) -> dict:
+    """Return a copy of *prompt* with a ``LoraLoader`` inserted per *spec*.
+
+    Each entry in *specs* has the form ``name[:strength_model[:strength_clip]]``
+    where ``name`` is a bare filename, a local path, or a URL (fsspec). A
+    single trailing float applies to both model and clip.
+
+    The LoRA is spliced immediately after the tail of any existing LoRA /
+    model-sampling chain — the chain closest to the loader rather than to
+    the sampler — so it composes identically to a user-edited LoRA stack
+    and doesn't skip over downstream patches like ``ModelSamplingFlux``.
+
+    When the workflow has no CLIP-producing loader (rare, e.g. video-only
+    pipelines where text conditioning comes from a separate encoder), the
+    inserted node is ``LoraLoaderModelOnly``.
+    """
+    if not specs:
+        return prompt
+
+    prompt = copy.deepcopy(prompt)
+
+    for spec in specs:
+        raw_name, strength_model, strength_clip = _parse_add_lora_spec(spec)
+        lora_name = _materialize_lora_name(raw_name)
+
+        model_tail = _find_model_splice_point(prompt)
+        if model_tail is None:
+            logger.warning("--add-lora %r: no MODEL producer found, skipping", spec)
+            continue
+        clip_tail = _find_clip_splice_point(prompt)
+
+        model_slot = 0  # all producers/passthroughs in our set emit MODEL at slot 0
+        model_consumers = _consumers_of_model_output(prompt, model_tail)
+
+        new_id = _allocate_node_id(prompt)
+
+        if clip_tail is not None:
+            clip_slot = {
+                "CheckpointLoader": 1,
+                "CheckpointLoaderSimple": 1,
+                "unCLIPCheckpointLoader": 1,
+                "CLIPLoader": 0,
+                "DualCLIPLoader": 0,
+                "TripleCLIPLoader": 0,
+                "QuadrupleCLIPLoader": 0,
+                "LoraLoader": 1,
+            }[prompt[clip_tail]["class_type"]]
+            clip_consumers = _consumers_of_clip_output(prompt, clip_tail)
+
+            prompt[new_id] = {
+                "class_type": "LoraLoader",
+                "inputs": {
+                    "model": [model_tail, model_slot],
+                    "clip": [clip_tail, clip_slot],
+                    "lora_name": lora_name,
+                    "strength_model": strength_model,
+                    "strength_clip": strength_clip,
+                },
+                "_meta": {"title": f"LoRA: {lora_name}"},
+            }
+            for cid in model_consumers:
+                _rewire_inputs(prompt[cid], (model_tail, model_slot), (new_id, 0))
+            for cid in clip_consumers:
+                _rewire_inputs(prompt[cid], (clip_tail, clip_slot), (new_id, 1))
+        else:
+            prompt[new_id] = {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {
+                    "model": [model_tail, model_slot],
+                    "lora_name": lora_name,
+                    "strength_model": strength_model,
+                },
+                "_meta": {"title": f"LoRA: {lora_name}"},
+            }
+            for cid in model_consumers:
+                _rewire_inputs(prompt[cid], (model_tail, model_slot), (new_id, 0))
+
+    return prompt
+
+
+def _rewire_inputs(node: dict, old: tuple[str, int], new: tuple[str, int]) -> None:
+    """Rewrite every ``[old_id, old_slot]`` reference in *node*'s inputs to *new*."""
+    for key, value in list(node.get("inputs", {}).items()):
+        if _is_node_ref(value) and str(value[0]) == old[0] and int(value[1]) == old[1]:
+            node["inputs"][key] = [new[0], new[1]]
+
+
+def enable_compile(prompt: dict) -> dict:
+    """Return a copy of *prompt* with a ``TorchCompileModel`` spliced after
+    every MODEL chain tail found by :func:`_find_model_splice_point`.
+
+    ``torch.compile`` applied to the diffusion transformer typically gives a
+    2–4× step-time speedup after the first warmup step; the tradeoff is
+    ~30s–2min of compile time on first run and additional VRAM during
+    graph capture. We splice at the same position as ``--add-lora`` so the
+    compile wraps the model + any LoRAs the user added.
+    """
+    prompt = copy.deepcopy(prompt)
+    if any(n.get("class_type") == "TorchCompileModel" for n in prompt.values()):
+        # Workflow already opts in; don't double-wrap.
+        return prompt
+    # Compile the FINAL patched model so the traced graph captures all
+    # upstream LoRAs and ModelSampling* patches. Splice at chain tail.
+    chain_tail = _find_model_chain_tail(prompt)
+    if chain_tail is None:
+        logger.warning("--compile: no MODEL producer found, skipping")
+        return prompt
+    model_consumers = _consumers_of_model_output(prompt, chain_tail)
+    new_id = _allocate_node_id(prompt)
+    prompt[new_id] = {
+        "class_type": "TorchCompileModel",
+        "inputs": {"model": [chain_tail, 0]},
+        "_meta": {"title": "torch.compile (auto)"},
+    }
+    for cid in model_consumers:
+        _rewire_inputs(prompt[cid], (chain_tail, 0), (new_id, 0))
+    return prompt
