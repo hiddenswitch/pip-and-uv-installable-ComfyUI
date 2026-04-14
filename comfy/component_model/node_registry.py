@@ -184,6 +184,14 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         node_id="ComfyUI-Crystools",
         repo_url="https://github.com/crystian/ComfyUI-Crystools",
         display_name="ComfyUI-Crystools",
+        # Crystools depends on the old ``pynvml`` package, which ships a .pth
+        # shim that emits a FutureWarning on every ``import pynvml``.
+        # ``nvidia-ml-py`` ships the same ``pynvml.py`` module under a
+        # non-deprecated package, so the import continues to work unchanged.
+        skip_requirements=frozenset({"pynvml"}),
+        extra_requirements=[
+            "nvidia-ml-py",
+        ],
     ),
     CustomNodeSpec(
         node_id="ComfyUI-Detail-Daemon",
