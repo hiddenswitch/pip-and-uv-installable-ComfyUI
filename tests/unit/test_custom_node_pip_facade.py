@@ -156,6 +156,44 @@ def test_onnxruntime_expanded_to_platform_variants(tmp_path: Path):
         assert bare == [], f"bare onnxruntime without marker: {bare}"
 
 
+def test_pynvml_rewritten_to_nvidia_ml_py(tmp_path: Path):
+    """Any custom node that lists pynvml as a requirement should have its
+    facade wheel METADATA rewritten to nvidia-ml-py. The two packages ship
+    an identical ``pynvml.py`` module, but pynvml adds a .pth hook that
+    warns on every import — silencing that is the whole point.
+    """
+    project = FacadeProject(
+        canonical_name="test-pynvml-node",
+        display_name="Test",
+        node_id="test-pynvml-node",
+        repo_url="https://github.com/test/test",
+        repo_name="test",
+        description="",
+        aliases=(),
+        extra_requirements=(),
+        skip_requirements=frozenset({"torch"}),
+        depends_on=(),
+        latest_version="1.0.0",
+    )
+    version = FacadeVersion(
+        version="1.0.0",
+        download_url="https://example.invalid/node.zip",
+        dependencies=("pynvml", "pillow"),
+        deprecated=False,
+    )
+    archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    wheel_path = str(tmp_path / "test-pynvml-node" / "test_pynvml_node-1.0.0-py3-none-any.whl")
+    builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        metadata = wheel.read("test_pynvml_node-1.0.0.dist-info/METADATA").decode("utf-8")
+        assert "Requires-Dist: nvidia-ml-py" in metadata
+        assert "Requires-Dist: pillow" in metadata
+        bare = [l for l in metadata.splitlines() if l == "Requires-Dist: pynvml"]
+        assert bare == [], f"pynvml should have been rewritten, got: {bare}"
+
+
 def test_injected_project_has_github_archive_version():
     from comfy.custom_node_facade.registry import FacadeRegistry
     from comfy.component_model.node_registry import CustomNodeSpec

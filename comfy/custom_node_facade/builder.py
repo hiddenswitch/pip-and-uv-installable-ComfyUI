@@ -122,6 +122,12 @@ _FACADE_EXPANDED_DEPENDENCIES: dict[str, list[str]] = {
     "opencv-python-headless": _OPENCV_HEADLESS,
     "opencv-contrib-python": _OPENCV_HEADLESS,
     "opencv-contrib-python-headless": _OPENCV_HEADLESS,
+    # The pynvml package is a deprecation shim: it installs a .pth file that
+    # emits a FutureWarning on every ``import pynvml`` (even indirect ones
+    # from torch). nvidia-ml-py ships an identical ``pynvml.py`` module
+    # under a non-deprecated package, so rewriting the dependency here is
+    # transparent to any node code that does ``import pynvml``.
+    "pynvml": ["nvidia-ml-py"],
 }
 
 
