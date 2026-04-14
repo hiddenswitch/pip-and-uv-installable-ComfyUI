@@ -1,0 +1,464 @@
+# ComfyUI — agent-facing usage guide
+
+You (Claude) are expected to read this before generating images, videos, or
+automation scripts with ComfyUI. Everything below assumes `comfyui` is on
+`$PATH` in an active uv-managed virtualenv.
+
+ComfyUI is a programmable diffusion / video pipeline. A **workflow** is a
+JSON graph of nodes (loaders → conditioning → samplers → decoders). The
+CLI:
+
+- runs workflows one-shot in the current process (`comfyui run-workflow`,
+  `comfyui workflows run`),
+- runs a daemon that accepts HTTP job submissions (`comfyui start` +
+  `comfyui workflows submit` + `comfyui jobs`), and
+- manages models (`comfyui models …`), custom nodes via a pip facade
+  (`comfyui serve-pip`, `comfyui nodes`), and diagnostics (`comfyui env`).
+
+## When to use the CLI vs code
+
+| User ask | What you do |
+|---|---|
+| Single image / video / edit | `comfyui run-workflow <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
+| Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
+| Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
+
+**You may read user-provided images, videos, and text and reason about
+their contents.** Use that to rewrite vague prompts into specific ones,
+to describe what to preserve vs change in an image edit, or to caption a
+reference image before generating a video. Ask if unsure what the user
+wants the output to depict.
+
+## Model picks
+
+Default picks. Override only when the user says so, or when a LoRA's
+heritage forces a specific base (e.g. SDXL LoRA → SDXL base).
+
+| Task | If VRAM ≥ 24 GB | Otherwise |
+|---|---|---|
+| Text-to-image | `image_flux2_dev_text_to_image` (Flux.2 dev) | `image_flux2_klein_text_to_image` (Flux.2 klein 9B, fp8 mixed, `--novram`) |
+| Image edit / reference | `image_flux2_dev_image_edit` | `image_flux2_klein_9b_kv_image_edit` (klein 9B KV, `--novram`) |
+| Text-to-video | `video_ltxv_2.3_text_to_video` (LTXV 2.3) | same |
+| Image-to-video | `video_ltxv_2.3_image_to_video` | same |
+| User brought an SDXL LoRA | SDXL workflow (`image_sdxl_base_refiner_text_to_image` or similar) | same |
+| User brought a Flux/Klein LoRA | matching klein/Flux2 workflow | same |
+
+Discover templates with `comfyui workflows list` and
+`comfyui workflows show <name>` (prints a copy-pasteable invocation).
+
+---
+
+## Prerequisites (one-time)
+
+1. **Python / venv.** Use `uv`; the user's current `.venv` if one is
+   active, otherwise create a new one on the system-managed Python:
+   ```bash
+   uv venv && source .venv/bin/activate     # if no venv is active
+   ```
+
+2. **ComfyUI itself + torch.** `--torch-backend=auto` picks the right
+   CUDA / ROCm / MPS wheel for the host (ROCm 7.2 is the default for
+   AMD on Linux; works for almost every AMD user):
+   ```bash
+   uv pip install --torch-backend=auto "comfyui[…]"
+   ```
+
+3. **Triton** — install on Linux for CUDA or ROCm users:
+   ```bash
+   uv pip install triton
+   ```
+
+4. **SageAttention** — install for CUDA users (speeds up attention
+   substantially on Ada / Hopper / Ampere). **Install via the pip
+   facade** so the pre-built wheel resolves on both CUDA and ROCm
+   without compile errors:
+   ```bash
+   uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention
+   ```
+
+5. **Enable guess-settings globally.** The `--guess-settings` flag
+   auto-detects the right VRAM mode, attention backend, precision, and
+   cache size for the host. Read from env so you don't have to pass it
+   every time:
+   ```bash
+   export COMFYUI_GUESS_SETTINGS=1          # recommended for every session
+   ```
+   Every CLI flag has a `COMFYUI_<FLAG>` env-var twin via Typer's
+   `auto_envvar_prefix="COMFYUI"`. Examples:
+   `COMFYUI_NOVRAM=1`, `COMFYUI_IMAGE=https://…`, `COMFYUI_SERVER=http://box:8188`.
+
+6. **Sanity-check the install** before your first real run:
+   ```bash
+   comfyui env check       # prints GPU, RAM, folder paths, symlink
+                            # capability, comfy_kitchen backend × dtype
+                            # support matrix, guess-settings decisions.
+   ```
+   If the matrix shows `triton` FAIL on fp8e4nv cells and your GPU is
+   Ampere (sm < 8.9), that's expected; the runtime auto-disables the
+   triton backend for you.
+
+---
+
+## Discover what's installed vs missing
+
+Don't assume. The user's models live under `models/<folder>/`; custom
+nodes live as facade packages. Check before downloading.
+
+```bash
+# What models are present locally?
+comfyui models ls --folder loras
+comfyui models ls --folder checkpoints
+
+# What does this workflow need? (reads its node inputs)
+comfyui models from-workflow image_flux2_klein_text_to_image --dry-run
+# prints found models to stdout; missing models (that would be fetched
+# with --all) to stderr.
+
+# Where are things looked up?
+comfyui models paths --folder loras
+```
+
+When models are missing, **ask the user before downloading**. Rule of
+thumb: anything over 1 GB deserves a yes/no check. `--all` on a
+workflow run (see below) will download missing models automatically.
+
+---
+
+## Task 1 — Generate an image
+
+The default path. Use `--prompt` for text, `--seed` for determinism,
+`--novram` if VRAM-constrained.
+
+```bash
+# 24 GB+ host: Flux.2 dev
+comfyui run-workflow image_flux2_dev_text_to_image --all --seed 42 \
+    --prompt "a ceramic teapot on a linen tablecloth, soft window light"
+
+# Smaller host: klein 9B with novram streaming
+comfyui run-workflow image_flux2_klein_text_to_image --all --novram \
+    --seed 42 --prompt "a ceramic teapot, studio lighting"
+```
+
+The `run-workflow --help` output lists every override (`--width`,
+`--height`, `--batch-size`, `--cfg`, `--sampler`, `--scheduler`,
+`--denoise`, `--checkpoint`, `--steps`, …). `--set
+node_id.inputs.field=value` lets you override anything not covered by
+a named flag (compound subgraph ids like `"75:72"` work).
+
+---
+
+## Task 2 — Edit an image / condition on a reference
+
+When the user says "remove the hair from these two photos" or "put the
+man in image 1 wearing the outfit from image 2", it's an edit task. Use
+the KV variant (key-value caching across reference images is a big VRAM
+win for klein 9B):
+
+```bash
+comfyui run-workflow image_flux2_klein_9b_kv_image_edit --all --novram \
+    --seed 42 \
+    --prompt "Remove the hair from the subject. Keep the pose, lighting, and clothing." \
+    --image https://upload.wikimedia.org/wikipedia/commons/4/4d/Cat_November_2010-1a.jpg \
+    --image /path/to/second_reference.png
+```
+
+Multiple `--image` flags map to multiple `LoadImage*` nodes in the
+workflow, in order. File paths, `https://`, `hf://`, and `s3://` URIs
+all resolve.
+
+**Before writing the prompt, look at the images.** "Make this
+background coastal" is much better as "Replace the urban street with a
+coastal cliff at overcast sunset; keep the subject's framing and shirt
+exactly."
+
+---
+
+## Task 3 — Text-to-video / Image-to-video
+
+```bash
+# Text-to-video (LTXV 2.3)
+comfyui run-workflow video_ltxv_2.3_text_to_video --all \
+    --prompt "A drone sweeps over a coastal cliff at overcast sunset, gulls overhead." \
+    --seed 42 --width 768 --height 512
+
+# Image-to-video: use an image as the first frame
+comfyui run-workflow video_ltxv_2.3_image_to_video --all \
+    --image https://example.com/first_frame.jpg \
+    --prompt "Camera slowly pans right over the scene for 3 seconds." \
+    --seed 42
+```
+
+---
+
+## Task 4 — Using a LoRA
+
+`--add-lora NAME[:strength_model[:strength_clip]]` injects a `LoraLoader`
+(or `LoraLoaderModelOnly` when the workflow has no CLIP producer) right
+after the root loader — the *earliest* predecessor of the sampler — so
+the LoRA applies to the base weights before any existing LoRA or
+`ModelSamplingFlux` / `ModelSamplingSD3` patch in the workflow. Stack
+multiple LoRAs by repeating the flag:
+
+```bash
+comfyui run-workflow image_flux2_dev_text_to_image --all --seed 42 \
+    --prompt "a ceramic teapot in the style of a studio ghibli key frame" \
+    --add-lora ghibli_style.safetensors:0.8 \
+    --add-lora crisp_lines.safetensors:0.4
+
+# URLs work (resolved by model_downloader):
+comfyui run-workflow image_flux2_dev_text_to_image --all \
+    --prompt "..." \
+    --add-lora https://civitai.com/api/download/models/12345:0.7
+
+# HF repos:
+comfyui run-workflow image_flux2_dev_text_to_image --all \
+    --prompt "..." \
+    --add-lora hf://owner/repo/my_lora.safetensors:0.6
+
+# Absolute path:
+comfyui run-workflow image_flux2_dev_text_to_image --all \
+    --prompt "..." \
+    --add-lora /home/user/loras/mine.safetensors
+```
+
+Single trailing weight applies to both model and CLIP
+(`foo:0.8` → `strength_model=0.8 strength_clip=0.8`). Two trailing
+weights split them (`foo:0.8:0.4` → model 0.8, clip 0.4). Windows paths
+with colons are recognized and not misparsed.
+
+**Match the LoRA to the base model.** If the user hands you an SDXL
+LoRA, use an SDXL workflow; if they hand you a Flux LoRA, use a Flux
+workflow. LoRA files are not cross-compatible across base architectures.
+You can usually infer heritage from the filename (`sdxl_…`, `flux_…`,
+`klein_…`) or by inspecting the safetensors header.
+
+---
+
+## Task 5 — Speed things up with `--compile`
+
+`--compile` adds a `TorchCompileModel` node at the *latest* point in the
+MODEL chain (right before the sampler, after every LoRA /
+ModelSampling* patch). First step takes 30 s – 2 min to trace, every
+subsequent step is 2–4× faster. Good for batch work, mediocre for a
+single image.
+
+```bash
+comfyui run-workflow image_flux2_dev_text_to_image --all \
+    --prompt "..." --compile --add-lora style.safetensors:0.6
+```
+
+`--add-lora` and `--compile` compose. The compile wraps the final
+patched model so every LoRA is in the traced graph.
+
+---
+
+## Task 6 — Generate an image per row of a CSV
+
+For a bulk job, write an ad-hoc Python script using the embedded
+client. This is faster than spawning `comfyui run-workflow` per row
+because node modules import once.
+
+```python
+#!/usr/bin/env python
+import asyncio
+import csv
+from pathlib import Path
+
+from comfy.cli_args_types import Configuration
+from comfy.entrypoints.workflow import run_workflows
+
+async def main():
+    rows = list(csv.DictReader(Path("prompts.csv").open()))
+    for i, row in enumerate(rows):
+        config = Configuration(
+            prompt=row["prompt"],
+            seed=int(row.get("seed", 42 + i)),
+            novram=True,                         # for klein 9B on <24 GB
+            output_directory=f"out/row_{i:04d}",
+            workflows=["image_flux2_klein_text_to_image"],
+        )
+        await run_workflows(config.workflows, configuration=config)
+
+asyncio.run(main())
+```
+
+Run with `python script.py` inside the same venv. Each call
+re-initializes model state between rows; for tight batches, use the
+daemon path (§Mass processing) instead so the model stays resident.
+
+---
+
+## Mass processing — daemon + submit + poll
+
+For tens-to-thousands of jobs, start the daemon once and submit. The
+daemon keeps models resident, so amortized per-job cost drops from
+"model load + sample" to "sample only".
+
+```bash
+# 1. Start the daemon (equivalent to `serve --daemon --guess-settings`):
+comfyui start
+comfyui logs -f &                # optional: stream logs
+
+# 2. Submit jobs:
+for prompt in "a cat" "a dog" "a fish"; do
+  comfyui workflows submit image_flux2_klein_text_to_image \
+      --prompt "$prompt" --seed 42
+done
+
+# 3. Watch the queue:
+comfyui jobs                     # list active jobs
+comfyui jobs --status pending    # filter
+comfyui jobs cancel <JOB_ID>     # cancel one (omit JOB_ID to interrupt
+                                 # the currently running job)
+
+# 4. When done:
+comfyui stop
+```
+
+`COMFYUI_SERVER=http://host:8188` points the client commands at a
+remote daemon. `workflows submit` supports the same prompt/seed/cfg/
+sampler/scheduler overrides as `run-workflow` (full list in
+`comfyui workflows submit --help`). If you need `--image` / `--video` /
+`--add-lora` / `--compile` as part of a submission, do the prompt
+patching yourself (import `comfy.component_model.prompt_utils`) and
+POST the patched JSON — see the Python recipe below.
+
+### Python: tight loop against the daemon
+
+```python
+import asyncio, httpx
+from comfy.component_model.prompt_utils import add_loras, enable_compile
+from comfy.component_model.asyncio_files import load_workflow_json
+
+async def submit_one(client, workflow, prompt, extra_loras):
+    wf = load_workflow_json(workflow)       # local path, template name, or URI
+    wf = add_loras(wf, extra_loras)         # --add-lora
+    wf = enable_compile(wf)                 # --compile
+    # …plus any other prompt_utils mutation…
+    r = await client.post("http://localhost:8188/prompt",
+                           json={"prompt": wf, "client_id": "bulk"})
+    r.raise_for_status()
+    return r.json()["prompt_id"]
+
+async def main():
+    async with httpx.AsyncClient(timeout=None) as client:
+        ids = [await submit_one(client, "image_flux2_klein_text_to_image",
+                                p, ["style.safetensors:0.6"])
+               for p in PROMPTS]
+        # poll /history/<prompt_id> or `comfyui jobs` until done.
+
+asyncio.run(main())
+```
+
+---
+
+## Custom nodes — use the pip facade
+
+When the user needs a custom node that isn't bundled (ComfyUI-Crystools,
+ComfyUI-Inspire-Pack, ComfyUI_IPAdapter_plus, etc.), don't clone into
+`custom_nodes/`. Install via the facade — it builds the wheel on demand,
+resolves declared requirements (including rewrites like
+`pynvml→nvidia-ml-py` and `opencv-python→opencv-python-headless`), and
+drops the node where ComfyUI expects it:
+
+```bash
+# Public index:
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ \
+    comfyui-crystools comfyui-inspire-pack comfyui_ipadapter_plus
+
+# Or: extract what a specific workflow needs and install just that:
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ \
+    -r <(comfyui workflows requirements image_flux2_dev_image_edit)
+```
+
+If the user is air-gapped or running CI, host the facade yourself with
+`comfyui serve-pip --port 8190 --pip-facade-cache-prefix file:///srv/cache`
+and have `uv pip install` use `--extra-index-url http://host:8190/`.
+
+Inspect installed nodes with `comfyui nodes ls` or
+`comfyui nodes info <ClassName>`. The `SEARCH_ALIASES` field on each
+node (e.g. "lora", "load lora") is how the UI's search box works; if a
+user asks for "something that does X", grep those aliases.
+
+---
+
+## Environment / diagnostics commands worth knowing
+
+- `comfyui env info` — platform, Python, device name + VRAM, folder paths.
+- `comfyui env check` — full integrity: package versions, torch CUDA/ROCm
+  alignment, comfy_kitchen backend × dtype × op PASS/FAIL matrix (shows
+  which fp8/fp4 kernels actually work on this GPU), folder paths with
+  file count / total size / symlink+hardlink counts and per-directory
+  symlink-creation probe, hardware-detected guess-settings decisions.
+- `comfyui env packages` — pip list, fast (no torch import).
+- `comfyui env paths` — just the folder-paths table.
+- `comfyui workflows requirements <wf>` — pip requirements for a workflow.
+- `comfyui workflows convert <ui.json> -o api.json` — convert a
+  UI-exported workflow into the API format that the server takes.
+- `comfyui workflows show <template>` — print a copy-pasteable
+  invocation command for a template (useful when you're unsure which
+  flags the template consumes).
+
+---
+
+## Pitfalls
+
+1. **`--novram` is mandatory on 24 GB cards for klein 9B + qwen 8B text
+   encoder.** Default NORMAL_VRAM keeps both resident and OOMs at ~21 GiB.
+   `--novram` streams weights per-module; expect ~1 min runtime vs ~50 s
+   NORMAL_VRAM at full precision.
+
+2. **`COMFYUI_CUDA_ALLOC_CONF=expandable_segments:True`** — export it
+   when peak VRAM is right at the GPU cap. Reduces fragmentation OOMs.
+
+3. **Ampere + fp8_e4m3fn.** comfy_kitchen's triton kernel for this
+   dtype can't compile on sm < 8.9. The runtime auto-disables the
+   triton backend on those GPUs; there is nothing to do. Use
+   `--fp8_e5m2-unet` if you need fp8 storage (Ampere-supported).
+
+4. **`--guess-settings` after `--all`.** Always. `_install_workflow_requirements`
+   imports `model_management`, which latches its VRAM state at import.
+   This is handled now (see commit `7c489f5d`), but if you see
+   `vram_state = NORMAL_VRAM` in the log after passing `--novram`, your
+   CLI is out of date; update.
+
+5. **LoRA heritage**. A Flux LoRA in an SDXL workflow will patch
+   nothing (key mismatch) or patch wrong tensors and silently degrade
+   output. Match the base. If in doubt, run
+   `python -c "from safetensors.torch import load_file; print(list(load_file('x.safetensors').keys())[:5])"`
+   to inspect keys.
+
+6. **Subgraph node ids.** UI-exported workflows that contain subgraphs
+   keep `"75:72"`-style ids in API format. `--set 75:72.inputs.field=val`
+   works; `--set 75:110.inputs.field=val` may not if that inner node was
+   not preserved by the subgraph-to-API conversion. Check with
+   `comfyui workflows convert` + `jq 'keys'`.
+
+---
+
+## What you (Claude) are expected to do when given a media task
+
+1. Read any images, videos, or text files the user hands you. Describe
+   what you see back to the user to confirm understanding before
+   generating — especially for edits, where what to *preserve* matters
+   as much as what to *change*.
+2. Pick the right workflow from the §Model picks table based on VRAM
+   (check with `comfyui env info`) and task type.
+3. Check `comfyui models from-workflow <template> --dry-run` and ask
+   before triggering large downloads.
+4. Rewrite the user's vague prompt into a specific one. For image
+   edits, include explicit "keep" clauses.
+5. Run the workflow. Use `--seed` so the user can reproduce.
+6. If output is wrong, iterate on the prompt or add/remove a LoRA.
+   Don't loop infinitely — after 3 tries, ask the user.
+7. For bulk jobs: daemon + submit. For exotic graph edits: Python.
+
+## Troubleshooting quick table
+
+| Symptom | Fix |
+|---|---|
+| `ValueError: value_not_in_list: vae_name/lora_name/ckpt_name` | Value is a URI the validator accepts now; update the CLI (commits ≥ `d5f5abd7`). Or pre-download with `comfyui models download <uri>`. |
+| OOM at sampler, ~21 GiB on 24 GB card | Add `--novram`; works on klein 9B. |
+| `FutureWarning: The pynvml package is deprecated` | Harmless noise from a transitive dep; the pip facade rewrites this to `nvidia-ml-py` automatically. |
+| `ModuleNotFoundError: webcolors` from Inspire-Pack | Inspire-Pack facade declares `webcolors` as an extra requirement; rebuild the facade wheel (`uv pip install -U --extra-index-url https://nodes.appmana.com/simple/ comfyui-inspire-pack`). |
+| Triton `fp8e4nv not supported` on Ampere | Auto-fixed at quant_ops import on sm < 8.9. If you still see it, run `comfyui env check` to confirm the triton backend is DISABLED. |
