@@ -381,6 +381,11 @@ def _build_config(params: dict) -> Configuration:
         filtered["auto_launch"] = False
     if filtered.get("force_fp16"):
         filtered["fp16_unet"] = True
+    if filtered.get("novram"):
+        # --novram is the strictest VRAM mode: dynamic-VRAM (aimdo) actively
+        # works against it by holding allocations to track peak usage, so
+        # implicitly disable it.
+        filtered["disable_dynamic_vram"] = True
 
     # Parse host:port from --listen (e.g. "0.0.0.0:8189" or "[::]:8189")
     if "listen" in filtered:
@@ -775,11 +780,18 @@ def run_workflow(
 
     config = _build_config(params)
 
+    # Publish the parsed config to the execution context BEFORE anything
+    # (including --all's pip resolution) imports a comfy module that reads
+    # args at module-import time — e.g. comfy.model_management latches its
+    # VRAM state from args.{novram,lowvram,...} at import. Running
+    # _install_workflow_requirements first made --novram/--lowvram silently
+    # no-op because model_management saw the default Configuration.
+    _set_config_context(config)
+
     if _all:
         _install_workflow_requirements(config.workflows)
 
     setup_pre_torch(config)
-    _set_config_context(config)
     setup_post_torch(config)
 
     from ..component_model.entrypoints_common import configure_application_paths
