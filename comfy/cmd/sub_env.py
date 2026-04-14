@@ -69,12 +69,17 @@ def _env_info(format: str, cwd: Optional[str] = None, base_directory: Optional[s
         return
 
     from .. import __version__
+    from .integrity_check import _section_folder_paths
+
     console.print(f"ComfyUI version: {__version__}")
     console.print(f"Platform: {platform.platform()}")
     console.print(f"Python: {sys.version.split()[0]}")
     console.print()
     console.rule("Device")
     _section_device(console)
+    console.print()
+    console.rule("Folder Paths")
+    _section_folder_paths(console)
     console.print()
     console.rule("Package Versions")
     _section_package_versions(console)

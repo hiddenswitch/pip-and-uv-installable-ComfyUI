@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import platform
 import sys
 from pathlib import Path
@@ -400,6 +401,80 @@ def _section_device(console: Console):
     console.print(table, highlight=False)
 
 
+def _format_size(num_bytes: int) -> str:
+    if num_bytes <= 0:
+        return "0 B"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num_bytes < 1024 or unit == "TB":
+            return f"{num_bytes:.1f} {unit}" if unit != "B" else f"{num_bytes} B"
+        num_bytes /= 1024
+    return f"{num_bytes:.1f} TB"
+
+
+def _summarize_directory(path: str) -> dict:
+    """Return ``{files, size, symlinks, hardlinks}`` for one directory.
+
+    Counts only regular files at the top level (not recursed) since a model
+    folder is typically flat. ``symlinks`` and ``hardlinks`` are counted
+    independently; a regular file with ``st_nlink == 1`` is neither.
+    """
+    summary = {"files": 0, "size": 0, "symlinks": 0, "hardlinks": 0}
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    lst = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if entry.is_symlink():
+                    summary["symlinks"] += 1
+                    summary["files"] += 1
+                    try:
+                        summary["size"] += entry.stat(follow_symlinks=True).st_size
+                    except OSError:
+                        pass
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                summary["files"] += 1
+                summary["size"] += lst.st_size
+                if lst.st_nlink > 1:
+                    summary["hardlinks"] += 1
+    except OSError:
+        pass
+    return summary
+
+
+def _check_symlink_support(path: str) -> tuple[bool, str]:
+    """Try to create then remove a symlink under *path*. Returns ``(ok, detail)``.
+
+    Windows non-admin processes can't create symlinks unless Developer Mode is
+    on, and Synology-style overlays sometimes return EACCES even when the
+    parent fs supports them — we want the *operational* answer for this exact
+    directory, not what the filesystem theoretically supports.
+    """
+    import tempfile
+    if not os.path.isdir(path):
+        return False, "directory missing"
+    try:
+        with tempfile.NamedTemporaryFile(dir=path, prefix=".symlink_probe_", delete=False) as f:
+            target = f.name
+        link = target + ".lnk"
+        try:
+            os.symlink(target, link)
+        except OSError as exc:
+            return False, type(exc).__name__
+        finally:
+            for p in (link, target):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        return True, "ok"
+    except OSError as exc:
+        return False, type(exc).__name__
+
+
 def _section_folder_paths(console: Console):
     from . import folder_paths
 
@@ -408,6 +483,27 @@ def _section_folder_paths(console: Console):
     table = Table(show_edge=False, pad_edge=False, box=None)
     table.add_column("Folder", no_wrap=True)
     table.add_column("Paths")
+    table.add_column("Files", justify="right", no_wrap=True)
+    table.add_column("Size", justify="right", no_wrap=True)
+    table.add_column("Links", no_wrap=True)
+    table.add_column("symlink ok", no_wrap=True)
+
+    def _row(label: str, dirs: list[str]) -> None:
+        if not dirs:
+            table.add_row(label, "(none)", "-", "-", "-", "-")
+            return
+        total = {"files": 0, "size": 0, "symlinks": 0, "hardlinks": 0}
+        sym_results: list[str] = []
+        for d in dirs:
+            s = _summarize_directory(d)
+            for k in total:
+                total[k] += s[k]
+            ok, detail = _check_symlink_support(d)
+            sym_results.append("ok" if ok else f"no ({detail})")
+        link_str = f"{total['symlinks']} sym / {total['hardlinks']} hard"
+        sym_str = "\n".join(sym_results)
+        table.add_row(label, "\n".join(dirs), str(total["files"]),
+                      _format_size(total["size"]), link_str, sym_str)
 
     seen_names: set[str] = set()
     for item in fnp.contents:
@@ -416,18 +512,147 @@ def _section_folder_paths(console: Console):
                 continue
             seen_names.add(name)
             dirs = [str(p) for p in fnp.directory_paths(name)]
-            table.add_row(name, "\n".join(dirs) if dirs else "(none)")
+            _row(name, dirs)
 
     app_paths = fnp.application_paths
     if app_paths:
-        table.add_row("output", str(Path(app_paths.output_directory).resolve()))
-        table.add_row("input", str(Path(app_paths.input_directory).resolve()))
-        table.add_row("temp", str(Path(app_paths.temp_directory).resolve()))
-        table.add_row("user", str(Path(app_paths.user_directory).resolve()))
+        for label, attr in (("output", "output_directory"), ("input", "input_directory"),
+                            ("temp", "temp_directory"), ("user", "user_directory")):
+            _row(label, [str(Path(getattr(app_paths, attr)).resolve())])
 
-    table.add_row("base_paths", "\n".join(str(p) for p in fnp.base_paths) if fnp.base_paths else "(none)")
+    _row("base_paths", [str(p) for p in (fnp.base_paths or [])])
 
     console.print(table)
+
+
+def _section_comfy_kitchen_capabilities(console: Console):
+    """PASS/FAIL matrix of comfy_kitchen ops × backends × representative dtypes.
+
+    Each cell actually invokes the op on a tiny tensor through the registry's
+    capability check, so a PASS reflects what would actually dispatch on this
+    machine. FAIL/SKIP reflects either constraint mismatch or a backend that's
+    been disabled (e.g. by --disable-comfy-kitchen-backends or guess-settings).
+    """
+    try:
+        import torch
+        import comfy_kitchen as ck
+        from .. import model_management
+    except ImportError:
+        console.print("  comfy_kitchen not installed.")
+        return
+
+    backends = sorted(ck.list_backends().keys())
+    if not backends:
+        console.print("  No comfy_kitchen backends registered.")
+        return
+
+    device = model_management.get_torch_device()
+
+    table = Table(show_edge=False, pad_edge=False, box=None,
+                  title=f"comfy_kitchen op × backend × dtype matrix (device={device})")
+    table.add_column("Operation", no_wrap=True)
+    table.add_column("Dtype", no_wrap=True)
+    for backend in backends:
+        table.add_column(backend, no_wrap=True)
+
+    # torch.device() is a context manager since 2.0 — every new tensor inside
+    # the block defaults to this device, so kwargs factories can stay terse.
+    with torch.device(device):
+        for op_name, dtype_label, kwargs_factory in _comfy_kitchen_capability_cases():
+            row = [op_name, dtype_label]
+            try:
+                kwargs = kwargs_factory()
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                for _ in backends:
+                    row.append(f"SKIP ({type(exc).__name__})")
+                table.add_row(*row)
+                continue
+            for backend in backends:
+                row.append(_check_backend_capability(ck, backend, op_name, kwargs))
+            table.add_row(*row)
+    console.print(table)
+
+
+def _comfy_kitchen_capability_cases() -> list[tuple[str, str, "callable"]]:
+    """Return ``(op_name, dtype_label, kwargs_factory)`` test cases.
+
+    The factories rely on the caller wrapping in ``with torch.device(...)``
+    so tensors land on the appropriate accelerator without per-call plumbing.
+    """
+    import torch
+
+    fp8_e4m3fn = getattr(torch, "float8_e4m3fn", None)
+    fp8_e5m2 = getattr(torch, "float8_e5m2", None)
+
+    cases: list[tuple[str, str, "callable"]] = [
+        ("quantize_per_tensor_fp8", "bf16→fp8_e4m3fn", lambda: dict(
+            x=torch.zeros(8, 8, dtype=torch.bfloat16),
+            scale=torch.ones(1, dtype=torch.float32),
+            output_type=fp8_e4m3fn,
+        )) if fp8_e4m3fn is not None else None,
+        ("quantize_per_tensor_fp8", "bf16→fp8_e5m2", lambda: dict(
+            x=torch.zeros(8, 8, dtype=torch.bfloat16),
+            scale=torch.ones(1, dtype=torch.float32),
+            output_type=fp8_e5m2,
+        )) if fp8_e5m2 is not None else None,
+        ("quantize_per_tensor_fp8", "fp16→fp8_e4m3fn", lambda: dict(
+            x=torch.zeros(8, 8, dtype=torch.float16),
+            scale=torch.ones(1, dtype=torch.float32),
+            output_type=fp8_e4m3fn,
+        )) if fp8_e4m3fn is not None else None,
+        ("dequantize_per_tensor_fp8", "fp8_e4m3fn→bf16", lambda: dict(
+            x=torch.zeros(8, 8, dtype=fp8_e4m3fn),
+            scale=torch.ones(1, dtype=torch.float32),
+            output_type=torch.bfloat16,
+        )) if fp8_e4m3fn is not None else None,
+        ("dequantize_per_tensor_fp8", "fp8_e5m2→fp16", lambda: dict(
+            x=torch.zeros(8, 8, dtype=fp8_e5m2),
+            scale=torch.ones(1, dtype=torch.float32),
+            output_type=torch.float16,
+        )) if fp8_e5m2 is not None else None,
+        ("quantize_nvfp4", "bf16→nvfp4", lambda: dict(
+            x=torch.zeros(32, 32, dtype=torch.bfloat16),
+            per_tensor_scale=torch.ones(1, dtype=torch.float32),
+        )),
+        ("quantize_mxfp8", "bf16→mxfp8", lambda: dict(
+            x=torch.zeros(32, 32, dtype=torch.bfloat16),
+        )),
+    ]
+    return [c for c in cases if c is not None]
+
+
+def _check_backend_capability(ck, backend: str, op_name: str, kwargs: dict) -> str:
+    """Return a short PASS/FAIL/SKIP cell for a single matrix entry.
+
+    Performs both the constraint check *and* an actual invocation through
+    ``registry.use_backend``. The execution probe is what catches things like
+    triton's fp8e4nv kernel failing to compile on Ampere — constraints alone
+    don't surface JIT compile errors.
+    """
+    info = ck.list_backends().get(backend, {})
+    if info.get("disabled"):
+        return "DISABLED"
+    if not info.get("available"):
+        reason = info.get("unavailable_reason")
+        if reason:
+            return f"N/A ({reason.split(':')[0][:20]})"
+        return "N/A"
+    if op_name not in (info.get("capabilities") or ()):
+        return "N/A"
+    result = ck.registry.validate_backend_for_call(backend, op_name, kwargs)
+    if not result.success:
+        return f"FAIL ({result.failed_param}: {str(result.failure_reason)[:20]})"
+
+    op_fn = getattr(ck, op_name, None)
+    if op_fn is None:
+        return "PASS (no-call)"
+    try:
+        with ck.registry.use_backend(backend):
+            op_fn(**kwargs)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        msg = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+        return f"FAIL ({msg[:32]})"
+    return "PASS"
 
 
 def run_integrity_check(config: Configuration):
@@ -465,4 +690,8 @@ def run_integrity_check(config: Configuration):
 
     console.rule("Folder Paths")
     _section_folder_paths(console)
+    console.print()
+
+    console.rule("comfy_kitchen Backend Capabilities")
+    _section_comfy_kitchen_capabilities(console)
     console.print()

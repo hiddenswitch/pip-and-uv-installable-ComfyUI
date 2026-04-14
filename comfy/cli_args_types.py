@@ -63,6 +63,8 @@ class PerformanceFeature(enum.Enum):
     DynamicVRAM = "dynamic_vram"
 
 
+COMFY_KITCHEN_BACKENDS = ("eager", "cuda", "triton")
+
 VRAM_MODES = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
 PRECISION_MODES = ("force_fp32", "force_fp16", "force_bf16")
 UNET_MODES = ("fp32_unet", "fp64_unet", "bf16_unet", "fp16_unet", "fp8_e4m3fn_unet", "fp8_e5m2_unet", "fp8_e8m0fnu_unet")
@@ -276,6 +278,8 @@ class Configuration(dict):
         self.novram: bool = False
         self.cpu: bool = False
         self.fast: set[PerformanceFeature] = set()
+        self.enable_comfy_kitchen_backends: list[str] = []
+        self.disable_comfy_kitchen_backends: list[str] = []
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: float = 0.0
         self.disable_dynamic_vram: bool = False

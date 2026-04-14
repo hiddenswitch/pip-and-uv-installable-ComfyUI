@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import logging
 import torch
 
+from .cli_args import args
 from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block, stochastic_round_quantize_mxfp8_by_block
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,33 @@ try:
     except:
         logger.debug("Disabling triton support, it was not installed")
         ck.registry.disable("triton")
+
+    # comfy_kitchen's triton fp8 kernels use fp8e4nv, which fails to compile
+    # on Ampere (sm < 8.9). Force-disable triton on those GPUs unless the
+    # user re-enables it via --enable-comfy-kitchen-backends triton.
+    if torch.cuda.is_available():
+        try:
+            min_cap = min(
+                (torch.cuda.get_device_properties(i).major,
+                 torch.cuda.get_device_properties(i).minor)
+                for i in range(torch.cuda.device_count())
+            )
+        except (RuntimeError, ValueError, AssertionError):
+            min_cap = None
+        if min_cap is not None and min_cap < (8, 9):
+            ck.registry.disable("triton")
+            logger.debug(
+                f"Disabling comfy_kitchen 'triton' backend: NVIDIA compute capability "
+                f"{min_cap[0]}.{min_cap[1]} < 8.9 (fp8e4nv unsupported)"
+            )
+
+    for backend_name in (args.disable_comfy_kitchen_backends or ()):
+        ck.registry.disable(backend_name)
+        logger.debug(f"Disabling comfy_kitchen backend '{backend_name}' (--disable-comfy-kitchen-backends)")
+    for backend_name in (args.enable_comfy_kitchen_backends or ()):
+        ck.registry.enable(backend_name)
+        logger.debug(f"Enabling comfy_kitchen backend '{backend_name}' (--enable-comfy-kitchen-backends)")
+
     for k, v in ck.list_backends().items():
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
 except Exception as e:  # pylint: disable=broad-exception-caught

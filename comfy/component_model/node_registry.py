@@ -60,6 +60,9 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         node_id="ComfyUI-Inspire-Pack",
         repo_url="https://github.com/ltdrdata/ComfyUI-Inspire-Pack",
         display_name="ComfyUI-Inspire-Pack",
+        extra_requirements=[
+            "webcolors",
+        ],
         depends_on=("ComfyUI-Impact-Pack",),
     ),
     CustomNodeSpec(
