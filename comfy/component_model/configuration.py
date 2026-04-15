@@ -84,3 +84,32 @@ def requires_process_pool_executor(configuration: Configuration | None) -> bool:
             if key not in default or val != default[key]:
                 return True
     return False
+
+
+def model_management_fingerprint(configuration: Configuration | dict | None) -> tuple:
+    """Return a hashable fingerprint of the ``MODEL_MANAGEMENT_ARGS`` subset of *configuration*.
+
+    Two configurations with the same fingerprint produce identical model
+    management state and can safely share a subprocess worker. When the
+    fingerprints differ, a fresh ``ProcessPoolExecutor`` is required
+    because model_management latches VRAM/precision/attention settings at
+    import time, which happens once per subprocess.
+
+    ``None`` is treated as "all defaults" — i.e. ``default_configuration()``
+    — so ``Comfy()`` with no config and ``Comfy(configuration=Configuration())``
+    share the same fingerprint.
+    """
+    if configuration is None or (isinstance(configuration, dict) and not configuration):
+        configuration = default_configuration()
+    # Sort the keys so set-like iteration order doesn't break equality
+    # (some values can be sets — see ``fast``).
+    entries: list[tuple[str, object]] = []
+    for key in sorted(MODEL_MANAGEMENT_ARGS):
+        val = configuration.get(key) if hasattr(configuration, "get") else None
+        # Sets aren't hashable inside tuples; normalize to a sorted tuple.
+        if isinstance(val, (set, frozenset)):
+            val = tuple(sorted(str(x) for x in val))
+        elif isinstance(val, list):
+            val = tuple(val)
+        entries.append((key, val))
+    return tuple(entries)

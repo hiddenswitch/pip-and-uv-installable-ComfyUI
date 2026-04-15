@@ -33,7 +33,7 @@ from ..distributed.executors import ContextVarExecutor
 from ..distributed.history import History
 from ..distributed.process_pool_executor import ProcessPoolExecutor
 from ..distributed.server_stub import ServerStub
-from ..component_model.configuration import MODEL_MANAGEMENT_ARGS, requires_process_pool_executor
+from ..component_model.configuration import MODEL_MANAGEMENT_ARGS, requires_process_pool_executor, model_management_fingerprint
 
 _prompt_executor = threading.local()
 
@@ -352,6 +352,13 @@ class Comfy:
         self._history = History()
         self._exit_stack = None
         self._async_exit_stack = None
+        # Remember the user's requested concurrency so reconfigure() can
+        # rebuild the executor with the same max_workers.
+        self._max_workers = max_workers
+        # Cache the fingerprint of the MODEL_MANAGEMENT_ARGS subset so
+        # reconfigure() only cycles the subprocess when the new config
+        # actually affects model management state.
+        self._fingerprint = model_management_fingerprint(configuration)
 
     @property
     def is_running(self) -> bool:
@@ -377,6 +384,73 @@ class Comfy:
 
     async def clear_cache(self):
         await get_event_loop().run_in_executor(self._executor, _cleanup, False)
+
+    @property
+    def fingerprint(self) -> tuple:
+        """Fingerprint of the current configuration's MODEL_MANAGEMENT_ARGS.
+
+        Exposed for tests and for the server-side ``/api/v1/prompts``
+        worker loop that needs to decide whether the next job's
+        ``__metadata_v1__.configuration`` requires a subprocess swap.
+        """
+        return self._fingerprint
+
+    async def reconfigure(self, new_configuration: Optional[Configuration]) -> bool:
+        """Swap in a new Configuration, cycling the subprocess only when needed.
+
+        Returns True when the executor was actually rebuilt (i.e., the
+        MODEL_MANAGEMENT_ARGS fingerprint changed and we own the
+        executor), False when the existing worker is compatible and the
+        configuration simply replaces the stored reference.
+
+        The old executor is cleanly shut down first — its queued tasks
+        run to completion before the new one takes over. Because
+        ``max_workers=1`` is the default, this amounts to "finish the
+        current job, then start the new subprocess for job N+1".
+
+        Callers that passed an executor instance in ``__init__`` can't
+        have the executor swapped out from under them; in that case this
+        method only updates the stored configuration and returns False.
+        """
+        new_fp = model_management_fingerprint(new_configuration)
+        if new_fp == self._fingerprint:
+            # Fast path: same fingerprint → same worker.
+            self._configuration = new_configuration
+            return False
+
+        if not self._owns_executor:
+            # We can't cycle an executor we don't own. Update the stored
+            # config and let queue_prompt's per-call context_configuration
+            # propagate the change as best it can.
+            self._configuration = new_configuration
+            self._fingerprint = new_fp
+            return False
+
+        # Shut down the old executor (max_workers=1 ⇒ one in-flight job
+        # finishes, then the process terminates).
+        old_executor = self._executor
+        old_executor.shutdown(wait=True)
+
+        # Rebuild with the same max_workers and the same decision about
+        # ProcessPool vs ContextVar. New subprocesses inherit the new
+        # Configuration via context_configuration() in
+        # _execute_prompt → setup_cuda_devices.
+        need_process_pool = requires_process_pool_executor(new_configuration)
+        if need_process_pool:
+            self._executor = ProcessPoolExecutor(max_workers=self._max_workers)
+        else:
+            self._executor = ContextVarExecutor(max_workers=self._max_workers)
+
+        # Re-register the executor with any open exit stack so __exit__ /
+        # __aexit__ still cleans it up when the client tears down.
+        if self._async_exit_stack is not None:
+            self._async_exit_stack.enter_context(self._executor)
+        elif self._exit_stack is not None:
+            self._exit_stack.enter_context(self._executor)
+
+        self._configuration = new_configuration
+        self._fingerprint = new_fp
+        return True
 
     def __exit__(self, *args):
         get_event_loop().run_in_executor(self._executor, _cleanup)
@@ -455,7 +529,8 @@ class Comfy:
                            prompt_id: Optional[str] = None,
                            client_id: Optional[str] = None,
                            partial_execution_targets: Optional[list[str]] = None,
-                           progress_handler: Optional[ExecutorToClientProgress] = None) -> dict:
+                           progress_handler: Optional[ExecutorToClientProgress] = None,
+                           configuration: Optional[Configuration] = None) -> dict:
         if isinstance(self._executor, ProcessPoolExecutor) and progress_handler is not None:
             logger.debug(f"a progress_handler={progress_handler} was passed, it must be pickleable to support ProcessPoolExecutor")
         progress_handler = progress_handler or self._progress_handler
@@ -465,11 +540,20 @@ class Comfy:
 
         # Strip ``__metadata_v1__`` off the prompt before the worker sees it
         # so validate_prompt stays upstream-vanilla. Any per-job
-        # Configuration overrides live in metadata["configuration"] and are
-        # applied by the worker path before execution.
+        # Configuration overrides live in metadata["configuration"] — apply
+        # them here (via reconfigure) so the worker that runs this job has
+        # the right VRAM/precision/attention state.
+        call_configuration: Optional[Configuration] = configuration
         if isinstance(prompt, dict):
             from ..component_model.prompt_envelope import extract_metadata
-            prompt, _metadata = extract_metadata(prompt)
+            prompt, metadata = extract_metadata(prompt)
+            if call_configuration is None and isinstance(metadata, dict):
+                conf = metadata.get("configuration")
+                if isinstance(conf, dict) and conf:
+                    call_configuration = Configuration(**conf)
+
+        if call_configuration is not None and call_configuration != self._configuration:
+            await self.reconfigure(call_configuration)
 
         with self._task_count_lock:
             self._task_count += 1
