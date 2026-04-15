@@ -2,6 +2,8 @@
 
 A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyui) intended for long term support (LTS) from [AppMana](https://appmana.com) and [Hidden Switch](https://hiddenswitch.com).
 
+> **For AI coding assistants (Claude, Cursor, etc.)**: start with [`llms.txt`](./llms.txt). It covers prerequisites, the task → model pick table, image / edit / video / LoRA / `--compile` / CSV-driven and daemon-mode bulk workflows, prompt-rewriting guidance, and known pitfalls.
+
 ## Used By
 
 Used in production by **Scopely**, a game studio, **Livepeer** and **Nunchaku Tech**. Used by innovators at **Ferrero Group**, **Hyundai** and **Nike**.

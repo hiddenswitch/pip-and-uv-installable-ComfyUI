@@ -43,8 +43,12 @@ heritage forces a specific base (e.g. SDXL LoRA → SDXL base).
 | User brought an SDXL LoRA | SDXL workflow (`image_sdxl_base_refiner_text_to_image` or similar) | same |
 | User brought a Flux/Klein LoRA | matching klein/Flux2 workflow | same |
 
-Discover templates with `comfyui workflows list` and
+Discover templates with `comfyui workflows list` (columns include the
+inferred `Task`: `text-to-image`, `image-edit`, `text-to-video`,
+`image-to-video`, `audio`, or `other`) and
 `comfyui workflows show <name>` (prints a copy-pasteable invocation).
+Filter by task with `comfyui workflows list --format json | jq -r
+'.[] | select(.task=="image-edit") | .template_id'`.
 
 ---
 
@@ -316,12 +320,13 @@ comfyui stop
 ```
 
 `COMFYUI_SERVER=http://host:8188` points the client commands at a
-remote daemon. `workflows submit` supports the same prompt/seed/cfg/
-sampler/scheduler overrides as `run-workflow` (full list in
-`comfyui workflows submit --help`). If you need `--image` / `--video` /
-`--add-lora` / `--compile` as part of a submission, do the prompt
-patching yourself (import `comfy.component_model.prompt_utils`) and
-POST the patched JSON — see the Python recipe below.
+remote daemon. `workflows submit` now has full parity with
+`run-workflow`: the same `--prompt` / `--negative-prompt` /
+`--seed` / `--cfg` / `--sampler` / `--scheduler` / `--denoise` /
+`--width` / `--height` / `--batch-size` / `--checkpoint` / `--image` /
+`--video` / `--audio` / `--set` / `--add-lora` / `--compile` flags all
+apply to the workflow before it's POSTed to the daemon. One
+prompt-mutation pipeline, same semantics either way.
 
 ### Python: tight loop against the daemon
 

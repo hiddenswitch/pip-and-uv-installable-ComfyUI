@@ -7,6 +7,7 @@ from comfy.cmd.workflow_templates import (
     TemplateInfo,
     _collect_class_types,
     _detect_supported_params,
+    _detect_task,
     _build_example_invocation,
     _facade_custom_node_roots,
     _populate_supported_params,
@@ -281,3 +282,68 @@ class TestCustomNodeWorkflowDiscovery:
         assert template.name == "show_text"
         assert template.source == "custom_node:ComfyUI-Custom-Scripts"
         assert template.path == str(workflow_path)
+
+
+# ---------------------------------------------------------------------------
+# _detect_task
+# ---------------------------------------------------------------------------
+
+
+def _wf(*class_types):
+    return {str(i): {"class_type": ct, "inputs": {}} for i, ct in enumerate(class_types)}
+
+
+class TestDetectTask:
+    def test_text_to_image(self):
+        wf = _wf("CheckpointLoaderSimple", "CLIPTextEncode", "KSampler",
+                 "VAEDecode", "SaveImage")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "text-to-image"
+
+    def test_image_edit(self):
+        wf = _wf("LoadImage", "CheckpointLoaderSimple", "CLIPTextEncode",
+                 "KSampler", "VAEDecode", "SaveImage")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "image-edit"
+
+    def test_text_to_video(self):
+        wf = _wf("CheckpointLoaderSimple", "CLIPTextEncode", "KSampler",
+                 "VAEDecode", "VHS_VideoCombine")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "text-to-video"
+
+    def test_image_to_video(self):
+        wf = _wf("LoadImage", "CheckpointLoaderSimple", "CLIPTextEncode",
+                 "KSampler", "VAEDecode", "SaveVideo")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "image-to-video"
+
+    def test_audio(self):
+        wf = _wf("CLIPTextEncode", "KSampler", "SaveAudio")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "audio"
+
+    def test_other_has_no_known_output(self):
+        wf = _wf("SomeWeirdNode")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "other"
+
+    def test_t2v_workflow_with_nonstandard_image_reference_still_t2v(self):
+        """Some text-to-video templates use a LoadImageFromURL solely as a
+        reference / condition, not as the dominant input. If a video-output
+        sink is present the task is always video-producing; the image-input
+        vs image-reference distinction is below our signal threshold."""
+        wf = _wf("LoadImageFromURL", "CLIPTextEncode", "KSampler",
+                 "SaveAnimatedWEBP")
+        assert _detect_task(wf, _detect_supported_params(wf)) == "image-to-video"
+
+
+class TestPopulateTask:
+    def test_populate_sets_task_field(self, tmp_path):
+        wf_path = tmp_path / "t2i.json"
+        wf_path.write_text(json.dumps(_wf(
+            "CheckpointLoaderSimple", "CLIPTextEncode", "KSampler",
+            "VAEDecode", "SaveImage",
+        )))
+        tmpl = TemplateInfo(name="t2i", source="dir", path=str(wf_path))
+        _populate_supported_params([tmpl])
+        assert tmpl.task == "text-to-image"
+
+    def test_populate_skips_missing_path(self):
+        tmpl = TemplateInfo(name="noexist", source="dir", path="/no/such/file.json")
+        _populate_supported_params([tmpl])
+        assert tmpl.task is None

@@ -49,6 +49,7 @@ class TemplateInfo:
     media_type: Optional[str] = None
     bundle: Optional[str] = None
     supported_params: list[str] = field(default_factory=list)
+    task: Optional[str] = None  # inferred: text-to-image, image-edit, text-to-video, image-to-video, audio, other
 
 
 def _load_index_metadata() -> dict[str, dict]:
@@ -201,6 +202,46 @@ def _detect_supported_params(workflow: dict) -> list[str]:
     return params
 
 
+# Class-type markers that identify each output modality. Order matters:
+# video/audio win over image when both are present in a single workflow
+# (a t2v workflow may still have a Load*Image for a first-frame ref).
+_IMAGE_OUTPUT_CLASS_TYPES = frozenset({
+    "SaveImage", "PreviewImage", "SaveImageWebsocket",
+})
+_VIDEO_OUTPUT_CLASS_TYPES = frozenset({
+    "SaveVideo", "SaveAnimatedWEBP", "SaveAnimatedPNG", "VHS_VideoCombine",
+    "SaveWEBM",
+})
+_AUDIO_OUTPUT_CLASS_TYPES = frozenset({
+    "SaveAudio", "PreviewAudio",
+})
+
+
+def _detect_task(workflow: dict, supported_params: list[str]) -> str:
+    """Infer a short task label from a workflow's node class types.
+
+    Returns one of: ``text-to-image``, ``image-edit``, ``text-to-video``,
+    ``image-to-video``, ``audio``, ``other``.
+
+    Uses the output-node modality (image vs video vs audio) as primary
+    signal and the presence of image *input* nodes as the discriminator
+    between "text-to-" and "-edit" / "image-to-" variants. The
+    ``supported_params`` list is passed in to avoid re-walking the graph.
+    """
+    types = _collect_class_types(workflow)
+
+    has_image_input = "image" in supported_params
+    has_video_input = "video" in supported_params
+
+    if types & _VIDEO_OUTPUT_CLASS_TYPES:
+        return "image-to-video" if (has_image_input or has_video_input) else "text-to-video"
+    if types & _AUDIO_OUTPUT_CLASS_TYPES:
+        return "audio"
+    if types & _IMAGE_OUTPUT_CLASS_TYPES:
+        return "image-edit" if has_image_input else "text-to-image"
+    return "other"
+
+
 def _populate_supported_params(templates: list[TemplateInfo]) -> None:
     for tmpl in templates:
         if not tmpl.path or not Path(tmpl.path).exists():
@@ -208,6 +249,7 @@ def _populate_supported_params(templates: list[TemplateInfo]) -> None:
         try:
             workflow = json.loads(Path(tmpl.path).read_text())
             tmpl.supported_params = _detect_supported_params(workflow)
+            tmpl.task = _detect_task(workflow, tmpl.supported_params)
         except (json.JSONDecodeError, OSError):
             logger.debug(f"Could not read template {tmpl.path}")
 
@@ -356,12 +398,14 @@ def _print_table(templates: list[TemplateInfo]):
     table = Table(show_edge=False, pad_edge=False, box=None, width=max(console.width, 200))
     table.add_column("ID", no_wrap=True)
     table.add_column("Name", no_wrap=True)
+    table.add_column("Task", no_wrap=True)
     table.add_column("Params", no_wrap=True)
     table.add_column("Description", no_wrap=True, overflow="ellipsis", ratio=1)
     for t in templates:
         table.add_row(
             t.template_id or "",
             t.name,
+            t.task or "",
             " ".join(t.supported_params),
             t.description or "",
         )

@@ -112,7 +112,7 @@ def workflows_run(
 
 @workflows_app.command(name="submit")
 def workflows_submit(
-    workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, or literal JSON."),
+    workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, or literal JSON."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
     set_overrides: Optional[list[str]] = typer.Option(None, "--set", help="Override node inputs: node_id.inputs.field=value"),
     prompt: Optional[str] = typer.Option(None, "--prompt", help="Override positive prompt."),
@@ -127,68 +127,66 @@ def workflows_submit(
     height: Optional[int] = typer.Option(None, "--height", help="Override height."),
     batch_size: Optional[int] = typer.Option(None, "--batch-size", help="Override batch size."),
     checkpoint: Optional[str] = typer.Option(None, "--checkpoint", help="Override checkpoint."),
+    image: Optional[list[str]] = typer.Option(None, "--image", help="Override image inputs. Paths, URIs, or hf:// / https:// URLs."),
+    video: Optional[list[str]] = typer.Option(None, "--video", help="Override video inputs. Paths, URIs, or URLs."),
+    audio: Optional[list[str]] = typer.Option(None, "--audio", help="Override audio inputs. Paths, URIs, or URLs."),
+    add_lora: Optional[list[str]] = typer.Option(None, "--add-lora", help="Inject a LoRA: name[:strength_model[:strength_clip]]. Repeatable."),
+    compile: bool = typer.Option(False, "--compile", help="Wrap MODEL chain tail with TorchCompileModel."),
 ):
-    """Submit workflow(s) to a running server."""
+    """Submit workflow(s) to a running server with the same overrides as run-workflow."""
     asyncio.run(_submit_workflows(
         workflows=workflows, server=server, set_overrides=set_overrides or [],
         prompt=prompt, negative_prompt=negative_prompt, steps=steps, seed=seed,
         cfg=cfg, sampler=sampler, scheduler=scheduler, denoise=denoise,
         width=width, height=height, batch_size=batch_size, checkpoint=checkpoint,
+        image=image, video=video, audio=audio, add_lora=add_lora, compile=compile,
     ))
 
 
 async def _submit_workflows(
     workflows: list[str], server: Optional[str], set_overrides: list[str],
     prompt, negative_prompt, steps, seed, cfg, sampler, scheduler, denoise,
-    width, height, batch_size, checkpoint,
+    width, height, batch_size, checkpoint, image, video, audio, add_lora, compile,
 ):
-    from pathlib import Path
     from rich.console import Console
     from .server_connection import post_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
-    from ..component_model.prompt_utils import (
-        replace_prompt_text, replace_negative_prompt_text,
-        replace_steps, replace_seed,
-        replace_cfg, replace_sampler, replace_scheduler, replace_denoise,
-        replace_width, replace_height, replace_batch_size, replace_checkpoint,
-    )
-    from ..entrypoints.workflow import _apply_sets
-
     from ..component_model.asyncio_files import load_workflow_json
+    from ..cli_args_types import Configuration
+    from ..entrypoints.workflow import _apply_overrides, _resolve_workflow
+
+    # Build a throwaway Configuration object so we share _apply_overrides()
+    # with `run-workflow`. Any field the override helper reads but isn't
+    # meaningful server-side (e.g. output_directory — the server owns that)
+    # is simply left at its default.
+    config = Configuration(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        seed=seed,
+        cfg=cfg,
+        sampler=sampler,
+        scheduler=scheduler,
+        denoise=denoise,
+        width=width,
+        height=height,
+        batch_size=batch_size,
+        checkpoint=checkpoint,
+        image=list(image) if image else None,
+        video=list(video) if video else None,
+        audio=list(audio) if audio else None,
+        set=list(set_overrides) if set_overrides else [],
+        add_lora=list(add_lora) if add_lora else None,
+        compile=bool(compile),
+    )
 
     console = Console()
     for wf_path in workflows:
-        obj = load_workflow_json(wf_path)
+        resolved = _resolve_workflow(wf_path)
+        obj = load_workflow_json(resolved)
         if is_ui_workflow(obj):
             obj = convert_ui_to_api(obj)
-
-        if prompt is not None:
-            obj = replace_prompt_text(obj, prompt)
-        if negative_prompt is not None:
-            obj = replace_negative_prompt_text(obj, negative_prompt)
-        if steps is not None:
-            obj = replace_steps(obj, steps)
-        if seed is not None:
-            obj = replace_seed(obj, seed)
-        if cfg is not None:
-            obj = replace_cfg(obj, cfg)
-        if sampler is not None:
-            obj = replace_sampler(obj, sampler)
-        if scheduler is not None:
-            obj = replace_scheduler(obj, scheduler)
-        if denoise is not None:
-            obj = replace_denoise(obj, denoise)
-        if width is not None:
-            obj = replace_width(obj, width)
-        if height is not None:
-            obj = replace_height(obj, height)
-        if batch_size is not None:
-            obj = replace_batch_size(obj, batch_size)
-        if checkpoint is not None:
-            obj = replace_checkpoint(obj, checkpoint)
-        if set_overrides:
-            obj = _apply_sets(obj, set_overrides)
-
+        obj = _apply_overrides(obj, config)
         result = await post_json(server, "/api/v1/prompts", body=obj)
         console.print_json(json.dumps(result))
 
