@@ -463,6 +463,14 @@ class Comfy:
         if isinstance(prompt, dict) and is_ui_workflow(prompt):
             prompt = convert_ui_to_api(prompt)
 
+        # Strip ``__metadata_v1__`` off the prompt before the worker sees it
+        # so validate_prompt stays upstream-vanilla. Any per-job
+        # Configuration overrides live in metadata["configuration"] and are
+        # applied by the worker path before execution.
+        if isinstance(prompt, dict):
+            from ..component_model.prompt_envelope import extract_metadata
+            prompt, _metadata = extract_metadata(prompt)
+
         with self._task_count_lock:
             self._task_count += 1
         prompt_id = prompt_id or str(uuid.uuid4())

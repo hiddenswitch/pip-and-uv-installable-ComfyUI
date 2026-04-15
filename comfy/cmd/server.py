@@ -953,6 +953,13 @@ class PromptServer(ExecutorToClientProgress):
                 if "partial_execution_targets" in json_data:
                     partial_execution_targets = json_data["partial_execution_targets"]
 
+                # Strip ``__metadata_v1__`` (per-job Configuration overrides,
+                # etc.) off the prompt BEFORE validate_prompt sees it —
+                # validate_prompt treats every top-level key as a node and
+                # would reject the metadata envelope with missing_node_type.
+                from ..component_model.prompt_envelope import extract_metadata
+                prompt, metadata = extract_metadata(prompt)
+
                 self.node_replace_manager.apply_replacements(prompt)
 
                 valid = await execution.validate_prompt(prompt_id, prompt, partial_execution_targets)
@@ -962,6 +969,11 @@ class PromptServer(ExecutorToClientProgress):
 
                 if "client_id" in json_data:
                     extra_data["client_id"] = json_data["client_id"]
+                if metadata:
+                    # Per-job envelope survives into the queue via extra_data
+                    # so the prompt worker can read it on dequeue without
+                    # touching the prompt dict itself.
+                    extra_data["__metadata_v1__"] = metadata
                 if valid[0]:
                     outputs_to_execute = valid[2]
                     self.prompt_queue.put(
@@ -1157,6 +1169,11 @@ class PromptServer(ExecutorToClientProgress):
             if is_ui_workflow(prompt_dict):
                 prompt_dict = convert_ui_to_api(prompt_dict)
 
+            # Same envelope handling as /prompt: pull ``__metadata_v1__`` off
+            # the dict before validate_prompt, forward it via ExtraData.
+            from ..component_model.prompt_envelope import extract_metadata
+            prompt_dict, metadata = extract_metadata(prompt_dict)
+
             content_digest = digest(prompt_dict)
             task_id = str(uuid.uuid4())
             valid = await execution.validate_prompt(task_id, prompt_dict)
@@ -1167,12 +1184,16 @@ class PromptServer(ExecutorToClientProgress):
             number = self.number
             self.number += 1
 
+            extra_data = ExtraData()
+            if metadata:
+                extra_data["__metadata_v1__"] = metadata
+
             result: TaskInvocation
             completed: Future[TaskInvocation | dict] = self.loop.create_future()
             # todo: actually implement idempotency keys
             # we would need some kind of more durable, distributed task queue
             # QueueItem deals with sensitive data uniformly now
-            item = QueueItem(queue_tuple=QueueTuple(number, task_id, prompt_dict, ExtraData(), valid[2], None), completed=completed)
+            item = QueueItem(queue_tuple=QueueTuple(number, task_id, prompt_dict, extra_data, valid[2], None), completed=completed)
 
             try:
                 if hasattr(self.prompt_queue, "put_async") or isinstance(self.prompt_queue, AsyncAbstractPromptQueue):
