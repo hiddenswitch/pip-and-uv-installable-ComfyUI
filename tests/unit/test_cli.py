@@ -83,7 +83,10 @@ def test_logs_help():
 
 
 def test_serve_pip_help():
-    result = runner.invoke(app, ["serve-pip", "--help"])
+    # Wider terminal so rich help doesn't wrap mid-flag — the long
+    # ``--flag/--no-flag`` columns push other help text off an 80-col
+    # render and the substring checks below become brittle.
+    result = runner.invoke(app, ["serve-pip", "--help"], env={"COLUMNS": "220"})
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "--pip-facade-registry" in out or "registry API" in out
@@ -93,7 +96,7 @@ def test_serve_pip_help():
 
 
 def test_snapshot_pip_registry_help():
-    result = runner.invoke(app, ["snapshot-pip-registry", "--help"])
+    result = runner.invoke(app, ["snapshot-pip-registry", "--help"], env={"COLUMNS": "220"})
     assert result.exit_code == 0
     out = _plain(result.output)
     assert "pip-facade-registr" in out

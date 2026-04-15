@@ -96,77 +96,77 @@ _DEVICE_OPTS: list[tuple] = [
     ("cuda_device", Optional[int], typer.Option(None, "--cuda-device", help="Set the id of the cuda device this instance will use.")),
     ("torch_device", Optional[str], typer.Option(None, "--torch-device", help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")),
     ("default_device", Optional[int], typer.Option(None, "--default-device", help="Set the id of the default device, all other devices will stay visible.")),
-    ("cuda_malloc", bool, typer.Option(False, "--cuda-malloc", help="Enable cudaMallocAsync.")),
+    ("cuda_malloc", bool, typer.Option(False, "--cuda-malloc/--no-cuda-malloc", help="Enable cudaMallocAsync.")),
     ("disable_cuda_malloc", bool, typer.Option(True, "--disable-cuda-malloc", help="Disable cudaMallocAsync.")),
     ("directml", Optional[int], typer.Option(None, "--directml", help="Use torch-directml. -1 for auto-selection.")),
     ("oneapi_device_selector", Optional[str], typer.Option(None, "--oneapi-device-selector", help="Sets the oneAPI device(s) this instance will use.")),
     ("disable_ipex_optimize", bool, typer.Option(False, "--disable-ipex-optimize", help="Disable IPEX optimization for Intel GPUs.")),
-    ("supports_fp8_compute", bool, typer.Option(False, "--supports-fp8-compute", help="ComfyUI will act like if the device supports fp8 compute.")),
+    ("supports_fp8_compute", bool, typer.Option(False, "--supports-fp8-compute/--no-supports-fp8-compute", help="ComfyUI will act like if the device supports fp8 compute.")),
     ("enable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--enable-comfy-kitchen-backends", help="Re-enable comfy_kitchen quantization backends previously disabled by guess-settings or another flag. Comma-separated. Valid: eager, cuda, triton.")),
     ("disable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--disable-comfy-kitchen-backends", help="Disable comfy_kitchen quantization backends. Use this to skip an op backend that crashes on your hardware (e.g. triton fp8e4nv on Ampere). Comma-separated. Valid: eager, cuda, triton.")),
 ]
 
 _VRAM_OPTS: list[tuple] = [
-    ("gpu_only", bool, typer.Option(False, "--gpu-only", help="Store and run everything on the GPU.")),
-    ("highvram", bool, typer.Option(False, "--highvram", help="Keep models in GPU memory.")),
-    ("normalvram", bool, typer.Option(False, "--normalvram", help="Default VRAM usage setting.")),
-    ("lowvram", bool, typer.Option(False, "--lowvram", help="Reduce UNet's VRAM usage.")),
-    ("novram", bool, typer.Option(False, "--novram", help="Minimize VRAM usage.")),
-    ("cpu", bool, typer.Option(False, "--cpu", help="Use CPU for processing.")),
+    ("gpu_only", bool, typer.Option(False, "--gpu-only/--no-gpu-only", help="Store and run everything on the GPU.")),
+    ("highvram", bool, typer.Option(False, "--highvram/--no-highvram", help="Keep models in GPU memory.")),
+    ("normalvram", bool, typer.Option(False, "--normalvram/--no-normalvram", help="Default VRAM usage setting.")),
+    ("lowvram", bool, typer.Option(False, "--lowvram/--no-lowvram", help="Reduce UNet's VRAM usage.")),
+    ("novram", bool, typer.Option(False, "--novram/--no-novram", help="Minimize VRAM usage.")),
+    ("cpu", bool, typer.Option(False, "--cpu/--no-cpu", help="Use CPU for processing.")),
     ("reserve_vram", float, typer.Option(0, "--reserve-vram", help="Set the amount of vram in GB you want to reserve for use by your OS/other software.")),
     ("disable_dynamic_vram", bool, typer.Option(False, "--disable-dynamic-vram", help="Disable dynamic VRAM and use estimate based model loading.")),
 ]
 
 _PRECISION_OPTS: list[tuple] = [
 
-    ("force_fp32", bool, typer.Option(False, "--force-fp32", help="Force using FP32 precision.")),
-    ("force_fp16", bool, typer.Option(False, "--force-fp16", help="Force using FP16 precision.")),
-    ("force_bf16", bool, typer.Option(False, "--force-bf16", help="Force using BF16 precision.")),
+    ("force_fp32", bool, typer.Option(False, "--force-fp32/--no-force-fp32", help="Force using FP32 precision.")),
+    ("force_fp16", bool, typer.Option(False, "--force-fp16/--no-force-fp16", help="Force using FP16 precision.")),
+    ("force_bf16", bool, typer.Option(False, "--force-bf16/--no-force-bf16", help="Force using BF16 precision.")),
 
-    ("fp32_unet", bool, typer.Option(False, "--fp32-unet", help="Run the diffusion model in fp32.")),
-    ("fp64_unet", bool, typer.Option(False, "--fp64-unet", help="Run the diffusion model in fp64.")),
-    ("bf16_unet", bool, typer.Option(False, "--bf16-unet", help="Run the diffusion model in bf16.")),
-    ("fp16_unet", bool, typer.Option(False, "--fp16-unet", help="Run the diffusion model in fp16.")),
-    ("fp8_e4m3fn_unet", bool, typer.Option(False, "--fp8_e4m3fn-unet", help="Store unet weights in fp8_e4m3fn.")),
-    ("fp8_e5m2_unet", bool, typer.Option(False, "--fp8_e5m2-unet", help="Store unet weights in fp8_e5m2.")),
-    ("fp8_e8m0fnu_unet", bool, typer.Option(False, "--fp8_e8m0fnu-unet", help="Store unet weights in fp8_e8m0fnu.")),
+    ("fp32_unet", bool, typer.Option(False, "--fp32-unet/--no-fp32-unet", help="Run the diffusion model in fp32.")),
+    ("fp64_unet", bool, typer.Option(False, "--fp64-unet/--no-fp64-unet", help="Run the diffusion model in fp64.")),
+    ("bf16_unet", bool, typer.Option(False, "--bf16-unet/--no-bf16-unet", help="Run the diffusion model in bf16.")),
+    ("fp16_unet", bool, typer.Option(False, "--fp16-unet/--no-fp16-unet", help="Run the diffusion model in fp16.")),
+    ("fp8_e4m3fn_unet", bool, typer.Option(False, "--fp8_e4m3fn-unet/--no-fp8_e4m3fn-unet", help="Store unet weights in fp8_e4m3fn.")),
+    ("fp8_e5m2_unet", bool, typer.Option(False, "--fp8_e5m2-unet/--no-fp8_e5m2-unet", help="Store unet weights in fp8_e5m2.")),
+    ("fp8_e8m0fnu_unet", bool, typer.Option(False, "--fp8_e8m0fnu-unet/--no-fp8_e8m0fnu-unet", help="Store unet weights in fp8_e8m0fnu.")),
 
-    ("fp16_vae", bool, typer.Option(False, "--fp16-vae", help="Run the VAE in FP16 precision.")),
-    ("fp32_vae", bool, typer.Option(False, "--fp32-vae", help="Run the VAE in full precision fp32.")),
-    ("bf16_vae", bool, typer.Option(False, "--bf16-vae", help="Run the VAE in BF16 precision.")),
-    ("cpu_vae", bool, typer.Option(False, "--cpu-vae", help="Run the VAE on the CPU.")),
+    ("fp16_vae", bool, typer.Option(False, "--fp16-vae/--no-fp16-vae", help="Run the VAE in FP16 precision.")),
+    ("fp32_vae", bool, typer.Option(False, "--fp32-vae/--no-fp32-vae", help="Run the VAE in full precision fp32.")),
+    ("bf16_vae", bool, typer.Option(False, "--bf16-vae/--no-bf16-vae", help="Run the VAE in BF16 precision.")),
+    ("cpu_vae", bool, typer.Option(False, "--cpu-vae/--no-cpu-vae", help="Run the VAE on the CPU.")),
 
-    ("fp8_e4m3fn_text_enc", bool, typer.Option(False, "--fp8_e4m3fn-text-enc", help="Store text encoder weights in fp8 (e4m3fn).")),
-    ("fp8_e5m2_text_enc", bool, typer.Option(False, "--fp8_e5m2-text-enc", help="Store text encoder weights in fp8 (e5m2).")),
-    ("fp16_text_enc", bool, typer.Option(False, "--fp16-text-enc", help="Store text encoder weights in fp16.")),
-    ("fp32_text_enc", bool, typer.Option(False, "--fp32-text-enc", help="Store text encoder weights in fp32.")),
-    ("bf16_text_enc", bool, typer.Option(False, "--bf16-text-enc", help="Store text encoder weights in bf16.")),
-    ("fp16_intermediates", bool, typer.Option(False, "--fp16-intermediates", help="Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.")),
+    ("fp8_e4m3fn_text_enc", bool, typer.Option(False, "--fp8_e4m3fn-text-enc/--no-fp8_e4m3fn-text-enc", help="Store text encoder weights in fp8 (e4m3fn).")),
+    ("fp8_e5m2_text_enc", bool, typer.Option(False, "--fp8_e5m2-text-enc/--no-fp8_e5m2-text-enc", help="Store text encoder weights in fp8 (e5m2).")),
+    ("fp16_text_enc", bool, typer.Option(False, "--fp16-text-enc/--no-fp16-text-enc", help="Store text encoder weights in fp16.")),
+    ("fp32_text_enc", bool, typer.Option(False, "--fp32-text-enc/--no-fp32-text-enc", help="Store text encoder weights in fp32.")),
+    ("bf16_text_enc", bool, typer.Option(False, "--bf16-text-enc/--no-bf16-text-enc", help="Store text encoder weights in bf16.")),
+    ("fp16_intermediates", bool, typer.Option(False, "--fp16-intermediates/--no-fp16-intermediates", help="Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.")),
 ]
 
 _ATTENTION_OPTS: list[tuple] = [
-    ("use_split_cross_attention", bool, typer.Option(False, "--use-split-cross-attention", help="Use split cross-attention optimization.")),
-    ("use_quad_cross_attention", bool, typer.Option(False, "--use-quad-cross-attention", help="Use sub-quadratic cross-attention optimization.")),
-    ("use_pytorch_cross_attention", bool, typer.Option(False, "--use-pytorch-cross-attention", help="Use PyTorch's cross-attention function.")),
-    ("use_sage_attention", bool, typer.Option(False, "--use-sage-attention", help="Use sage attention.")),
-    ("use_flash_attention", bool, typer.Option(False, "--use-flash-attention", help="Use FlashAttention.")),
+    ("use_split_cross_attention", bool, typer.Option(False, "--use-split-cross-attention/--no-use-split-cross-attention", help="Use split cross-attention optimization.")),
+    ("use_quad_cross_attention", bool, typer.Option(False, "--use-quad-cross-attention/--no-use-quad-cross-attention", help="Use sub-quadratic cross-attention optimization.")),
+    ("use_pytorch_cross_attention", bool, typer.Option(False, "--use-pytorch-cross-attention/--no-use-pytorch-cross-attention", help="Use PyTorch's cross-attention function.")),
+    ("use_sage_attention", bool, typer.Option(False, "--use-sage-attention/--no-use-sage-attention", help="Use sage attention.")),
+    ("use_flash_attention", bool, typer.Option(False, "--use-flash-attention/--no-use-flash-attention", help="Use FlashAttention.")),
     ("disable_xformers", bool, typer.Option(False, "--disable-xformers", help="Disable xformers.")),
-    ("force_upcast_attention", bool, typer.Option(False, "--force-upcast-attention", help="Force upcasting of attention.")),
+    ("force_upcast_attention", bool, typer.Option(False, "--force-upcast-attention/--no-force-upcast-attention", help="Force upcasting of attention.")),
     ("dont_upcast_attention", bool, typer.Option(False, "--dont-upcast-attention", help="Disable upcasting of attention.")),
 ]
 
 _MEMORY_OPTS: list[tuple] = [
     ("async_offload", Optional[int], typer.Option(None, "--async-offload", help="Use async weight offloading. An optional argument controls the amount of offload streams.")),
     ("disable_async_offload", bool, typer.Option(False, "--disable-async-offload", help="Disable async weight offloading.")),
-    ("force_non_blocking", bool, typer.Option(False, "--force-non-blocking", help="Force non-blocking operations for all applicable tensors.")),
+    ("force_non_blocking", bool, typer.Option(False, "--force-non-blocking/--no-force-non-blocking", help="Force non-blocking operations for all applicable tensors.")),
     ("disable_smart_memory", bool, typer.Option(False, "--disable-smart-memory", help="Disable smart memory management.")),
     ("disable_pinned_memory", bool, typer.Option(False, "--disable-pinned-memory", help="Disable pinned memory use.")),
 ]
 
 _CACHE_OPTS: list[tuple] = [
-    ("cache_classic", bool, typer.Option(False, "--cache-classic", help="Use the old style (aggressive) caching.")),
+    ("cache_classic", bool, typer.Option(False, "--cache-classic/--no-cache-classic", help="Use the old style (aggressive) caching.")),
     ("cache_lru", int, typer.Option(0, "--cache-lru", help="Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.")),
-    ("cache_none", bool, typer.Option(False, "--cache-none", help="Reduced RAM/VRAM usage at the expense of executing every node for each run.")),
+    ("cache_none", bool, typer.Option(False, "--cache-none/--no-cache-none", help="Reduced RAM/VRAM usage at the expense of executing every node for each run.")),
     ("cache_ram", float, typer.Option(0, "--cache-ram", help="Use RAM pressure caching with the specified headroom threshold. Default (when no value is provided): 25%% of system RAM (min 4GB, max 32GB).")),
 ]
 
@@ -177,11 +177,11 @@ _PREVIEW_OPTS: list[tuple] = [
 
 _PERF_OPTS: list[tuple] = [
     ("fast", Optional[list[str]], typer.Option(None, "--fast", help="Enable some untested and potentially quality deteriorating optimizations. Valid optimizations: fp16_accumulation, fp8_matrix_mult, cublas_ops, autotune, dynamic_vram.")),
-    ("deterministic", bool, typer.Option(False, "--deterministic", help="Use deterministic algorithms where possible.")),
+    ("deterministic", bool, typer.Option(False, "--deterministic/--no-deterministic", help="Use deterministic algorithms where possible.")),
     ("default_hashing_function", str, typer.Option("sha256", "--default-hashing-function", click_type=click.Choice(["md5", "sha1", "sha256", "sha512"]), help="Hash function for duplicate filename / contents comparison.")),
-    ("force_channels_last", bool, typer.Option(False, "--force-channels-last", help="Force channels last format when inferencing the models.")),
-    ("force_hf_local_dir_mode", bool, typer.Option(False, "--force-hf-local-dir-mode", help="Download HF repos with local_dir instead of cache_dir.")),
-    ("mmap_torch_files", bool, typer.Option(False, "--mmap-torch-files", help="Use mmap when loading ckpt/pt files.")),
+    ("force_channels_last", bool, typer.Option(False, "--force-channels-last/--no-force-channels-last", help="Force channels last format when inferencing the models.")),
+    ("force_hf_local_dir_mode", bool, typer.Option(False, "--force-hf-local-dir-mode/--no-force-hf-local-dir-mode", help="Download HF repos with local_dir instead of cache_dir.")),
+    ("mmap_torch_files", bool, typer.Option(False, "--mmap-torch-files/--no-mmap-torch-files", help="Use mmap when loading ckpt/pt files.")),
     ("disable_mmap", bool, typer.Option(False, "--disable-mmap", help="Don't use mmap when loading safetensors.")),
 ]
 
@@ -191,10 +191,10 @@ _NODE_OPTS: list[tuple] = [
     ("whitelist_custom_nodes", Optional[list[str]], typer.Option(None, "--whitelist-custom-nodes", help="Specify custom node folders to load even when --disable-all-custom-nodes is enabled.")),
     ("blacklist_custom_nodes", Optional[list[str]], typer.Option(None, "--blacklist-custom-nodes", help="Specify custom node folders to never load. Accepts shell-style globs.")),
     ("disable_api_nodes", bool, typer.Option(False, "--disable-api-nodes", help="Disable loading all api nodes.")),
-    ("enable_eval", bool, typer.Option(False, "--enable-eval", help="Enable nodes that can evaluate Python code in workflows.")),
-    ("enable_video_to_image_fallback", bool, typer.Option(False, "--enable-video-to-image-fallback", help="Enable video-to-image fallback.")),
+    ("enable_eval", bool, typer.Option(False, "--enable-eval/--no-enable-eval", help="Enable nodes that can evaluate Python code in workflows.")),
+    ("enable_video_to_image_fallback", bool, typer.Option(False, "--enable-video-to-image-fallback/--no-enable-video-to-image-fallback", help="Enable video-to-image fallback.")),
     ("disable_known_models", bool, typer.Option(False, "--disable-known-models", help="Disables automatic downloads of known models.")),
-    ("enable_assets", bool, typer.Option(False, "--enable-assets", help="Enable the assets API and asset management features.")),
+    ("enable_assets", bool, typer.Option(False, "--enable-assets/--no-enable-assets", help="Enable the assets API and asset management features.")),
     ("disable_assets_autoscan", bool, typer.Option(False, "--disable-assets-autoscan", help="Disable asset scanning on startup for database synchronization.")),
 ]
 
@@ -212,18 +212,18 @@ _PIP_FACADE_OPTS: list[tuple] = [
     ("pip_facade_registry_base_url", str, typer.Option("https://api.comfy.org", "--pip-facade-registry-base-url", help="Base URL for the Comfy registry API used to resolve custom node versions.")),
     ("pip_facade_cache_prefix", Optional[str], typer.Option(None, "--pip-facade-cache-prefix", help="Writable fsspec URI prefix where generated facade wheels are cached, e.g. /var/cache/comfyui, file:///var/cache/comfyui, or s3://bucket/prefix.")),
     ("pip_facade_cache_revision", Optional[int], typer.Option(None, "--pip-facade-cache-revision", help="Override the wheel cache revision. Changing this invalidates all cached wheels.")),
-    ("pip_facade_only_known_nodes", bool, typer.Option(False, "--pip-facade-only-known-nodes", help="Only expose nodes covered by the local custom node compatibility registry.")),
+    ("pip_facade_only_known_nodes", bool, typer.Option(False, "--pip-facade-only-known-nodes/--no-pip-facade-only-known-nodes", help="Only expose nodes covered by the local custom node compatibility registry.")),
     ("pip_facade_snapshot_uri", Optional[str], typer.Option(None, "--pip-facade-snapshot-uri", help="Read facade registry metadata from this fsspec URI instead of querying the live registry API, e.g. file:///data/registry.sqlite.xz, s3://bucket/registry.sqlite.xz, or pkg://comfy.custom_nodes/pip_facade_registry_snapshot.sqlite.xz.")),
 ]
 
 _PIP_FACADE_SNAPSHOT_OPTS: list[tuple] = [
     ("pip_facade_snapshot_output", str, typer.Argument(..., help="Output snapshot path. Use a .xz suffix or --pip-facade-snapshot-compression=xz for a compressed archive.")),
     ("pip_facade_snapshot_compression", str, typer.Option("auto", "--pip-facade-snapshot-compression", click_type=click.Choice(["auto", "none", "xz"]), help="Snapshot compression mode. 'auto' uses the output suffix.")),
-    ("pip_facade_snapshot_overwrite", bool, typer.Option(False, "--pip-facade-snapshot-overwrite", help="Overwrite an existing snapshot output file.")),
+    ("pip_facade_snapshot_overwrite", bool, typer.Option(False, "--pip-facade-snapshot-overwrite/--no-pip-facade-snapshot-overwrite", help="Overwrite an existing snapshot output file.")),
 ]
 
 _MISC_OPTS: list[tuple] = [
-    ("guess_settings", bool, typer.Option(False, "-g", "--guess-settings", envvar="COMFYUI_GUESS_SETTINGS", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Set env var COMFYUI_GUESS_SETTINGS=1 to enable by default.")),
+    ("guess_settings", bool, typer.Option(True, "-g", "--guess-settings/--no-guess-settings", envvar="COMFYUI_GUESS_SETTINGS", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Enabled by default; pass --no-guess-settings or COMFYUI_GUESS_SETTINGS=0 to disable.")),
     ("database_url", Optional[str], typer.Option(None, "--database-url", help="Specify the database URL, e.g. 'sqlite:///:memory:'.")),
     ("panic_when", Optional[list[str]], typer.Option(None, "--panic-when", help="List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.")),
     ("executor_factory", str, typer.Option("ThreadPoolExecutor", "--executor-factory", help="Either ThreadPoolExecutor or ProcessPoolExecutor.")),
@@ -248,7 +248,7 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("output", Optional[str], typer.Option(None, "-o", "--output", help="Override the output directory for workflows.")),
     ("set", Optional[list[str]], typer.Option(None, "--set", help="Override arbitrary node inputs. Format: node_id.inputs.field=value")),
     ("add_lora", Optional[list[str]], typer.Option(None, "--add-lora", help="Inject a LoRA into the workflow. Format: name[:strength_model[:strength_clip]]. Bare name looks up in models/loras/; paths, hf:// URIs, and https:// URLs (including civitai.com) are resolved through the model downloader. Repeat to stack multiple LoRAs.")),
-    ("compile", bool, typer.Option(False, "--compile", help="Wrap the workflow's MODEL chain tail with TorchCompileModel for a 2-4x step-time speedup after a first-run compile cost.")),
+    ("compile", bool, typer.Option(False, "--compile/--no-compile", help="Wrap the workflow's MODEL chain tail with TorchCompileModel for a 2-4x step-time speedup after a first-run compile cost.")),
 ]
 
 _COMPUTE_OPTS = (
@@ -463,32 +463,32 @@ def main(ctx: typer.Context):
 def serve(
     ctx: typer.Context,
 
-    daemon: bool = typer.Option(False, "-d", "--daemon", help="Run as a background daemon."),
+    daemon: bool = typer.Option(False, "-d", "--daemon/--no-daemon", help="Run as a background daemon."),
     pid_file: Optional[str] = typer.Option(None, "--pid-file", help="PID file path (default: ~/.comfyui/comfyui.pid)."),
     log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
     listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on (default: 127.0.0.1). You can give a list of ip addresses by separating them with a comma like: 127.2.2.2,127.3.3.3 If --listen is provided without an argument, it defaults to 0.0.0.0,:: (listens on all ipv4 and ipv6)"),
     port: int = typer.Option(8188, help="Set the listen port."),
     enable_cors_header: Optional[str] = typer.Option(None, "--enable-cors-header", help="Enable CORS (Cross-Origin Resource Sharing) with optional origin or allow all with default '*'."),
     max_upload_size: float = typer.Option(100.0, "--max-upload-size", help="Set the maximum upload size in MB."),
-    auto_launch: bool = typer.Option(False, "--auto-launch", help="Automatically launch ComfyUI in the default browser."),
+    auto_launch: bool = typer.Option(False, "--auto-launch/--no-auto-launch", help="Automatically launch ComfyUI in the default browser."),
     disable_auto_launch: bool = typer.Option(False, "--disable-auto-launch", help="Disable auto launching the browser."),
     external_address: Optional[str] = typer.Option(None, "--external-address", help="Specifies a base URL for external addresses reported by the API, such as for image paths."),
-    multi_user: bool = typer.Option(False, "--multi-user", help="Enable multi-user mode with per-user storage."),
-    enable_compress_response_body: bool = typer.Option(False, "--enable-compress-response-body", help="Enable compressing response body."),
-    enable_manager: bool = typer.Option(False, "--enable-manager", help="Enable the ComfyUI-Manager feature."),
+    multi_user: bool = typer.Option(False, "--multi-user/--no-multi-user", help="Enable multi-user mode with per-user storage."),
+    enable_compress_response_body: bool = typer.Option(False, "--enable-compress-response-body/--no-enable-compress-response-body", help="Enable compressing response body."),
+    enable_manager: bool = typer.Option(False, "--enable-manager/--no-enable-manager", help="Enable the ComfyUI-Manager feature."),
     disable_manager_ui: bool = typer.Option(False, "--disable-manager-ui", help="Disables only the ComfyUI-Manager UI."),
-    enable_manager_legacy_ui: bool = typer.Option(False, "--enable-manager-legacy-ui", help="Enables the legacy UI of ComfyUI-Manager."),
+    enable_manager_legacy_ui: bool = typer.Option(False, "--enable-manager-legacy-ui/--no-enable-manager-legacy-ui", help="Enables the legacy UI of ComfyUI-Manager."),
     dont_print_server: bool = typer.Option(False, "--dont-print-server", help="Don't print server output."),
-    log_stdout: bool = typer.Option(False, "--log-stdout", help="Send normal process output to stdout instead of stderr (default)."),
-    quick_test_for_ci: bool = typer.Option(False, "--quick-test-for-ci", help="Enable quick testing mode for CI."),
-    windows_standalone_build: bool = typer.Option(False, "--windows-standalone-build", help="Enable features for standalone Windows build."),
-    create_directories: bool = typer.Option(False, "--create-directories", help="Creates the default models/, input/, output/ and temp/ directories, then exits."),
+    log_stdout: bool = typer.Option(False, "--log-stdout/--no-log-stdout", help="Send normal process output to stdout instead of stderr (default)."),
+    quick_test_for_ci: bool = typer.Option(False, "--quick-test-for-ci/--no-quick-test-for-ci", help="Enable quick testing mode for CI."),
+    windows_standalone_build: bool = typer.Option(False, "--windows-standalone-build/--no-windows-standalone-build", help="Enable features for standalone Windows build."),
+    create_directories: bool = typer.Option(False, "--create-directories/--no-create-directories", help="Creates the default models/, input/, output/ and temp/ directories, then exits."),
     plausible_analytics_base_url: Optional[str] = typer.Option(None, "--plausible-analytics-base-url", help="Base URL for server-side analytics."),
     plausible_analytics_domain: Optional[str] = typer.Option(None, "--plausible-analytics-domain", help="Domain for analytics events."),
-    analytics_use_identity_provider: bool = typer.Option(False, "--analytics-use-identity-provider", help="Use platform identifiers for analytics."),
+    analytics_use_identity_provider: bool = typer.Option(False, "--analytics-use-identity-provider/--no-analytics-use-identity-provider", help="Use platform identifiers for analytics."),
     distributed_queue_connection_uri: Optional[str] = typer.Option(None, "--distributed-queue-connection-uri", help="Servers and clients will connect to this AMQP URL to form a distributed queue and exchange prompt execution requests and progress updates."),
-    distributed_queue_worker: bool = typer.Option(False, "--distributed-queue-worker", help="Workers will pull requests off the AMQP URL."),
-    distributed_queue_frontend: bool = typer.Option(False, "--distributed-queue-frontend", help="Frontends will start the web UI and connect to the provided AMQP URL to submit prompts."),
+    distributed_queue_worker: bool = typer.Option(False, "--distributed-queue-worker/--no-distributed-queue-worker", help="Workers will pull requests off the AMQP URL."),
+    distributed_queue_frontend: bool = typer.Option(False, "--distributed-queue-frontend/--no-distributed-queue-frontend", help="Frontends will start the web UI and connect to the provided AMQP URL to submit prompts."),
     distributed_queue_name: str = typer.Option("comfyui", "--distributed-queue-name", help="This name will be used by the frontends and workers to exchange prompt requests and replies."),
     max_queue_size: int = typer.Option(65536, "--max-queue-size", help="The API will reject prompt requests if the queue's size exceeds this value."),
     front_end_version: str = typer.Option(DEFAULT_VERSION_STRING, "--front-end-version", help="Specifies the version of the frontend to be used. Format: [owner]/[repo]@[version]."),
@@ -498,11 +498,11 @@ def serve(
     anthropic_api_key: Optional[str] = typer.Option(None, "--anthropic-api-key", envvar="ANTHROPIC_API_KEY", help="Configures the Anthropic API key for its nodes related to Claude functionality."),
     google_api_key: Optional[str] = typer.Option(None, "--google-api-key", envvar="GOOGLE_API_KEY", help="Google API key for Gemini models."),
     comfy_api_base: str = typer.Option("https://api.comfy.org", "--comfy-api-base", help="Set the base URL for the ComfyUI API."),
-    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."),
+    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation/--no-block-runtime-package-installation", help="When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental)."),
     workflows: Optional[list[str]] = typer.Option(None, "--workflows", help="Execute the API workflow(s) and exit. Each value can be a file path, a literal JSON string starting with '{', a URI (https://, s3://, hf://, etc.), or '-' for stdin."),
     disable_requests_caching: bool = typer.Option(False, "--disable-requests-caching", help="Disable requests caching."),
     disable_manager_model_fallback: bool = typer.Option(False, "--disable-manager-model-fallback", help="Disable manager model database fallback."),
-    refresh_manager_models: bool = typer.Option(False, "--refresh-manager-models", help="Fetch latest model list from GitHub."),
+    refresh_manager_models: bool = typer.Option(False, "--refresh-manager-models/--no-refresh-manager-models", help="Fetch latest model list from GitHub."),
     **kwargs,
 ):
     """Start the ComfyUI server (default command).
@@ -598,7 +598,7 @@ def worker(
     ctx: typer.Context,
     distributed_queue_connection_uri: str = typer.Option(..., "--distributed-queue-connection-uri", help="AMQP URL for distributed queue."),
     distributed_queue_name: str = typer.Option("comfyui", "--distributed-queue-name", help="Queue name."),
-    block_runtime_package_installation: bool = typer.Option(True, "--block-runtime-package-installation", help="Block runtime installs (default True for workers)."),
+    block_runtime_package_installation: bool = typer.Option(True, "--block-runtime-package-installation/--no-block-runtime-package-installation", help="Block runtime installs (default True for workers)."),
     **kwargs,
 ):
     """Run as a distributed queue worker.
@@ -734,9 +734,9 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
-    all: bool = typer.Option(False, "--all", "-a", help="Install missing custom nodes and download missing models before running."),
+    all: bool = typer.Option(False, "--all/--no-all", "-a", help="Install missing custom nodes and download missing models before running."),
     disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
-    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
+    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation/--no-block-runtime-package-installation", help="Block runtime package installations."),
     **kwargs,
 ):
     """Execute workflow(s) and exit.
@@ -852,8 +852,8 @@ def create_directories_cmd(
 def list_workflow_templates(
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     template_dir: Optional[list[str]] = typer.Option(None, "--template-dir", help="Extra directories to scan."),
-    convert_to_api: bool = typer.Option(False, "--convert-to-api", help="Convert UI workflows to API format (boots node system)."),
-    all_templates: bool = typer.Option(False, "-a", "--all", help="Include API-key-requiring templates."),
+    convert_to_api: bool = typer.Option(False, "--convert-to-api/--no-convert-to-api", help="Convert UI workflows to API format (boots node system)."),
+    all_templates: bool = typer.Option(False, "-a", "--all/--no-all", help="Include API-key-requiring templates."),
 ):
     """List available workflow templates."""
     import sys
@@ -873,7 +873,7 @@ def list_models_cmd(
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder (checkpoints, loras, vae, etc)."),
     no_manager: bool = typer.Option(False, "--no-manager", help="Exclude comfyui_manager models."),
-    check_exists: bool = typer.Option(False, "--check-exists", help="Check if models exist locally (requires path initialization)."),
+    check_exists: bool = typer.Option(False, "--check-exists/--no-check-exists", help="Check if models exist locally (requires path initialization)."),
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
     base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
@@ -1060,7 +1060,7 @@ def stop(
 
 @app.command(name="logs", rich_help_panel="Daemon")
 def logs(
-    follow: bool = typer.Option(False, "-f", "--follow", help="Follow log output."),
+    follow: bool = typer.Option(False, "-f", "--follow/--no-follow", help="Follow log output."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
     log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
 ):

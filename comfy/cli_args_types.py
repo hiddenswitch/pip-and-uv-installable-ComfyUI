@@ -337,7 +337,7 @@ class Configuration(dict):
         self.video: Optional[list[str]] = None
         self.audio: Optional[list[str]] = None
         self.output: Optional[str] = None
-        self.guess_settings: bool = False
+        self.guess_settings: bool = True
         self.enable_manager: bool = False
         self.disable_manager_ui: bool = False
         self.enable_manager_legacy_ui: bool = False

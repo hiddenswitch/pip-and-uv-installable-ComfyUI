@@ -350,15 +350,23 @@ class TestGuessSettingsMacOS:
 
 
 class TestGuessSettingsCliArg:
-    def test_default_is_false(self):
+    def test_default_is_true(self):
+        """As of the move to guess-settings-by-default, ``Configuration()``
+        with no CLI flags has ``guess_settings=True``. The inverse is
+        ``--no-guess-settings`` or ``COMFYUI_GUESS_SETTINGS=0``."""
         from tests.unit.test_cli_args import _parse_test_args
         cfg = _parse_test_args([])
-        assert cfg.guess_settings is False
+        assert cfg.guess_settings is True
 
     def test_flag_is_true(self):
         from tests.unit.test_cli_args import _parse_test_args
         cfg = _parse_test_args(["--guess-settings"])
         assert cfg.guess_settings is True
+
+    # The ``--no-guess-settings`` inverse is wired via Typer's slash
+    # syntax in comfy/cmd/cli.py; parsing is covered by
+    # tests/unit/test_cli_no_flags.py::test_no_guess_settings_parses,
+    # which exercises the real Typer app rather than the legacy test stub.
 
     @patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=True)
     @patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False)
