@@ -65,6 +65,12 @@ _CHECKPOINT_CLASS_TYPES = frozenset({
     "CheckpointLoaderSimple",
 })
 
+_DIFFUSION_MODEL_CLASS_TYPES = frozenset({
+    "UNETLoader",
+    "DiffusionModelLoader",
+    "UnetLoaderGGUF",
+})
+
 _IMAGE_LOAD_CLASS_TYPES = frozenset({
     "LoadImage",
     "LoadImageFromURL",
@@ -393,6 +399,10 @@ def replace_batch_size(prompt: dict, batch_size: int) -> dict:
 
 def replace_checkpoint(prompt: dict, ckpt_name: str) -> dict:
     return _replace_field_in_nodes(prompt, _CHECKPOINT_CLASS_TYPES, "ckpt_name", ckpt_name)
+
+
+def replace_diffusion_model(prompt: dict, unet_name: str) -> dict:
+    return _replace_field_in_nodes(prompt, _DIFFUSION_MODEL_CLASS_TYPES, "unet_name", unet_name)
 
 
 # --add-lora / --compile

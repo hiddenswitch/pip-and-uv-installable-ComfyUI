@@ -1253,12 +1253,10 @@ def _real_nodes_available() -> bool:
 
 
 @pytest.fixture(scope="module")
-def _real_node_context():
-    """Load the real node system once for all integration tests."""
-    from comfy.nodes.package import import_all_nodes_in_workspace
-    nodes = import_all_nodes_in_workspace()
-    with context_add_custom_nodes(nodes):
-        yield nodes
+def _real_node_context(_preloaded_nodes):
+    """Activate the preloaded node snapshot in the execution context."""
+    with context_add_custom_nodes(_preloaded_nodes):
+        yield _preloaded_nodes
 
 
 def _template_ids():

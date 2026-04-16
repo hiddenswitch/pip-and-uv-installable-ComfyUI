@@ -1,0 +1,50 @@
+"""Unit-test session fixtures.
+
+Pre-loads the real node system exactly once per pytest session so the
+expensive ``import_all_nodes_in_workspace`` call happens at a predictable
+point (before any test executes) and before any test has a chance to
+mutate ``sys.modules`` or per-module ``NODE_CLASS_MAPPINGS``. Later
+fixtures that need the full node set should reuse this snapshot instead
+of calling ``import_all_nodes_in_workspace`` themselves.
+"""
+import pytest
+
+
+@pytest.fixture(scope="session")
+def _preloaded_nodes():
+    """Full snapshot of all importable nodes, frozen at session start.
+
+    Copies NODE_CLASS_MAPPINGS into a standalone ExportedNodes so later
+    ``import_all_nodes_in_workspace`` calls (which ``.clear()`` the shared
+    ``_nodes_local.nodes`` instance) can't erase entries we already saw.
+    Forces ``disable_all_custom_nodes=False`` in case an earlier test has
+    left a Configuration on the current context that would skip custom
+    node loading.
+    """
+    from comfy.cli_args import default_configuration
+    from comfy.nodes.package import import_all_nodes_in_workspace
+    from comfy.nodes.package_typing import ExportedNodes
+    from comfy.execution_context import context_configuration
+
+    cfg = default_configuration()
+    cfg.disable_all_custom_nodes = False
+    with context_configuration(cfg):
+        live = import_all_nodes_in_workspace()
+
+    snapshot = ExportedNodes()
+    snapshot.NODE_CLASS_MAPPINGS.update(live.NODE_CLASS_MAPPINGS)
+    snapshot.NODE_DISPLAY_NAME_MAPPINGS.update(live.NODE_DISPLAY_NAME_MAPPINGS)
+    snapshot.EXTENSION_WEB_DIRS.update(live.EXTENSION_WEB_DIRS)
+    return snapshot
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _eagerly_preload_nodes(_preloaded_nodes):
+    """Force ``_preloaded_nodes`` to be constructed before any test runs.
+
+    Session fixtures are otherwise lazy; we need this one eager because a
+    handful of earlier tests in the sweep mutate ``sys.modules`` in ways
+    that cause subsequent ``import_all_nodes_in_workspace`` calls to drop
+    several hundred custom nodes.
+    """
+    yield _preloaded_nodes

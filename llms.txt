@@ -441,6 +441,90 @@ user asks for "something that does X", grep those aliases.
 
 ---
 
+## Vendor prompting guides (WebFetch these on demand)
+
+When a task uses one of these model families, WebFetch the matching
+vendor guide *before* rewriting the user's prompt — each documents its
+own prompt framework (Subject+Action+Style+Context, scene-first prose,
+Entity+Scene+Motion, etc.) and the schemas / length budgets / negative
+prompt conventions the encoder is trained for. Do not cache these
+locally; re-fetch so you get the vendor's current guidance.
+
+**Flux.1 / Flux.1 Kontext (Black Forest Labs)** — `docs.bfl.ml`
+
+- https://docs.bfl.ml/guides/prompting_summary — quick reference across the FLUX.1 family
+- https://docs.bfl.ml/guides/prompting_guide_t2i_fundamentals — core framework for text-to-image
+- https://docs.bfl.ml/guides/prompting_guide_t2i_essentials — lighting / color / atmosphere
+- https://docs.bfl.ml/guides/prompting_guide_t2i_advanced — layering, typography, photo controls
+- https://docs.bfl.ml/guides/prompting_guide_t2i_negative — why FLUX.1 doesn't use negative prompts
+- https://docs.bfl.ml/guides/prompting_guide_kontext_i2i — image-edit (Kontext) quoted-string syntax, 512-token limit
+
+**Flux.2 (Black Forest Labs)** — `docs.bfl.ml`
+
+- https://docs.bfl.ml/guides/prompting_guide_flux2 — FLUX.2 [pro]/[max]/[dev], JSON schemas, hex colors, multi-reference roles
+- https://docs.bfl.ml/guides/prompting_guide_flux2_klein — FLUX.2 [klein] 9B, scene-first prose, 10–300+ word length guidance
+
+**Wan 2.1 / 2.2 / 2.5 / 2.6 (Alibaba Tongyi Wanxiang)**
+
+- https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt — covers both text-to-video and image-to-video: Entity+Scene+Motion formula, aesthetic/style extensions, sound formula for 2.5/2.6, reference-to-video, multi-shot
+
+**Qwen-Image / Qwen-Image-Edit (Alibaba)**
+
+- https://www.alibabacloud.com/help/en/model-studio/qwen-image-edit-guide — image-edit instruction examples, `prompt_extend` and `negative_prompt` semantics (API-reference-shaped, but authoritative for the edit template syntax)
+
+**Z-Image Turbo (Tongyi-MAI)**
+
+- https://huggingface.co/Tongyi-MAI/Z-Image-Turbo — prefers long detailed prompts; negative prompts unused (few-step distilled, no CFG); 512-token limit; recommends LLM-based prompt expansion
+
+**Hunyuan Image 3.0 (Tencent)**
+
+- https://github.com/Tencent-Hunyuan/HunyuanImage-3.0/blob/main/Hunyuan-Image3.md — subject + environment + style + composition + lighting framework, DeepSeek-based enhancement system prompts, 8 worked examples
+
+**Hunyuan Video 1.5 (Tencent)**
+
+- https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/assets/HunyuanVideo_1_5_Prompt_Handbook_EN.md — Subject + Motion + Scene + [Shot] + [Camera] + [Lighting] + [Style] + [Atmosphere] formula with advanced control examples
+
+**LTX-Video / LTXV 2 (Lightricks)**
+
+- https://github.com/Lightricks/LTX-Video/blob/main/README.md — "Prompt Engineering" section: under 200 words, chronological, literal, cinematographer mental model
+- https://github.com/Lightricks/LTX-2/blob/main/README.md — LTX-2: single-sentence action first, then movements, camera, environment, lighting; <200 words
+
+**ChronoEdit (NVIDIA Toronto AI Lab — video editing)**
+
+- https://github.com/nv-tlabs/ChronoEdit/blob/main/docs/PROMPT_GUIDANCE.md — specificity-over-abstraction, camera vocabulary (Close-Up/Medium/Full/Three-Quarter/OTS), pose-preservation and local-edit structure-preservation directives
+
+**OmniGen2 (VectorSpaceLab)**
+
+- https://github.com/VectorSpaceLab/OmniGen2 — in-context template, single-image "maintaining her facial features" template, `image_guidance_scale` 1.2-2.0 edit vs 2.5-3.0 in-context, English-preferred
+
+**Chroma (lodestones — community Flux variant)**
+
+- https://huggingface.co/lodestones/Chroma1-HD — negative-prompt list, `guidance_scale` 3.0, tag-with-periods and escape-parens convention (see the original `lodestones/Chroma` card for the full tag-syntax rules)
+
+**Anima (circlestone-labs) — anime text-to-image**
+
+- https://huggingface.co/circlestone-labs/Anima — Danbooru tag syntax (lowercase, spaces not underscores), tag ordering (quality → character count → character → series → artist → general), `@artist_name` prefix, dataset tags, quality/safety scoring
+
+**NewBie-Image (NewBie-AI)**
+
+- https://huggingface.co/NewBie-AI/NewBie-image-Exp0.1 — XML prompt schema (`<character_1><name><gender><appearance><clothing>…`), general tags for style/background/atmosphere/quality; also accepts natural-language and tag inputs
+
+**Stable Diffusion 3.5 (Stability AI)**
+
+- https://stability.ai/learning-hub/stable-diffusion-3-5-prompt-guide — subject+action, composition/framing, lighting/color with worked examples. (Canonical URL; a `/guides/…` redirect occasionally 404s — if WebFetch fails, retry or fall back to search.)
+
+**HuMo (Phantom-video) — audio-conditioned video**
+
+- https://github.com/Phantom-video/HuMo — `scale_a` audio guidance vs `scale_t` text guidance trade-off, TA vs TIA mode, 97-frame target, 30-40 steps
+
+**ACE-Step 1.5 (ACE Studios) — music generation**
+
+- https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/Tutorial.md — structural tags `[Verse]`/`[Chorus]`/`[Bridge]`, vocal tags (`[raspy vocal]`, `[whispered]`), syllable-count control, `[instrumental]` token, parentheses for BGVs, case sensitivity
+
+*No substantive vendor prompting guide found for: Kandinsky 5 (ai-forever), LongCat-Video (Meituan), Ovis-Image (AIDC-AI), FireRed TTS, SDXL base. Skip linking until the vendors publish one.*
+
+---
+
 ## What you (Claude) are expected to do when given a media task
 
 1. Read any images, videos, or text files the user hands you. Describe

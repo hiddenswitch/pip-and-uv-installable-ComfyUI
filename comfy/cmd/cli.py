@@ -242,6 +242,7 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("height", Optional[int], typer.Option(None, "--height", help="Override the height in latent image nodes.")),
     ("batch_size", Optional[int], typer.Option(None, "--batch-size", help="Override the batch size in latent image nodes.")),
     ("checkpoint", Optional[str], typer.Option(None, "--checkpoint", help="Override the checkpoint model name.")),
+    ("diffusion_model", Optional[str], typer.Option(None, "--diffusion-model", help="Override the diffusion model name (UNETLoader / DiffusionModelLoader / UnetLoaderGGUF unet_name). Accepts a bare filename (looked up in models/diffusion_models/ or models/unet/) or an https:// / hf:// URI.")),
     ("image", Optional[list[str]], typer.Option(None, "--image", help="Override image inputs in workflows. Accepts file paths or URIs.")),
     ("video", Optional[list[str]], typer.Option(None, "--video", help="Override video inputs in workflows. Accepts file paths or URIs.")),
     ("audio", Optional[list[str]], typer.Option(None, "--audio", help="Override audio inputs in workflows. Accepts file paths or URIs.")),
@@ -384,10 +385,8 @@ def _build_config(params: dict) -> Configuration:
     if filtered.get("force_fp16"):
         filtered["fp16_unet"] = True
     if filtered.get("novram"):
-        # --novram is the strictest VRAM mode: dynamic-VRAM (aimdo) actively
-        # works against it by holding allocations to track peak usage, so
-        # implicitly disable it.
         filtered["disable_dynamic_vram"] = True
+        filtered["disable_smart_memory"] = True
 
     # Parse host:port from --listen (e.g. "0.0.0.0:8189" or "[::]:8189")
     if "listen" in filtered:

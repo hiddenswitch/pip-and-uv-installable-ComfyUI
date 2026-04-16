@@ -6,6 +6,7 @@ the submit branch grows its own copy of the override pipeline.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 from pathlib import Path
 from unittest import mock
@@ -33,7 +34,12 @@ def _sdxl_wf() -> dict:
 
 def _run_submit(**kwargs) -> dict:
     """Call _submit_workflows with every override off by default; capture the
-    prompt dict that would have been POSTed and return it."""
+    prompt dict that would have been POSTed and return it.
+
+    Runs in a dedicated thread with its own event loop so tests work even
+    when the pytest-asyncio session loop or Playwright's greenlet loop is
+    active on the current thread.
+    """
     captured: dict = {}
 
     async def fake_post_json(server, path, body=None):
@@ -42,24 +48,21 @@ def _run_submit(**kwargs) -> dict:
         captured["path"] = path
         return {"prompt_id": "abc123"}
 
-    with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
-        defaults = dict(
-            workflows=[], server=None, set_overrides=[],
-            prompt=None, negative_prompt=None, steps=None, seed=None,
-            cfg=None, sampler=None, scheduler=None, denoise=None,
-            width=None, height=None, batch_size=None, checkpoint=None,
-            image=None, video=None, audio=None, add_lora=None, compile=False,
-        )
-        defaults.update(kwargs)
-        # Use a fresh loop instead of asyncio.run(): some earlier test
-        # in the full suite leaves pytest-asyncio's session loop running
-        # on this thread, which makes asyncio.run() raise "cannot be
-        # called from a running event loop". A new loop sidesteps that.
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(_submit_workflows(**defaults))
-        finally:
-            loop.close()
+    def _thread_target():
+        with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
+            defaults = dict(
+                workflows=[], server=None, set_overrides=[],
+                prompt=None, negative_prompt=None, steps=None, seed=None,
+                cfg=None, sampler=None, scheduler=None, denoise=None,
+                width=None, height=None, batch_size=None, checkpoint=None,
+                diffusion_model=None,
+                image=None, video=None, audio=None, add_lora=None, compile=False,
+            )
+            defaults.update(kwargs)
+            asyncio.run(_submit_workflows(**defaults))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(_thread_target).result()
 
     return captured
 
@@ -158,18 +161,20 @@ class TestSubmitParity:
             posts.append(body)
             return {"prompt_id": f"id_{len(posts)}"}
 
-        with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(_submit_workflows(
+        def _thread_target():
+            with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
+                asyncio.run(_submit_workflows(
                     workflows=[str(wf_path), str(wf2)], server=None, set_overrides=[],
                     prompt="cat", negative_prompt=None, steps=None, seed=1, cfg=None,
                     sampler=None, scheduler=None, denoise=None,
                     width=None, height=None, batch_size=None, checkpoint=None,
+                    diffusion_model=None,
                     image=None, video=None, audio=None, add_lora=None, compile=False,
                 ))
-            finally:
-                loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(_thread_target).result()
+
         assert len(posts) == 2
         for body in posts:
             assert body["5"]["inputs"]["seed"] == 1

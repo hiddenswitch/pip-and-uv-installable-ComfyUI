@@ -127,6 +127,7 @@ def workflows_submit(
     height: Optional[int] = typer.Option(None, "--height", help="Override height."),
     batch_size: Optional[int] = typer.Option(None, "--batch-size", help="Override batch size."),
     checkpoint: Optional[str] = typer.Option(None, "--checkpoint", help="Override checkpoint."),
+    diffusion_model: Optional[str] = typer.Option(None, "--diffusion-model", help="Override the UNETLoader / DiffusionModelLoader / UnetLoaderGGUF unet_name."),
     image: Optional[list[str]] = typer.Option(None, "--image", help="Override image inputs. Paths, URIs, or hf:// / https:// URLs."),
     video: Optional[list[str]] = typer.Option(None, "--video", help="Override video inputs. Paths, URIs, or URLs."),
     audio: Optional[list[str]] = typer.Option(None, "--audio", help="Override audio inputs. Paths, URIs, or URLs."),
@@ -139,6 +140,7 @@ def workflows_submit(
         prompt=prompt, negative_prompt=negative_prompt, steps=steps, seed=seed,
         cfg=cfg, sampler=sampler, scheduler=scheduler, denoise=denoise,
         width=width, height=height, batch_size=batch_size, checkpoint=checkpoint,
+        diffusion_model=diffusion_model,
         image=image, video=video, audio=audio, add_lora=add_lora, compile=compile,
     ))
 
@@ -146,7 +148,7 @@ def workflows_submit(
 async def _submit_workflows(
     workflows: list[str], server: Optional[str], set_overrides: list[str],
     prompt, negative_prompt, steps, seed, cfg, sampler, scheduler, denoise,
-    width, height, batch_size, checkpoint, image, video, audio, add_lora, compile,
+    width, height, batch_size, checkpoint, diffusion_model, image, video, audio, add_lora, compile,
 ):
     from rich.console import Console
     from .server_connection import post_json
@@ -172,6 +174,7 @@ async def _submit_workflows(
         height=height,
         batch_size=batch_size,
         checkpoint=checkpoint,
+        diffusion_model=diffusion_model,
         image=list(image) if image else None,
         video=list(video) if video else None,
         audio=list(audio) if audio else None,
@@ -322,6 +325,7 @@ def _show_current_values(table, workflow: dict, params: list[str]):
         _TEXT_ENCODE_FIELDS, _STEPS_CLASS_TYPES, _SEED_FIELDS,
         _CFG_CLASS_TYPES, _SAMPLER_CLASS_TYPES, _SCHEDULER_CLASS_TYPES,
         _DENOISE_CLASS_TYPES, _LATENT_SIZE_CLASS_TYPES, _CHECKPOINT_CLASS_TYPES,
+        _DIFFUSION_MODEL_CLASS_TYPES,
         find_positive_text_encoder,
     )
 
@@ -337,6 +341,7 @@ def _show_current_values(table, workflow: dict, params: list[str]):
         "height": (_LATENT_SIZE_CLASS_TYPES, "height"),
         "batch-size": (_LATENT_SIZE_CLASS_TYPES, "batch_size"),
         "checkpoint": (_CHECKPOINT_CLASS_TYPES, "ckpt_name"),
+        "diffusion-model": (_DIFFUSION_MODEL_CLASS_TYPES, "unet_name"),
     }
 
     for param in params:

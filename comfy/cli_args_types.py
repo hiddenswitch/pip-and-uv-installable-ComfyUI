@@ -387,6 +387,7 @@ class Configuration(dict):
         self.height: Optional[int] = None
         self.batch_size: Optional[int] = None
         self.checkpoint: Optional[str] = None
+        self.diffusion_model: Optional[str] = None
         self.set: list[str] = []
         self.add_lora: Optional[list[str]] = None
         self.compile: bool = False

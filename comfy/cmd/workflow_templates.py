@@ -25,6 +25,7 @@ from ..component_model.prompt_utils import (
     _DENOISE_CLASS_TYPES,
     _LATENT_SIZE_CLASS_TYPES,
     _CHECKPOINT_CLASS_TYPES,
+    _DIFFUSION_MODEL_CLASS_TYPES,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,7 @@ _PARAM_CHECKS: Final[tuple[tuple[str, frozenset[str]], ...]] = (
     ("height", _LATENT_SIZE_CLASS_TYPES),
     ("batch-size", _LATENT_SIZE_CLASS_TYPES),
     ("checkpoint", _CHECKPOINT_CLASS_TYPES),
+    ("diffusion-model", _DIFFUSION_MODEL_CLASS_TYPES),
     ("image", _IMAGE_LOAD_CLASS_TYPES),
     ("video", _VIDEO_LOAD_CLASS_TYPES),
     ("audio", _AUDIO_LOAD_CLASS_TYPES),
@@ -273,6 +275,7 @@ def _build_example_invocation(tmpl: TemplateInfo, include_all: bool = True) -> s
         "height": "--height 1024",
         "batch-size": "--batch-size 1",
         "checkpoint": "--checkpoint model.safetensors",
+        "diffusion-model": "--diffusion-model model.safetensors",
         "image": "--image https://example.com/image.png",
         "video": "--video https://example.com/video.mp4",
         "audio": "--audio https://example.com/audio.wav",

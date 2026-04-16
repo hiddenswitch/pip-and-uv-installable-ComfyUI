@@ -1015,6 +1015,10 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # ComfyUI-Lotus -- depth/normal estimation
     HuggingFile("Kijai/lotus-comfyui", "lotus-depth-g-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
+    # Anima (circlestone-labs) -- 2B anime text-to-image
+    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview.safetensors"),
+    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview2.safetensors"),
+    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview3-base.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
@@ -1061,6 +1065,8 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ace_step_1.5_ComfyUI_files", "split_files/text_encoders/qwen_4b_ace15.safetensors"),
     HuggingFile("Comfy-Org/flux2-klein-9B", "split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors"),
     HuggingFile("Comfy-Org/vae-text-encorder-for-flux-klein-9b", "split_files/text_encoders/qwen_3_8b.safetensors"),
+    # Anima (circlestone-labs) -- text encoder + VAE shared with the 2B anima diffusion models
+    HuggingFile("circlestone-labs/Anima", "split_files/text_encoders/qwen_3_06b_base.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
 ], folder_names=["clip", "text_encoders"])

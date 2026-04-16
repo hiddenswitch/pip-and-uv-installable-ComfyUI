@@ -315,13 +315,11 @@ def _start_static_server(port: int, object_info_json: str) -> asyncio.AbstractEv
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def _real_nodes():
-    """Load the real node system once for the entire test session."""
-    from comfy.nodes.package import import_all_nodes_in_workspace
+def _real_nodes(_preloaded_nodes):
+    """Activate the preloaded node snapshot in the execution context."""
     from comfy.execution_context import context_add_custom_nodes
-    nodes = import_all_nodes_in_workspace()
-    with context_add_custom_nodes(nodes):
-        yield nodes
+    with context_add_custom_nodes(_preloaded_nodes):
+        yield _preloaded_nodes
 
 
 @pytest.fixture(scope="session")

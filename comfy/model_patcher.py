@@ -779,20 +779,15 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
         inplace_update = self.weight_inplace_update or inplace_update
 
-        # from gguf
         if is_quantized(weight):
             out_weight = weight.to(device_to)
             patches = move_patch_to_device(self.patches[key], self.load_device if self.gguf.patch_on_device else self.offload_device)
-            # TODO: do we ever have legitimate duplicate patches? (i.e. patch on top of patched weight)
             out_weight.patches = [(patches, key)]
             if inplace_update:
                 utils.copy_to_param(self.model, key, out_weight)
             else:
                 utils.set_attr_param(self.model, key, out_weight)
-
-            if self.gguf.patch_on_device:
-                return
-        # end gguf
+            return
 
         if key not in self.backup and not return_weight:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
@@ -1068,7 +1063,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
             for p in self.model.parameters():
                 if is_torch_compatible(p):
                     continue
-                patches = self.patches
+                patches = getattr(p, "patches", [])
                 if len(patches) > 0:
                     p.patches = []
         if unpatch_weights:

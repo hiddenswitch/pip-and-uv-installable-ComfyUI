@@ -60,7 +60,7 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         replace_images, replace_videos, replace_audios,
         replace_cfg, replace_sampler, replace_scheduler, replace_denoise,
         replace_width, replace_height, replace_batch_size, replace_checkpoint,
-        add_loras, enable_compile,
+        replace_diffusion_model, add_loras, enable_compile,
     )
 
     if configuration.prompt is not None:
@@ -87,6 +87,8 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
         obj = replace_batch_size(obj, configuration.batch_size)
     if configuration.checkpoint is not None:
         obj = replace_checkpoint(obj, configuration.checkpoint)
+    if configuration.diffusion_model is not None:
+        obj = replace_diffusion_model(obj, configuration.diffusion_model)
     if configuration.image is not None:
         obj = replace_images(obj, configuration.image)
     if configuration.video is not None:

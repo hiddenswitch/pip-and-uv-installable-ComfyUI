@@ -114,7 +114,8 @@ def resolve_workflow_packages_versioned(
         nodes = import_all_nodes_in_workspace()
         builtin_class_types = frozenset(nodes.NODE_CLASS_MAPPINGS.keys())
 
-    class_types = extract_class_types_from_workflow(workflow)
+    from .workflow_rewrites import rewrite_class_type
+    class_types = {rewrite_class_type(ct) for ct in extract_class_types_from_workflow(workflow)}
     ct_to_pkg, versions = _load_snapshot_data(snapshot_uri)
 
     for ct in builtin_class_types:

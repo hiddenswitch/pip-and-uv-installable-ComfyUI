@@ -159,6 +159,10 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
         logger.info(f"{ram_gb:.1f} GB RAM detected, disabling pinned memory")
         configuration.disable_pinned_memory = True
 
+    if ram_gb and ram_gb <= 32 and not configuration.disable_smart_memory:
+        logger.info(f"{ram_gb:.1f} GB RAM detected, disabling smart memory")
+        configuration.disable_smart_memory = True
+
     if is_nvidia:
         fast = set(configuration.fast) if configuration.fast else set()
         if PerformanceFeature.CublasOps not in fast:

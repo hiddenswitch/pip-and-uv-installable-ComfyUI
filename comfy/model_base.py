@@ -137,6 +137,16 @@ class ComfyUIModel(Protocol):
         ...
 
 
+def _format_gguf_storage_summary(model_config) -> str:
+    custom_ops = getattr(model_config, "custom_operations", None)
+    if custom_ops is None:
+        return ""
+    cls_name = getattr(custom_ops, "__name__", type(custom_ops).__name__)
+    if cls_name == "GGMLOps":
+        return " (gguf storage)"
+    return ""
+
+
 def convert_tensor(extra, dtype, device):
     if hasattr(extra, "dtype"):
         if extra.dtype != torch.int and extra.dtype != torch.long:
@@ -170,7 +180,12 @@ class BaseModel(torch.nn.Module):
             if model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
                 logger.debug("using channels last mode for diffusion model")
-            logger.info("model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype))
+            storage_suffix = _format_gguf_storage_summary(model_config)
+            logger.info(
+                "model weight dtype {}, manual cast: {}{}".format(
+                    self.get_dtype(), self.manual_cast_dtype, storage_suffix
+                )
+            )
             model_management.archive_model_dtypes(self.diffusion_model)
         else:
             self.operations = None

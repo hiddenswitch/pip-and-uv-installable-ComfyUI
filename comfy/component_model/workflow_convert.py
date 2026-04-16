@@ -1255,8 +1255,26 @@ def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) ->
                                           skip_boundary_widgets=_frontend_unknown,
                                           set_node_map=set_node_map)
             if resolved is None:
-                if inp.get('widget') is not None and inp_name in api_inputs:
-                    continue
+                if inp.get('widget') is not None:
+                    # Mirror PrimitiveNode.applyToGraph: a directly-connected
+                    # PrimitiveNode pushes its widget value onto the consuming
+                    # widget BEFORE serialization (see ComfyUI_frontend
+                    # src/extensions/core/widgetInputs.ts applyToGraph). This
+                    # only fires for direct edges; subgraph-boundary traversal
+                    # puts link.src_node at _SUBGRAPH_INPUT_NODE_ID so the
+                    # graph_nodes_by_id lookup misses and the inner widget
+                    # value stays — matching the frontend, which only mutates
+                    # the subgraph's own boundary widget in that case.
+                    link = dto.graph_links.get(link_id)
+                    if link is not None:
+                        src_node = dto.graph_nodes_by_id.get(link.src_node)
+                        if src_node and src_node.get('type') == 'PrimitiveNode':
+                            wv = src_node.get('widgets_values', [])
+                            if wv and (_all_input_names is None or inp_name in _all_input_names):
+                                api_inputs[inp_name] = _wrap_value(wv[0])
+                                continue
+                    if inp_name in api_inputs:
+                        continue
                 api_inputs.pop(inp_name, None)
             elif resolved[0] == 'value':
                 # In frontend-parity mode, unknown nodes have all widgets
@@ -1303,12 +1321,6 @@ def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) ->
             ):
                 del inputs[key]
 
-    # UI workflows are radioactive: third-party wrapper nodes
-    # (e.g. UnetLoaderGGUF) are mapped to their native equivalents via the
-    # declarative rules in workflow_rewrites.DEFAULT_REWRITE_RULES. API
-    # workflows never go through this function, so they pass through
-    # unchanged (callers that hand-author API JSON have already committed
-    # to specific class_types).
     from .workflow_rewrites import apply_to_api_workflow
     return apply_to_api_workflow(api_workflow)
 

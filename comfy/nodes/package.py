@@ -167,6 +167,7 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     except (LookupError, AttributeError):
         _nodes_available_at_startup = _nodes_local.nodes = ExportedNodes()
     args = current_execution_context().configuration
+    import sys as _sys, os as _os
 
     # todo: this is some truly braindead stuff
     register_versions([
