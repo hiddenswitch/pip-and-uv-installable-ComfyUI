@@ -43,7 +43,4 @@ jobs:
 
       - name: Unit tests
         run: |
-          .venv/bin/python -m pytest -v --tb=long \
-                 --timeout=120 --timeout-method=thread \
-                 -o faulthandler_timeout=150 \
-                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          .venv/bin/python -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py

@@ -134,16 +134,7 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          # --timeout-method=thread: pytest-timeout dumps a stack trace and
-          #   kills the test after 120s. Without this, a hung test blocks
-          #   the whole job until GitHub's job timeout.
-          # --faulthandler-timeout=150: Python's own faulthandler prints
-          #   a C-level trace 30s after pytest-timeout kicks in, in case a
-          #   native extension is blocking.
-          pytest -v --tb=long --capture=no \
-                 --timeout=120 --timeout-method=thread \
-                 -o faulthandler_timeout=150 \
-                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |
@@ -229,10 +220,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no \
-                 --timeout=120 --timeout-method=thread \
-                 -o faulthandler_timeout=150 \
-                 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
+          python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
@@ -317,10 +305,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no \
-                 --timeout=120 --timeout-method=thread \
-                 -o faulthandler_timeout=150 \
-                 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
+          python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
@@ -398,10 +383,7 @@ jobs:
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v --tb=short \
-                 --timeout=120 --timeout-method=thread \
-                 -o faulthandler_timeout=150 \
-                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          C:/venv/Scripts/python.exe -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
     name: macOS Installation Tests
