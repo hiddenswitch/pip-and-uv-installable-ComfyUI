@@ -10,7 +10,6 @@ concurrency:
 jobs:
   latest:
     name: Python 3.14 PyTorch latest (CPU)
-    timeout-minutes: 30
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:

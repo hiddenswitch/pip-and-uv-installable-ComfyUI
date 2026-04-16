@@ -302,55 +302,30 @@ def test_serve_starts_and_reaches_ready():
     This catches import errors (e.g. missing names in cli_args) that only
     surface when the server actually starts, not just when --help is invoked.
     """
+    from tests.unit._subprocess_helpers import spawn_comfyui_serve
+
     port = _find_free_port()
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
 
-    process = subprocess.Popen(
-        [
-            sys.executable, "-m", "comfy.cmd.main",
-            "--listen", "127.0.0.1",
-            "--port", str(port),
-            "--cpu",
-            "--dont-print-server",
-        ],
-        cwd=_SRC_ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
     try:
         deadline = time.time() + 60
         while time.time() < deadline:
             if process.poll() is not None:
-                output = process.stdout.read()
-                pytest.fail(f"comfyui serve exited early with code {process.returncode}:\n{output}")
+                pytest.fail(
+                    f"comfyui serve exited early with code {process.returncode}:\n"
+                    f"{process.tail()}"
+                )
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=2) as resp:
                     if resp.status == 200:
                         return  # success
             except (urllib.error.URLError, ConnectionRefusedError, OSError):
                 time.sleep(0.5)
-        output = process.stdout.read()
-        pytest.fail(f"comfyui serve did not become ready within 60s:\n{output}")
+        pytest.fail(
+            f"comfyui serve did not become ready within 60s:\n{process.tail()}"
+        )
     finally:
-        # Close the stdout pipe first so a chatty subprocess doesn't block
-        # on a full pipe buffer while we wait for it to exit.
-        if process.stdout is not None:
-            try:
-                process.stdout.close()
-            except Exception:  # noqa: BLE001 - best effort
-                pass
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                # Give up politely — CI's job-level timeout-minutes will
-                # bail if we can't reap the child. Don't block here.
-                pass
+        process.shutdown()

@@ -146,20 +146,8 @@ def test_reboot_restarts_server_process():
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
 
-    process = subprocess.Popen(
-        [
-            sys.executable, "-m", "comfy.cmd.main",
-            "--listen", "127.0.0.1",
-            "--port", str(port),
-            "--cpu",
-            "--dont-print-server",
-        ],
-        cwd=_SRC_ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    from tests.unit._subprocess_helpers import spawn_comfyui_serve
+    process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
     try:
         # 1. Wait for the server to be ready
         _wait_for_server(port)
@@ -197,9 +185,4 @@ def test_reboot_restarts_server_process():
             assert stats["system"]["python_version"] == sys.version
 
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        process.shutdown()

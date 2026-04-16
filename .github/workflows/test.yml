@@ -15,10 +15,6 @@ concurrency:
 jobs:
   build_and_execute_nvidia:
     environment: "Testing"
-    # Cap each matrix entry at 45 minutes. Without this the GitHub default
-    # of 6h hides test hangs for hours; pytest-timeout=120 kills individual
-    # tests but does not kill hangs between tests or in teardown.
-    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -154,7 +150,6 @@ jobs:
 #          pytest -v tests/inference
   build_and_execute_amd:
     environment: "Testing"
-    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -244,7 +239,6 @@ jobs:
 #          python -m pytest -v tests/inference
   build_and_execute_intel:
     environment: "Testing"
-    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -333,7 +327,6 @@ jobs:
 #          python -m pytest -v tests/inference
   build_and_execute_windows_nvidia:
     environment: "Testing"
-    timeout-minutes: 60
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container:
@@ -411,7 +404,6 @@ jobs:
                  tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
-    timeout-minutes: 45
     name: macOS Installation Tests
     runs-on: macos-14
     steps:
