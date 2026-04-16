@@ -56,6 +56,18 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
     "Preview3D": (("image", ""),),
     "SaveGLB": (("image", ""),),
     "RecordAudio": (("audio", ""),),
+    # CustomCombo declares a single ``choice`` input in its V3 schema and
+    # relies on ``accept_all_inputs=True`` + a frontend-defined widget
+    # extension to render an ``index`` field plus up to three user-authored
+    # ``optionN`` entries. graphToPrompt serializes these by name even
+    # though they aren't in INPUT_TYPES, so we have to mirror the naming
+    # convention here.
+    "CustomCombo": (
+        ("index", 0),
+        ("option1", ""),
+        ("option2", ""),
+        ("option3", ""),
+    ),
 })
 
 _FRONTEND_WIDGET_SERIALIZATION_OVERRIDES: Final[
@@ -1039,8 +1051,21 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited, set_node_map=N
         return None
 
     if class_type == 'PrimitiveNode':
-        wv = dto.node.get('widgets_values', [])
-        return ("value", wv[0]) if wv else None
+        # PrimitiveNode is a virtual node. See
+        # ComfyUI_frontend src/lib/litegraph/src/subgraph/ExecutableNodeDTO.ts
+        # ``resolveOutput``: for a virtual node it calls ``getInputLink`` and
+        # recurses via resolveInput. PrimitiveNode has its widget promoted
+        # to an OUTPUT (no graph inputs), so getInputLink returns undefined
+        # and resolveOutput returns undefined. That "undefined" then lets
+        # graphToPrompt keep whatever widget value was pre-populated on the
+        # downstream consumer (the widget value PrimitiveNode.applyToGraph
+        # pushed at graph-load time). Returning ``('value', ...)`` here
+        # made the resolved PrimitiveNode widget value overwrite the inner
+        # node's stored widget value, contradicting the frontend — breaks
+        # template_contact_sheet-step_3.app where KlingFirstLastFrameNode
+        # inside a subgraph should end up with duration=3 (inner widget)
+        # but was getting duration=5 (outer PrimitiveNode).
+        return None
 
     return ("link", dto.exec_id, slot)
 
@@ -1278,7 +1303,14 @@ def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) ->
             ):
                 del inputs[key]
 
-    return api_workflow
+    # UI workflows are radioactive: third-party wrapper nodes
+    # (e.g. UnetLoaderGGUF) are mapped to their native equivalents via the
+    # declarative rules in workflow_rewrites.DEFAULT_REWRITE_RULES. API
+    # workflows never go through this function, so they pass through
+    # unchanged (callers that hand-author API JSON have already committed
+    # to specific class_types).
+    from .workflow_rewrites import apply_to_api_workflow
+    return apply_to_api_workflow(api_workflow)
 
 
 def _get_node_class(node_mappings, class_type: str) -> Optional[type]:
