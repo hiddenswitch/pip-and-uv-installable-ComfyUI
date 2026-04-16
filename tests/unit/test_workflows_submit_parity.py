@@ -51,7 +51,15 @@ def _run_submit(**kwargs) -> dict:
             image=None, video=None, audio=None, add_lora=None, compile=False,
         )
         defaults.update(kwargs)
-        asyncio.run(_submit_workflows(**defaults))
+        # Use a fresh loop instead of asyncio.run(): some earlier test
+        # in the full suite leaves pytest-asyncio's session loop running
+        # on this thread, which makes asyncio.run() raise "cannot be
+        # called from a running event loop". A new loop sidesteps that.
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_submit_workflows(**defaults))
+        finally:
+            loop.close()
 
     return captured
 
@@ -151,13 +159,17 @@ class TestSubmitParity:
             return {"prompt_id": f"id_{len(posts)}"}
 
         with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
-            asyncio.run(_submit_workflows(
-                workflows=[str(wf_path), str(wf2)], server=None, set_overrides=[],
-                prompt="cat", negative_prompt=None, steps=None, seed=1, cfg=None,
-                sampler=None, scheduler=None, denoise=None,
-                width=None, height=None, batch_size=None, checkpoint=None,
-                image=None, video=None, audio=None, add_lora=None, compile=False,
-            ))
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(_submit_workflows(
+                    workflows=[str(wf_path), str(wf2)], server=None, set_overrides=[],
+                    prompt="cat", negative_prompt=None, steps=None, seed=1, cfg=None,
+                    sampler=None, scheduler=None, denoise=None,
+                    width=None, height=None, batch_size=None, checkpoint=None,
+                    image=None, video=None, audio=None, add_lora=None, compile=False,
+                ))
+            finally:
+                loop.close()
         assert len(posts) == 2
         for body in posts:
             assert body["5"]["inputs"]["seed"] == 1
