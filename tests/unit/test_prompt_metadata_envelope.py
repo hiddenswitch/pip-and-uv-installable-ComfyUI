@@ -148,6 +148,90 @@ class TestEnvelopeHelper:
         assert clean == prompt
         assert meta == {}
 
+    def test_extract_on_none_returns_none(self):
+        clean, meta = extract_metadata(None)
+        assert clean is None
+        assert meta == {}
+
+    def test_extract_on_empty_dict_returns_empty(self):
+        clean, meta = extract_metadata({})
+        assert clean == {}
+        assert meta == {}
+
+    def test_extract_on_ui_format_workflow_is_passthrough(self):
+        """A UI-format workflow (``{"nodes": [...], "links": [...]}``) has no
+        ``__metadata_v1__`` key and extract_metadata must pass it through
+        unmodified so callers can safely invoke it before the UI→API
+        conversion step."""
+        ui_wf = {
+            "nodes": [{"id": 1, "type": "KSampler"}],
+            "links": [],
+            "last_node_id": 1,
+            "version": 0.4,
+        }
+        clean, meta = extract_metadata(ui_wf)
+        assert clean == ui_wf
+        assert meta == {}
+
+    def test_extract_on_list_is_passthrough(self):
+        """Defensive: extract_metadata called on a non-mapping should not
+        raise. Returns the value unchanged."""
+        clean, meta = extract_metadata([1, 2, 3])
+        assert clean == [1, 2, 3]
+        assert meta == {}
+
+    def test_extract_on_string_is_passthrough(self):
+        clean, meta = extract_metadata("not a prompt")
+        assert clean == "not a prompt"
+        assert meta == {}
+
+    def test_extract_on_real_api_workflow_without_metadata_passes_validation(self):
+        """Backward compat: a real API workflow dict from the templates
+        package, predating the envelope, must survive extract_metadata
+        unchanged and then validate cleanly. This catches the case where
+        a caller layers extract_metadata in front of every prompt dict —
+        even the ones that never asked for an envelope."""
+        from comfy.cmd.execution import validate_prompt
+
+        api_wf = _minimal_valid_prompt()
+        assert METADATA_KEY not in api_wf  # pre-condition
+
+        clean, meta = extract_metadata(api_wf)
+
+        # 1) Nothing added to the workflow.
+        assert clean == api_wf
+        assert METADATA_KEY not in clean
+
+        # 2) Empty, non-None metadata → ``if metadata:`` is a clean guard.
+        assert meta == {}
+        assert not meta
+
+        # 3) Vanilla validate_prompt still accepts it.
+        result = asyncio.new_event_loop().run_until_complete(
+            validate_prompt("probe-backcompat", clean)
+        )
+        assert result.valid
+
+    def test_extract_then_extract_is_stable(self):
+        """Double-extract on a no-metadata workflow yields the same result —
+        important for middleware that defensively re-wraps prompts."""
+        api_wf = _minimal_valid_prompt()
+        first_clean, first_meta = extract_metadata(api_wf)
+        second_clean, second_meta = extract_metadata(first_clean)
+        assert first_clean == second_clean
+        assert first_meta == second_meta == {}
+
+    def test_extract_preserves_dict_subclass_contents(self):
+        """A dict subclass (used by some framework wrappers) should work:
+        we return a plain dict with the metadata key removed."""
+        class MyDict(dict):
+            pass
+        source = MyDict(_minimal_valid_prompt())
+        source[METADATA_KEY] = {"configuration": {"cpu": True}}
+        clean, meta = extract_metadata(source)
+        assert METADATA_KEY not in clean
+        assert meta == {"configuration": {"cpu": True}}
+
     def test_wrap_then_extract_is_identity(self):
         prompt = _minimal_valid_prompt()
         meta = {"configuration": {"novram": True, "compile": True}}

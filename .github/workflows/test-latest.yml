@@ -10,6 +10,7 @@ concurrency:
 jobs:
   latest:
     name: Python 3.14 PyTorch latest (CPU)
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -43,4 +44,7 @@ jobs:
 
       - name: Unit tests
         run: |
-          .venv/bin/python -m pytest -v --tb=long tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          .venv/bin/python -m pytest -v --tb=long \
+                 --timeout=120 --timeout-method=thread \
+                 -o faulthandler_timeout=150 \
+                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py

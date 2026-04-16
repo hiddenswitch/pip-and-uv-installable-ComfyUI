@@ -336,9 +336,21 @@ def test_serve_starts_and_reaches_ready():
         output = process.stdout.read()
         pytest.fail(f"comfyui serve did not become ready within 60s:\n{output}")
     finally:
+        # Close the stdout pipe first so a chatty subprocess doesn't block
+        # on a full pipe buffer while we wait for it to exit.
+        if process.stdout is not None:
+            try:
+                process.stdout.close()
+            except Exception:  # noqa: BLE001 - best effort
+                pass
         process.terminate()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=10)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Give up politely — CI's job-level timeout-minutes will
+                # bail if we can't reap the child. Don't block here.
+                pass

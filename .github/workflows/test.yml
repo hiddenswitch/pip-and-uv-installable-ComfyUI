@@ -15,6 +15,10 @@ concurrency:
 jobs:
   build_and_execute_nvidia:
     environment: "Testing"
+    # Cap each matrix entry at 45 minutes. Without this the GitHub default
+    # of 6h hides test hangs for hours; pytest-timeout=120 kills individual
+    # tests but does not kill hangs between tests or in teardown.
+    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -134,13 +138,23 @@ jobs:
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          pytest -v --tb=long --capture=no --timeout=120 -p no:faulthandler tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          # --timeout-method=thread: pytest-timeout dumps a stack trace and
+          #   kills the test after 120s. Without this, a hung test blocks
+          #   the whole job until GitHub's job timeout.
+          # --faulthandler-timeout=150: Python's own faulthandler prints
+          #   a C-level trace 30s after pytest-timeout kicks in, in case a
+          #   native extension is blocking.
+          pytest -v --tb=long --capture=no \
+                 --timeout=120 --timeout-method=thread \
+                 -o faulthandler_timeout=150 \
+                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
     environment: "Testing"
+    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -220,13 +234,17 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
+          python -m pytest -v --tb=long --capture=no \
+                 --timeout=120 --timeout-method=thread \
+                 -o faulthandler_timeout=150 \
+                 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
   build_and_execute_intel:
     environment: "Testing"
+    timeout-minutes: 45
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container: ${{ matrix.runner.container }}
@@ -305,13 +323,17 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v --tb=long --capture=no tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
+          python -m pytest -v --tb=long --capture=no \
+                 --timeout=120 --timeout-method=thread \
+                 -o faulthandler_timeout=150 \
+                 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
   build_and_execute_windows_nvidia:
     environment: "Testing"
+    timeout-minutes: 60
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
     container:
@@ -383,9 +405,13 @@ jobs:
           C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v --tb=short tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          C:/venv/Scripts/python.exe -m pytest -v --tb=short \
+                 --timeout=120 --timeout-method=thread \
+                 -o faulthandler_timeout=150 \
+                 tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
+    timeout-minutes: 45
     name: macOS Installation Tests
     runs-on: macos-14
     steps:

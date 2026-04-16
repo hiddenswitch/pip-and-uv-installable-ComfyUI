@@ -30,7 +30,7 @@ METADATA_KEY = "__metadata_v1__"
 _CONFIGURATION_FIELD = "configuration"
 
 
-def extract_metadata(prompt: Mapping[str, Any]) -> tuple[dict, Any]:
+def extract_metadata(prompt: Any) -> tuple[Any, Any]:
     """Return ``(clean_prompt, metadata)``.
 
     ``clean_prompt`` is a shallow copy of ``prompt`` with ``__metadata_v1__``
@@ -39,7 +39,17 @@ def extract_metadata(prompt: Mapping[str, Any]) -> tuple[dict, Any]:
     guarding).
 
     The input ``prompt`` is never mutated.
+
+    Robust against non-dict inputs: when *prompt* is ``None``, a list (e.g.,
+    a UI-format workflow before conversion), a string, or any other
+    non-mapping, the function returns the input unchanged with an empty
+    metadata dict. Callers can therefore invoke ``extract_metadata`` on any
+    payload without guarding.
     """
+    if prompt is None:
+        return None, {}
+    if not isinstance(prompt, Mapping):
+        return prompt, {}
     if METADATA_KEY not in prompt:
         # No-op: still return a dict (not a view) so callers can mutate
         # the result without surprising the caller.
