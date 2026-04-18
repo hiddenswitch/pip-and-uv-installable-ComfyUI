@@ -55,9 +55,22 @@ Filter by task with `comfyui workflows list --format json | jq -r
 ## Prerequisites (one-time)
 
 0. **uv / uvx.** `uv` ships `uvx` (one-shot tool runner) in the same
-   install. Check `command -v uv`; if missing, install it in the way
-   that matches the host. **Don't prompt the user** — detect the
-   platform and run the matching command yourself:
+   install.
+
+   First, check whether a usable venv already exists in the working
+   directory. If so, use that and do not touch the system Python. The
+   system Python is unreliable often enough that the working
+   assumption is "don't". A venv counts as "usable" if any of:
+
+   - `$VIRTUAL_ENV` is set (venv is already activated in this shell).
+   - `./.venv/` or `./venv/` exists with an `activate` script.
+
+   If found, `source .venv/bin/activate` (or the equivalent for
+   `venv/`) before doing anything else.
+
+   If no venv is present, install `uv` in the way that matches the
+   host. **Don't prompt the user** — detect the platform and run the
+   matching command yourself:
 
    ```bash
    # Linux / macOS (universal, no admin):
@@ -66,18 +79,19 @@ Filter by task with `comfyui workflows list --format json | jq -r
    # macOS (Homebrew, if already present):
    brew install uv
 
-   # Windows (PowerShell, from a bash/zsh session via WSL or Git Bash
-   # you can still invoke powershell.exe):
+   # Windows (PowerShell — also invokable from bash/zsh via
+   # powershell.exe when you're in WSL or Git Bash):
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-   # Or, anywhere Python is already available:
-   pipx install uv    # or: pip install --user uv
    ```
 
-   Full list (scoop, cargo, standalone, Docker) at
+   Do **not** fall back to `pip install uv` / `pipx install uv`. Those
+   depend on the system interpreter picking up a working SSL / cert
+   store / site-packages layout, which fails on most hosts in some
+   subtle way. The standalone installers above bring their own
+   Python. Full list (scoop, cargo, standalone, Docker) at
    https://docs.astral.sh/uv/getting-started/installation/. After
-   install, either source the shell hook the installer prints or open
-   a new shell so `uv` and `uvx` are on PATH.
+   install, source the shell hook the installer prints (or open a
+   new shell) so `uv` and `uvx` are on PATH.
 
 1. **Python / venv.** Use `uv`; the user's current `.venv` if one is
    active, otherwise create a new one on the system-managed Python:
