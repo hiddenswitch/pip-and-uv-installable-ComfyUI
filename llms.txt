@@ -89,8 +89,10 @@ Filter by task with `comfyui workflows list --format json | jq -r
    understand and can't debug — wrong `python` vs `python3` on PATH,
    half-configured site-packages, leftover distro packages, a
    Homebrew/pyenv/conda layering mess. You won't be able to reason
-   about it either. The standalone installers above bring their own
-   Python and sidestep the whole category of problem.
+   about it either. The point of the install methods above is to get
+   `uv` on PATH without touching that Python; from there, `uv venv`
+   creates a fresh environment with its own managed interpreter, and
+   everything downstream runs inside that venv.
    Full list (scoop, cargo, standalone, Docker) at
    https://docs.astral.sh/uv/getting-started/installation/. After
    install, source the shell hook the installer prints (or open a
