@@ -84,11 +84,14 @@ Filter by task with `comfyui workflows list --format json | jq -r
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-   Do **not** fall back to `pip install uv` / `pipx install uv`. Those
-   depend on the system interpreter picking up a working SSL / cert
-   store / site-packages layout, which fails on most hosts in some
-   subtle way. The standalone installers above bring their own
-   Python. Full list (scoop, cargo, standalone, Docker) at
+   Do **not** fall back to `pip install uv` / `pipx install uv`.
+   Assume the user's system Python is in some state they don't
+   understand and can't debug — wrong `python` vs `python3` on PATH,
+   half-configured site-packages, leftover distro packages, a
+   Homebrew/pyenv/conda layering mess. You won't be able to reason
+   about it either. The standalone installers above bring their own
+   Python and sidestep the whole category of problem.
+   Full list (scoop, cargo, standalone, Docker) at
    https://docs.astral.sh/uv/getting-started/installation/. After
    install, source the shell hook the installer prints (or open a
    new shell) so `uv` and `uvx` are on PATH.
