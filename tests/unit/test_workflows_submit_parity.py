@@ -13,6 +13,7 @@ from unittest import mock
 
 import pytest
 
+from comfy.cli_args_types import Configuration
 from comfy.cmd.sub_workflows import _submit_workflows
 
 
@@ -48,18 +49,16 @@ def _run_submit(**kwargs) -> dict:
         captured["path"] = path
         return {"prompt_id": "abc123"}
 
+    workflows = kwargs.pop("workflows", [])
+    server = kwargs.pop("server", None)
+    # Tests historically used `set_overrides`; map to the Configuration field name `set`.
+    if "set_overrides" in kwargs:
+        kwargs["set"] = kwargs.pop("set_overrides")
+    config = Configuration(**{k: v for k, v in kwargs.items() if v is not None})
+
     def _thread_target():
         with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
-            defaults = dict(
-                workflows=[], server=None, set_overrides=[],
-                prompt=None, negative_prompt=None, steps=None, seed=None,
-                cfg=None, sampler=None, scheduler=None, denoise=None,
-                width=None, height=None, batch_size=None, checkpoint=None,
-                diffusion_model=None,
-                image=None, video=None, audio=None, add_lora=None, compile=False,
-            )
-            defaults.update(kwargs)
-            asyncio.run(_submit_workflows(**defaults))
+            asyncio.run(_submit_workflows(workflows, server, config))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(_thread_target).result()
@@ -163,13 +162,9 @@ class TestSubmitParity:
 
         def _thread_target():
             with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
+                config = Configuration(prompt="cat", seed=1)
                 asyncio.run(_submit_workflows(
-                    workflows=[str(wf_path), str(wf2)], server=None, set_overrides=[],
-                    prompt="cat", negative_prompt=None, steps=None, seed=1, cfg=None,
-                    sampler=None, scheduler=None, denoise=None,
-                    width=None, height=None, batch_size=None, checkpoint=None,
-                    diffusion_model=None,
-                    image=None, video=None, audio=None, add_lora=None, compile=False,
+                    [str(wf_path), str(wf2)], None, config,
                 ))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

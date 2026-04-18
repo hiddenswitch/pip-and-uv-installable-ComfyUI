@@ -252,6 +252,14 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("compile", bool, typer.Option(False, "--compile/--no-compile", help="Wrap the workflow's MODEL chain tail with TorchCompileModel for a 2-4x step-time speedup after a first-run compile cost.")),
 ]
 
+# Subset of override options for commands that don't execute the workflow
+# in-process (workflows submit, workflows convert). They should not accept
+# --output as a runtime output-directory override, which would also collide
+# with the local -o/--output that writes a JSON artifact to disk.
+_WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT: list[tuple] = [
+    opt for opt in _WORKFLOW_OVERRIDE_OPTS if opt[0] != "output"
+]
+
 _COMPUTE_OPTS = (
     _DEVICE_OPTS + _VRAM_OPTS + _PRECISION_OPTS + _ATTENTION_OPTS +
     _MEMORY_OPTS + _CACHE_OPTS + _PREVIEW_OPTS + _PERF_OPTS

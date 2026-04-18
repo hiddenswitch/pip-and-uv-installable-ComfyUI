@@ -10,6 +10,7 @@ import typer
 
 from .cli import (
     _with_options, _ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS,
+    _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT,
     _COMFYUI_ENV, _collect_params, _build_config, _set_config_context,
 )
 
@@ -111,77 +112,23 @@ def workflows_run(
 
 
 @workflows_app.command(name="submit")
+@_with_options(_WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT)
 def workflows_submit(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, or literal JSON."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
-    set_overrides: Optional[list[str]] = typer.Option(None, "--set", help="Override node inputs: node_id.inputs.field=value"),
-    prompt: Optional[str] = typer.Option(None, "--prompt", help="Override positive prompt."),
-    negative_prompt: Optional[str] = typer.Option(None, "--negative-prompt", help="Override negative prompt."),
-    steps: Optional[int] = typer.Option(None, "--steps", help="Override steps."),
-    seed: Optional[int] = typer.Option(None, "--seed", help="Override seed."),
-    cfg: Optional[float] = typer.Option(None, "--cfg", help="Override CFG scale."),
-    sampler: Optional[str] = typer.Option(None, "--sampler", help="Override sampler."),
-    scheduler: Optional[str] = typer.Option(None, "--scheduler", help="Override scheduler."),
-    denoise: Optional[float] = typer.Option(None, "--denoise", help="Override denoise."),
-    width: Optional[int] = typer.Option(None, "--width", help="Override width."),
-    height: Optional[int] = typer.Option(None, "--height", help="Override height."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", help="Override batch size."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", help="Override checkpoint."),
-    diffusion_model: Optional[str] = typer.Option(None, "--diffusion-model", help="Override the UNETLoader / DiffusionModelLoader / UnetLoaderGGUF unet_name."),
-    image: Optional[list[str]] = typer.Option(None, "--image", help="Override image inputs. Paths, URIs, or hf:// / https:// URLs."),
-    video: Optional[list[str]] = typer.Option(None, "--video", help="Override video inputs. Paths, URIs, or URLs."),
-    audio: Optional[list[str]] = typer.Option(None, "--audio", help="Override audio inputs. Paths, URIs, or URLs."),
-    add_lora: Optional[list[str]] = typer.Option(None, "--add-lora", help="Inject a LoRA: name[:strength_model[:strength_clip]]. Repeatable."),
-    compile: bool = typer.Option(False, "--compile", help="Wrap MODEL chain tail with TorchCompileModel."),
+    **kwargs,
 ):
     """Submit workflow(s) to a running server with the same overrides as run-workflow."""
-    asyncio.run(_submit_workflows(
-        workflows=workflows, server=server, set_overrides=set_overrides or [],
-        prompt=prompt, negative_prompt=negative_prompt, steps=steps, seed=seed,
-        cfg=cfg, sampler=sampler, scheduler=scheduler, denoise=denoise,
-        width=width, height=height, batch_size=batch_size, checkpoint=checkpoint,
-        diffusion_model=diffusion_model,
-        image=image, video=video, audio=audio, add_lora=add_lora, compile=compile,
-    ))
+    config = _build_config(kwargs)
+    asyncio.run(_submit_workflows(workflows, server, config))
 
 
-async def _submit_workflows(
-    workflows: list[str], server: Optional[str], set_overrides: list[str],
-    prompt, negative_prompt, steps, seed, cfg, sampler, scheduler, denoise,
-    width, height, batch_size, checkpoint, diffusion_model, image, video, audio, add_lora, compile,
-):
+async def _submit_workflows(workflows: list[str], server: Optional[str], config):
     from rich.console import Console
     from .server_connection import post_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
     from ..component_model.asyncio_files import load_workflow_json
-    from ..cli_args_types import Configuration
     from ..entrypoints.workflow import _apply_overrides, _resolve_workflow
-
-    # Build a throwaway Configuration object so we share _apply_overrides()
-    # with `run-workflow`. Any field the override helper reads but isn't
-    # meaningful server-side (e.g. output_directory — the server owns that)
-    # is simply left at its default.
-    config = Configuration(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        steps=steps,
-        seed=seed,
-        cfg=cfg,
-        sampler=sampler,
-        scheduler=scheduler,
-        denoise=denoise,
-        width=width,
-        height=height,
-        batch_size=batch_size,
-        checkpoint=checkpoint,
-        diffusion_model=diffusion_model,
-        image=list(image) if image else None,
-        video=list(video) if video else None,
-        audio=list(audio) if audio else None,
-        set=list(set_overrides) if set_overrides else [],
-        add_lora=list(add_lora) if add_lora else None,
-        compile=bool(compile),
-    )
 
     console = Console()
     for wf_path in workflows:
@@ -195,18 +142,30 @@ async def _submit_workflows(
 
 
 @workflows_app.command(name="convert")
+@_with_options(_WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT)
 def workflows_convert(
-    file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    file: str = typer.Argument(..., help="Workflow file, URI, template name, or literal JSON."),
     output: Optional[str] = typer.Option(None, "-o", "--output", help="Output file. Defaults to stdout."),
+    **kwargs,
 ):
-    """Convert a UI workflow to API format."""
+    """Convert a UI workflow to API format.
+
+    Accepts the full set of `run-workflow` override flags (--prompt,
+    --seed, --add-lora, --compile, --set, --image, ...). When any are
+    supplied, the converted API workflow has the overrides applied
+    before it's written, so the shared JSON is self-contained.
+    """
     from pathlib import Path
     from ..component_model.asyncio_files import load_workflow_json
-    from ..component_model.workflow_convert import convert_ui_to_api
+    from ..component_model.workflow_convert import convert_ui_to_api, is_ui_workflow
+    from ..entrypoints.workflow import _apply_overrides, _resolve_workflow
 
-    workflow = load_workflow_json(file)
-    api_workflow = convert_ui_to_api(workflow)
-    result = json.dumps(api_workflow, indent=2)
+    workflow = load_workflow_json(_resolve_workflow(file))
+    if is_ui_workflow(workflow):
+        workflow = convert_ui_to_api(workflow)
+    config = _build_config(kwargs)
+    workflow = _apply_overrides(workflow, config)
+    result = json.dumps(workflow, indent=2)
     if output:
         Path(output).write_text(result)
         typer.echo(f"Written to {output}")
