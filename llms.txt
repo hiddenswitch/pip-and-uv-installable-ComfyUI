@@ -54,6 +54,31 @@ Filter by task with `comfyui workflows list --format json | jq -r
 
 ## Prerequisites (one-time)
 
+0. **uv / uvx.** `uv` ships `uvx` (one-shot tool runner) in the same
+   install. Check `command -v uv`; if missing, install it in the way
+   that matches the host. **Don't prompt the user** — detect the
+   platform and run the matching command yourself:
+
+   ```bash
+   # Linux / macOS (universal, no admin):
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+
+   # macOS (Homebrew, if already present):
+   brew install uv
+
+   # Windows (PowerShell, from a bash/zsh session via WSL or Git Bash
+   # you can still invoke powershell.exe):
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+   # Or, anywhere Python is already available:
+   pipx install uv    # or: pip install --user uv
+   ```
+
+   Full list (scoop, cargo, standalone, Docker) at
+   https://docs.astral.sh/uv/getting-started/installation/. After
+   install, either source the shell hook the installer prints or open
+   a new shell so `uv` and `uvx` are on PATH.
+
 1. **Python / venv.** Use `uv`; the user's current `.venv` if one is
    active, otherwise create a new one on the system-managed Python:
    ```bash
@@ -357,6 +382,167 @@ asyncio.run(main())
 
 ---
 
+## Sharing workflows with others
+
+The best shareable unit of work is a single `uvx` one-liner a recipient
+can paste into any terminal. No venv, no prior `pip install`, no git
+clone. `uvx` pulls ComfyUI from the canonical git URL, resolves the
+right torch wheel for the recipient's GPU via `--torch-backend=auto`,
+runs the CLI once, and discards the ephemeral env on exit.
+
+**One-time: install uv** (if the recipient doesn't already have it):
+
+```bash
+# Linux / macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS (Homebrew):
+brew install uv
+```
+
+Full options (standalone binaries, pipx, scoop, …) at
+https://docs.astral.sh/uv/getting-started/installation/.
+
+**The shape of a shareable invocation:**
+
+```bash
+uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+    --torch-backend=auto \
+    comfyui workflows run <template-or-path-or-url> -a -g \
+    --prompt '…' [--negative-prompt '…'] [--seed N] \
+    [--add-lora <civitai-or-hf-or-path>:strength] …
+```
+
+The `-a` flag is `--all` (auto-fetch every missing model); `-g` is
+`--guess-settings` (detect VRAM mode, attention backend, dtype). Both
+are what you want in a shared command, so recipients don't have to
+think about either.
+
+**Resolving every reference.** Different assets want different URI
+forms. Pick the form most likely to resolve on a recipient's host:
+
+| Asset | Use | Example |
+|---|---|---|
+| Bundled workflow template | template name | `image_flux2_dev_text_to_image`, `image_anima_preview` |
+| Workflow JSON you authored | raw `https://…` URL (gist, repo, …) | `https://gist.githubusercontent.com/you/abc/raw/wf.json` |
+| Hugging Face model / LoRA | `hf://owner/repo/filename` | `hf://black-forest-labs/FLUX.1-dev/flux1-dev.safetensors` |
+| Civitai LoRA / checkpoint | Civitai download URL | `https://civitai.com/api/download/models/12345` |
+| S3 object | `s3://bucket/key` | `s3://mybucket/loras/style.safetensors` |
+| Local file (your testing only) | absolute path | `/home/you/loras/mine.safetensors` |
+
+Prefer `hf://` when a file lives on Hugging Face; the downloader uses
+the HF cache and authenticated mirrors. Reserve absolute paths for
+invocations that will never leave your machine; they fail on a
+recipient's host.
+
+**Use `comfyui models` to prep the share command.** For any workflow
+you plan to hand off, resolve each asset's canonical URL before
+pasting. `from-workflow --dry-run` writes found-locally paths to
+stdout and would-be-downloaded sources to stderr:
+
+```bash
+# What does this workflow load? Where does it come from?
+comfyui models from-workflow image_anima_preview --dry-run
+#   stdout → present locally (won't be re-fetched)
+#   stderr → will be fetched (these are the URLs your recipient needs)
+
+# If a stderr URL is a non-canonical mirror, replace it with the
+# canonical one (hf://, civitai download URL, official release tarball)
+# before sharing.
+
+# Where would each class of asset land on a recipient's machine?
+comfyui models paths --folder loras
+comfyui models paths --folder checkpoints
+```
+
+For a workflow that depends on a LoRA the template doesn't bundle, pass
+it explicitly with `--add-lora` so the shared command is
+self-contained. Always prefer a `hf://` or Civitai URL over a local
+path:
+
+```bash
+# Portable:
+--add-lora https://civitai.com/api/download/models/987654:0.7
+--add-lora hf://user/repo/style.safetensors:0.7
+
+# Not portable (works only on the author's machine):
+--add-lora /home/me/loras/mine.safetensors
+```
+
+**UI-exported workflows (with subgraphs).** Convert to API JSON first,
+then host the JSON somewhere the recipient can fetch by URL (a gist,
+a repo, or any HTTP static host):
+
+```bash
+comfyui workflows convert my_wf.json -o my_wf_api.json
+# Share the raw URL as the first positional to `workflows run`:
+uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+    --torch-backend=auto \
+    comfyui workflows run https://gist.../raw/my_wf_api.json -a -g \
+    --prompt '…'
+```
+
+**Worked example: reproducing a Civitai image via the bundled
+`image_anima_preview` template** (Qwen-Image / WAI-Anima, parameters
+extracted from the source PNG's `parameters` text chunk):
+
+```bash
+# One-time:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Generate:
+uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+    --torch-backend=auto \
+    comfyui workflows run image_anima_preview -a -g \
+    --prompt 'masterpiece, best quality, score_9, score_8, score_7, 1girl, solo, Hatsune Miku, maid uniform, apron, portrait, holding notebook covering face, holding, notebook, sketchbook writing text "WAI-ANIMA" and chibi' \
+    --negative-prompt 'worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, lowres, censor' \
+    --steps 30 --seed 1926981099 --cfg 5.0 \
+    --sampler euler_ancestral --scheduler normal \
+    --width 1024 --height 1344 --batch-size 1
+```
+
+**Do not add speedups by default.** The plain `uvx … --torch-backend=auto`
+invocation above is the right share command for almost everyone. Only
+reach for the pattern below when the user **specifically asks** for
+SageAttention (or a custom-node facade). Adding these to a generic
+share command just makes it fragile on hosts whose CUDA tag you
+don't know.
+
+**If the user does ask for SageAttention**: Triton (Linux CUDA/ROCm),
+SageAttention (CUDA), and every custom-node facade
+(comfyui-crystools, comfyui-inspire-pack, …) live on
+`https://nodes.appmana.com/simple/`, which has per-CUDA-version
+subdirectories (`/simple/cu130/`, `/simple/cu128/`, …). Automatic
+torch-backend resolution does not currently traverse those
+subdirectories reliably, so pin the CUDA version explicitly and
+point `--extra-index-url` at the matching subdirectory. Always pair
+SageAttention with Triton; SageAttention's kernels are compiled
+through Triton, so without it the attention backend silently falls
+back. Example, recipient on CUDA 13.0:
+
+```bash
+uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+    --torch-backend=cu130 \
+    --extra-index-url https://nodes.appmana.com/simple/cu130/ \
+    --with triton --with sageattention \
+    comfyui workflows run image_anima_preview -a -g \
+    --prompt '…' --seed 42 …
+```
+
+Match the CUDA tag to the recipient's driver (`nvidia-smi` shows it).
+If you don't know it, omit the `--with` flags and let
+`--torch-backend=auto` pick a plain wheel instead; a correct plain
+wheel beats a mismatched fast one. Same pattern for any custom-node
+facade the user asks for (`--with comfyui-inspire-pack`, …). Once the
+index's auto resolution covers these subdirectories, this pinning
+goes away and a single `--extra-index-url https://nodes.appmana.com/simple/`
+with `--torch-backend=auto` will subsume it.
+
+---
+
 ## Custom nodes — use the pip facade
 
 When the user needs a custom node that isn't bundled (ComfyUI-Crystools,
@@ -547,7 +733,7 @@ locally; re-fetch so you get the vendor's current guidance.
 | Symptom | Fix |
 |---|---|
 | `ValueError: value_not_in_list: vae_name/lora_name/ckpt_name` | Value is a URI the validator accepts now; update the CLI (commits ≥ `d5f5abd7`). Or pre-download with `comfyui models download <uri>`. |
-| OOM at sampler, ~21 GiB on 24 GB card | Add `--novram`; works on klein 9B. |
+| Out-of-memory / CUDA OOM mid-workflow | **Step 1:** add `--disable-smart-memory`. The scheduler defaults to keeping previous models co-resident and warm across prompts (see `comfy/cmd/execution.py:974`); disabling it forces `unload_all_models()` between runs and reclaims VRAM taken by stale residents. Latency cost is one cold model reload per prompt. **Step 2 (if still OOM):** add `--novram`. This streams weights module-by-module at sample time and implies `--disable-smart-memory`. Expect ~1 min vs ~50 s at NORMAL_VRAM on klein 9B. Only escalate to `--novram` after step 1 has failed — `--novram` adds per-module CPU↔GPU transfer on every step, which is a bigger hit than one cold reload. |
 | `FutureWarning: The pynvml package is deprecated` | Harmless noise from a transitive dep; the pip facade rewrites this to `nvidia-ml-py` automatically. |
 | `ModuleNotFoundError: webcolors` from Inspire-Pack | Inspire-Pack facade declares `webcolors` as an extra requirement; rebuild the facade wheel (`uv pip install -U --extra-index-url https://nodes.appmana.com/simple/ comfyui-inspire-pack`). |
 | Triton `fp8e4nv not supported` on Ampere | Auto-fixed at quant_ops import on sm < 8.9. If you still see it, run `comfyui env check` to confirm the triton backend is DISABLED. |
