@@ -621,6 +621,30 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("spacepxl/Wan2.1-control-loras", "1.3b/tile/wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors", save_with_filename="WanVid/wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors", alternate_filenames=("WanVid/wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors", "WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"), show_in_ui=False),
     # LeapFusion HunyuanVideo i2v LoRA
     HuggingFile("leapfusion-image2vid-test/image2vid-960x544", "img2vid544p.safetensors", save_with_filename="hyvid/musubi-tuner/img2vid544p.safetensors", show_in_ui=False),
+    # --- Models referenced by comfyui-workflow-templates (sourced from
+    # MarkdownNote links inside each template's UI JSON). Keep this
+    # section's coverage complete against Comfy-Org/workflow_templates;
+    # a scan diffs widgets_values against this DB in tests.
+    # Qwen-Image / Qwen-Image-Edit Lightning acceleration LoRAs (lightx2v)
+    HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors", save_with_filename="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"),
+    HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors", save_with_filename="Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors"),
+    HuggingFile("lightx2v/Qwen-Image-Edit-2511-Lightning", "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"),
+    HuggingFile("lightx2v/Qwen-Image-2512-Lightning", "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"),
+    # Qwen-Image multi-angle and style LoRAs
+    HuggingFile("fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA", "qwen-image-edit-2511-multiple-angles-lora.safetensors"),
+    HuggingFile("alvdansen/illustration-1.0-qwen-image", "illustration-1.0-qwen-image.safetensors"),
+    HuggingFile("enigmatic/gummycandy_qwen", "gummycandy_qwen.safetensors"),
+    # Wuli Qwen-Image-2512 Turbo 2-step LoRA
+    HuggingFile("Wuli-art/Qwen-Image-2512-Turbo-LoRA-2-Steps", "Wuli-Qwen-Image-2512-Turbo-LoRA-2steps-V1.0-bf16.safetensors"),
+    # Flux.2 Turbo LoRA
+    HuggingFile("ByteZSzn/Flux.2-Turbo-ComfyUI", "Flux_2-Turbo-LoRA_comfyui.safetensors"),
+    # LTX-2 IC-LoRA control packs
+    HuggingFile("Lightricks/LTX-2-19b-IC-LoRA-Canny-Control", "ltx-2-19b-ic-lora-canny-control.safetensors"),
+    HuggingFile("Lightricks/LTX-2-19b-IC-LoRA-Depth-Control", "ltx-2-19b-ic-lora-depth-control.safetensors"),
+    HuggingFile("Lightricks/LTX-2-19b-IC-LoRA-Pose-Control", "ltx-2-19b-ic-lora-pose-control.safetensors"),
+    HuggingFile("valiantcat/LTX-2.3-Transition-LORA", "ltx2.3-transition.safetensors"),
+    # Lightx2v WanVideo acceleration LoRA (Kijai repack)
+    HuggingFile("Kijai/WanVideo_comfy", "Lightx2v/lightx2v_14B_T2V_cfg_step_distill_lora_adaptive_rank_quantile_0.15_bf16.safetensors"),
 ], folder_name="loras")
 
 KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -729,6 +753,10 @@ KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("TheDenk/wan2.2-ti2v-5b-controlnet-depth-v1", "diffusion_pytorch_model.safetensors", save_with_filename="wan2.2-ti2v-5b-controlnet-depth-v1/diffusion_pytorch_model.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-InstantX-ControlNets", "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-InstantX-ControlNets", "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors"),
+    # --- Models referenced by comfyui-workflow-templates (controlnet) ---
+    # Alibaba PAI "Fun" Controlnet-Union packs
+    HuggingFile("alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union", "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors"),
+    HuggingFile("alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union", "Z-Image-Turbo-Fun-Controlnet-Union.safetensors"),
 ], folder_name="controlnet")
 
 KNOWN_DIFF_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
@@ -1069,6 +1097,16 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("circlestone-labs/Anima", "split_files/text_encoders/qwen_3_06b_base.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
+    # --- Models referenced by comfyui-workflow-templates (text_encoders) ---
+    # ERNIE-Image (Comfy-Org) -- prompt enhancer + ministral
+    HuggingFile("Comfy-Org/ERNIE-Image", "text_encoders/ernie-image-prompt-enhancer.safetensors"),
+    HuggingFile("Comfy-Org/ERNIE-Image", "text_encoders/ministral-3-3b.safetensors"),
+    # Qwen 3.5 text encoder (Comfy-Org)
+    HuggingFile("Comfy-Org/Qwen3.5", "text_encoders/qwen3.5_4b_bf16.safetensors"),
+    # t5-base audio text encoder (ComfyUI-Wiki repack)
+    HuggingFile("ComfyUI-Wiki/t5-base", "t5-base.safetensors"),
+    # Flux.2 klein small-decoder (full-encoder tied to VAE)
+    HuggingFile("black-forest-labs/FLUX.2-small-decoder", "full_encoder_small_decoder.safetensors"),
 ], folder_names=["clip", "text_encoders"])
 
 KNOWN_STYLE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -1195,6 +1233,42 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-d-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-1-fp16.safetensors"),
+    # --- Models referenced by comfyui-workflow-templates (diffusion_models) ---
+    # Flux.2 klein (Black Forest Labs) variants
+    HuggingFile("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-9b-fp8", "flux-2-klein-9b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-9b-kv-fp8", "flux-2-klein-9b-kv-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-base-4b-fp8", "flux-2-klein-base-4b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-base-9b-fp8", "flux-2-klein-base-9b-fp8.safetensors"),
+    # Kandinsky 5 (kandinskylab)
+    HuggingFile("kandinskylab/Kandinsky-5.0-T2I-Lite", "model/kandinsky5lite_t2i.safetensors", save_with_filename="kandinsky5lite_t2i.safetensors"),
+    HuggingFile("kandinskylab/Kandinsky-5.0-T2V-Lite-sft-5s", "model/kandinsky5lite_t2v_sft_5s.safetensors", save_with_filename="kandinsky5lite_t2v_sft_5s.safetensors"),
+    HuggingFile("kandinskylab/Kandinsky-5.0-I2V-Lite-5s", "model/kandinsky5lite_i2v_5s.safetensors", save_with_filename="kandinsky5lite_i2v_5s.safetensors"),
+    # Hunyuan3D 2.0 / 2.1 (Tencent, Comfy-Org repack)
+    HuggingFile("Comfy-Org/hunyuan3D_2.0_repackaged", "split_files/hunyuan3d-dit-v2_fp16.safetensors"),
+    HuggingFile("Comfy-Org/hunyuan3D_2.0_repackaged", "split_files/hunyuan3d-dit-v2-mv_fp16.safetensors"),
+    HuggingFile("Comfy-Org/hunyuan3D_2.0_repackaged", "split_files/hunyuan3d-dit-v2-mv-turbo_fp16.safetensors"),
+    HuggingFile("Comfy-Org/hunyuan3D_2.1_repackaged", "hunyuan_3d_v2.1.safetensors"),
+    # LongCat Image Edit (TalmajM repack)
+    HuggingFile("TalmajM/LongCat-Image-Edit_ComfyUI_repackaged", "split_files/diffusion_models/longcat_image_edit_bf16.safetensors"),
+    # LTX-2 (Lightricks)
+    HuggingFile("Lightricks/LTX-2", "ltx-2-19b-distilled.safetensors"),
+    # NetaYume Lumina (duongve)
+    HuggingFile("duongve/NetaYume-Lumina-Image-2.0", "NetaYumev35_pretrained_all_in_one.safetensors"),
+    # Qwen-Image Layered Control (DiffSynth-Studio)
+    HuggingFile("DiffSynth-Studio/Qwen-Image-Layered-Control", "qwen_image_layered_control_bf16.safetensors"),
+    # ERNIE Image (Comfy-Org)
+    HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image.safetensors"),
+    # FireRed Image Edit 1.1 (FireRedTeam)
+    HuggingFile("FireRedTeam/FireRed-Image-Edit-1.1-ComfyUI", "FireRed-Image-Edit-1.1-transformer.safetensors"),
+    # Wan 2.2 Animate (Comfy-Org repack)
+    HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_animate_14B_bf16.safetensors"),
+    # SDPose detection (Comfy-Org)
+    HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
+    # MelBandRoformer (Kijai) -- audio separation
+    HuggingFile("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors"),
+    # ObjectRemoval (lrzjason) -- Flux Fill patch weights
+    HuggingFile("lrzjason/ObjectRemovalFluxFill", "removal_timestep_alpha-2-1740.safetensors"),
 ], folder_name="diffusion_models")
 
 # ComfyUI-SeedVR2_VideoUpscaler -- video upscaling models
