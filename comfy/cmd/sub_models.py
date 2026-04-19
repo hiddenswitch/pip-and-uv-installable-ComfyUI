@@ -185,7 +185,7 @@ def models_download(
 
 @models_app.command(name="from-workflow", context_settings=_COMFYUI_ENV)
 def models_from_workflow(
-    workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    workflow_file: str = typer.Argument(..., help="Workflow file, URI, template name, or literal JSON."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Check availability without downloading."),
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
@@ -202,6 +202,7 @@ def models_from_workflow(
     With --dry-run, prints found models to stdout and missing models to stderr
     without downloading anything. Useful for checking what a workflow needs:
       comfyui models from-workflow workflow.json --dry-run
+      comfyui models from-workflow image_anima_preview --dry-run
 
     \b
     Full setup for a new workflow:
@@ -215,12 +216,13 @@ def models_from_workflow(
 
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
+    from ..entrypoints.workflow import _resolve_workflow
     from ..model_downloader import (
         _known_models_db, get_or_download, canonicalize_path,
     )
     from . import folder_paths
 
-    workflow = load_workflow_json(workflow_file)
+    workflow = load_workflow_json(_resolve_workflow(workflow_file))
     if is_ui_workflow(workflow):
         workflow = convert_ui_to_api(workflow)
 

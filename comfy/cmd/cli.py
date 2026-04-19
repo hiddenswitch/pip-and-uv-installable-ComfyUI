@@ -998,15 +998,16 @@ def _load_core_class_types() -> frozenset[str]:
 
 @app.command(name="workflow-requirements", rich_help_panel="Workflows", hidden=True)
 def workflow_requirements(
-    workflow_file: str = typer.Argument(..., help="Workflow file, URI, or literal JSON."),
+    workflow_file: str = typer.Argument(..., help="Workflow file, URI, template name, or literal JSON."),
     format: str = typer.Option("requirements_txt", "--format", "-f", help="Output format: requirements_txt, requirements_txt_versioned, requirements_txt_locked"),
     snapshot_uri: Optional[str] = typer.Option(None, "--pip-facade-snapshot-uri", help="Facade registry snapshot URI. Defaults to the bundled snapshot."),
 ):
     """Print custom node packages required by a workflow in pip requirements format."""
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
+    from ..entrypoints.workflow import _resolve_workflow
 
-    workflow = load_workflow_json(workflow_file)
+    workflow = load_workflow_json(_resolve_workflow(workflow_file))
     packages = resolve_workflow_packages_versioned(
         workflow,
         snapshot_uri=snapshot_uri,

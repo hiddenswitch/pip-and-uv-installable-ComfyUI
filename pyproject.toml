@@ -27,8 +27,14 @@ dependencies = [
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.1,<5",
     "torch",
-    "torchvision",
-    "torchaudio",
+    # Lower bounds prevent the resolver from silently falling back to
+    # PyPI's decade-old torchvision 0.2.0 / torchaudio 0.x when the
+    # platform-specific index (e.g. --torch-backend=auto picking a ROCm
+    # index) doesn't have a wheel that matches the selected torch.
+    # Without this, `from torchvision import io` fails and every node
+    # that imports `transformers` fails to load.
+    "torchvision>=0.15",
+    "torchaudio>=2.0",
     "torchdiffeq>=0.2.3",
     "torchsde>=0.2.6",
     "einops>=0.6.0",
