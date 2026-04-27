@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 # there isn't a way to do this per-thread, it's only per process, so the global is valid
 # we don't want some kind of multiprocessing lock, because this is munging the sys.modules
 # wrapt.synchronized will be used to synchronize this
-_in_environment = False
 
 
 class _NodeClassMappingsShim(collections.abc.Mapping):
@@ -158,18 +157,15 @@ class _ComfyExtrasRedirectLoader:
 
 @wrapt.synchronized
 def prepare_vanilla_environment():
-    global _in_environment
-    if _in_environment:
+    # Dedup against the actual end-state, not a separate flag: tests that
+    # tear down `sys.modules['nodes']` (e.g. test_nodes_context_shim) need
+    # the next call to re-install the shim, not short-circuit.
+    if isinstance(sys.modules.get('nodes'), _NodeShim):
         return
-    # The original ImportError catch was meant to handle "comfy package not
-    # installed at all". Test that narrow case directly so a real import
-    # failure inside any of these submodules surfaces with its traceback
-    # instead of silently leaving sys.modules['nodes'] unset.
     try:
         import comfy  # noqa: F401
     except ModuleNotFoundError:
         logger.debug("comfy not installed, skipping vanilla environment prep")
-        _in_environment = True
         return
     from comfy.cmd import cuda_malloc, folder_paths, latent_preview, protocol
 
@@ -241,10 +237,6 @@ def prepare_vanilla_environment():
         threading.Thread.start = patched_start
         setattr(threading.Thread.start, '__is_patched_by_us', True)
         logger.debug("Patched `threading.Thread.start` to propagate contextvars.")
-
-    # Set the dedup flag last so partial setup leaves the next call free to
-    # retry instead of short-circuiting and leaving sys.modules['nodes'] unset.
-    _in_environment = True
 
 
 def _is_pip_install_command(command_list) -> tuple[bool, list[str]]:
