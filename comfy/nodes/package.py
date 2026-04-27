@@ -227,4 +227,11 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     custom_nodes_mappings -= base_and_extra
 
     _nodes_available_at_startup.update(base_and_extra + custom_nodes_mappings)
+
+    nodes_module = _sys.modules.get('nodes')
+    if nodes_module is not None:
+        upstream_web_dirs = getattr(nodes_module, 'EXTENSION_WEB_DIRS', None)
+        if upstream_web_dirs:
+            _nodes_available_at_startup.EXTENSION_WEB_DIRS.update(upstream_web_dirs)
+
     return _nodes_available_at_startup
