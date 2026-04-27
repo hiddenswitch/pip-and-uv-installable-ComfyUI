@@ -31,8 +31,11 @@ from comfy.entrypoints.workflow_params import (
     params_by_address,
     params_by_role,
     primitive_nodes,
+    promoted_widgets_metadata,
     prompt_polarity,
     set_node_pairs,
+    titled_nodes,
+    workflow_extra_metadata,
 )
 
 
@@ -561,6 +564,120 @@ def test_easy_pack_nodes_tags_easy_positive_negative_as_prompt_roles():
 def test_easy_pack_nodes_ignores_unrelated_easy_classes():
     api = {"7": {"class_type": "easy showAnything", "inputs": {"any": "x"}}}
     assert list(easy_pack_nodes(api, None)) == []
+
+
+# ── synthetic unit tests: titled_nodes ────────────────────────────────────────
+
+
+def test_titled_nodes_promotes_titled_node_widgets_to_common_tier():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}}}
+    ui = _ui(
+        nodes=[{"id": 3, "type": "KSampler", "title": "Main Sampler"}],
+        links=[],
+    )
+    out = list(titled_nodes(api, ui))
+    assert {p.widget_name for p in out} == {"seed", "steps"}
+    assert all(p.tier == TIER_COMMON for p in out)
+    assert all(p.label == "Main Sampler" for p in out)
+    assert all(p.roles == {"title:main_sampler"} for p in out)
+
+
+def test_titled_nodes_skips_set_get_primitive_titles():
+    api = {
+        "1": {"class_type": "Foo", "inputs": {"x": 1}},
+        "2": {"class_type": "Foo", "inputs": {"x": 2}},
+        "3": {"class_type": "PrimitiveInt", "inputs": {"value": 3}},
+    }
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "SetNode", "title": "Set_X"},
+            {"id": 2, "type": "GetNode", "title": "Get_X"},
+            {"id": 3, "type": "PrimitiveInt", "title": "x"},
+        ],
+        links=[],
+    )
+    assert list(titled_nodes(api, ui)) == []
+
+
+def test_titled_nodes_returns_empty_without_ui():
+    assert list(titled_nodes({"1": {"class_type": "Foo", "inputs": {"x": 1}}}, None)) == []
+
+
+# ── synthetic unit tests: workflow_extra_metadata ─────────────────────────────
+
+
+def test_workflow_extra_metadata_honours_explicit_parameters():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42, "steps": 20}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {
+            "parameters": [
+                {"node_id": "3", "widget_name": "seed", "role": "seed", "label": "Seed"},
+                {"node_id": "3", "widget_name": "steps"},
+            ]
+        },
+    }
+    out = list(workflow_extra_metadata(api, ui))
+    by_widget = {p.widget_name: p for p in out}
+    assert by_widget["seed"].roles == {"seed"}
+    assert by_widget["seed"].label == "Seed"
+    assert by_widget["seed"].tier == TIER_HEADLINE
+    assert by_widget["steps"].roles == set()
+
+
+def test_workflow_extra_metadata_drops_invalid_addresses():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {"parameters": [
+            {"node_id": "99", "widget_name": "x"},
+            {"node_id": "3", "widget_name": "missing_widget"},
+        ]},
+    }
+    assert list(workflow_extra_metadata(api, ui)) == []
+
+
+def test_workflow_extra_metadata_returns_empty_when_extra_missing():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+    assert list(workflow_extra_metadata(api, None)) == []
+    assert list(workflow_extra_metadata(api, {"nodes": [], "links": []})) == []
+
+
+# ── synthetic unit tests: promoted_widgets_metadata ───────────────────────────
+
+
+def test_promoted_widgets_metadata_honours_promotion_entries():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {"promotionEntries": [
+            {"interiorNodeId": "3", "widgetName": "seed"},
+        ]},
+    }
+    out = list(promoted_widgets_metadata(api, ui))
+    assert len(out) == 1
+    assert out[0].roles == {"frontend_promoted"}
+    assert out[0].tier == TIER_HEADLINE
+
+
+def test_promoted_widgets_metadata_accepts_promotions_alias():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {"promotions": [
+            {"interiorNodeId": "3", "widgetName": "seed"},
+        ]},
+    }
+    assert len(list(promoted_widgets_metadata(api, ui))) == 1
+
+
+def test_promoted_widgets_metadata_returns_empty_when_no_promotion_block():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+    assert list(promoted_widgets_metadata(api, {"nodes": [], "links": []})) == []
 
 
 # ── synthetic unit tests: discover() merges roles across predicates ───────────

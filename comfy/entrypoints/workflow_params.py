@@ -430,6 +430,156 @@ def easy_pack_nodes(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+def titled_nodes(api: dict, ui: dict | None) -> list[Param]:
+    """Nodes with an explicit ``title`` field (not Set_/Primitive) are author-curated.
+
+    Manual titling is a weak "I care about this knob" signal — every widget on
+    the titled node is lifted to common tier and labelled with the title.
+    Set_/Get_ and Primitive titles are excluded because dedicated predicates
+    handle them.
+    """
+    if ui is None:
+        return []
+
+    out: list[Param] = []
+    for node in ui.get("nodes") or []:
+        title = node.get("title")
+        if not title or not isinstance(title, str):
+            continue
+        if title.startswith(("Set_", "Get_")):
+            continue
+        node_type = node.get("type") or ""
+        if node_type in {"PrimitiveNode", "Note", "MarkdownNote", "Reroute"}:
+            continue
+        if node_type in _TYPED_PRIMITIVE_CLASSES:
+            continue
+
+        nid = str(node.get("id"))
+        api_node = api.get(nid)
+        if not isinstance(api_node, dict):
+            continue
+        class_type = api_node.get("class_type") or node_type
+
+        for widget_name, value in (api_node.get("inputs") or {}).items():
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=nid,
+                    class_type=class_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={f"title:{_slug(title)}"},
+                    tier=TIER_COMMON,
+                    label=title,
+                    source_predicates=["titled_nodes"],
+                )
+            )
+    return out
+
+
+def workflow_extra_metadata(api: dict, ui: dict | None) -> list[Param]:
+    """Honour explicit author-declared parameters in ``workflow.extra.parameters``.
+
+    A workflow author (or a builder tool) can opt into authoritative parameter
+    declarations by writing::
+
+        {"extra": {"parameters": [
+          {"node_id": "3", "widget_name": "seed", "role": "seed", "label": "Seed"},
+          ...
+        ]}}
+
+    Each entry is taken at face value: the named widget is tagged with the
+    given role at headline tier with the supplied label. Unknown fields are
+    ignored. Missing addresses are skipped.
+    """
+    source = ui if ui is not None else api
+    extra = source.get("extra") if isinstance(source, dict) else None
+    if not isinstance(extra, dict):
+        return []
+    entries = extra.get("parameters")
+    if not isinstance(entries, list):
+        return []
+
+    out: list[Param] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        node_id = str(entry.get("node_id") or "")
+        widget_name = entry.get("widget_name") or ""
+        if not node_id or not widget_name:
+            continue
+        api_node = api.get(node_id)
+        if not isinstance(api_node, dict):
+            continue
+        value = (api_node.get("inputs") or {}).get(widget_name)
+        if value is None or _is_link(value):
+            continue
+        role = entry.get("role")
+        roles = {role} if isinstance(role, str) and role else set()
+        out.append(
+            Param(
+                node_id=node_id,
+                class_type=api_node.get("class_type") or "",
+                widget_name=widget_name,
+                value=value,
+                type=_infer_type(value),
+                roles=roles,
+                tier=TIER_HEADLINE,
+                label=entry.get("label") if isinstance(entry.get("label"), str) else None,
+                source_predicates=["workflow_extra_metadata"],
+            )
+        )
+    return out
+
+
+def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
+    """Honour the frontend's `usePromotionStore` entries when serialized in the workflow.
+
+    When subgraph promotions are saved out, each entry is shaped like
+    ``{"interiorNodeId", "widgetName", "subgraphNodeId"?}``. We accept either
+    ``workflow.extra.promotionEntries`` (an array) or
+    ``workflow.extra.promotions`` (likewise) and tag the matching widget at
+    headline tier with role ``frontend_promoted``.
+    """
+    source = ui if ui is not None else api
+    extra = source.get("extra") if isinstance(source, dict) else None
+    if not isinstance(extra, dict):
+        return []
+    entries = extra.get("promotionEntries") or extra.get("promotions")
+    if not isinstance(entries, list):
+        return []
+
+    out: list[Param] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        node_id = str(entry.get("interiorNodeId") or entry.get("node_id") or "")
+        widget_name = entry.get("widgetName") or entry.get("widget_name") or ""
+        if not node_id or not widget_name:
+            continue
+        api_node = api.get(node_id)
+        if not isinstance(api_node, dict):
+            continue
+        value = (api_node.get("inputs") or {}).get(widget_name)
+        if value is None or _is_link(value):
+            continue
+        out.append(
+            Param(
+                node_id=node_id,
+                class_type=api_node.get("class_type") or "",
+                widget_name=widget_name,
+                value=value,
+                type=_infer_type(value),
+                roles={"frontend_promoted"},
+                tier=TIER_HEADLINE,
+                source_predicates=["promoted_widgets_metadata"],
+            )
+        )
+    return out
+
+
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
     """Disambiguate positive vs negative text encoder among ``text_encode`` candidates.
 
@@ -480,6 +630,9 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("set_node_pairs", set_node_pairs),
     ("primitive_nodes", primitive_nodes),
     ("easy_pack_nodes", easy_pack_nodes),
+    ("titled_nodes", titled_nodes),
+    ("workflow_extra_metadata", workflow_extra_metadata),
+    ("promoted_widgets_metadata", promoted_widgets_metadata),
 ]
 
 
