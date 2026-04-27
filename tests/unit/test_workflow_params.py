@@ -20,12 +20,15 @@ import pytest
 from comfy.entrypoints.workflow_params import (
     Param,
     TIER_ADVANCED,
+    TIER_COMMON,
     TIER_HEADLINE,
     apply,
+    class_type_roles,
     discover,
     frontend_widget_pool,
     params_by_address,
     params_by_role,
+    prompt_polarity,
 )
 
 
@@ -182,6 +185,162 @@ def test_apply_raises_when_node_missing():
         apply(api, p, 1)
 
 
+# ── synthetic unit tests: class_type_roles ────────────────────────────────────
+
+
+def test_class_type_roles_tags_ksampler_widgets():
+    api = dict(
+        [
+            _api(
+                "3", "KSampler",
+                seed=42, steps=20, cfg=8.0,
+                sampler_name="euler", scheduler="normal", denoise=1.0,
+                model=["1", 0],
+            ),
+        ]
+    )
+    out = list(class_type_roles(api, None))
+    by_widget = {p.widget_name: p for p in out}
+    assert by_widget["seed"].roles == {"seed"}
+    assert by_widget["steps"].roles == {"steps"}
+    assert by_widget["cfg"].roles == {"cfg"}
+    assert by_widget["sampler_name"].roles == {"sampler"}
+    assert by_widget["scheduler"].roles == {"scheduler"}
+    assert by_widget["denoise"].roles == {"denoise"}
+    # All class_type_roles output sits at TIER_COMMON
+    for p in out:
+        assert p.tier == TIER_COMMON
+
+
+def test_class_type_roles_tags_random_noise_seed_field():
+    api = dict([_api("5", "RandomNoise", noise_seed=12345)])
+    out = list(class_type_roles(api, None))
+    assert len(out) == 1
+    assert out[0].widget_name == "noise_seed"
+    assert out[0].roles == {"seed"}
+
+
+def test_class_type_roles_tags_loaders_and_latent():
+    api = dict(
+        [
+            _api("1", "CheckpointLoaderSimple", ckpt_name="model_a.safetensors"),
+            _api("2", "UNETLoader", unet_name="unet_b.safetensors"),
+            _api("5", "EmptyLatentImage", width=512, height=768, batch_size=2),
+            _api("9", "LoadImage", image="cat.png"),
+            _api("10", "LoadVideo", value="walk.mp4"),
+            _api("11", "LoadAudio", value="bgm.wav"),
+        ]
+    )
+    out = list(class_type_roles(api, None))
+    by_addr = {p.address: p for p in out}
+    assert by_addr[("1", "ckpt_name")].roles == {"checkpoint"}
+    assert by_addr[("2", "unet_name")].roles == {"unet"}
+    assert by_addr[("5", "width")].roles == {"width"}
+    assert by_addr[("5", "height")].roles == {"height"}
+    assert by_addr[("5", "batch_size")].roles == {"batch_size"}
+    assert by_addr[("9", "image")].roles == {"image_input"}
+    assert by_addr[("10", "value")].roles == {"video_input"}
+    assert by_addr[("11", "value")].roles == {"audio_input"}
+
+
+def test_class_type_roles_skips_links():
+    api = dict([_api("3", "KSampler", seed=42, model=["1", 0])])
+    out = list(class_type_roles(api, None))
+    addrs = {p.address for p in out}
+    assert ("3", "seed") in addrs
+
+
+def test_class_type_roles_text_encode_widgets_get_generic_tag():
+    api = dict(
+        [
+            _api("6", "CLIPTextEncode", text="positive prompt", clip=["4", 1]),
+        ]
+    )
+    out = list(class_type_roles(api, None))
+    assert len(out) == 1
+    assert out[0].roles == {"text_encode"}
+
+
+# ── synthetic unit tests: prompt_polarity ─────────────────────────────────────
+
+
+def test_prompt_polarity_disambiguates_positive_via_sampler_input():
+    api = {
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {"positive": ["6", 0], "negative": ["7", 0], "seed": 1, "steps": 20},
+        },
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": "good things", "clip": ["4", 1]},
+        },
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": "bad things", "clip": ["4", 1]},
+        },
+    }
+    out = list(prompt_polarity(api, None))
+    by_role = {next(iter(p.roles)): p for p in out}
+    assert by_role["prompt"].node_id == "6"
+    assert by_role["negative_prompt"].node_id == "7"
+
+
+def test_prompt_polarity_falls_back_to_sole_encoder_for_positive():
+    api = {
+        "1": {"class_type": "KSampler", "inputs": {"positive": ["6", 0]}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "prompt only"}},
+    }
+    out = list(prompt_polarity(api, None))
+    roles = {r for p in out for r in p.roles}
+    assert "prompt" in roles
+    assert "negative_prompt" not in roles
+
+
+def test_prompt_polarity_emits_nothing_when_no_text_encoder():
+    api = dict([_api("1", "Foo", x=1)])
+    assert list(prompt_polarity(api, None)) == []
+
+
+# ── synthetic unit tests: discover() merges roles across predicates ───────────
+
+
+def test_discover_merges_roles_from_class_type_and_polarity():
+    api = {
+        "3": {"class_type": "KSampler", "inputs": {"positive": ["6", 0], "seed": 42}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "hi"}},
+    }
+    params = discover(api)
+    text = params_by_address(params, "6", "text")
+    assert text is not None
+    # Picked up by both class_type_roles (text_encode) and prompt_polarity (prompt)
+    assert text.roles == {"text_encode", "prompt"}
+    assert "class_type_roles" in text.source_predicates
+    assert "prompt_polarity" in text.source_predicates
+    assert "frontend_widget_pool" in text.source_predicates
+
+
+def test_discover_lifts_tier_to_common_for_role_tagged_params():
+    api = dict([_api("3", "KSampler", seed=42, steps=20, model=["1", 0])])
+    params = discover(api)
+    seed = params_by_address(params, "3", "seed")
+    assert seed.tier == TIER_COMMON
+
+
+def test_discover_keeps_advanced_tier_for_unknown_class_widgets():
+    api = dict([_api("5", "WanVideoBlockSwap", blocks_to_swap=25, offload_img=True)])
+    params = discover(api)
+    for p in params:
+        assert p.tier == TIER_ADVANCED
+
+
+def test_params_by_role_finds_role_tagged_params():
+    api = dict([_api("3", "KSampler", seed=42, steps=20, cfg=8.0, model=["1", 0])])
+    params = discover(api)
+    assert len(params_by_role(params, "seed")) == 1
+    assert len(params_by_role(params, "steps")) == 1
+    assert len(params_by_role(params, "cfg")) == 1
+
+
 # ── parameterized real-workflow tests ─────────────────────────────────────────
 
 _WORKFLOWS_DIR = Path(__file__).parent.parent / "data" / "workflows"
@@ -249,8 +408,20 @@ def test_real_workflow_discovery(case_dir: Path):
         )
 
     # Stage gating: assertions only fire if the case opts in for that stage.
-    stage1 = (expected.get("stages") or {}).get("1") or {}
-    for predicate_name in stage1.get("predicates_present", []):
-        assert any(predicate_name in p.source_predicates for p in params), (
-            f"no Param attributed to predicate {predicate_name!r}"
-        )
+    stages = expected.get("stages") or {}
+    for stage_key in sorted(stages.keys()):
+        spec = stages[stage_key] or {}
+        for predicate_name in spec.get("predicates_present", []):
+            assert any(predicate_name in p.source_predicates for p in params), (
+                f"stage {stage_key}: no Param attributed to predicate {predicate_name!r}"
+            )
+        for role, min_count in (spec.get("role_min_counts") or {}).items():
+            count = len(params_by_role(params, role))
+            assert count >= min_count, (
+                f"stage {stage_key}: role {role!r} matched {count} params, "
+                f"expected >= {min_count}"
+            )
+        for role in spec.get("roles_absent") or []:
+            assert not params_by_role(params, role), (
+                f"stage {stage_key}: role {role!r} unexpectedly present"
+            )

@@ -5,6 +5,12 @@
   "stages": {
     "1": {
       "predicates_present": ["frontend_widget_pool"]
+    },
+    "2": {
+      "predicates_present": ["class_type_roles"],
+      "role_min_counts": {
+        "image_input": 1
+      }
     }
   }
 }

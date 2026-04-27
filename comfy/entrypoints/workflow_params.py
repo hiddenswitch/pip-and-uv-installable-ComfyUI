@@ -26,8 +26,59 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
 from ..component_model.workflow_convert import convert_ui_to_api, is_ui_workflow
+from ..component_model import prompt_utils as _pu
 
 logger = logging.getLogger(__name__)
+
+
+# (class_type, widget_name) -> role.
+# Single source of truth for class-type-driven role tagging. Re-uses the
+# class-type sets in prompt_utils so we don't duplicate them; stage 5 will
+# fold the override-application code in prompt_utils onto these same roles.
+_DIRECT_ROLES: dict[tuple[str, str], str] = {}
+
+
+def _seed_direct_roles() -> None:
+    if _DIRECT_ROLES:
+        return
+    for ct in _pu._STEPS_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "steps")] = "steps"
+    for ct in _pu._CFG_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "cfg")] = "cfg"
+    for ct in _pu._SAMPLER_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "sampler_name")] = "sampler"
+    for ct in _pu._SCHEDULER_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "scheduler")] = "scheduler"
+    for ct in _pu._DENOISE_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "denoise")] = "denoise"
+    for ct in _pu._LATENT_SIZE_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "width")] = "width"
+        _DIRECT_ROLES[(ct, "height")] = "height"
+        _DIRECT_ROLES[(ct, "batch_size")] = "batch_size"
+    for ct in _pu._CHECKPOINT_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "ckpt_name")] = "checkpoint"
+    for ct in _pu._DIFFUSION_MODEL_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "unet_name")] = "unet"
+    for ct, field_name in _pu._SEED_FIELDS.items():
+        _DIRECT_ROLES[(ct, field_name)] = "seed"
+    # Filesystem and URL loaders both expose a media-bearing widget; the role
+    # is the same regardless of which form the workflow uses. Tagging only —
+    # the URL-rewrite that --image performs lives at apply-time, not here.
+    for ct in _pu._IMAGE_LOAD_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "image")] = "image_input"
+        _DIRECT_ROLES[(ct, "value")] = "image_input"
+    for ct in _pu._VIDEO_LOAD_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "video")] = "video_input"
+        _DIRECT_ROLES[(ct, "value")] = "video_input"
+    for ct in _pu._AUDIO_LOAD_CLASS_TYPES:
+        _DIRECT_ROLES[(ct, "audio")] = "audio_input"
+        _DIRECT_ROLES[(ct, "value")] = "audio_input"
+    for ct, fields in _pu._TEXT_ENCODE_FIELDS.items():
+        for field_name in fields:
+            _DIRECT_ROLES[(ct, field_name)] = "text_encode"
+
+
+_seed_direct_roles()
 
 
 TIER_HEADLINE = 0
@@ -112,8 +163,87 @@ def frontend_widget_pool(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
+    """Annotate widgets whose ``(class_type, widget_name)`` is in the role table.
+
+    Tags candidates with the matching role and lifts tier from advanced to
+    common. ``text_encode`` is a generic tag covering every text-encoder widget;
+    the more specific ``prompt`` / ``negative_prompt`` polarity is applied on
+    top by `prompt_polarity`.
+    """
+    out: list[Param] = []
+    for node_id, node in api.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type") or ""
+        for widget_name, value in (node.get("inputs") or {}).items():
+            if _is_link(value):
+                continue
+            role = _DIRECT_ROLES.get((class_type, widget_name))
+            if role is None:
+                continue
+            out.append(
+                Param(
+                    node_id=str(node_id),
+                    class_type=class_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={role},
+                    tier=TIER_COMMON,
+                    source_predicates=["class_type_roles"],
+                )
+            )
+    return out
+
+
+def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
+    """Disambiguate positive vs negative text encoder among ``text_encode`` candidates.
+
+    Mirrors the heuristic stack in ``prompt_utils.find_positive_text_encoder`` /
+    ``find_negative_text_encoder`` (positive-input ref, BasicGuider conditioning,
+    title keyword, sole-encoder fallback). Yields candidate Params that the
+    merger overlays onto the matching ``text_encode`` Params from
+    `class_type_roles`.
+    """
+    out: list[Param] = []
+    positive_node = _pu.find_positive_text_encoder(api)
+    negative_node = _pu.find_negative_text_encoder(api)
+
+    def _emit(node_id: str | None, role: str) -> None:
+        if node_id is None:
+            return
+        node = api.get(node_id) or {}
+        class_type = node.get("class_type") or ""
+        fields = _pu._TEXT_ENCODE_FIELDS.get(class_type, [])
+        for field in fields:
+            if field not in (node.get("inputs") or {}):
+                continue
+            value = node["inputs"][field]
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=str(node_id),
+                    class_type=class_type,
+                    widget_name=field,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={role},
+                    tier=TIER_COMMON,
+                    source_predicates=["prompt_polarity"],
+                )
+            )
+
+    _emit(positive_node, "prompt")
+    _emit(negative_node, "negative_prompt")
+    return out
+
+
 _PREDICATES: list[tuple[str, Predicate]] = [
     ("frontend_widget_pool", frontend_widget_pool),
+    ("class_type_roles", class_type_roles),
+    ("prompt_polarity", prompt_polarity),
 ]
 
 
