@@ -83,14 +83,28 @@ def _filter_pep440_versions(versions: list["FacadeVersion"]) -> list["FacadeVers
     return [item for item in versions if _is_pep440_version(item.version)]
 
 
+_MANAGER_REGISTRY_URL = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json"
+
+
 def _manager_registry_path() -> Path:
     return Path(files("comfyui_manager").joinpath("custom-node-list.json"))
 
 
-def _load_manager_registry() -> list[dict[str, Any]]:
+def _load_bundled_manager_registry() -> list[dict[str, Any]]:
     path = _manager_registry_path()
     data = json.loads(path.read_text(encoding="utf-8"))
     return list(data.get("custom_nodes", ()))
+
+
+async def _load_manager_registry(session: aiohttp.ClientSession) -> list[dict[str, Any]]:
+    try:
+        async with session.get(_MANAGER_REGISTRY_URL) as response:
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+            return list(data.get("custom_nodes", ()))
+    except Exception:
+        logger.debug("Failed to fetch live custom-node-list.json, using bundled fallback")
+        return _load_bundled_manager_registry()
 
 
 @dataclass(frozen=True)
@@ -449,7 +463,7 @@ class FacadeRegistry:
 
     async def _build_projects(self) -> list[FacadeProject]:
         with tracer.start_as_current_span("Build Facade Project Registry") as span:
-            manager_nodes = _load_manager_registry()
+            manager_nodes = await _load_manager_registry(self._session)
             span.set_attribute("facade.manager_registry_items", len(manager_nodes))
             cnr_nodes = await self._fetch_cnr_nodes()
             span.set_attribute("facade.cnr_nodes", len(cnr_nodes))
