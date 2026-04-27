@@ -342,33 +342,30 @@ def test_params_by_role_finds_role_tagged_params():
 
 
 # ── parameterized real-workflow tests ─────────────────────────────────────────
+#
+# Add entries to ``WORKFLOW_FIXTURES`` to extend coverage. Each name maps to
+# ``tests/data/workflows/<name>.json``. An optional sidecar
+# ``tests/data/workflows/<name>.expected.json`` lets a fixture additionally
+# assert ``min_total_params`` (int) and ``roles_present`` (list[str]); when
+# absent, only the universal invariants run. Anything that doesn't fit those
+# two keys belongs in a normal pytest function below — write the assertion
+# directly rather than extending the sidecar schema.
 
 _WORKFLOWS_DIR = Path(__file__).parent.parent / "data" / "workflows"
 
-
-def _workflow_cases() -> list:
-    if not _WORKFLOWS_DIR.exists():
-        return []
-    cases = []
-    for case_dir in sorted(_WORKFLOWS_DIR.iterdir()):
-        if not case_dir.is_dir():
-            continue
-        if not (case_dir / "workflow.json").exists():
-            continue
-        if not (case_dir / "expected.json").exists():
-            continue
-        cases.append(pytest.param(case_dir, id=case_dir.name))
-    return cases
+WORKFLOW_FIXTURES: list[str] = [
+    "yt_bgswap_v01",
+]
 
 
-def _load_workflow_for_discover(case_dir: Path) -> dict:
-    """Load a fixture's workflow, booting the node system if it is UI-format.
+def _load_workflow(name: str) -> dict:
+    """Load ``<name>.json``, booting the node system if UI-format.
 
-    `convert_ui_to_api` requires `import_all_nodes_in_workspace` to have
-    populated the node registry. Unknown classes (e.g. WanVideoWrapper)
-    are preserved via `preserve_unknown_nodes=True`.
+    `convert_ui_to_api` needs `import_all_nodes_in_workspace` to populate
+    the node registry. Unknown classes (e.g. WanVideoWrapper) survive via
+    `preserve_unknown_nodes=True`.
     """
-    workflow = json.loads((case_dir / "workflow.json").read_text())
+    workflow = json.loads((_WORKFLOWS_DIR / f"{name}.json").read_text())
     if "nodes" in workflow and "links" in workflow:
         from comfy.nodes.package import import_all_nodes_in_workspace
         from comfy.nodes_context import get_nodes
@@ -377,51 +374,49 @@ def _load_workflow_for_discover(case_dir: Path) -> dict:
     return workflow
 
 
-@pytest.mark.parametrize("case_dir", _workflow_cases())
-def test_real_workflow_discovery(case_dir: Path):
-    workflow = _load_workflow_for_discover(case_dir)
-    expected = json.loads((case_dir / "expected.json").read_text())
+def _maybe_load_expected(name: str) -> dict | None:
+    path = _WORKFLOWS_DIR / f"{name}.expected.json"
+    return json.loads(path.read_text()) if path.exists() else None
 
+
+@pytest.mark.parametrize("name", WORKFLOW_FIXTURES, ids=WORKFLOW_FIXTURES)
+def test_real_workflow(name: str):
+    workflow = _load_workflow(name)
     params = discover(workflow)
 
-    min_total = expected.get("min_total_params", 0)
-    assert len(params) >= min_total, (
-        f"discover() returned {len(params)} params; expected at least {min_total}"
-    )
-
-    # Every Param should be addressable in the API workflow it came from.
-    from comfy.entrypoints.workflow_params import _to_api
+    # Universal invariants: every param resolves and none holds a link value.
+    from comfy.entrypoints.workflow_params import _is_link, _to_api
     api, _ = _to_api(workflow)
     for p in params:
-        assert p.node_id in api, f"param node_id {p.node_id!r} missing from API workflow"
-        node = api[p.node_id]
-        assert p.widget_name in (node.get("inputs") or {}), (
+        assert p.node_id in api, (
+            f"param node_id {p.node_id!r} missing from API workflow"
+        )
+        assert p.widget_name in (api[p.node_id].get("inputs") or {}), (
             f"param widget {p.widget_name!r} missing on node {p.node_id} ({p.class_type})"
         )
-
-    # No Param should hold a link as its value (the frontend predicate
-    # excludes them; later predicates must too).
-    from comfy.entrypoints.workflow_params import _is_link
-    for p in params:
         assert not _is_link(p.value), (
             f"param {p.address} has a link value {p.value!r}"
         )
 
-    # Stage gating: assertions only fire if the case opts in for that stage.
-    stages = expected.get("stages") or {}
-    for stage_key in sorted(stages.keys()):
-        spec = stages[stage_key] or {}
-        for predicate_name in spec.get("predicates_present", []):
-            assert any(predicate_name in p.source_predicates for p in params), (
-                f"stage {stage_key}: no Param attributed to predicate {predicate_name!r}"
-            )
-        for role, min_count in (spec.get("role_min_counts") or {}).items():
-            count = len(params_by_role(params, role))
-            assert count >= min_count, (
-                f"stage {stage_key}: role {role!r} matched {count} params, "
-                f"expected >= {min_count}"
-            )
-        for role in spec.get("roles_absent") or []:
-            assert not params_by_role(params, role), (
-                f"stage {stage_key}: role {role!r} unexpectedly present"
-            )
+    expected = _maybe_load_expected(name)
+    if expected is None:
+        return
+    if "min_total_params" in expected:
+        assert len(params) >= expected["min_total_params"], (
+            f"discover() returned {len(params)} params; expected at least "
+            f"{expected['min_total_params']}"
+        )
+    for role in expected.get("roles_present", []):
+        assert params_by_role(params, role), f"role {role!r} not present"
+
+
+# Case-specific assertions that don't fit the sidecar schema go here as plain
+# tests. Keep them thin and named after what they verify.
+
+def test_yt_bgswap_v01_image_loader_is_loadimage_node_42():
+    workflow = _load_workflow("yt_bgswap_v01")
+    params = discover(workflow)
+    image_inputs = params_by_role(params, "image_input")
+    assert len(image_inputs) == 1
+    assert image_inputs[0].node_id == "42"
+    assert image_inputs[0].class_type == "LoadImage"
