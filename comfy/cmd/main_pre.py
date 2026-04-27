@@ -51,6 +51,24 @@ warnings.filterwarnings("ignore", message="The installed version of bitsandbytes
 warnings.filterwarnings("ignore", message=r"The pynvml package is deprecated\..*", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, message="Unsupported Windows version .* ONNX Runtime supports Windows 10 and above, only.")
 
+# tokenizers >=0.23.0rc0 dropped the `sep=` and `cls=` kwargs from
+# RobertaProcessing.__new__ (still positional-only) but transformers
+# tokenization_clip.py:117 calls it with those kwargs, breaking CLIP tokenizer
+# load. Restore the kwarg form by wrapping the class with a shim.
+try:
+    from tokenizers import processors as _tk_processors
+    _orig_roberta_processing = _tk_processors.RobertaProcessing
+    try:
+        _tk_processors.RobertaProcessing(sep=('</s>', 2), cls=('<s>', 0))
+    except TypeError:
+        def _roberta_processing_kwarg_shim(*args, **kwargs):
+            if not args and 'sep' in kwargs and 'cls' in kwargs:
+                args = (kwargs.pop('sep'), kwargs.pop('cls'))
+            return _orig_roberta_processing(*args, **kwargs)
+        _tk_processors.RobertaProcessing = _roberta_processing_kwarg_shim
+except ImportError:
+    pass
+
 log_msg_to_filter = "NOTE: Redirects are currently not supported in Windows or MacOs."
 logging.getLogger("torch.distributed.elastic.multiprocessing.redirects").addFilter(
     lambda record: log_msg_to_filter not in record.getMessage()
