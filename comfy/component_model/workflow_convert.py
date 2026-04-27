@@ -324,10 +324,32 @@ def __unknown_widget_value(val):
     return _json.dumps(val)
 
 
-def _map_unknown_widgets(widgets_values) -> dict[str, object]:
+def _map_unknown_widgets(widgets_values, node: dict | None = None) -> dict[str, object]:
     if isinstance(widgets_values, dict):
         return {k: _wrap_value(v) for k, v in widgets_values.items()}
     if isinstance(widgets_values, list) and widgets_values:
+        ordered_names: list[str] = []
+        if node is not None:
+            stashed = node.get('_widget_names_ordered')
+            if isinstance(stashed, list):
+                ordered_names = [n for n in stashed if isinstance(n, str)]
+            if not ordered_names:
+                for inp in node.get('inputs', []) or []:
+                    widget = inp.get('widget')
+                    if isinstance(widget, dict):
+                        name = widget.get('name') or inp.get('name')
+                        if isinstance(name, str):
+                            ordered_names.append(name)
+        if ordered_names:
+            out: dict[str, object] = {}
+            for i, name in enumerate(ordered_names):
+                if i >= len(widgets_values):
+                    break
+                out[name] = _wrap_value(widgets_values[i])
+            if out:
+                return out
+        if node is not None:
+            return {f"widget_{i}": _wrap_value(v) for i, v in enumerate(widgets_values)}
         return {"UNKNOWN": _wrap_value(__unknown_widget_value(widgets_values[-1]))}
     return {}
 
@@ -619,6 +641,15 @@ def _compress_widget_input_slots(workflow: dict) -> dict:
             inputs = node.get('inputs')
             if not isinstance(inputs, list):
                 continue
+            widget_names_ordered: list[str] = []
+            for inp in inputs:
+                widget = inp.get('widget')
+                if isinstance(widget, dict):
+                    name = widget.get('name') or inp.get('name')
+                    if isinstance(name, str):
+                        widget_names_ordered.append(name)
+            if widget_names_ordered:
+                node['_widget_names_ordered'] = widget_names_ordered
             compressed_inputs = [inp for inp in inputs if _matches_legacy_api_input(inp)]
             node['inputs'] = compressed_inputs
 
@@ -1119,7 +1150,12 @@ def is_ui_workflow(workflow: dict) -> bool:
     return "nodes" in workflow and "links" in workflow
 
 
-def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) -> dict:
+def convert_ui_to_api(
+    workflow: dict,
+    *,
+    preserve_unknown_nodes: bool = True,
+    node_mappings=None,
+) -> dict:
     """Convert a UI (LiteGraph) workflow dict to API format.
 
     Uses a DTO-based approach mirroring the frontend's ``graphToPrompt``
@@ -1138,13 +1174,9 @@ def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) ->
     Raises:
         RuntimeError: If node system is not loaded.
     """
-    from ..nodes_context import get_nodes
-
-    node_mappings = get_nodes()
-    if len(node_mappings) == 0:
-        raise RuntimeError(
-            "Node system not loaded. Call import_all_nodes_in_workspace() first."
-        )
+    if node_mappings is None:
+        from ..nodes_context import get_nodes
+        node_mappings = get_nodes()
 
     workflow = _compress_widget_input_slots(workflow)
     sg_defs = _collect_subgraph_defs(workflow)
@@ -1184,10 +1216,10 @@ def convert_ui_to_api(workflow: dict, *, preserve_unknown_nodes: bool = True) ->
                 use_class_type = None
             else:
                 # Preserve mode (default): keep class_type and all values.
-                api_inputs = _map_unknown_widgets(widgets_values)
+                api_inputs = _map_unknown_widgets(widgets_values, node=node)
                 use_class_type = class_type
-            logger.warning("Unknown node type %r (id=%s); preserving in API output",
-                           class_type, node.get('id'))
+            logger.debug("Unknown node type %r (id=%s); preserving in API output",
+                         class_type, node.get('id'))
         elif isinstance(widgets_values, list):
             overridden_mapping = _map_frontend_widget_override(
                 class_type,

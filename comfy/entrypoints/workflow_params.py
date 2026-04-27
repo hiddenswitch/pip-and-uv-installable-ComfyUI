@@ -1,23 +1,4 @@
-"""Workflow parameter discovery and application.
-
-A `Param` represents one user-facing knob on a workflow: a (node_id, widget_name)
-pair with its current value, type, optional role tags, and a tier for ranking.
-
-`discover(workflow)` runs a registry of *predicates*, each of which contributes
-candidate `Param`s (or annotates existing ones identified by `(node_id, widget_name)`).
-The pool of candidates is then merged and ranked.
-
-The first predicate, `frontend_widget_pool`, mirrors the bundled ComfyUI
-frontend's subgraph "Advanced Inputs" enumeration
-(`src/components/rightSidePanel/parameters/TabSubgraphInputs.vue`,
-`src/core/graph/subgraph/unpromotedWidgetUtils.ts`): every non-disabled widget
-on every interior node is a candidate — no class-type heuristic. Other
-predicates (added in later stages) annotate candidates with roles, raise tier,
-or contribute candidates the frontend rule alone wouldn't capture.
-
-`apply(workflow, param, value)` mutates the workflow in place by writing
-`value` into the node's `inputs[widget_name]`.
-"""
+"""Workflow parameter discovery and application."""
 from __future__ import annotations
 
 import copy
@@ -31,10 +12,6 @@ from ..component_model import prompt_utils as _pu
 logger = logging.getLogger(__name__)
 
 
-# (class_type, widget_name) -> role.
-# Single source of truth for class-type-driven role tagging. Re-uses the
-# class-type sets in prompt_utils so we don't duplicate them; stage 5 will
-# fold the override-application code in prompt_utils onto these same roles.
 _DIRECT_ROLES: dict[tuple[str, str], str] = {}
 
 
@@ -133,13 +110,6 @@ def _infer_type(value: Any) -> str:
 
 
 def frontend_widget_pool(api: dict, ui: dict | None) -> list[Param]:
-    """Every non-link input on every API node is a candidate Param.
-
-    Mirrors the frontend's subgraph "Advanced Inputs" enumeration: walk
-    interior nodes and yield every widget whose value isn't a connected
-    link. The frontend filters by `widget.computedDisabled`; the API-format
-    equivalent is "input value is not a [src_node_id, src_slot] pair".
-    """
     out: list[Param] = []
     for node_id, node in api.items():
         if not isinstance(node, dict):
@@ -164,13 +134,6 @@ def frontend_widget_pool(api: dict, ui: dict | None) -> list[Param]:
 
 
 def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
-    """Annotate widgets whose ``(class_type, widget_name)`` is in the role table.
-
-    Tags candidates with the matching role and lifts tier from advanced to
-    common. ``text_encode`` is a generic tag covering every text-encoder widget;
-    the more specific ``prompt`` / ``negative_prompt`` polarity is applied on
-    top by `prompt_polarity`.
-    """
     out: list[Param] = []
     for node_id, node in api.items():
         if not isinstance(node, dict):
@@ -191,6 +154,7 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={role},
                     tier=TIER_COMMON,
+                    flag_name=role.replace("_", "-"),
                     source_predicates=["class_type_roles"],
                 )
             )
@@ -198,7 +162,6 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
 
 
 def _slug(name: str) -> str:
-    """Lowercase, ASCII-safe form of a Set_/title fragment used for role keys."""
     out = []
     for ch in name:
         if ch.isalnum():
@@ -211,18 +174,11 @@ def _slug(name: str) -> str:
     return slug
 
 
+def _kebab(s: str) -> str:
+    return _slug(s).replace("_", "-")
+
+
 def set_node_pairs(api: dict, ui: dict | None) -> list[Param]:
-    """SetNode titled ``Set_<Name>`` blesses its immediate upstream node.
-
-    The Set/Get pattern is the workflow author's canonical "named variable":
-    a `Set_<Name>` declares "this wire is the parameter ``<Name>``". We trace
-    its single input link to the source node and tag every non-link widget on
-    that source with ``role="set:<slug>"``, lifting tier to headline.
-
-    SetNode is a UI-only virtual class (stripped by ``convert_ui_to_api``),
-    so we read titles + links from the UI workflow and address widgets in
-    the API workflow by source node id.
-    """
     if ui is None:
         return []
 
@@ -270,6 +226,7 @@ def set_node_pairs(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={f"set:{slug}"},
                     tier=TIER_HEADLINE,
+                    flag_name=f"set-{_kebab(slug)}-{_kebab(widget_name)}",
                     label=title_label,
                     source_predicates=["set_node_pairs"],
                 )
@@ -277,9 +234,6 @@ def set_node_pairs(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
-# PrimitiveNode is the legacy virtual primitive (stripped during conversion).
-# The typed primitives are real nodes that survive into the API; we tag the
-# primitive's own widget value with the primitive's title.
 _TYPED_PRIMITIVE_CLASSES = frozenset({
     "PrimitiveString",
     "PrimitiveStringMultiline",
@@ -290,19 +244,6 @@ _TYPED_PRIMITIVE_CLASSES = frozenset({
 
 
 def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
-    """`PrimitiveNode` (virtual) and typed `Primitive*` are user-visible inputs.
-
-    For ``PrimitiveNode``: it's stripped during ``convert_ui_to_api`` and its
-    ``widgets_values[0]`` is propagated onto the consuming node's widget. We
-    walk the UI to find each consumer's widget and tag *that* Param.
-
-    For typed primitives (``PrimitiveInt``/``PrimitiveFloat``/``PrimitiveString``/
-    ``PrimitiveStringMultiline``/``PrimitiveBoolean``): they survive as their
-    own API nodes; we tag their own widget.
-
-    Both forms get ``role="primitive:<slug>"`` at headline tier, where slug is
-    derived from the node's ``title`` (or its node id if untitled).
-    """
     out: list[Param] = []
 
     # Typed primitives via API (no UI required).
@@ -326,6 +267,7 @@ def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={f"primitive:{slug}"},
                     tier=TIER_HEADLINE,
+                    flag_name=_kebab(slug),
                     label=title,
                     source_predicates=["primitive_nodes"],
                 )
@@ -377,6 +319,7 @@ def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
                         type=_infer_type(value),
                         roles={f"primitive:{slug}"},
                         tier=TIER_HEADLINE,
+                        flag_name=_kebab(slug),
                         label=title or None,
                         source_predicates=["primitive_nodes"],
                     )
@@ -384,10 +327,6 @@ def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
-# Map (class_type, widget_name) -> role for the easy-use convenience nodes.
-# Sourced from yolain/ComfyUI-Easy-Use: easy seed has a `seed` widget,
-# easy positive a `positive` widget (multiline string), easy negative a
-# `negative` widget. easy showAnything is a UI debugger, not a parameter.
 _EASY_PACK_ROLES: dict[tuple[str, str], str] = {
     ("easy seed", "seed"): "seed",
     ("easy positive", "positive"): "prompt",
@@ -396,14 +335,6 @@ _EASY_PACK_ROLES: dict[tuple[str, str], str] = {
 
 
 def easy_pack_nodes(api: dict, ui: dict | None) -> list[Param]:
-    """Tag widgets on comfyui-easy-use's seed/positive/negative convenience nodes.
-
-    These are explicit "user input" nodes by convention — when the workflow
-    author drops one in, they're declaring "this is the user's parameter".
-    Promotes to headline tier with a role matching the standard one
-    (``seed`` / ``prompt`` / ``negative_prompt``) so the same CLI flag wires
-    to either the easy-pack node or a stock KSampler/CLIPTextEncode.
-    """
     out: list[Param] = []
     for node_id, node in api.items():
         if not isinstance(node, dict):
@@ -424,6 +355,7 @@ def easy_pack_nodes(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={role},
                     tier=TIER_HEADLINE,
+                    flag_name=role.replace("_", "-"),
                     source_predicates=["easy_pack_nodes"],
                 )
             )
@@ -431,13 +363,6 @@ def easy_pack_nodes(api: dict, ui: dict | None) -> list[Param]:
 
 
 def titled_nodes(api: dict, ui: dict | None) -> list[Param]:
-    """Nodes with an explicit ``title`` field (not Set_/Primitive) are author-curated.
-
-    Manual titling is a weak "I care about this knob" signal — every widget on
-    the titled node is lifted to common tier and labelled with the title.
-    Set_/Get_ and Primitive titles are excluded because dedicated predicates
-    handle them.
-    """
     if ui is None:
         return []
 
@@ -472,6 +397,7 @@ def titled_nodes(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={f"title:{_slug(title)}"},
                     tier=TIER_COMMON,
+                    flag_name=f"{_kebab(title)}-{_kebab(widget_name)}",
                     label=title,
                     source_predicates=["titled_nodes"],
                 )
@@ -480,20 +406,6 @@ def titled_nodes(api: dict, ui: dict | None) -> list[Param]:
 
 
 def workflow_extra_metadata(api: dict, ui: dict | None) -> list[Param]:
-    """Honour explicit author-declared parameters in ``workflow.extra.parameters``.
-
-    A workflow author (or a builder tool) can opt into authoritative parameter
-    declarations by writing::
-
-        {"extra": {"parameters": [
-          {"node_id": "3", "widget_name": "seed", "role": "seed", "label": "Seed"},
-          ...
-        ]}}
-
-    Each entry is taken at face value: the named widget is tagged with the
-    given role at headline tier with the supplied label. Unknown fields are
-    ignored. Missing addresses are skipped.
-    """
     source = ui if ui is not None else api
     extra = source.get("extra") if isinstance(source, dict) else None
     if not isinstance(extra, dict):
@@ -527,6 +439,7 @@ def workflow_extra_metadata(api: dict, ui: dict | None) -> list[Param]:
                 type=_infer_type(value),
                 roles=roles,
                 tier=TIER_HEADLINE,
+                flag_name=entry.get("flag") if isinstance(entry.get("flag"), str) else None,
                 label=entry.get("label") if isinstance(entry.get("label"), str) else None,
                 source_predicates=["workflow_extra_metadata"],
             )
@@ -535,14 +448,6 @@ def workflow_extra_metadata(api: dict, ui: dict | None) -> list[Param]:
 
 
 def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
-    """Honour the frontend's `usePromotionStore` entries when serialized in the workflow.
-
-    When subgraph promotions are saved out, each entry is shaped like
-    ``{"interiorNodeId", "widgetName", "subgraphNodeId"?}``. We accept either
-    ``workflow.extra.promotionEntries`` (an array) or
-    ``workflow.extra.promotions`` (likewise) and tag the matching widget at
-    headline tier with role ``frontend_promoted``.
-    """
     source = ui if ui is not None else api
     extra = source.get("extra") if isinstance(source, dict) else None
     if not isinstance(extra, dict):
@@ -574,6 +479,7 @@ def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
                 type=_infer_type(value),
                 roles={"frontend_promoted"},
                 tier=TIER_HEADLINE,
+                flag_name=f"set-{_kebab(node_id)}-{_kebab(widget_name)}",
                 source_predicates=["promoted_widgets_metadata"],
             )
         )
@@ -581,14 +487,6 @@ def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
 
 
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
-    """Disambiguate positive vs negative text encoder among ``text_encode`` candidates.
-
-    Mirrors the heuristic stack in ``prompt_utils.find_positive_text_encoder`` /
-    ``find_negative_text_encoder`` (positive-input ref, BasicGuider conditioning,
-    title keyword, sole-encoder fallback). Yields candidate Params that the
-    merger overlays onto the matching ``text_encode`` Params from
-    `class_type_roles`.
-    """
     out: list[Param] = []
     positive_node = _pu.find_positive_text_encoder(api)
     negative_node = _pu.find_negative_text_encoder(api)
@@ -614,6 +512,7 @@ def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
                     type=_infer_type(value),
                     roles={role},
                     tier=TIER_COMMON,
+                    flag_name=role.replace("_", "-"),
                     source_predicates=["prompt_polarity"],
                 )
             )
@@ -657,9 +556,9 @@ def _merge(into: dict[tuple[str, str], Param], candidate: Param) -> None:
         existing.options = candidate.options
 
 
-def _to_api(workflow: dict) -> tuple[dict, dict | None]:
+def _to_api(workflow: dict, *, node_mappings=None) -> tuple[dict, dict | None]:
     if is_ui_workflow(workflow):
-        return convert_ui_to_api(workflow), workflow
+        return convert_ui_to_api(workflow, node_mappings=node_mappings), workflow
     return workflow, None
 
 
@@ -667,8 +566,8 @@ def _rank(params: list[Param]) -> list[Param]:
     return sorted(params, key=lambda p: (p.tier, p.node_id, p.widget_name))
 
 
-def discover(workflow: dict) -> list[Param]:
-    api, ui = _to_api(workflow)
+def discover(workflow: dict, *, node_mappings=None) -> list[Param]:
+    api, ui = _to_api(workflow, node_mappings=node_mappings)
     candidates: dict[tuple[str, str], Param] = {}
     for _name, predicate in _PREDICATES:
         for cand in predicate(api, ui):
@@ -705,11 +604,6 @@ def apply(workflow: dict, param: Param, value: Any) -> dict:
 
 
 def format_params_text(params: list[Param], *, show_all: bool = False) -> str:
-    """Render *params* as a human-readable, tier-grouped string.
-
-    Headline and common tiers always appear; advanced tier is omitted unless
-    *show_all* is True (a footer reports how many were hidden).
-    """
     sections = [
         (TIER_HEADLINE, "Headline parameters (Set_<Name>, primitives, easy-pack)"),
         (TIER_COMMON, "Common parameters (sampler/prompt/loader/dimensions/...)"),
@@ -750,15 +644,6 @@ def apply_role(
     *,
     params: list[Param] | None = None,
 ) -> dict:
-    """Return a copy of *workflow* with every Param tagged *role* set to *value*.
-
-    Returns *workflow* unchanged when the role has no matching Param. Skips
-    targets whose widget value has been replaced by a link since discovery
-    (defensive — discover() already filters links).
-
-    Pass *params* to reuse a single ``discover()`` pass across multiple role
-    applications, e.g. ``--prompt`` + ``--seed`` in one CLI invocation.
-    """
     if is_ui_workflow(workflow):
         raise ValueError(
             "apply_role() expects an API-format workflow; call convert_ui_to_api first"

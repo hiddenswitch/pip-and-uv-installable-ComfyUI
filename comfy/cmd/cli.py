@@ -738,19 +738,8 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
 
 
 class _RunWorkflowCommand(typer.core.TyperCommand):
-    """Top-level run-workflow command with dynamic --help.
-
-    On ``--help``/``-h``, locates the workflow ref in argv, fetches it, runs
-    ``discover()``, and appends a "Workflow parameters" section to the static
-    help. The actual command body is unaffected — overriding flags still goes
-    through the existing ``--prompt``/``--seed``/``--set`` mechanism.
-    """
-
     @staticmethod
     def _extract_workflow_ref(args: list[str]) -> str | None:
-        # First non-flag, non-flag-value positional is the workflow.
-        # We don't have option metadata at this point, so use the
-        # standard "--flag=value" / "--flag value" / "-x value" heuristic.
         i = 0
         n = len(args)
         while i < n:
@@ -762,48 +751,118 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                 i += 1
                 continue
             if a == "-":
-                # stdin marker is a valid workflow ref
                 return "-"
-            if a.startswith("--"):
-                if "=" in a:
-                    i += 1
-                else:
-                    i += 2
-                continue
             if a.startswith("-") and len(a) > 1:
-                if "=" in a:
-                    i += 1
-                else:
-                    i += 2
+                i += 1 if "=" in a else 2
                 continue
             return a
         return None
+
+    @staticmethod
+    def _suggest_addons(params) -> list[tuple[str, str]]:
+        from ..component_model.prompt_utils import _MODEL_PRODUCER_CLASS_TYPES
+        if not any(p.class_type in _MODEL_PRODUCER_CLASS_TYPES for p in params):
+            return []
+        return [
+            ("--add-lora <name>[:strength]", "Splice a LoRA after the model loader"),
+            ("--compile", "Wrap the diffusion transformer in torch.compile"),
+        ]
+
+    @staticmethod
+    def _example_invocation(ref: str, params) -> str | None:
+        from ..entrypoints.workflow_params import TIER_HEADLINE
+        target = next(
+            (p for p in params if p.tier == TIER_HEADLINE and p.type in ("STRING", "INT", "FLOAT")),
+            next((p for p in params if p.tier == TIER_HEADLINE), None),
+        )
+        if target is None:
+            return None
+        return f"comfyui run-workflow {ref} --set {target.node_id}.inputs.{target.widget_name}=<value>"
 
     def parse_args(self, ctx, args):
         if "--help" in args or "-h" in args:
             ref = self._extract_workflow_ref(args)
             if ref:
-                from ..entrypoints.workflow_params import format_params_text
                 try:
                     params = _discover_from_ref(ref)
                 except Exception as exc:  # noqa: BLE001
-                    typer.echo(self.get_help(ctx))
-                    typer.echo()
                     typer.echo(f"(Could not discover workflow parameters: {exc})", err=True)
+                    typer.echo()
+                    typer.echo(self.get_help(ctx))
                     ctx.exit()
                     return
-                typer.echo(self.get_help(ctx))
-                typer.echo()
-                typer.echo("=" * 78)
-                typer.echo(f"Workflow parameters for: {ref}")
-                typer.echo("=" * 78)
-                typer.echo(format_params_text(params))
-                typer.echo()
-                typer.echo("Override any of these via:")
-                typer.echo("  --set <node_id>.inputs.<widget_name>=<value>")
-                typer.echo("Or via the standard role flags --prompt / --seed / --steps / etc.")
+                self._render_workflow_help(ctx, ref, params)
                 ctx.exit()
         return super().parse_args(ctx, args)
+
+    def _render_workflow_help(self, ctx, ref: str, params) -> None:
+        from rich import box
+        from rich.console import Console, Group
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        from ..entrypoints.workflow_params import (
+            TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE,
+        )
+
+        console = Console()
+
+        def _flag_for(p) -> str:
+            if p.flag_name:
+                return f"--{p.flag_name}"
+            return f"--set {p.node_id}.{p.widget_name}"
+
+        def _make_section(rows: list, heading: str) -> Panel | None:
+            if not rows:
+                return None
+            t = Table.grid(padding=(0, 2), expand=True)
+            t.add_column("flag", style="bold cyan", no_wrap=True)
+            t.add_column("type", style="green", no_wrap=True)
+            t.add_column("value", overflow="fold")
+            for p in rows:
+                value_repr = repr(p.value)
+                if len(value_repr) > 60:
+                    value_repr = value_repr[:57] + "..."
+                t.add_row(_flag_for(p), p.type, Text(value_repr, style="dim"))
+            return Panel(t, title=heading, title_align="left", border_style="cyan", box=box.ROUNDED)
+
+        headline_rows = [p for p in params if p.tier == TIER_HEADLINE]
+        common_rows = [p for p in params if p.tier == TIER_COMMON]
+        n_advanced = sum(1 for p in params if p.tier == TIER_ADVANCED)
+
+        rendered: list = []
+        headline_panel = _make_section(headline_rows, f"Workflow parameters — {ref}")
+        if headline_panel:
+            rendered.append(headline_panel)
+        common_panel = _make_section(common_rows, "Common parameters")
+        if common_panel:
+            rendered.append(common_panel)
+
+        # "Suggested for this workflow" panel shows applicable add-ons.
+        addons = self._suggest_addons(params)
+        if addons:
+            t = Table.grid(padding=(0, 2), expand=True)
+            t.add_column(style="bold cyan", no_wrap=True)
+            t.add_column(overflow="fold")
+            for flag, desc in addons:
+                t.add_row(flag, desc)
+            rendered.append(Panel(t, title="Suggested for this workflow", title_align="left", border_style="cyan", box=box.ROUNDED))
+
+        # Footer with hints + example
+        footer_lines = []
+        if not headline_rows and not common_rows:
+            footer_lines.append("(no parameters detected)")
+        if n_advanced:
+            footer_lines.append(f"[dim]{n_advanced} advanced params hidden — see them with: comfyui workflows params {ref} --all[/dim]")
+        example = self._example_invocation(ref, params)
+        if example:
+            footer_lines.append(f"[bold]Example:[/bold]")
+            footer_lines.append(f"  [dim]{example}[/dim]")
+        if footer_lines:
+            rendered.append(Panel("\n".join(footer_lines), border_style="cyan", box=box.ROUNDED))
+
+        console.print(Group(*rendered))
+        typer.echo(self.get_help(ctx))
 
 
 @app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows", cls=_RunWorkflowCommand)
@@ -895,12 +954,6 @@ _DISCOVER_CACHE: dict[str, list] = {}
 
 
 def _discover_from_ref(ref: str) -> list:
-    """Fetch *ref* (path/URI/'-'/literal JSON) and return ``discover()`` output.
-
-    Caches per-process by ref string so repeated --help invocations or the
-    workflows-params command don't refetch. UI workflows trigger a lazy node
-    registry boot since ``convert_ui_to_api`` needs it.
-    """
     cached = _DISCOVER_CACHE.get(ref)
     if cached is not None:
         return cached
@@ -916,21 +969,8 @@ def _discover_from_ref(ref: str) -> list:
         raise SystemExit("no workflow object found")
 
     raw = asyncio.run(_load())
-    is_ui = "nodes" in raw and "links" in raw
-    if is_ui:
-        from ..component_model.setup import setup_pre_torch, setup_post_torch
-        from ..component_model.entrypoints_common import configure_application_paths
-        config = _build_config({})
-        setup_pre_torch(config)
-        setup_post_torch(config)
-        configure_application_paths(config)
-        from ..nodes.package import import_all_nodes_in_workspace
-        import_all_nodes_in_workspace(raise_on_failure=False)
-
-    # Pass the raw workflow to discover(): UI predicates (set_node_pairs,
-    # primitive_nodes) need the UI form, so converting up-front would silence
-    # them.
-    params = discover(raw)
+    from ..nodes.package_typing import ExportedNodes
+    params = discover(raw, node_mappings=ExportedNodes())
     _DISCOVER_CACHE[ref] = params
     return params
 
