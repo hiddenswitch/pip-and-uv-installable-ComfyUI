@@ -173,9 +173,6 @@ def prepare_vanilla_environment():
         return
     from comfy.cmd import cuda_malloc, folder_paths, latent_preview, protocol
 
-    # only need to set this up once
-    _in_environment = True
-
     from comfy.distributed.executors import ContextVarExecutor
     from comfy.nodes import base_nodes
     from comfy.nodes.vanilla_node_importing import _PromptServerStub
@@ -244,6 +241,10 @@ def prepare_vanilla_environment():
         threading.Thread.start = patched_start
         setattr(threading.Thread.start, '__is_patched_by_us', True)
         logger.debug("Patched `threading.Thread.start` to propagate contextvars.")
+
+    # Set the dedup flag last so partial setup leaves the next call free to
+    # retry instead of short-circuiting and leaving sys.modules['nodes'] unset.
+    _in_environment = True
 
 
 def _is_pip_install_command(command_list) -> tuple[bool, list[str]]:
