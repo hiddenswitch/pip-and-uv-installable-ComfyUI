@@ -144,10 +144,6 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # TEMP-DISABLED: HIP error: invalid device function — runner GPU compute
-    # capability doesn't match the PyTorch ROCm wheel kernels. Re-enable when
-    # the runner image / wheel is realigned.
-    if: false
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
@@ -159,9 +155,13 @@ jobs:
       fail-fast: false
       matrix:
         runner:
+          # RX 7600 is gfx1102 (RDNA 3 / Navi 33). The gfx110X-dgpu bucket only
+          # ships kernels for gfx1100/gfx1101 (RX 7900/7800) and produces
+          # "HIP error: invalid device function" on RX 7600. gfx110X-all bundles
+          # gfx1100/1101/1102/1103 — confirmed by TheRock RELEASES.md.
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
-            friendly_name: "Python 3.12 ROCm 7.0 Torch 2.7.1"
-            container: "rocm/pytorch:rocm7.0_ubuntu24.04_py3.12_pytorch_release_2.7.1"
+            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (gfx110X-all)"
+            container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends zip unzip
@@ -171,11 +171,22 @@ jobs:
         name: Install uv
       - name: Align ROCm to Image
         run: |
-          # our testing infrastructure uses RX 7XXX GPUs, this includes express support for gfx1102, gfx1101 which will resolve crashes
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_PYTHON=/opt/venv/bin/python
           export UV_PRERELEASE=allow
-          uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ "rocm[libraries]<7.9" "torch==2.7.1+rocm7.0.0rc20250922" "torchaudio==2.7.1a0+rocm7.0.0rc20250922" "torchvision==0.22.1+rocm7.0.0rc20250922" "pytorch_triton_rocm" --pre
+          uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ torch torchvision torchaudio pytorch_triton_rocm --pre
+      - name: HIP smoke test
+        run: |
+          /opt/venv/bin/python -c "
+          import torch
+          print('hip:', torch.version.hip, 'cuda_available:', torch.cuda.is_available())
+          print('device:', torch.cuda.get_device_name(0))
+          print('arch list:', torch.cuda.get_arch_list())
+          x = torch.randn(2, 2, device='cuda')
+          y = (x + x).sum()
+          torch.cuda.synchronize()
+          print('ok:', y.item())
+          "
       - uses: actions/checkout@v4
         name: Checkout git repo
         with:
