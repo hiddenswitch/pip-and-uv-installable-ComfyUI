@@ -549,3 +549,40 @@ def apply(workflow: dict, param: Param, value: Any) -> dict:
     inputs = node.setdefault("inputs", {})
     inputs[param.widget_name] = value
     return out
+
+
+def apply_role(
+    workflow: dict,
+    role: str,
+    value: Any,
+    *,
+    params: list[Param] | None = None,
+) -> dict:
+    """Return a copy of *workflow* with every Param tagged *role* set to *value*.
+
+    Returns *workflow* unchanged when the role has no matching Param. Skips
+    targets whose widget value has been replaced by a link since discovery
+    (defensive — discover() already filters links).
+
+    Pass *params* to reuse a single ``discover()`` pass across multiple role
+    applications, e.g. ``--prompt`` + ``--seed`` in one CLI invocation.
+    """
+    if is_ui_workflow(workflow):
+        raise ValueError(
+            "apply_role() expects an API-format workflow; call convert_ui_to_api first"
+        )
+    if params is None:
+        params = discover(workflow)
+    matches = params_by_role(params, role)
+    if not matches:
+        return workflow
+    out = copy.deepcopy(workflow)
+    for p in matches:
+        node = out.get(p.node_id)
+        if not isinstance(node, dict):
+            continue
+        inputs = node.setdefault("inputs", {})
+        if _is_link(inputs.get(p.widget_name)):
+            continue
+        inputs[p.widget_name] = value
+    return out

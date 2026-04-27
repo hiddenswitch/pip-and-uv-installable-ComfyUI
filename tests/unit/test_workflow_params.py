@@ -23,6 +23,7 @@ from comfy.entrypoints.workflow_params import (
     TIER_COMMON,
     TIER_HEADLINE,
     apply,
+    apply_role,
     class_type_roles,
     discover,
     easy_pack_nodes,
@@ -399,6 +400,78 @@ def test_set_node_pairs_slugifies_complex_names():
     api = {"1": {"class_type": "Foo", "inputs": {"v": 1}}}
     out = list(set_node_pairs(api, ui))
     assert out and out[0].roles == {"set:my_cool_name"}
+
+
+# ── synthetic unit tests: apply_role ──────────────────────────────────────────
+
+
+def test_apply_role_writes_to_every_param_with_role():
+    api = {
+        "3": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}},
+        "5": {"class_type": "RandomNoise", "inputs": {"noise_seed": 2}},
+    }
+    out = apply_role(api, "seed", 999)
+    assert out["3"]["inputs"]["seed"] == 999
+    assert out["5"]["inputs"]["noise_seed"] == 999
+    # other widgets untouched
+    assert out["3"]["inputs"]["steps"] == 20
+
+
+def test_apply_role_returns_input_unchanged_when_no_match():
+    api = dict([_api("1", "Foo", x=1)])
+    out = apply_role(api, "seed", 999)
+    assert out is api  # short-circuit when nothing to do
+
+
+def test_apply_role_does_not_mutate_input():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+    out = apply_role(api, "seed", 999)
+    assert api["3"]["inputs"]["seed"] == 1
+    assert out["3"]["inputs"]["seed"] == 999
+
+
+def test_apply_role_rejects_ui_format():
+    ui = {"nodes": [], "links": []}
+    with pytest.raises(ValueError, match="API-format"):
+        apply_role(ui, "seed", 1)
+
+
+def test_apply_role_reuses_caller_supplied_params_list():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}}}
+    params = discover(api)
+    # Apply two roles back-to-back without re-running discover
+    out = apply_role(api, "seed", 42, params=params)
+    out = apply_role(out, "steps", 100, params=params)
+    assert out["3"]["inputs"]["seed"] == 42
+    assert out["3"]["inputs"]["steps"] == 100
+
+
+def test_apply_role_matches_replace_seed_behavior():
+    """Regression: apply_role('seed', N) is equivalent to prompt_utils.replace_seed(N)."""
+    from comfy.component_model.prompt_utils import replace_seed
+    api = {
+        "3": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}},
+        "5": {"class_type": "RandomNoise", "inputs": {"noise_seed": 2}},
+    }
+    assert apply_role(api, "seed", 999) == replace_seed(api, 999)
+
+
+def test_apply_role_matches_replace_steps_behavior():
+    from comfy.component_model.prompt_utils import replace_steps
+    api = {
+        "3": {"class_type": "KSampler", "inputs": {"steps": 20, "cfg": 8}},
+        "9": {"class_type": "BasicScheduler", "inputs": {"steps": 30, "denoise": 1.0}},
+    }
+    assert apply_role(api, "steps", 50) == replace_steps(api, 50)
+
+
+def test_apply_role_prompt_matches_replace_prompt_text_when_text_encoder_present():
+    from comfy.component_model.prompt_utils import replace_prompt_text
+    api = {
+        "3": {"class_type": "KSampler", "inputs": {"positive": ["6", 0]}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "old"}},
+    }
+    assert apply_role(api, "prompt", "new") == replace_prompt_text(api, "new")
 
 
 # ── synthetic unit tests: primitive_nodes ─────────────────────────────────────

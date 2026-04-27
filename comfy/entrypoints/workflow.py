@@ -54,41 +54,44 @@ def _apply_sets(obj: dict, sets: list[str]) -> dict:
 
 
 def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
+    # Simple value-set overrides funnel through workflow_params.apply_role:
+    # one discover() pass tags every relevant widget, then each --flag writes
+    # to whatever Params carry the matching role. The class-type tables that
+    # used to live in prompt_utils.replace_* still drive role tagging via
+    # workflow_params.class_type_roles + prompt_polarity, so behavior is
+    # preserved.
+    #
+    # Media (--image/--video/--audio) needs a class_type rewrite for filesystem
+    # loaders → URL loaders, and add_loras/enable_compile splice new nodes
+    # into the graph; both stay bespoke.
     from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
-        replace_prompt_text, replace_negative_prompt_text,
-        replace_steps, replace_seed,
         replace_images, replace_videos, replace_audios,
-        replace_cfg, replace_sampler, replace_scheduler, replace_denoise,
-        replace_width, replace_height, replace_batch_size, replace_checkpoint,
-        replace_diffusion_model, add_loras, enable_compile,
+        add_loras, enable_compile,
     )
+    from .workflow_params import apply_role, discover
 
-    if configuration.prompt is not None:
-        obj = replace_prompt_text(obj, configuration.prompt)
-    if configuration.negative_prompt is not None:
-        obj = replace_negative_prompt_text(obj, configuration.negative_prompt)
-    if configuration.steps is not None:
-        obj = replace_steps(obj, configuration.steps)
-    if configuration.seed is not None:
-        obj = replace_seed(obj, configuration.seed)
-    if configuration.cfg is not None:
-        obj = replace_cfg(obj, configuration.cfg)
-    if configuration.sampler is not None:
-        obj = replace_sampler(obj, configuration.sampler)
-    if configuration.scheduler is not None:
-        obj = replace_scheduler(obj, configuration.scheduler)
-    if configuration.denoise is not None:
-        obj = replace_denoise(obj, configuration.denoise)
-    if configuration.width is not None:
-        obj = replace_width(obj, configuration.width)
-    if configuration.height is not None:
-        obj = replace_height(obj, configuration.height)
-    if configuration.batch_size is not None:
-        obj = replace_batch_size(obj, configuration.batch_size)
-    if configuration.checkpoint is not None:
-        obj = replace_checkpoint(obj, configuration.checkpoint)
-    if configuration.diffusion_model is not None:
-        obj = replace_diffusion_model(obj, configuration.diffusion_model)
+    role_overrides: list[tuple[str, object]] = [
+        ("prompt", configuration.prompt),
+        ("negative_prompt", configuration.negative_prompt),
+        ("steps", configuration.steps),
+        ("seed", configuration.seed),
+        ("cfg", configuration.cfg),
+        ("sampler", configuration.sampler),
+        ("scheduler", configuration.scheduler),
+        ("denoise", configuration.denoise),
+        ("width", configuration.width),
+        ("height", configuration.height),
+        ("batch_size", configuration.batch_size),
+        ("checkpoint", configuration.checkpoint),
+        ("unet", configuration.diffusion_model),
+    ]
+    if any(value is not None for _, value in role_overrides):
+        params = discover(obj)
+        for role, value in role_overrides:
+            if value is None:
+                continue
+            obj = apply_role(obj, role, value, params=params)
+
     if configuration.image is not None:
         obj = replace_images(obj, configuration.image)
     if configuration.video is not None:
