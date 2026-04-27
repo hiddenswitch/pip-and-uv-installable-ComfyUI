@@ -792,6 +792,44 @@ def test_real_workflow(name: str):
 # Case-specific assertions that don't fit the sidecar schema go here as plain
 # tests. Keep them thin and named after what they verify.
 
+def _collect_builtin_templates() -> list:
+    import glob
+    paths = []
+    for d in glob.glob(
+        "/home/administrator/Documents/appmana/.venv/lib/python3.12/site-packages/comfyui_workflow_templates_*/templates/"
+    ):
+        for p in sorted(Path(d).glob("*.json")):
+            try:
+                wf = json.loads(p.read_text())
+            except Exception:
+                continue
+            is_ui = isinstance(wf, dict) and "nodes" in wf and "links" in wf
+            is_api = (
+                isinstance(wf, dict)
+                and wf
+                and all(isinstance(v, dict) and "class_type" in v for v in wf.values())
+            )
+            if is_ui or is_api:
+                paths.append(p)
+    return [pytest.param(p, id=p.stem) for p in paths]
+
+
+@pytest.mark.parametrize("path", _collect_builtin_templates())
+def test_builtin_templates_smoke(path: Path):
+    workflow = json.loads(path.read_text())
+    from comfy.nodes.package_typing import ExportedNodes
+    params = discover(workflow, node_mappings=ExportedNodes())
+
+    from comfy.entrypoints.workflow_params import _is_link, _to_api
+    api, _ = _to_api(workflow, node_mappings=ExportedNodes())
+    for p in params:
+        assert p.node_id in api, f"{path.name}: param node {p.node_id!r} missing from API workflow"
+        assert p.widget_name in (api[p.node_id].get("inputs") or {}), (
+            f"{path.name}: widget {p.widget_name!r} missing on node {p.node_id} ({p.class_type})"
+        )
+        assert not _is_link(p.value), f"{path.name}: param {p.address} has link value"
+
+
 def test_yt_bgswap_v01_image_loader_is_loadimage_node_42():
     workflow = _load_workflow("yt_bgswap_v01")
     params = discover(workflow)
