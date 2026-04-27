@@ -51,8 +51,9 @@ class FolderPathsTuple:
 
     @supported_extensions.setter
     def supported_extensions(self, value: set[str] | SupportedExtensions):
+        materialized = set() if value is None else set(value)
         self.supported_extensions.clear()
-        self.supported_extensions.update(value)
+        self.supported_extensions.update(materialized)
 
     @property
     def paths(self) -> list[str] | PathsList:
@@ -155,7 +156,10 @@ class SupportedExtensions:
         self._append_any(other)
         return self
 
-    __ior__ = _append_any
+    def __ior__(self, other):
+        self._append_any(other)
+        return self
+
     add = _append_any
     update = _append_any
 
@@ -279,9 +283,8 @@ class FolderNames:
     def supported_extensions(self, folder_name: str) -> typing.Generator[str]:
         for candidate in self.contents:
             if candidate.has_folder_name(folder_name):
-                for supported_extensions in candidate.supported_extensions:
-                    for supported_extension in supported_extensions:
-                        yield supported_extension
+                for supported_extension in candidate.supported_extensions:
+                    yield supported_extension
 
     def directory_paths(self, folder_name: str) -> typing.Generator[Path]:
         for directory_path in itertools.chain.from_iterable([candidate.directory_paths(self.base_paths)

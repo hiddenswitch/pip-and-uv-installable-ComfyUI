@@ -410,7 +410,7 @@ def add_model_folder_path(folder_name, full_folder_path: Optional[str] = None, e
                 folder_path.paths.append(full_folder_path)
 
     if extensions is not None:
-        folder_path.supported_extensions |= extensions
+        folder_path.supported_extensions.update(extensions)
 
     return full_folder_path
 
