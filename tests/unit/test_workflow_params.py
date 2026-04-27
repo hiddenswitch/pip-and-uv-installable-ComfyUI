@@ -681,6 +681,56 @@ def test_promoted_widgets_metadata_returns_empty_when_no_promotion_block():
     assert list(promoted_widgets_metadata(api, {"nodes": [], "links": []})) == []
 
 
+# ── synthetic unit tests: _unbypass_extra_loaders ─────────────────────────────
+
+
+def test_unbypass_extra_loaders_flips_enough_mode4_nodes_to_meet_target():
+    from comfy.entrypoints.workflow import _unbypass_extra_loaders
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "LoadImage", "mode": 0},
+            {"id": 2, "type": "LoadImage", "mode": 4},
+            {"id": 3, "type": "LoadImage", "mode": 4},
+            {"id": 4, "type": "LoadImage", "mode": 4},
+        ],
+        links=[],
+    )
+    out = _unbypass_extra_loaders(ui, "images", target_count=3)
+    modes = [n["mode"] for n in out["nodes"]]
+    # First active stays mode 0, two more flip to 0, fourth stays bypassed.
+    assert modes.count(0) == 3
+    assert modes.count(4) == 1
+
+
+def test_unbypass_extra_loaders_no_op_when_active_already_sufficient():
+    from comfy.entrypoints.workflow import _unbypass_extra_loaders
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "LoadImage", "mode": 0},
+            {"id": 2, "type": "LoadImage", "mode": 0},
+            {"id": 3, "type": "LoadImage", "mode": 4},
+        ],
+        links=[],
+    )
+    out = _unbypass_extra_loaders(ui, "images", target_count=2)
+    assert out is ui  # short-circuit
+
+
+def test_unbypass_extra_loaders_targets_only_requested_kind():
+    from comfy.entrypoints.workflow import _unbypass_extra_loaders
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "LoadImage", "mode": 0},
+            {"id": 2, "type": "VHS_LoadVideoFFmpeg", "mode": 4},
+        ],
+        links=[],
+    )
+    out = _unbypass_extra_loaders(ui, "images", target_count=2)
+    # Video loader's mode untouched
+    video = next(n for n in out["nodes"] if n["type"] == "VHS_LoadVideoFFmpeg")
+    assert video["mode"] == 4
+
+
 # ── synthetic unit tests: count_input_slots ───────────────────────────────────
 
 

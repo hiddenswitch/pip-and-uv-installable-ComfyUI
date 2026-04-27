@@ -23,6 +23,50 @@ def _ensure_api_format(obj: dict) -> dict:
     return convert_ui_to_api(obj)
 
 
+def _unbypass_extra_loaders(ui: dict, kind: str, target_count: int) -> dict:
+    """Un-bypass enough mode==4 loader nodes so total active >= *target_count*.
+
+    Lets ``--image x --image y --image z`` extend a single-image workflow
+    with bypassed optional inputs (Kontext / Kling / Luma I2V style) without
+    requiring the user to manually flip mode flags.
+    """
+    from .workflow_params import (
+        _IMAGE_INPUT_CLASSES, _VIDEO_INPUT_CLASSES, _AUDIO_INPUT_CLASSES,
+    )
+    classes = {
+        "images": _IMAGE_INPUT_CLASSES,
+        "videos": _VIDEO_INPUT_CLASSES,
+        "audios": _AUDIO_INPUT_CLASSES,
+    }[kind]
+
+    nodes = ui.get("nodes") or []
+    active = sum(1 for n in nodes if n.get("type") in classes and n.get("mode", 0) not in (2, 4))
+    if active >= target_count:
+        return ui
+    needed = target_count - active
+
+    import copy as _copy
+    ui = _copy.deepcopy(ui)
+    for node in ui.get("nodes") or []:
+        if needed <= 0:
+            break
+        if node.get("type") in classes and node.get("mode") == 4:
+            node["mode"] = 0
+            needed -= 1
+    return ui
+
+
+def _apply_ui_pre_overrides(ui: dict, configuration: Configuration) -> dict:
+    """Apply UI-side overrides that need to run before convert_ui_to_api."""
+    if configuration.image:
+        ui = _unbypass_extra_loaders(ui, "images", len(configuration.image))
+    if configuration.video:
+        ui = _unbypass_extra_loaders(ui, "videos", len(configuration.video))
+    if configuration.audio:
+        ui = _unbypass_extra_loaders(ui, "audios", len(configuration.audio))
+    return ui
+
+
 def _apply_sets(obj: dict, sets: list[str]) -> dict:
     import copy as _copy
     if not sets:
@@ -130,6 +174,8 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
         for workflow in resolved:
             obj: dict
             async for obj in stream_json_objects(workflow):
+                if is_ui_workflow(obj):
+                    obj = _apply_ui_pre_overrides(obj, configuration)
                 obj = _ensure_api_format(obj)
                 obj = _apply_overrides(obj, configuration)
                 try:
