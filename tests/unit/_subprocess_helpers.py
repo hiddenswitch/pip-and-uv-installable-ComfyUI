@@ -48,7 +48,9 @@ class _DrainingProcess:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,  # line-buffered — every log line flushes
+            bufsize=1,
+            encoding="utf-8",
+            errors="replace",
         )
         # deque with a maxlen drops old lines without blocking — we don't
         # want to grow unboundedly for a long-running server.

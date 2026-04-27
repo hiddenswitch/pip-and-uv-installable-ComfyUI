@@ -179,10 +179,11 @@ Repository = "https://github.com/comfyanonymous/ComfyUI"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# --tb=long so tracebacks from CI failures are self-contained; unit tests
-# should be fast enough that default pytest output stays manageable.
 addopts = "-W ignore --no-header -q -p no:logging --tb=long"
 asyncio_mode = "auto"
+timeout = 300
+timeout_method = "thread"
+faulthandler_timeout = 600
 filterwarnings = [
     "ignore",
 ]

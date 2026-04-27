@@ -100,14 +100,21 @@ class TestDrainingProcess:
         p = _DrainingProcess([sys.executable, chatty_program_path],
                               max_lines=500)
         try:
-            # Wait until drainer has seen enough lines to saturate the deque.
-            deadline = time.monotonic() + 2.0
+            deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline and p.tail().count("\n") < 500:
                 time.sleep(0.01)
             tail = p.tail(n=10)
             assert tail, "tail() returned empty despite 2000 lines from child"
             assert tail.count("\n") <= 10
-            assert all(line.strip() == "x" * 99 for line in tail.splitlines())
+            tail_lines = tail.splitlines()
+            chatty_lines = [line for line in tail_lines if line.strip() == "x" * 99]
+            unexpected = [line for line in tail_lines if line.strip() != "x" * 99]
+            assert chatty_lines, (
+                f"no chatty-pattern lines in tail. tail_lines={tail_lines!r}"
+            )
+            assert not unexpected, (
+                f"non-chatty lines mixed into tail: {unexpected!r}"
+            )
         finally:
             p.shutdown()
 

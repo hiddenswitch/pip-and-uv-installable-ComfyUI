@@ -17,7 +17,10 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
-    container: ${{ matrix.runner.container }}
+    timeout-minutes: 90
+    container:
+      image: ${{ matrix.runner.container }}
+      options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
@@ -143,7 +146,10 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
-    container: ${{ matrix.runner.container }}
+    timeout-minutes: 90
+    container:
+      image: ${{ matrix.runner.container }}
+      options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
@@ -229,7 +235,10 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
-    container: ${{ matrix.runner.container }}
+    timeout-minutes: 90
+    container:
+      image: ${{ matrix.runner.container }}
+      options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
@@ -314,6 +323,7 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
+    timeout-minutes: 90
     container:
       image: ${{ matrix.runner.container }}
     strategy:
@@ -388,6 +398,7 @@ jobs:
     environment: "Testing"
     name: macOS Installation Tests
     runs-on: macos-14
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         name: Checkout git repo

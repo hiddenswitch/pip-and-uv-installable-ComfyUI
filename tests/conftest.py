@@ -1,3 +1,4 @@
+import faulthandler
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ import requests
 import sys
 import time
 import fsspec
+
+faulthandler.enable()
 
 os.environ['OTEL_METRICS_EXPORTER'] = 'none'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
