@@ -41,10 +41,11 @@ jobs:
             friendly_name: "Python 3.10 CUDA 12.6.2 PyTorch 2.5.0"
             container: "nvcr.io/nvidia/pytorch:24.10-py3"
             stable_abi_cuda: ""
-          - labels: [self-hosted, linux, X64, cuda-3090-24gb]
-            friendly_name: "Python 3.10 CUDA 12.3.2 PyTorch 2.2.0"
-            container: "nvcr.io/nvidia/pytorch:23.12-py3"
-            stable_abi_cuda: ""
+          # TEMP-DISABLED: Initialize containers fails on this image — re-enable when fixed.
+          # - labels: [self-hosted, linux, X64, cuda-3090-24gb]
+          #   friendly_name: "Python 3.10 CUDA 12.3.2 PyTorch 2.2.0"
+          #   container: "nvcr.io/nvidia/pytorch:23.12-py3"
+          #   stable_abi_cuda: ""
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends libxcb1 zip unzip
@@ -143,6 +144,10 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
+    # TEMP-DISABLED: HIP error: invalid device function — runner GPU compute
+    # capability doesn't match the PyTorch ROCm wheel kernels. Re-enable when
+    # the runner image / wheel is realigned.
+    if: false
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
@@ -320,6 +325,9 @@ jobs:
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
   build_and_execute_windows_nvidia:
+    # TEMP-DISABLED: Initialize containers fails on this Windows runner
+    # image. Re-enable once the runner image is fixed.
+    if: false
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
