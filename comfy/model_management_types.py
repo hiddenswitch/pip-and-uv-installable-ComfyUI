@@ -184,6 +184,12 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
 
     def model_dtype(self) -> torch.dtype: ...
 
+    def model_mmap_residency(self, free: bool = False) -> tuple[int, int]: ...
+
+    def pinned_memory_size(self) -> int: ...
+
+    def partially_unload_ram(self, ram_to_unload: int): ...
+
     def lowvram_patch_counter(self) -> int: ...
 
     def partially_load(self, device_to: torch.device, extra_memory: int = 0, force_patch_weights: bool = False) -> int:  ...
@@ -288,6 +294,19 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
 
     def model_dtype(self) -> torch.dtype:
         return next(self.model.parameters()).dtype
+
+    @override
+    def model_mmap_residency(self, free: bool = False) -> tuple[int, int]:
+        from .model_management import module_mmap_residency
+        return module_mmap_residency(self.model, free=free)
+
+    @override
+    def pinned_memory_size(self) -> int:
+        return 0
+
+    @override
+    def partially_unload_ram(self, ram_to_unload: int):
+        pass
 
     def lowvram_patch_counter(self) -> int:
         """
