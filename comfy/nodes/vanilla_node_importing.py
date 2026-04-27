@@ -659,4 +659,11 @@ def mitigated_import_of_vanilla_custom_nodes(extra_node_paths: Iterable[str] = (
     node_paths = frozenset(abspath(custom_node_path) for custom_node_path in node_paths)
     _vanilla_load_importing_execute_prestartup_script(node_paths)
     vanilla_custom_nodes = _vanilla_load_custom_nodes_2(node_paths)
+
+    try:
+        from comfy_compatibility.vhs_fsspec import apply_vhs_fsspec_patch
+        apply_vhs_fsspec_patch()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("VHS fsspec patch skipped: %s", exc)
+
     return vanilla_custom_nodes
