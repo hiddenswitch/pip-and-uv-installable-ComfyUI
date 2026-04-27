@@ -785,24 +785,25 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             if ref:
                 try:
                     params = _discover_from_ref(ref)
+                    raw_workflow = _DISCOVER_RAW_CACHE.get(ref)
                 except Exception as exc:  # noqa: BLE001
                     typer.echo(f"(Could not discover workflow parameters: {exc})", err=True)
                     typer.echo()
                     typer.echo(self.get_help(ctx))
                     ctx.exit()
                     return
-                self._render_workflow_help(ctx, ref, params)
+                self._render_workflow_help(ctx, ref, params, raw_workflow)
                 ctx.exit()
         return super().parse_args(ctx, args)
 
-    def _render_workflow_help(self, ctx, ref: str, params) -> None:
+    def _render_workflow_help(self, ctx, ref: str, params, raw_workflow: dict | None = None) -> None:
         from rich import box
         from rich.console import Console, Group
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
         from ..entrypoints.workflow_params import (
-            TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE,
+            TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE, count_input_slots,
         )
 
         console = Console()
@@ -831,6 +832,29 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         n_advanced = sum(1 for p in params if p.tier == TIER_ADVANCED)
 
         rendered: list = []
+
+        # Inputs summary: how many images/videos/audios this workflow accepts.
+        if raw_workflow is not None:
+            counts = count_input_slots(raw_workflow)
+            input_lines = []
+            for kind, flag in (("images", "--image"), ("videos", "--video"), ("audios", "--audio")):
+                active, total = counts[kind]
+                if total == 0:
+                    continue
+                qualifier = f"up to {total}" if total > 1 else "1"
+                bypass_note = f" ({total - active} optional)" if total > active else ""
+                input_lines.append(
+                    f"  [bold cyan]{flag}[/bold cyan]   {qualifier} {kind}{bypass_note}"
+                )
+            if input_lines:
+                rendered.append(Panel(
+                    "\n".join(input_lines),
+                    title="Inputs",
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                ))
+
         headline_panel = _make_section(headline_rows, f"Workflow parameters — {ref}")
         if headline_panel:
             rendered.append(headline_panel)
@@ -951,6 +975,7 @@ def run_workflow(
 
 
 _DISCOVER_CACHE: dict[str, list] = {}
+_DISCOVER_RAW_CACHE: dict[str, dict] = {}
 
 
 def _discover_from_ref(ref: str) -> list:
@@ -972,6 +997,7 @@ def _discover_from_ref(ref: str) -> list:
     from ..nodes.package_typing import ExportedNodes
     params = discover(raw, node_mappings=ExportedNodes())
     _DISCOVER_CACHE[ref] = params
+    _DISCOVER_RAW_CACHE[ref] = raw
     return params
 
 

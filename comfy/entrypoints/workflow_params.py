@@ -486,70 +486,60 @@ def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
-_OPTIONAL_INPUT_CLASSES = frozenset({
-    "LoadImage", "LoadVideo", "LoadAudio",
-    "LoadImageFromURL", "LoadVideoFromURL", "LoadAudioFromURL",
-    "VHS_LoadVideo", "VHS_LoadVideoFFmpeg", "VHS_LoadAudio",
-    "ImageRequestParameter", "VideoRequestParameter", "AudioRequestParameter",
-    "BatchImagesNode",
-    "GeminiInputFiles", "OpenAIInputFiles",
+_IMAGE_INPUT_CLASSES = frozenset(_pu._IMAGE_LOAD_CLASS_TYPES) | frozenset({
+    "BatchImagesNode", "GeminiInputFiles", "OpenAIInputFiles",
     "LumaReferenceNode", "LumaConceptsNode",
     "MeshyTextureNode", "MeshyAnimateModelNode", "MeshyRefineNode",
 })
+_VIDEO_INPUT_CLASSES = frozenset(_pu._VIDEO_LOAD_CLASS_TYPES) | frozenset({
+    "VHS_LoadVideo", "VHS_LoadVideoFFmpeg",
+})
+_AUDIO_INPUT_CLASSES = frozenset(_pu._AUDIO_LOAD_CLASS_TYPES) | frozenset({
+    "VHS_LoadAudio",
+})
 
 
-def bypassed_optional_inputs(api: dict, ui: dict | None) -> list[Param]:
-    if ui is None:
-        return []
-    out: list[Param] = []
-    for node in ui.get("nodes") or []:
-        if node.get("mode") != 4:
-            continue
-        node_type = node.get("type") or ""
-        if node_type not in _OPTIONAL_INPUT_CLASSES:
-            continue
-        nid = str(node.get("id"))
-        title = node.get("title") or node_type
-        slug = _slug(title) or _slug(node_type) or f"node_{nid}"
+def count_input_slots(workflow: dict) -> dict[str, tuple[int, int]]:
+    """Return ``{kind: (active, total)}`` for image/video/audio loader nodes.
 
-        widgets_values = node.get("widgets_values")
-        widget_names_ordered: list[str] = []
-        for inp in node.get("inputs") or []:
-            widget = inp.get("widget")
-            if isinstance(widget, dict):
-                name = widget.get("name") or inp.get("name")
-                if isinstance(name, str):
-                    widget_names_ordered.append(name)
+    Reads the UI workflow when available so bypassed (mode==4) loaders count
+    toward ``total``. For API-format workflows, ``active == total``.
+    """
+    active = {"images": 0, "videos": 0, "audios": 0}
+    total = {"images": 0, "videos": 0, "audios": 0}
 
-        widget_dict: dict = {}
-        if isinstance(widgets_values, dict):
-            widget_dict = dict(widgets_values)
-        elif isinstance(widgets_values, list):
-            for i, name in enumerate(widget_names_ordered):
-                if i < len(widgets_values):
-                    widget_dict[name] = widgets_values[i]
-
-        if not widget_dict:
-            widget_dict = {"value": None}
-
-        for widget_name, value in widget_dict.items():
-            if _is_link(value):
-                continue
-            out.append(
-                Param(
-                    node_id=nid,
-                    class_type=node_type,
-                    widget_name=widget_name,
-                    value=value,
-                    type=_infer_type(value),
-                    roles={"bypassed", f"optional:{slug}"},
-                    tier=TIER_HEADLINE,
-                    flag_name=f"enable-{_kebab(slug)}-{_kebab(widget_name)}",
-                    label=f"{title} (currently bypassed)",
-                    source_predicates=["bypassed_optional_inputs"],
-                )
+    if isinstance(workflow, dict) and "nodes" in workflow and "links" in workflow:
+        for node in workflow.get("nodes") or []:
+            ntype = node.get("type") or ""
+            mode = node.get("mode", 0)
+            kind = (
+                "images" if ntype in _IMAGE_INPUT_CLASSES
+                else "videos" if ntype in _VIDEO_INPUT_CLASSES
+                else "audios" if ntype in _AUDIO_INPUT_CLASSES
+                else None
             )
-    return out
+            if kind is None:
+                continue
+            total[kind] += 1
+            if mode not in (2, 4):
+                active[kind] += 1
+    else:
+        for node in (workflow or {}).values():
+            if not isinstance(node, dict):
+                continue
+            ctype = node.get("class_type") or ""
+            kind = (
+                "images" if ctype in _IMAGE_INPUT_CLASSES
+                else "videos" if ctype in _VIDEO_INPUT_CLASSES
+                else "audios" if ctype in _AUDIO_INPUT_CLASSES
+                else None
+            )
+            if kind is None:
+                continue
+            total[kind] += 1
+            active[kind] += 1
+
+    return {k: (active[k], total[k]) for k in active}
 
 
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
@@ -598,7 +588,6 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("titled_nodes", titled_nodes),
     ("workflow_extra_metadata", workflow_extra_metadata),
     ("promoted_widgets_metadata", promoted_widgets_metadata),
-    ("bypassed_optional_inputs", bypassed_optional_inputs),
 ]
 
 
