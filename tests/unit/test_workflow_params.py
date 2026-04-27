@@ -29,6 +29,7 @@ from comfy.entrypoints.workflow_params import (
     params_by_address,
     params_by_role,
     prompt_polarity,
+    set_node_pairs,
 )
 
 
@@ -301,6 +302,103 @@ def test_prompt_polarity_emits_nothing_when_no_text_encoder():
     assert list(prompt_polarity(api, None)) == []
 
 
+# ── synthetic unit tests: set_node_pairs ──────────────────────────────────────
+
+
+def _ui(nodes: list[dict], links: list[list]) -> dict:
+    return {"nodes": nodes, "links": links}
+
+
+def test_set_node_pairs_tags_upstream_widgets_at_headline_tier():
+    api = {
+        "11": {
+            "class_type": "VHS_LoadVideoFFmpeg",
+            "inputs": {"video": "AstronautWalking2.mp4", "force_rate": 16},
+        },
+        "64": {"class_type": "SetNode", "inputs": {}},
+    }
+    ui = _ui(
+        nodes=[
+            {"id": 11, "type": "VHS_LoadVideoFFmpeg",
+             "outputs": [{"name": "IMAGE", "links": [100]}]},
+            {"id": 64, "type": "SetNode", "title": "Set_Input_Video",
+             "inputs": [{"name": "*", "link": 100}], "widgets_values": ["Input_Video"]},
+        ],
+        links=[[100, 11, 0, 64, 0, "IMAGE"]],
+    )
+    out = list(set_node_pairs(api, ui))
+    assert all(p.tier == TIER_HEADLINE for p in out)
+    assert {p.widget_name for p in out} == {"video", "force_rate"}
+    assert all(p.roles == {"set:input_video"} for p in out)
+    assert all(p.node_id == "11" for p in out)
+
+
+def test_set_node_pairs_skips_when_ui_missing():
+    api = {"1": {"class_type": "Foo", "inputs": {"x": 1}}}
+    assert list(set_node_pairs(api, ui=None)) == []
+
+
+def test_set_node_pairs_ignores_non_set_titles():
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "VHS_LoadVideoFFmpeg",
+             "outputs": [{"name": "IMAGE", "links": [9]}]},
+            {"id": 2, "type": "SetNode", "title": "MyNode",
+             "inputs": [{"name": "*", "link": 9}], "widgets_values": ["X"]},
+        ],
+        links=[[9, 1, 0, 2, 0, "IMAGE"]],
+    )
+    api = {"1": {"class_type": "VHS_LoadVideoFFmpeg", "inputs": {"video": "x.mp4"}}}
+    assert list(set_node_pairs(api, ui)) == []
+
+
+def test_set_node_pairs_skips_when_input_link_missing():
+    ui = _ui(
+        nodes=[
+            {"id": 2, "type": "SetNode", "title": "Set_Foo",
+             "inputs": [{"name": "*", "link": None}]},
+        ],
+        links=[],
+    )
+    assert list(set_node_pairs({}, ui)) == []
+
+
+def test_set_node_pairs_skips_when_source_widget_is_a_link():
+    """The source's own connected inputs (links) should not be promoted."""
+    api = {
+        "1": {
+            "class_type": "VHS_LoadVideoFFmpeg",
+            "inputs": {"video": "x.mp4", "image_input": ["99", 0]},
+        },
+        "2": {"class_type": "SetNode", "inputs": {}},
+    }
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "VHS_LoadVideoFFmpeg",
+             "outputs": [{"name": "IMAGE", "links": [10]}]},
+            {"id": 2, "type": "SetNode", "title": "Set_Foo",
+             "inputs": [{"name": "*", "link": 10}], "widgets_values": ["Foo"]},
+        ],
+        links=[[10, 1, 0, 2, 0, "IMAGE"]],
+    )
+    out = list(set_node_pairs(api, ui))
+    assert {p.widget_name for p in out} == {"video"}
+
+
+def test_set_node_pairs_slugifies_complex_names():
+    ui = _ui(
+        nodes=[
+            {"id": 1, "type": "Foo", "outputs": [{"name": "x", "links": [1]}]},
+            {"id": 2, "type": "SetNode", "title": "Set_My-Cool Name!",
+             "inputs": [{"name": "*", "link": 1}], "widgets_values": ["x"]},
+        ],
+        links=[[1, 1, 0, 2, 0, "X"]],
+    )
+    api = {"1": {"class_type": "Foo", "inputs": {"v": 1}}}
+    out = list(set_node_pairs(api, ui))
+    assert out and out[0].roles == {"set:my_cool_name"}
+
+
 # ── synthetic unit tests: discover() merges roles across predicates ───────────
 
 
@@ -420,3 +518,33 @@ def test_yt_bgswap_v01_image_loader_is_loadimage_node_42():
     assert len(image_inputs) == 1
     assert image_inputs[0].node_id == "42"
     assert image_inputs[0].class_type == "LoadImage"
+
+
+def test_yt_bgswap_v01_set_node_pairs_promote_named_variables_to_headline():
+    """Set_Model, Set_Prompt, Set_VAE, Set_CLIP, Set_VideoIn each bless their
+    upstream loader/encoder node, which lands them at headline tier with a
+    set:<name> role. The exact source nodes are baked into the workflow:
+    Set_Model←6 (WanVideoModelLoader), Set_VAE←8 (WanVideoVAELoader),
+    Set_CLIP←7 (LoadWanVideoT5TextEncoder), Set_VideoIn←11 (VHS_LoadVideoFFmpeg),
+    Set_Prompt←73 (WanVideoTextEncode).
+    """
+    workflow = _load_workflow("yt_bgswap_v01")
+    params = discover(workflow)
+
+    expected = {
+        "set:model":    ("6",  "WanVideoModelLoader"),
+        "set:vae":      ("8",  "WanVideoVAELoader"),
+        "set:clip":     ("7",  "LoadWanVideoT5TextEncoder"),
+        "set:videoin":  ("11", "VHS_LoadVideoFFmpeg"),
+        "set:prompt":   ("73", "WanVideoTextEncode"),
+    }
+    for role, (expected_node_id, expected_class) in expected.items():
+        matches = params_by_role(params, role)
+        assert matches, f"role {role!r} has no params"
+        assert all(p.tier == TIER_HEADLINE for p in matches), (
+            f"role {role!r} should be headline tier"
+        )
+        assert all(p.node_id == expected_node_id for p in matches), (
+            f"role {role!r} should target node {expected_node_id} ({expected_class})"
+        )
+        assert all(p.class_type == expected_class for p in matches)

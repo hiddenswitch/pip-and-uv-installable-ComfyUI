@@ -197,6 +197,86 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+def _slug(name: str) -> str:
+    """Lowercase, ASCII-safe form of a Set_/title fragment used for role keys."""
+    out = []
+    for ch in name:
+        if ch.isalnum():
+            out.append(ch.lower())
+        else:
+            out.append("_")
+    slug = "".join(out).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug
+
+
+def set_node_pairs(api: dict, ui: dict | None) -> list[Param]:
+    """SetNode titled ``Set_<Name>`` blesses its immediate upstream node.
+
+    The Set/Get pattern is the workflow author's canonical "named variable":
+    a `Set_<Name>` declares "this wire is the parameter ``<Name>``". We trace
+    its single input link to the source node and tag every non-link widget on
+    that source with ``role="set:<slug>"``, lifting tier to headline.
+
+    SetNode is a UI-only virtual class (stripped by ``convert_ui_to_api``),
+    so we read titles + links from the UI workflow and address widgets in
+    the API workflow by source node id.
+    """
+    if ui is None:
+        return []
+
+    nodes_by_id = {n.get("id"): n for n in (ui.get("nodes") or [])}
+    links_by_id = {link[0]: link for link in (ui.get("links") or []) if link}
+
+    out: list[Param] = []
+    for node in ui.get("nodes") or []:
+        if node.get("type") != "SetNode":
+            continue
+        title = node.get("title") or ""
+        if not title.startswith("Set_"):
+            continue
+        slug = _slug(title[len("Set_"):])
+        if not slug:
+            continue
+
+        inputs = node.get("inputs") or []
+        if not inputs:
+            continue
+        link_id = inputs[0].get("link")
+        link = links_by_id.get(link_id) if link_id is not None else None
+        if link is None:
+            continue
+        src_node_id = link[1]
+        src_node = nodes_by_id.get(src_node_id)
+        if src_node is None:
+            continue
+
+        api_node = api.get(str(src_node_id))
+        if not isinstance(api_node, dict):
+            continue
+        class_type = api_node.get("class_type") or src_node.get("type") or ""
+        title_label = title[len("Set_"):].replace("_", " ")
+
+        for widget_name, value in (api_node.get("inputs") or {}).items():
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=str(src_node_id),
+                    class_type=class_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={f"set:{slug}"},
+                    tier=TIER_HEADLINE,
+                    label=title_label,
+                    source_predicates=["set_node_pairs"],
+                )
+            )
+    return out
+
+
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
     """Disambiguate positive vs negative text encoder among ``text_encode`` candidates.
 
@@ -244,6 +324,7 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("frontend_widget_pool", frontend_widget_pool),
     ("class_type_roles", class_type_roles),
     ("prompt_polarity", prompt_polarity),
+    ("set_node_pairs", set_node_pairs),
 ]
 
 

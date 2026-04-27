@@ -1,4 +1,11 @@
 {
   "min_total_params": 30,
-  "roles_present": ["image_input"]
+  "roles_present": [
+    "image_input",
+    "set:model",
+    "set:vae",
+    "set:clip",
+    "set:videoin",
+    "set:prompt"
+  ]
 }
