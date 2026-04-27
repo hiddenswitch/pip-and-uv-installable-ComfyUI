@@ -144,15 +144,11 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # TEMP-DISABLED: RX 7600 is gfx1102 (RDNA 3 / Navi 33). Two combos tried:
-    #  1. TheRock gfx110X-all wheels on rocm/pytorch:7.2.2 image: SIGSEGV
-    #     from ROCm 7.12 wheel + ROCm 7.2 runtime version drift.
-    #  2. Bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0: GPU memory access
-    #     fault — gfx1100 kernels don't run cleanly on gfx1102 hardware in
-    #     this configuration.
-    # Need a runner image with matched ROCm 7.12 + TheRock wheels (or upstream
-    # pytorch.org/whl/rocm6.4 with override), or a different GPU class.
-    if: false
+    # rocm/pytorch:7.2.2 bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0
+    # verified on a direct kubectl Job on the cluster's RX 7600 (gfx1102) —
+    # smoke test passes with arch list including gfx1100/1101 (the override
+    # makes gfx1102 advertise gfx1100 ISA). TheRock gfx110X-all wheels
+    # SIGSEGV due to ROCm 7.12 wheel vs 7.2.2 runtime version drift.
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
