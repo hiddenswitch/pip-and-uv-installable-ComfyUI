@@ -486,6 +486,72 @@ def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+_OPTIONAL_INPUT_CLASSES = frozenset({
+    "LoadImage", "LoadVideo", "LoadAudio",
+    "LoadImageFromURL", "LoadVideoFromURL", "LoadAudioFromURL",
+    "VHS_LoadVideo", "VHS_LoadVideoFFmpeg", "VHS_LoadAudio",
+    "ImageRequestParameter", "VideoRequestParameter", "AudioRequestParameter",
+    "BatchImagesNode",
+    "GeminiInputFiles", "OpenAIInputFiles",
+    "LumaReferenceNode", "LumaConceptsNode",
+    "MeshyTextureNode", "MeshyAnimateModelNode", "MeshyRefineNode",
+})
+
+
+def bypassed_optional_inputs(api: dict, ui: dict | None) -> list[Param]:
+    if ui is None:
+        return []
+    out: list[Param] = []
+    for node in ui.get("nodes") or []:
+        if node.get("mode") != 4:
+            continue
+        node_type = node.get("type") or ""
+        if node_type not in _OPTIONAL_INPUT_CLASSES:
+            continue
+        nid = str(node.get("id"))
+        title = node.get("title") or node_type
+        slug = _slug(title) or _slug(node_type) or f"node_{nid}"
+
+        widgets_values = node.get("widgets_values")
+        widget_names_ordered: list[str] = []
+        for inp in node.get("inputs") or []:
+            widget = inp.get("widget")
+            if isinstance(widget, dict):
+                name = widget.get("name") or inp.get("name")
+                if isinstance(name, str):
+                    widget_names_ordered.append(name)
+
+        widget_dict: dict = {}
+        if isinstance(widgets_values, dict):
+            widget_dict = dict(widgets_values)
+        elif isinstance(widgets_values, list):
+            for i, name in enumerate(widget_names_ordered):
+                if i < len(widgets_values):
+                    widget_dict[name] = widgets_values[i]
+
+        if not widget_dict:
+            widget_dict = {"value": None}
+
+        for widget_name, value in widget_dict.items():
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=nid,
+                    class_type=node_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={"bypassed", f"optional:{slug}"},
+                    tier=TIER_HEADLINE,
+                    flag_name=f"enable-{_kebab(slug)}-{_kebab(widget_name)}",
+                    label=f"{title} (currently bypassed)",
+                    source_predicates=["bypassed_optional_inputs"],
+                )
+            )
+    return out
+
+
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
     out: list[Param] = []
     positive_node = _pu.find_positive_text_encoder(api)
@@ -532,6 +598,7 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("titled_nodes", titled_nodes),
     ("workflow_extra_metadata", workflow_extra_metadata),
     ("promoted_widgets_metadata", promoted_widgets_metadata),
+    ("bypassed_optional_inputs", bypassed_optional_inputs),
 ]
 
 

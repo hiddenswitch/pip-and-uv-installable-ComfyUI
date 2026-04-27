@@ -24,6 +24,7 @@ from comfy.entrypoints.workflow_params import (
     TIER_HEADLINE,
     apply,
     apply_role,
+    bypassed_optional_inputs,
     class_type_roles,
     discover,
     easy_pack_nodes,
@@ -680,6 +681,59 @@ def test_promoted_widgets_metadata_returns_empty_when_no_promotion_block():
     assert list(promoted_widgets_metadata(api, {"nodes": [], "links": []})) == []
 
 
+# ── synthetic unit tests: bypassed_optional_inputs ────────────────────────────
+
+
+def test_bypassed_optional_inputs_emits_param_for_disabled_loadimage():
+    api = {}  # bypass nodes are stripped from API
+    ui = _ui(
+        nodes=[
+            {"id": 12, "type": "LoadImage", "mode": 4,
+             "inputs": [{"name": "image", "type": "COMBO",
+                         "widget": {"name": "image"}, "link": None}],
+             "widgets_values": ["second_subject.png", "image"]},
+        ],
+        links=[],
+    )
+    out = list(bypassed_optional_inputs(api, ui))
+    assert out and any("bypassed" in p.roles for p in out)
+    assert all(p.tier == TIER_HEADLINE for p in out)
+    assert all(p.flag_name and p.flag_name.startswith("enable-") for p in out)
+
+
+def test_bypassed_optional_inputs_skips_active_loadimage():
+    api = {"12": {"class_type": "LoadImage", "inputs": {"image": "x.png"}}}
+    ui = _ui(
+        nodes=[{"id": 12, "type": "LoadImage", "mode": 0,
+                "widgets_values": ["x.png", "image"]}],
+        links=[],
+    )
+    assert list(bypassed_optional_inputs(api, ui)) == []
+
+
+def test_bypassed_optional_inputs_skips_unrelated_bypassed_nodes():
+    api = {}
+    ui = _ui(
+        nodes=[{"id": 99, "type": "VAEDecode", "mode": 4}],
+        links=[],
+    )
+    assert list(bypassed_optional_inputs(api, ui)) == []
+
+
+def test_bypassed_kontext_template_surfaces_optional_image():
+    """flux_kontext_dev_basic has a bypassed LoadImage for the second image."""
+    import glob
+    matches = glob.glob(
+        "/home/administrator/Documents/appmana/.venv/lib/python3.12/site-packages/comfyui_workflow_templates_*/templates/flux_kontext_dev_basic.json"
+    )
+    if not matches:
+        pytest.skip("flux_kontext_dev_basic template not installed")
+    workflow = json.loads(Path(matches[0]).read_text())
+    params = discover(workflow)
+    bypassed = [p for p in params if "bypassed" in p.roles]
+    assert bypassed, "kontext template should expose at least one bypassed optional input"
+
+
 # ── synthetic unit tests: discover() merges roles across predicates ───────────
 
 
@@ -823,6 +877,10 @@ def test_builtin_templates_smoke(path: Path):
     from comfy.entrypoints.workflow_params import _is_link, _to_api
     api, _ = _to_api(workflow, node_mappings=ExportedNodes())
     for p in params:
+        # Bypassed nodes live in the UI workflow only; their addresses
+        # intentionally don't resolve in the API.
+        if "bypassed" in p.roles:
+            continue
         assert p.node_id in api, f"{path.name}: param node {p.node_id!r} missing from API workflow"
         assert p.widget_name in (api[p.node_id].get("inputs") or {}), (
             f"{path.name}: widget {p.widget_name!r} missing on node {p.node_id} ({p.class_type})"
