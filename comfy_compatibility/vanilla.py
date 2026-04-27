@@ -161,15 +161,17 @@ def prepare_vanilla_environment():
     global _in_environment
     if _in_environment:
         return
+    # The original ImportError catch was meant to handle "comfy package not
+    # installed at all". Test that narrow case directly so a real import
+    # failure inside any of these submodules surfaces with its traceback
+    # instead of silently leaving sys.modules['nodes'] unset.
     try:
-        from comfy.cmd import cuda_malloc, folder_paths, latent_preview, protocol
-    except (ImportError, ModuleNotFoundError):
-        if "comfy" in sys.modules:
-            logger.debug("not running with ComfyUI LTS installed, skipping vanilla environment prep because we're already in it")
-            _in_environment = True
-        else:
-            logger.warning("unexpectedly, comfy is not in sys.modules nor can we import from the LTS packages")
+        import comfy  # noqa: F401
+    except ModuleNotFoundError:
+        logger.debug("comfy not installed, skipping vanilla environment prep")
+        _in_environment = True
         return
+    from comfy.cmd import cuda_malloc, folder_paths, latent_preview, protocol
 
     # only need to set this up once
     _in_environment = True
