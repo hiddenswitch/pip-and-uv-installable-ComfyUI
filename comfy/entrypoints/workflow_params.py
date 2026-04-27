@@ -277,6 +277,159 @@ def set_node_pairs(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+# PrimitiveNode is the legacy virtual primitive (stripped during conversion).
+# The typed primitives are real nodes that survive into the API; we tag the
+# primitive's own widget value with the primitive's title.
+_TYPED_PRIMITIVE_CLASSES = frozenset({
+    "PrimitiveString",
+    "PrimitiveStringMultiline",
+    "PrimitiveInt",
+    "PrimitiveFloat",
+    "PrimitiveBoolean",
+})
+
+
+def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
+    """`PrimitiveNode` (virtual) and typed `Primitive*` are user-visible inputs.
+
+    For ``PrimitiveNode``: it's stripped during ``convert_ui_to_api`` and its
+    ``widgets_values[0]`` is propagated onto the consuming node's widget. We
+    walk the UI to find each consumer's widget and tag *that* Param.
+
+    For typed primitives (``PrimitiveInt``/``PrimitiveFloat``/``PrimitiveString``/
+    ``PrimitiveStringMultiline``/``PrimitiveBoolean``): they survive as their
+    own API nodes; we tag their own widget.
+
+    Both forms get ``role="primitive:<slug>"`` at headline tier, where slug is
+    derived from the node's ``title`` (or its node id if untitled).
+    """
+    out: list[Param] = []
+
+    # Typed primitives via API (no UI required).
+    for node_id, node in api.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type") or ""
+        if class_type not in _TYPED_PRIMITIVE_CLASSES:
+            continue
+        title = ((node.get("_meta") or {}).get("title")) if isinstance(node.get("_meta"), dict) else None
+        slug = _slug(title) if title else f"node_{node_id}"
+        for widget_name, value in (node.get("inputs") or {}).items():
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=str(node_id),
+                    class_type=class_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={f"primitive:{slug}"},
+                    tier=TIER_HEADLINE,
+                    label=title,
+                    source_predicates=["primitive_nodes"],
+                )
+            )
+
+    # Legacy PrimitiveNode requires UI to find consumers.
+    if ui is None:
+        return out
+
+    nodes_by_id = {n.get("id"): n for n in (ui.get("nodes") or [])}
+    links_by_id = {link[0]: link for link in (ui.get("links") or []) if link}
+
+    for node in ui.get("nodes") or []:
+        if node.get("type") != "PrimitiveNode":
+            continue
+        title = node.get("title") or ""
+        slug = _slug(title) if title else f"node_{node.get('id')}"
+
+        outputs = node.get("outputs") or []
+        for slot_idx, output in enumerate(outputs):
+            for link_id in output.get("links") or []:
+                link = links_by_id.get(link_id)
+                if link is None:
+                    continue
+                dst_node_id = link[3]
+                dst_slot = link[4]
+                dst_node = nodes_by_id.get(dst_node_id)
+                if dst_node is None:
+                    continue
+                dst_inputs = dst_node.get("inputs") or []
+                if dst_slot >= len(dst_inputs):
+                    continue
+                widget = (dst_inputs[dst_slot].get("widget") or {})
+                widget_name = widget.get("name")
+                if not widget_name:
+                    continue
+                api_node = api.get(str(dst_node_id))
+                if not isinstance(api_node, dict):
+                    continue
+                value = (api_node.get("inputs") or {}).get(widget_name)
+                if value is None or _is_link(value):
+                    continue
+                out.append(
+                    Param(
+                        node_id=str(dst_node_id),
+                        class_type=api_node.get("class_type") or dst_node.get("type") or "",
+                        widget_name=widget_name,
+                        value=value,
+                        type=_infer_type(value),
+                        roles={f"primitive:{slug}"},
+                        tier=TIER_HEADLINE,
+                        label=title or None,
+                        source_predicates=["primitive_nodes"],
+                    )
+                )
+    return out
+
+
+# Map (class_type, widget_name) -> role for the easy-use convenience nodes.
+# Sourced from yolain/ComfyUI-Easy-Use: easy seed has a `seed` widget,
+# easy positive a `positive` widget (multiline string), easy negative a
+# `negative` widget. easy showAnything is a UI debugger, not a parameter.
+_EASY_PACK_ROLES: dict[tuple[str, str], str] = {
+    ("easy seed", "seed"): "seed",
+    ("easy positive", "positive"): "prompt",
+    ("easy negative", "negative"): "negative_prompt",
+}
+
+
+def easy_pack_nodes(api: dict, ui: dict | None) -> list[Param]:
+    """Tag widgets on comfyui-easy-use's seed/positive/negative convenience nodes.
+
+    These are explicit "user input" nodes by convention — when the workflow
+    author drops one in, they're declaring "this is the user's parameter".
+    Promotes to headline tier with a role matching the standard one
+    (``seed`` / ``prompt`` / ``negative_prompt``) so the same CLI flag wires
+    to either the easy-pack node or a stock KSampler/CLIPTextEncode.
+    """
+    out: list[Param] = []
+    for node_id, node in api.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type") or ""
+        for widget_name, value in (node.get("inputs") or {}).items():
+            role = _EASY_PACK_ROLES.get((class_type, widget_name))
+            if role is None:
+                continue
+            if _is_link(value):
+                continue
+            out.append(
+                Param(
+                    node_id=str(node_id),
+                    class_type=class_type,
+                    widget_name=widget_name,
+                    value=value,
+                    type=_infer_type(value),
+                    roles={role},
+                    tier=TIER_HEADLINE,
+                    source_predicates=["easy_pack_nodes"],
+                )
+            )
+    return out
+
+
 def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
     """Disambiguate positive vs negative text encoder among ``text_encode`` candidates.
 
@@ -325,6 +478,8 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("class_type_roles", class_type_roles),
     ("prompt_polarity", prompt_polarity),
     ("set_node_pairs", set_node_pairs),
+    ("primitive_nodes", primitive_nodes),
+    ("easy_pack_nodes", easy_pack_nodes),
 ]
 
 

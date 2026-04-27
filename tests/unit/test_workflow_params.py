@@ -25,9 +25,11 @@ from comfy.entrypoints.workflow_params import (
     apply,
     class_type_roles,
     discover,
+    easy_pack_nodes,
     frontend_widget_pool,
     params_by_address,
     params_by_role,
+    primitive_nodes,
     prompt_polarity,
     set_node_pairs,
 )
@@ -397,6 +399,95 @@ def test_set_node_pairs_slugifies_complex_names():
     api = {"1": {"class_type": "Foo", "inputs": {"v": 1}}}
     out = list(set_node_pairs(api, ui))
     assert out and out[0].roles == {"set:my_cool_name"}
+
+
+# ── synthetic unit tests: primitive_nodes ─────────────────────────────────────
+
+
+def test_primitive_nodes_typed_primitive_int_tagged_at_headline():
+    api = {
+        "1": {
+            "class_type": "PrimitiveInt",
+            "inputs": {"value": 42},
+            "_meta": {"title": "My Steps"},
+        },
+    }
+    out = list(primitive_nodes(api, None))
+    assert len(out) == 1
+    p = out[0]
+    assert p.roles == {"primitive:my_steps"}
+    assert p.tier == TIER_HEADLINE
+    assert p.value == 42
+    assert p.label == "My Steps"
+
+
+def test_primitive_nodes_typed_primitive_uses_node_id_when_untitled():
+    api = {"5": {"class_type": "PrimitiveString", "inputs": {"value": "hi"}}}
+    out = list(primitive_nodes(api, None))
+    assert out[0].roles == {"primitive:node_5"}
+
+
+def test_primitive_nodes_legacy_primitivenode_tags_consumer_widget():
+    """Legacy PrimitiveNode is virtual; its value lands on the consumer's widget."""
+    api = {
+        "20": {
+            "class_type": "KSampler",
+            "inputs": {"seed": 1234, "steps": 20},
+        },
+    }
+    ui = _ui(
+        nodes=[
+            {"id": 10, "type": "PrimitiveNode", "title": "User Seed",
+             "outputs": [{"name": "INT", "links": [50]}],
+             "widgets_values": [1234]},
+            {"id": 20, "type": "KSampler",
+             "inputs": [{"name": "seed", "link": 50, "widget": {"name": "seed"}}]},
+        ],
+        links=[[50, 10, 0, 20, 0, "INT"]],
+    )
+    out = list(primitive_nodes(api, ui))
+    assert len(out) == 1
+    p = out[0]
+    assert p.node_id == "20"
+    assert p.widget_name == "seed"
+    assert p.roles == {"primitive:user_seed"}
+    assert p.tier == TIER_HEADLINE
+
+
+def test_primitive_nodes_skips_typed_primitives_when_value_is_a_link():
+    api = {
+        "1": {"class_type": "PrimitiveInt", "inputs": {"value": ["99", 0]}},
+    }
+    assert list(primitive_nodes(api, None)) == []
+
+
+# ── synthetic unit tests: easy_pack_nodes ─────────────────────────────────────
+
+
+def test_easy_pack_nodes_tags_easy_seed_as_seed_role():
+    api = {"3": {"class_type": "easy seed", "inputs": {"seed": 42}}}
+    out = list(easy_pack_nodes(api, None))
+    assert len(out) == 1
+    assert out[0].roles == {"seed"}
+    assert out[0].tier == TIER_HEADLINE
+
+
+def test_easy_pack_nodes_tags_easy_positive_negative_as_prompt_roles():
+    api = {
+        "4": {"class_type": "easy positive", "inputs": {"positive": "good"}},
+        "5": {"class_type": "easy negative", "inputs": {"negative": "bad"}},
+    }
+    out = list(easy_pack_nodes(api, None))
+    by_role = {next(iter(p.roles)): p for p in out}
+    assert by_role["prompt"].value == "good"
+    assert by_role["negative_prompt"].value == "bad"
+    assert by_role["prompt"].tier == TIER_HEADLINE
+    assert by_role["negative_prompt"].tier == TIER_HEADLINE
+
+
+def test_easy_pack_nodes_ignores_unrelated_easy_classes():
+    api = {"7": {"class_type": "easy showAnything", "inputs": {"any": "x"}}}
+    assert list(easy_pack_nodes(api, None)) == []
 
 
 # ── synthetic unit tests: discover() merges roles across predicates ───────────
