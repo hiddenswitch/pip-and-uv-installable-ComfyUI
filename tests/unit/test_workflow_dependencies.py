@@ -151,3 +151,34 @@ async def test_res4lyf_workflow_executes():
 
     assert outputs is not None
     assert len(outputs) > 0
+
+
+# Stable-ABI extension auto-install detection -------------------------------
+
+
+def test_detect_stable_abi_needs_kjnodes_patch_sage(tmp_path):
+    from comfy.cmd.cli import _detect_stable_abi_needs
+    wf = tmp_path / "wf.json"
+    wf.write_text('{"1": {"class_type": "PathchSageAttentionKJ", "inputs": {"sage_attention": "auto"}}}')
+    assert _detect_stable_abi_needs([str(wf)]) == {"sageattention"}
+
+
+def test_detect_stable_abi_needs_nunchaku(tmp_path):
+    from comfy.cmd.cli import _detect_stable_abi_needs
+    wf = tmp_path / "wf.json"
+    wf.write_text('{"1": {"class_type": "NunchakuFluxDiTLoader", "inputs": {"model_path": "x"}}}')
+    assert _detect_stable_abi_needs([str(wf)]) == {"nunchaku"}
+
+
+def test_detect_stable_abi_needs_widget_value_sageattn(tmp_path):
+    from comfy.cmd.cli import _detect_stable_abi_needs
+    wf = tmp_path / "wf.json"
+    wf.write_text('{"6": {"class_type": "WanVideoModelLoader", "inputs": {"attention_mode": "sageattn"}}}')
+    assert _detect_stable_abi_needs([str(wf)]) == {"sageattention"}
+
+
+def test_detect_stable_abi_needs_empty_when_no_triggers(tmp_path):
+    from comfy.cmd.cli import _detect_stable_abi_needs
+    wf = tmp_path / "wf.json"
+    wf.write_text('{"3": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}}}')
+    assert _detect_stable_abi_needs([str(wf)]) == set()
