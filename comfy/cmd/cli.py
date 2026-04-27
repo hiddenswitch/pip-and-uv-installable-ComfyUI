@@ -822,6 +822,96 @@ def run_workflow(
 
 
 
+@app.command(name="workflow-params", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows")
+def workflow_params_cmd(
+    workflow: str = typer.Argument(..., help="Workflow file, URI, '-' for stdin, or literal JSON."),
+    show_all: bool = typer.Option(False, "--all", "-a", help="Include advanced-tier params (every non-disabled widget)."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON instead of a grouped table."),
+):
+    """Print the parameters discoverable in WORKFLOW.
+
+    Headline params come from Set_<Name> blessings, primitive nodes, and
+    easy-pack convenience nodes. Common params are class-type-tagged knobs
+    (seed/steps/cfg/sampler/prompt/loaders/...). Advanced params are every
+    other non-disabled widget — hidden unless --all.
+    """
+    import asyncio
+    from ..component_model.asyncio_files import stream_json_objects
+    from ..entrypoints.workflow import _ensure_api_format, _resolve_workflow
+    from ..entrypoints.workflow_params import (
+        TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE, discover,
+    )
+
+    async def _load() -> dict:
+        async for obj in stream_json_objects(_resolve_workflow(workflow)):
+            return obj
+        raise SystemExit("no workflow object found")
+
+    raw = asyncio.run(_load())
+    is_ui = "nodes" in raw and "links" in raw
+    if is_ui:
+        # convert_ui_to_api needs the node registry populated; do it lazily
+        # here so this command works without --all having been passed.
+        from ..component_model.setup import setup_pre_torch, setup_post_torch
+        from ..component_model.entrypoints_common import configure_application_paths
+        config = _build_config({})
+        setup_pre_torch(config)
+        setup_post_torch(config)
+        configure_application_paths(config)
+        from ..nodes.package import import_all_nodes_in_workspace
+        import_all_nodes_in_workspace(raise_on_failure=False)
+
+    # Pass the raw workflow to discover(): UI predicates (set_node_pairs,
+    # primitive_nodes) need the UI form, so converting up-front would silence
+    # them.
+    params = discover(raw)
+
+    if json_output:
+        import json as _json
+        out = [
+            {
+                "node_id": p.node_id,
+                "class_type": p.class_type,
+                "widget_name": p.widget_name,
+                "value": p.value,
+                "type": p.type,
+                "roles": sorted(p.roles),
+                "tier": p.tier,
+                "label": p.label,
+                "source_predicates": p.source_predicates,
+            }
+            for p in params
+            if show_all or p.tier != TIER_ADVANCED
+        ]
+        typer.echo(_json.dumps(out, indent=2, default=str))
+        return
+
+    sections = [
+        (TIER_HEADLINE, "Headline parameters (Set_<Name>, primitives, easy-pack)"),
+        (TIER_COMMON, "Common parameters (sampler/prompt/loader/dimensions/...)"),
+    ]
+    if show_all:
+        sections.append((TIER_ADVANCED, "Advanced parameters (every other non-disabled widget)"))
+
+    for tier, heading in sections:
+        rows = [p for p in params if p.tier == tier]
+        if not rows:
+            continue
+        typer.echo(f"\n# {heading}")
+        for p in rows:
+            roles = ",".join(sorted(p.roles)) if p.roles else "-"
+            label = f" ({p.label})" if p.label else ""
+            typer.echo(
+                f"  [{roles}]  {p.class_type}.{p.widget_name}  "
+                f"node={p.node_id}{label}  value={p.value!r}"
+            )
+
+    if not show_all:
+        n_advanced = sum(1 for p in params if p.tier == TIER_ADVANCED)
+        if n_advanced:
+            typer.echo(f"\n({n_advanced} advanced params hidden — pass --all to show.)")
+
+
 @app.command(name="create-directories", context_settings=_COMFYUI_ENV, rich_help_panel="Environment", hidden=True)
 def create_directories_cmd(
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
