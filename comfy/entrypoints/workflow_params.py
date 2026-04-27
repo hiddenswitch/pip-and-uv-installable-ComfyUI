@@ -704,6 +704,45 @@ def apply(workflow: dict, param: Param, value: Any) -> dict:
     return out
 
 
+def format_params_text(params: list[Param], *, show_all: bool = False) -> str:
+    """Render *params* as a human-readable, tier-grouped string.
+
+    Headline and common tiers always appear; advanced tier is omitted unless
+    *show_all* is True (a footer reports how many were hidden).
+    """
+    sections = [
+        (TIER_HEADLINE, "Headline parameters (Set_<Name>, primitives, easy-pack)"),
+        (TIER_COMMON, "Common parameters (sampler/prompt/loader/dimensions/...)"),
+    ]
+    if show_all:
+        sections.append((TIER_ADVANCED, "Advanced parameters (every other non-disabled widget)"))
+
+    lines: list[str] = []
+    for tier, heading in sections:
+        rows = [p for p in params if p.tier == tier]
+        if not rows:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"# {heading}")
+        for p in rows:
+            roles = ",".join(sorted(p.roles)) if p.roles else "-"
+            label = f" ({p.label})" if p.label else ""
+            lines.append(
+                f"  [{roles}]  {p.class_type}.{p.widget_name}  "
+                f"node={p.node_id}{label}  value={p.value!r}"
+            )
+
+    if not show_all:
+        n_advanced = sum(1 for p in params if p.tier == TIER_ADVANCED)
+        if n_advanced:
+            if lines:
+                lines.append("")
+            lines.append(f"({n_advanced} advanced params hidden — pass --all to show.)")
+
+    return "\n".join(lines)
+
+
 def apply_role(
     workflow: dict,
     role: str,

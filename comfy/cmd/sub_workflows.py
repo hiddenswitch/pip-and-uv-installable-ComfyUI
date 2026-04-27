@@ -12,6 +12,7 @@ from .cli import (
     _with_options, _ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS,
     _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT,
     _COMFYUI_ENV, _collect_params, _build_config, _set_config_context,
+    _discover_from_ref,
 )
 
 workflows_app = typer.Typer(name="workflows", no_args_is_help=False, add_completion=False)
@@ -277,6 +278,45 @@ def workflows_ls(
 ):
     """Alias for list."""
     workflows_list(format=format, template_dir=template_dir, all_templates=all_templates)
+
+
+@workflows_app.command(name="params", context_settings=_COMFYUI_ENV)
+def workflows_params(
+    workflow: str = typer.Argument(..., help="Workflow file, URI, '-' for stdin, or literal JSON."),
+    show_all: bool = typer.Option(False, "--all", "-a", help="Include advanced-tier params (every non-disabled widget)."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON instead of a grouped table."),
+):
+    """Print the parameters discoverable in WORKFLOW.
+
+    Headline params come from Set_<Name> blessings, primitive nodes, and
+    easy-pack convenience nodes. Common params are class-type-tagged knobs
+    (seed/steps/cfg/sampler/prompt/loaders/...). Advanced params are every
+    other non-disabled widget — hidden unless --all.
+    """
+    from ..entrypoints.workflow_params import TIER_ADVANCED, format_params_text
+
+    params = _discover_from_ref(workflow)
+
+    if json_output:
+        out = [
+            {
+                "node_id": p.node_id,
+                "class_type": p.class_type,
+                "widget_name": p.widget_name,
+                "value": p.value,
+                "type": p.type,
+                "roles": sorted(p.roles),
+                "tier": p.tier,
+                "label": p.label,
+                "source_predicates": p.source_predicates,
+            }
+            for p in params
+            if show_all or p.tier != TIER_ADVANCED
+        ]
+        typer.echo(json.dumps(out, indent=2, default=str))
+        return
+
+    typer.echo(format_params_text(params, show_all=show_all))
 
 
 def _show_current_values(table, workflow: dict, params: list[str]):

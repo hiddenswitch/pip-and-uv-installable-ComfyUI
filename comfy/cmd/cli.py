@@ -737,7 +737,76 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
                         get_or_download(folder_name, value)
 
 
-@app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows")
+class _RunWorkflowCommand(typer.core.TyperCommand):
+    """Top-level run-workflow command with dynamic --help.
+
+    On ``--help``/``-h``, locates the workflow ref in argv, fetches it, runs
+    ``discover()``, and appends a "Workflow parameters" section to the static
+    help. The actual command body is unaffected — overriding flags still goes
+    through the existing ``--prompt``/``--seed``/``--set`` mechanism.
+    """
+
+    @staticmethod
+    def _extract_workflow_ref(args: list[str]) -> str | None:
+        # First non-flag, non-flag-value positional is the workflow.
+        # We don't have option metadata at this point, so use the
+        # standard "--flag=value" / "--flag value" / "-x value" heuristic.
+        i = 0
+        n = len(args)
+        while i < n:
+            a = args[i]
+            if a in ("--help", "-h"):
+                i += 1
+                continue
+            if a == "--":
+                i += 1
+                continue
+            if a == "-":
+                # stdin marker is a valid workflow ref
+                return "-"
+            if a.startswith("--"):
+                if "=" in a:
+                    i += 1
+                else:
+                    i += 2
+                continue
+            if a.startswith("-") and len(a) > 1:
+                if "=" in a:
+                    i += 1
+                else:
+                    i += 2
+                continue
+            return a
+        return None
+
+    def parse_args(self, ctx, args):
+        if "--help" in args or "-h" in args:
+            ref = self._extract_workflow_ref(args)
+            if ref:
+                from ..entrypoints.workflow_params import format_params_text
+                try:
+                    params = _discover_from_ref(ref)
+                except Exception as exc:  # noqa: BLE001
+                    typer.echo(self.get_help(ctx))
+                    typer.echo()
+                    typer.echo(f"(Could not discover workflow parameters: {exc})", err=True)
+                    ctx.exit()
+                    return
+                typer.echo(self.get_help(ctx))
+                typer.echo()
+                typer.echo("=" * 78)
+                typer.echo(f"Workflow parameters for: {ref}")
+                typer.echo("=" * 78)
+                typer.echo(format_params_text(params))
+                typer.echo()
+                typer.echo("Override any of these via:")
+                typer.echo("  --set <node_id>.inputs.<widget_name>=<value>")
+                typer.echo("Or via the standard role flags --prompt / --seed / --steps / etc.")
+                ctx.exit()
+        return super().parse_args(ctx, args)
+
+
+@app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows", cls=_RunWorkflowCommand)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
@@ -822,36 +891,33 @@ def run_workflow(
 
 
 
-@app.command(name="workflow-params", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows")
-def workflow_params_cmd(
-    workflow: str = typer.Argument(..., help="Workflow file, URI, '-' for stdin, or literal JSON."),
-    show_all: bool = typer.Option(False, "--all", "-a", help="Include advanced-tier params (every non-disabled widget)."),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON instead of a grouped table."),
-):
-    """Print the parameters discoverable in WORKFLOW.
+_DISCOVER_CACHE: dict[str, list] = {}
 
-    Headline params come from Set_<Name> blessings, primitive nodes, and
-    easy-pack convenience nodes. Common params are class-type-tagged knobs
-    (seed/steps/cfg/sampler/prompt/loaders/...). Advanced params are every
-    other non-disabled widget — hidden unless --all.
+
+def _discover_from_ref(ref: str) -> list:
+    """Fetch *ref* (path/URI/'-'/literal JSON) and return ``discover()`` output.
+
+    Caches per-process by ref string so repeated --help invocations or the
+    workflows-params command don't refetch. UI workflows trigger a lazy node
+    registry boot since ``convert_ui_to_api`` needs it.
     """
+    cached = _DISCOVER_CACHE.get(ref)
+    if cached is not None:
+        return cached
+
     import asyncio
     from ..component_model.asyncio_files import stream_json_objects
-    from ..entrypoints.workflow import _ensure_api_format, _resolve_workflow
-    from ..entrypoints.workflow_params import (
-        TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE, discover,
-    )
+    from ..entrypoints.workflow import _resolve_workflow
+    from ..entrypoints.workflow_params import discover
 
     async def _load() -> dict:
-        async for obj in stream_json_objects(_resolve_workflow(workflow)):
+        async for obj in stream_json_objects(_resolve_workflow(ref)):
             return obj
         raise SystemExit("no workflow object found")
 
     raw = asyncio.run(_load())
     is_ui = "nodes" in raw and "links" in raw
     if is_ui:
-        # convert_ui_to_api needs the node registry populated; do it lazily
-        # here so this command works without --all having been passed.
         from ..component_model.setup import setup_pre_torch, setup_post_torch
         from ..component_model.entrypoints_common import configure_application_paths
         config = _build_config({})
@@ -865,51 +931,8 @@ def workflow_params_cmd(
     # primitive_nodes) need the UI form, so converting up-front would silence
     # them.
     params = discover(raw)
-
-    if json_output:
-        import json as _json
-        out = [
-            {
-                "node_id": p.node_id,
-                "class_type": p.class_type,
-                "widget_name": p.widget_name,
-                "value": p.value,
-                "type": p.type,
-                "roles": sorted(p.roles),
-                "tier": p.tier,
-                "label": p.label,
-                "source_predicates": p.source_predicates,
-            }
-            for p in params
-            if show_all or p.tier != TIER_ADVANCED
-        ]
-        typer.echo(_json.dumps(out, indent=2, default=str))
-        return
-
-    sections = [
-        (TIER_HEADLINE, "Headline parameters (Set_<Name>, primitives, easy-pack)"),
-        (TIER_COMMON, "Common parameters (sampler/prompt/loader/dimensions/...)"),
-    ]
-    if show_all:
-        sections.append((TIER_ADVANCED, "Advanced parameters (every other non-disabled widget)"))
-
-    for tier, heading in sections:
-        rows = [p for p in params if p.tier == tier]
-        if not rows:
-            continue
-        typer.echo(f"\n# {heading}")
-        for p in rows:
-            roles = ",".join(sorted(p.roles)) if p.roles else "-"
-            label = f" ({p.label})" if p.label else ""
-            typer.echo(
-                f"  [{roles}]  {p.class_type}.{p.widget_name}  "
-                f"node={p.node_id}{label}  value={p.value!r}"
-            )
-
-    if not show_all:
-        n_advanced = sum(1 for p in params if p.tier == TIER_ADVANCED)
-        if n_advanced:
-            typer.echo(f"\n({n_advanced} advanced params hidden — pass --all to show.)")
+    _DISCOVER_CACHE[ref] = params
+    return params
 
 
 @app.command(name="create-directories", context_settings=_COMFYUI_ENV, rich_help_panel="Environment", hidden=True)
