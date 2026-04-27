@@ -144,6 +144,15 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
+    # TEMP-DISABLED: RX 7600 is gfx1102 (RDNA 3 / Navi 33). Two combos tried:
+    #  1. TheRock gfx110X-all wheels on rocm/pytorch:7.2.2 image: SIGSEGV
+    #     from ROCm 7.12 wheel + ROCm 7.2 runtime version drift.
+    #  2. Bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0: GPU memory access
+    #     fault — gfx1100 kernels don't run cleanly on gfx1102 hardware in
+    #     this configuration.
+    # Need a runner image with matched ROCm 7.12 + TheRock wheels (or upstream
+    # pytorch.org/whl/rocm6.4 with override), or a different GPU class.
+    if: false
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
@@ -155,11 +164,6 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          # RX 7600 is gfx1102 (RDNA 3 / Navi 33). gfx1102 isn't in pytorch
-          # ROCm wheels' arch list, but gfx1100 IS — so set
-          # HSA_OVERRIDE_GFX_VERSION=11.0.0 to make the GPU advertise gfx1100
-          # ISA. Keeps us on the matched ROCm/torch combo bundled in the image
-          # (avoids the version drift that segfaulted with TheRock wheels).
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
             friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"

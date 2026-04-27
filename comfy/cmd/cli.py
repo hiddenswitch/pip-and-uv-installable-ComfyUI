@@ -693,6 +693,122 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
+# Pre-built stable-ABI wheel indexes for binary CUDA extensions that we ship.
+# Each provider serves wheels keyed by torch's CUDA backend tag (cu128, cu130);
+# the same wheel works across PyTorch minor versions because of CPython's
+# stable ABI + nvidia's per-CUDA-version ABI.
+#   sageattention:  https://appmana.github.io/forks-sageattention-stable-abi/<cu_tag>/
+#   nunchaku:       https://appmana.github.io/forks-nunchaku-stable-abi/<cu_tag>/
+# Source repos: https://github.com/appmana/forks-sageattention-stable-abi
+#               https://github.com/appmana/forks-nunchaku-stable-abi
+_STABLE_ABI_INDEX_TEMPLATES: dict[str, str] = {
+    "sageattention": "https://appmana.github.io/forks-sageattention-stable-abi/{cu_tag}/",
+    "nunchaku":      "https://appmana.github.io/forks-nunchaku-stable-abi/{cu_tag}/",
+}
+
+# class_type -> stable-ABI extensions required to actually run that class.
+# Augmented at runtime by widget-value heuristics (see _detect_stable_abi_needs).
+_STABLE_ABI_TRIGGERS_BY_CLASS: dict[str, frozenset[str]] = {
+    "PathchSageAttentionKJ": frozenset({"sageattention"}),  # ComfyUI-KJNodes (sic — upstream typo)
+    "NunchakuFluxDiTLoader": frozenset({"nunchaku"}),
+    "NunchakuQwenImageDiTLoader": frozenset({"nunchaku"}),
+    "NunchakuFluxLoraLoader": frozenset({"nunchaku"}),
+    "NunchakuFluxLoraStack": frozenset({"nunchaku"}),
+    "NunchakuTextEncoderLoader": frozenset({"nunchaku"}),
+    "NunchakuTextEncoderLoaderV2": frozenset({"nunchaku"}),
+    "NunchakuDepthPreprocessor": frozenset({"nunchaku"}),
+    "NunchakuPulidApply": frozenset({"nunchaku"}),
+    "NunchakuPulidLoader": frozenset({"nunchaku"}),
+}
+
+
+def _detect_cu_tag() -> str | None:
+    try:
+        import torch
+        cuda = torch.version.cuda
+    except Exception:  # noqa: BLE001
+        return None
+    if not cuda:
+        return None
+    if cuda.startswith("12.8"):
+        return "cu128"
+    if cuda.startswith("13."):
+        return "cu130"
+    return None
+
+
+def _detect_stable_abi_needs(workflow_sources: list[str]) -> set[str]:
+    from ..component_model.asyncio_files import load_workflow_json
+    needs: set[str] = set()
+    for source in workflow_sources:
+        if source == "-":
+            continue
+        try:
+            workflow = load_workflow_json(source)
+        except Exception:  # noqa: BLE001
+            continue
+
+        is_ui = isinstance(workflow, dict) and "nodes" in workflow and "links" in workflow
+        if is_ui:
+            for node in workflow.get("nodes") or []:
+                ct = node.get("type") or ""
+                if ct in _STABLE_ABI_TRIGGERS_BY_CLASS:
+                    needs |= _STABLE_ABI_TRIGGERS_BY_CLASS[ct]
+                # Widget-driven: WanVideoModelLoader / similar with attention_mode='sageattn*'
+                wv = node.get("widgets_values")
+                values = wv.values() if isinstance(wv, dict) else (wv if isinstance(wv, list) else [])
+                if any(isinstance(v, str) and "sageattn" in v.lower() for v in values):
+                    needs.add("sageattention")
+        else:
+            for nd in (workflow or {}).values():
+                if not isinstance(nd, dict):
+                    continue
+                ct = nd.get("class_type") or ""
+                if ct in _STABLE_ABI_TRIGGERS_BY_CLASS:
+                    needs |= _STABLE_ABI_TRIGGERS_BY_CLASS[ct]
+                inputs = nd.get("inputs") or {}
+                if any(isinstance(v, str) and "sageattn" in v.lower() for v in inputs.values()):
+                    needs.add("sageattention")
+    return needs
+
+
+def _install_workflow_stable_abi_extensions(workflow_sources: list[str]) -> None:
+    """Install sageattention / nunchaku from our stable-ABI indexes when a
+    workflow class type or widget value requires them. Mirrors the CI step
+    in .github/workflows/test.yml; runs only when --all is passed."""
+    import shutil
+    import subprocess
+
+    needs = _detect_stable_abi_needs(workflow_sources)
+    if not needs:
+        return
+
+    cu_tag = _detect_cu_tag()
+    if cu_tag is None:
+        logger.info(
+            "Skipping stable-ABI extensions (%s): torch CUDA backend not in {12.8, 13.x}",
+            ", ".join(sorted(needs)),
+        )
+        return
+
+    from importlib.metadata import distributions
+    installed = {(d.metadata or {}).get("Name", "").lower() for d in distributions()}
+    missing = sorted(p for p in needs if p not in installed)
+    if not missing:
+        return
+
+    uv = shutil.which("uv")
+    if uv is None:
+        logger.warning("uv not found, skipping stable-ABI extension install")
+        return
+
+    for pkg in missing:
+        index = _STABLE_ABI_INDEX_TEMPLATES[pkg].format(cu_tag=cu_tag)
+        logger.info("Installing %s for %s from %s", pkg, cu_tag, index)
+        cmd = [uv, "pip", "install", "--python", sys.executable, "--no-deps", pkg, "--index-url", index]
+        subprocess.run(cmd, check=True)
+
+
 def _download_workflow_models(workflow_sources: list[str]) -> None:
     """Download missing models for the given workflows."""
     from ..component_model.asyncio_files import load_workflow_json
@@ -959,6 +1075,9 @@ def run_workflow(
     configure_application_paths(config)
 
     if _all:
+        # After torch is available we know cu128 vs cu130, so do this here
+        # rather than alongside _install_workflow_requirements.
+        _install_workflow_stable_abi_extensions(config.workflows)
         _download_workflow_models(config.workflows)
 
     from ..execution_context import context_configuration
