@@ -155,13 +155,16 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          # RX 7600 is gfx1102 (RDNA 3 / Navi 33). The gfx110X-dgpu bucket only
-          # ships kernels for gfx1100/gfx1101 (RX 7900/7800) and produces
-          # "HIP error: invalid device function" on RX 7600. gfx110X-all bundles
-          # gfx1100/1101/1102/1103 — confirmed by TheRock RELEASES.md.
+          # RX 7600 is gfx1102 (RDNA 3 / Navi 33). gfx1102 isn't in pytorch
+          # ROCm wheels' arch list, but gfx1100 IS — so set
+          # HSA_OVERRIDE_GFX_VERSION=11.0.0 to make the GPU advertise gfx1100
+          # ISA. Keeps us on the matched ROCm/torch combo bundled in the image
+          # (avoids the version drift that segfaulted with TheRock wheels).
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
-            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (gfx110X-all)"
+            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
+    env:
+      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends zip unzip
@@ -169,16 +172,11 @@ jobs:
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
-      - name: Align ROCm to Image
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_PYTHON=/opt/venv/bin/python
-          export UV_PRERELEASE=allow
-          uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ torch torchvision torchaudio pytorch_triton_rocm --pre
       - name: HIP smoke test
         run: |
           /opt/venv/bin/python -c "
-          import torch
+          import os, torch
+          print('HSA_OVERRIDE_GFX_VERSION:', os.environ.get('HSA_OVERRIDE_GFX_VERSION'))
           print('hip:', torch.version.hip, 'cuda_available:', torch.cuda.is_available())
           print('device:', torch.cuda.get_device_name(0))
           print('arch list:', torch.cuda.get_arch_list())
