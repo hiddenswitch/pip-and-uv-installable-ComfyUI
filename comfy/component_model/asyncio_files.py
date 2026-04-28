@@ -36,7 +36,8 @@ def load_workflow_json(source: str) -> dict:
     if source.lstrip().startswith("{"):
         return json.loads(source)
     if _is_uri(source):
-        data = fsspec.open(source, mode="rb").open().read()
+        with fsspec.open(source, mode="rb") as fh:
+            data = fh.read()
     else:
         data = Path(source).read_bytes()
     extracted = _maybe_extract_workflow_json(data, source=source)
@@ -222,7 +223,8 @@ async def stream_json_objects(source_path_or_stdin: str | Literal["-"]) -> Async
             # Civitai workflow uploads are commonly zip archives containing
             # one or more .json graphs; transparently extract the first
             # workflow-shaped JSON instead of failing to parse zip bytes.
-            data = fsspec.open(source_path_or_stdin, mode='rb').open().read()
+            with fsspec.open(source_path_or_stdin, mode='rb') as fh:
+                data = fh.read()
             stream = _maybe_extract_workflow_json(data)
             for obj in ijson.items(stream, '', multiple_values=True, use_float=True):
                 yield obj

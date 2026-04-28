@@ -205,37 +205,15 @@ def get_model_entry(folder_name: str, filename: str) -> Optional[tuple[str, str]
         if basename and basename != key:
             entry = _index.get(canonicalize_path(basename))
     if entry is None:
-        # Live search Civitai for community checkpoints not in the prefetched
-        # top-100. Cache hits to ``_index`` so repeat lookups are free.
-        entry = _live_search_civitai(filename)
-        if entry is not None:
-            # Cache by both full key and basename so re-lookups skip the API.
-            _index[key] = entry
-            bn = key.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-            if bn and bn != key:
-                _index[canonicalize_path(bn) or bn] = entry
-            _save_disk_cache(_index)
-    if entry is None:
         return None
     return (entry["folder"], entry["url"])
 
 
-# Live-search cache for misses too — Civitai search is slow and many workflows
-# reference the same bogus filename (typos, "None", etc.). Cache misses for the
-# session so we don't re-query.
+# Civitai's public ``/api/v1/models?query=`` is broken (returns global popular
+# results regardless of input), so generic name-based live search isn't useful.
+# Use :func:`prefetch_civitai_models_for_user` to hydrate the cache from
+# workflow-author context instead.
 _live_miss_cache: set[str] = set()
-
-
-def _live_search_civitai(filename: str) -> Optional[dict]:
-    """No-op for now — Civitai's public ``/api/v1/models?query=`` ignores the
-    filter and returns the global most-popular list, so generic name search
-    cannot find arbitrary community checkpoints. Use
-    :func:`prefetch_civitai_models_for_user` to populate the index from
-    workflow-author context instead.
-    """
-    if not filename:
-        return None
-    return None
 
 
 _prefetched_users: set[str] = set()

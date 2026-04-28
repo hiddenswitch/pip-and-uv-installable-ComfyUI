@@ -21,7 +21,7 @@ import logging
 import re
 from typing import Any, Literal
 
-from comfy.api.exceptions import ApiValueError
+from ..api.exceptions import ApiValueError
 
 logger = logging.getLogger(__name__)
 
