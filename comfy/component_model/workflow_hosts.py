@@ -185,6 +185,85 @@ class _ComfyUIOrgHost:
         return out
 
 
+# ── Hugging Face ─────────────────────────────────────────────────────────────
+
+class _HuggingFaceHost:
+    id = "huggingface"
+    scheme = "hf"
+
+    def _search_repos(self, query: str | None, limit: int) -> list:
+        try:
+            from huggingface_hub import HfApi  # type: ignore
+        except ImportError:
+            return []
+        api = HfApi()
+        out = []
+        # Datasets are the typical home for ComfyUI workflow JSON collections.
+        try:
+            for ds in api.list_datasets(
+                search=query or "comfyui workflow",
+                limit=limit, full=False,
+            ):
+                out.append(("dataset", ds))
+                if len(out) >= limit:
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        # Models tagged with comfyui-workflow are also common.
+        try:
+            for m in api.list_models(
+                search=query or "comfyui-workflow",
+                limit=max(0, limit - len(out)), full=False,
+            ):
+                out.append(("model", m))
+                if len(out) >= limit:
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def _to_result(self, kind: str, item) -> WorkflowResult:
+        repo_id = getattr(item, "id", None) or getattr(item, "modelId", None) or ""
+        downloads = getattr(item, "downloads", 0) or 0
+        likes = getattr(item, "likes", 0) or 0
+        return WorkflowResult(
+            host=self.id,
+            uri=f"hf://{repo_id}",
+            title=str(repo_id),
+            creator=repo_id.split("/", 1)[0] if "/" in repo_id else None,
+            description=f"HF {kind}",
+            stats={"downloads": downloads, "thumbs_up": likes},
+            extra={"kind": kind},
+        )
+
+    def top(self, limit: int = 100) -> list[WorkflowResult]:
+        return [self._to_result(k, it) for k, it in self._search_repos(None, limit)][:limit]
+
+    def search(self, query: str, limit: int = 50) -> list[WorkflowResult]:
+        return [self._to_result(k, it) for k, it in self._search_repos(query, limit)][:limit]
+
+
+# ── Tensor.Art (stub) ────────────────────────────────────────────────────────
+
+class _TensorArtHost:
+    id = "tensorart"
+    scheme = "tensorart"
+
+    def _unimplemented(self) -> list[WorkflowResult]:
+        # The TAMS public API requires an application id + key (per
+        # tams-docs.tensor.art) — there is no anonymous list endpoint.
+        # Returning empty rather than raising keeps the multi-host CLI
+        # usable. Set TENSOR_ART_APP_ID + TENSOR_ART_API_KEY and extend
+        # this provider when needed.
+        return []
+
+    def top(self, limit: int = 100) -> list[WorkflowResult]:
+        return self._unimplemented()
+
+    def search(self, query: str, limit: int = 50) -> list[WorkflowResult]:
+        return self._unimplemented()
+
+
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 
 _REGISTERED = False
@@ -198,3 +277,5 @@ def _ensure_registered() -> None:
     register_host(_CivitaiHost(id="civitai", hostname="civitai.com", scheme="civitai"))
     register_host(_CivitaiHost(id="civitai_red", hostname="civitai.red", scheme="civitai-red"))
     register_host(_ComfyUIOrgHost())
+    register_host(_HuggingFaceHost())
+    register_host(_TensorArtHost())

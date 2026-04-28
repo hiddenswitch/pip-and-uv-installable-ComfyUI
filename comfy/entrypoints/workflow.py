@@ -158,10 +158,9 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
 def _resolve_workflow(workflow: str) -> str:
     if workflow == "-" or workflow.lstrip().startswith("{"):
         return workflow
-    # Canonicalize known web URLs to their fsspec scheme (civitai://, hf://, ...)
-    # and ensure the corresponding backends are registered before we treat the
-    # value as a URI.
-    from ..component_model import civitai_fsspec  # noqa: F401  (side-effect: register)
+    # Canonicalize known web URLs to their fsspec scheme (civitai://, hf://, ...).
+    # The fsspec backends register via entry points (project.entry-points."fsspec.specs"
+    # in pyproject.toml), so no explicit import is needed.
     from ..component_model.uri_rewrite import canonicalize_uri
     workflow = canonicalize_uri(workflow)
     if is_uri(workflow):

@@ -18,7 +18,7 @@ import os
 import urllib.parse
 from typing import Optional
 
-from fsspec import AbstractFileSystem, register_implementation
+from fsspec import AbstractFileSystem
 
 
 def _api_hostname(scheme: str) -> str:
@@ -59,14 +59,11 @@ def _resolve_to_download_url(scheme: str, path: str) -> str:
 
 
 class CivitaiFileSystem(AbstractFileSystem):
-    """Read-only fsspec backend that resolves civitai://{m,v}/<id> to HTTPS downloads."""
+    """Read-only fsspec backend resolving civitai://{m,v}/<id> to HTTPS downloads."""
 
-    protocol = ("civitai", "civitai-red")
+    protocol = "civitai"
     root_marker = "/"
-
-    def __init__(self, scheme: str = "civitai", **kwargs):
-        super().__init__(**kwargs)
-        self._scheme = scheme
+    _scheme = "civitai"
 
     def _open(self, path, mode="rb", block_size=None, **kwargs):
         if mode != "rb":
@@ -80,14 +77,8 @@ class CivitaiFileSystem(AbstractFileSystem):
         return {"name": path, "size": None, "type": "file"}
 
 
-def register() -> None:
-    register_implementation("civitai", CivitaiFileSystem, clobber=True)
-    register_implementation(
-        "civitai-red",
-        lambda **kw: CivitaiFileSystem(scheme="civitai-red", **kw),  # type: ignore[arg-type]
-        clobber=True,
-    )
+class CivitaiRedFileSystem(CivitaiFileSystem):
+    """civitai-red:// — same shape as civitai:// but resolves against civitai.red."""
 
-
-# Side-effect: register on import.
-register()
+    protocol = "civitai-red"
+    _scheme = "civitai-red"

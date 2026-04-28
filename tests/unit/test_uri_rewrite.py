@@ -58,11 +58,15 @@ def test_non_url_passthrough():
     assert canonicalize_uri("local/path.json") == "local/path.json"
 
 
-def test_civitai_fsspec_registers():
+def test_civitai_fsspec_registered_via_entry_points():
+    """fsspec discovers civitai/civitai-red/youtube via the
+    project.entry-points.'fsspec.specs' table in pyproject.toml — no explicit
+    import needed. This test asserts that discovery actually works."""
     import fsspec
-    from comfy.component_model import civitai_fsspec  # noqa: F401  (registers)
     fs_civ = fsspec.filesystem("civitai")
     fs_red = fsspec.filesystem("civitai-red")
+    fs_yt = fsspec.filesystem("youtube")
     assert type(fs_civ).__name__ == "CivitaiFileSystem"
-    assert type(fs_red).__name__ == "CivitaiFileSystem"
+    assert type(fs_red).__name__ == "CivitaiRedFileSystem"
     assert fs_red._scheme == "civitai-red"
+    assert type(fs_yt).__name__ == "YouTubeFileSystem"

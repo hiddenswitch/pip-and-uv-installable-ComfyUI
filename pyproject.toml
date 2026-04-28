@@ -70,6 +70,7 @@ dependencies = [
     "lazy_loader>=0.3",
     "can_ada",
     "fsspec",
+    "yt-dlp",
     "natsort",
     "OpenEXR; python_version < '3.14'",
     "opentelemetry-distro>=0.50b0",
@@ -173,6 +174,9 @@ comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
 
 [project.entry-points."fsspec.specs"]
 pkg = "comfy.component_model.package_filesystem:PkgResourcesFileSystem"
+civitai = "comfy.component_model.civitai_fsspec:CivitaiFileSystem"
+civitai-red = "comfy.component_model.civitai_fsspec:CivitaiRedFileSystem"
+youtube = "comfy.component_model.youtube_fsspec:YouTubeFileSystem"
 
 [project.urls]
 Homepage = "https://github.com/comfyanonymous/ComfyUI"
