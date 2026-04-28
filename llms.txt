@@ -881,29 +881,48 @@ locally; re-fetch so you get the vendor's current guidance.
 
 ## What you (Claude) are expected to do when given a media task
 
-1. Read any images, videos, or text files the user hands you. Describe
+The user said "run / generate / make me <something>"? That's a
+`comfyui run-workflow` invocation. Don't write Python, don't start the
+daemon, don't open the UI — `run-workflow` is the verb. Reach for
+something else only when this guide explicitly tells you to (bulk
+processing → §Mass processing; non-trivial graph edits → embedded
+Python in §Task 7).
+
+1. **Sanity-check the environment** before doing anything that runs
+   code. If a venv is already activated (`$VIRTUAL_ENV` set) or
+   present in the working directory (`./.venv/`, `./venv/`), source
+   it and run:
+   ```bash
+   comfyui env check
+   ```
+   It prints torch + CUDA/ROCm alignment, GPU + VRAM, attention
+   backend × dtype support, and folder paths in one shot. If the
+   `comfyui` CLI is missing or `env check` reports broken state, fix
+   it before generating. If no venv exists yet, follow §Prerequisites
+   to create one.
+2. Read any images, videos, or text files the user hands you. Describe
    what you see back to the user to confirm understanding before
    generating — especially for edits, where what to *preserve* matters
    as much as what to *change*.
-2. **If the user gave you a workflow URL** (civitai / Hugging Face /
+3. **If the user gave you a workflow URL** (civitai / Hugging Face /
    gist / arbitrary URL), run `comfyui run-workflow <URL> --help` first
    and read the rendered author notes. Those notes carry the canonical
    download URLs and place-in hints for every model — they're more
    reliable than guessing from the workflow's filename inputs.
-3. Otherwise, pick the right workflow from the §Model picks table based
-   on VRAM (check with `comfyui env info`) and task type.
-4. Check `comfyui models from-workflow <template> --dry-run` and ask
+4. Otherwise, pick the right workflow from the §Model picks table
+   based on VRAM (visible in step 1's `env check`) and task type.
+5. Check `comfyui models from-workflow <template> --dry-run` and ask
    before triggering large downloads.
-5. Rewrite the user's vague prompt into a specific one. For image
+6. Rewrite the user's vague prompt into a specific one. For image
    edits, include explicit "keep" clauses.
-6. Run the workflow with `--all` (download missing) and `--seed` (so the
-   user can reproduce). Set `CIVITAI_API_TOKEN` first if any input
-   resolves through `civitai://` — early-access / gated downloads need it.
-7. **Open the result for the user** if they're on an interactive
-   desktop — `open <path>` (macOS), `start "" "<path>"` (Windows),
-   `xdg-open <path>` (Linux desktop). Skip on headless / SSH /
-   containers; just print the absolute path. See §Show the user the
-   output.
+7. Run with `comfyui run-workflow <wf> --all --seed N`. Set
+   `CIVITAI_API_TOKEN` first if any input resolves through `civitai://`.
+   Open the result for the user if they're on an interactive desktop:
+   `open <path>` (macOS), `start "" "<path>"` (Windows),
+   `xdg-open <path>` (Linux desktop). Skip the open call on
+   headless / SSH / containers (no `$DISPLAY` / `$WAYLAND_DISPLAY` /
+   `$TERM_PROGRAM` / `$WT_SESSION`) and just print the absolute path
+   instead.
 8. If output is wrong, iterate on the prompt or add/remove a LoRA.
    Don't loop infinitely — after 3 tries, ask the user.
 9. For bulk jobs: daemon + submit. For exotic graph edits: Python.
@@ -984,43 +1003,3 @@ user:
 A good ping is one message with all five — not a slow back-and-forth.
 The maintainer reads enough Discord to triage but not to interrogate;
 make the issue actionable on first read.
-
----
-
-## Show the user the output
-
-When the run finishes, the user is almost certainly looking at the
-terminal — not at a file browser. If they're on an interactive
-desktop (most personal machines: macOS, Windows, a Linux desktop),
-open the output for them with the platform's default opener. The
-output paths come from the `run-workflow` log (search for
-`Saved image to ...` / `Saved video to ...`) or from
-`Configuration.output_directory`.
-
-```bash
-# macOS:
-open out/result.png                  # opens in Preview / default viewer
-open out/                            # opens the directory in Finder
-
-# Windows (PowerShell, cmd, or Git Bash):
-start "" "out\result.png"            # opens with the default app
-explorer out\                        # opens the directory in Explorer
-
-# Linux desktop (any distro with xdg-utils — GNOME, KDE, Xfce, ...):
-xdg-open out/result.png              # opens in default image viewer
-xdg-open out/                        # opens the directory in the file manager
-```
-
-Detect the platform from `uname` / `$OSTYPE` (or `sys.platform` if you
-already have a Python REPL open) and pick the right command — don't
-ask the user. **Skip this step on headless servers** (SSH session,
-container, CI): no DISPLAY / Aqua / Win32 desktop means there's nothing
-to open, and the call will print an error or hang. A reasonable
-heuristic: open the output if any of `$DISPLAY`, `$WAYLAND_DISPLAY`,
-`$TERM_PROGRAM` (set by Apple Terminal / iTerm), or
-`$WT_SESSION` (Windows Terminal) is set; otherwise just print the
-absolute path so the user can copy it.
-
-For batch outputs (CSV-driven runs, tens of files), open the *parent
-directory* once instead of every file individually — let the user
-scrub through with their file manager.
