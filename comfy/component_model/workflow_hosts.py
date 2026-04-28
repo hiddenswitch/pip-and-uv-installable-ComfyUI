@@ -73,6 +73,24 @@ def _split_csv(values: Iterable[str]) -> list[str]:
     return out
 
 
+# Map free-form period inputs to Civitai API enum values.
+# Civitai supports Day / Week / Month / Year / AllTime; numeric-day inputs
+# round to the closest enum bucket (180 → Year since there's no 6-month value).
+_CIVITAI_PERIOD_ALIASES: dict[str, str] = {
+    "day": "Day", "1d": "Day",
+    "week": "Week", "7d": "Week",
+    "month": "Month", "30d": "Month", "30": "Month",
+    "year": "Year", "180d": "Year", "180": "Year", "365d": "Year", "360d": "Year", "360": "Year",
+    "alltime": "AllTime", "all": "AllTime", "all-time": "AllTime",
+}
+
+
+def _civitai_period(value: str | None) -> str:
+    if not value:
+        return "AllTime"
+    return _CIVITAI_PERIOD_ALIASES.get(str(value).lower().strip(), "AllTime")
+
+
 # ── Civitai ───────────────────────────────────────────────────────────────────
 
 class _CivitaiHost:
@@ -118,11 +136,34 @@ class _CivitaiHost:
             extra={"nsfw_level": nsfw_level, "version_id": versions[0].get("id") if versions else None},
         )
 
-    def top(self, limit: int = 100) -> list[WorkflowResult]:
-        params = {"types": "Workflows", "sort": "Most Downloaded",
-                  "period": "AllTime", "limit": min(max(limit, 1), 100)}
-        data = self._api_get("/models", params)
-        return [self._to_result(it) for it in (data.get("items") or [])][:limit]
+    def top(self, limit: int = 100, *, period: str = "AllTime", query: str | None = None) -> list[WorkflowResult]:
+        # Civitai's /api/v1/models exposes period values: Day / Week / Month / Year / AllTime.
+        # 30/180/360-day windows from the user are mapped to Month / (no exact match — use Year)
+        # / Year. We expose that mapping in the CLI so users can pass natural windows.
+        api_period = _civitai_period(period)
+        params: dict[str, object] = {
+            "types": "Workflows",
+            "sort": "Most Downloaded",
+            "period": api_period,
+            "limit": min(max(limit, 1), 100),
+        }
+        out: list[WorkflowResult] = []
+        # Cursor-paginate beyond 100 if asked.
+        while len(out) < limit:
+            data = self._api_get("/models", params)
+            items = data.get("items") or []
+            for it in items:
+                if query and query.lower() not in (it.get("name") or "").lower() and \
+                   query.lower() not in (it.get("description") or "").lower()[:1000]:
+                    continue
+                out.append(self._to_result(it))
+                if len(out) >= limit:
+                    break
+            cursor = (data.get("metadata") or {}).get("nextCursor")
+            if not cursor or len(items) == 0 or query is None and len(out) >= limit:
+                break
+            params["cursor"] = cursor
+        return out[:limit]
 
     def search(self, query: str, limit: int = 50) -> list[WorkflowResult]:
         # The API's `query=` parameter doesn't combine with `types=Workflows`

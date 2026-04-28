@@ -306,27 +306,85 @@ def _emit_results(results: list, json_output: bool) -> None:
         typer.echo(f"  {r.uri:<{width_uri}}  {r.title}{creator}{downloads_str}{nsfw}")
 
 
+_FAMILY_QUERIES: dict[str, list[str]] = {
+    "wan": ["wan", "wanvideo"],
+    "flux": ["flux", "kontext"],
+    "sdxl": ["sdxl", "pony", "illustrious"],
+    "ltxv": ["ltx", "ltxv"],
+}
+
+
 @workflows_app.command(name="top", context_settings=_COMFYUI_ENV)
 def workflows_top(
-    limit: int = typer.Option(100, "--limit", "-n", help="Top N per host."),
+    limit: int = typer.Option(100, "--limit", "-n", help="Top N per host (per family if --family is given)."),
     with_host: Optional[list[str]] = typer.Option(None, "--with-host", help="Only these hosts (csv or repeat)."),
     without_host: Optional[list[str]] = typer.Option(None, "--without-host", help="Exclude these hosts (csv or repeat)."),
+    period: str = typer.Option("AllTime", "--period", help="Time window: AllTime | Year (≈360d) | Month (≈30d) | Week | Day. Numeric forms (30d, 180, 360) round to the closest enum."),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Substring filter applied to title/description."),
+    family: Optional[list[str]] = typer.Option(None, "--family", help="Pre-canned model-family queries: wan, flux, sdxl, ltxv. Repeat to combine."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of a grouped table."),
 ):
-    """List the most popular workflows on each enabled host."""
+    """List the most popular workflows on each enabled host.
+
+    Examples:
+      comfyui workflows top --limit 10 --period 30d --family wan
+      comfyui workflows top --limit 25 --period Year --family flux --family ltxv --with-host civitai
+    """
     hosts = _hosts_for_cli(with_host, without_host)
+
+    # Resolve --family into ((label, [aliases])); --query is treated as a family
+    # of one. Each label produces ONE section per host, deduplicated by URI.
+    if family:
+        sections: list[tuple[str, list[str]]] = []
+        seen_labels: set[str] = set()
+        for fam in family:
+            for f in (fam.lower().split(",") if "," in fam else [fam.lower()]):
+                f = f.strip()
+                if not f or f in seen_labels:
+                    continue
+                seen_labels.add(f)
+                aliases = _FAMILY_QUERIES.get(f, [f])
+                sections.append((f, aliases))
+    else:
+        sections = [("", [query] if query else [""])]
+
+    def _filter_by_aliases(results, aliases: list[str]) -> list:
+        if not any(a for a in aliases):
+            return list(results)
+        needles = [a.lower() for a in aliases if a]
+        kept = []
+        for r in results:
+            hay = (r.title + " " + r.description).lower()
+            if any(n in hay for n in needles):
+                kept.append(r)
+        return kept
+
     all_results = []
-    for h in hosts:
-        try:
-            results = h.top(limit)
-        except Exception as exc:  # noqa: BLE001
-            typer.echo(f"  ({h.id}: {exc})", err=True)
-            continue
-        if json_output:
-            all_results.extend(results)
-            continue
-        typer.echo(f"\n# {h.id}  ({len(results)} results)")
-        _emit_results(results, json_output=False)
+    for fam_label, aliases in sections:
+        for h in hosts:
+            try:
+                # Pull a broader set when filtering by aliases so we end up with
+                # ~limit hits after filtering.
+                pull_n = limit if not aliases or not any(aliases) else max(limit * 3, limit)
+                if hasattr(h, "top") and "period" in getattr(
+                    h.top, "__code__", type("", (), {"co_varnames": ()})(),
+                ).co_varnames:
+                    raw = h.top(pull_n, period=period, query=None)
+                else:
+                    raw = h.top(pull_n)
+            except Exception as exc:  # noqa: BLE001
+                typer.echo(f"  ({h.id}: {exc})", err=True)
+                continue
+            results = _filter_by_aliases(raw, aliases)[:limit]
+            label = f"{h.id} / family={fam_label}" if fam_label else h.id
+            if json_output:
+                for r in results:
+                    r.extra = {**r.extra, "family": fam_label, "period": period}
+                all_results.extend(results)
+                continue
+            typer.echo(f"\n# {label}  period={period}  ({len(results)} results)")
+            _emit_results(results, json_output=False)
+
     if json_output:
         _emit_results(all_results, json_output=True)
 
