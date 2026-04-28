@@ -916,3 +916,57 @@ locally; re-fetch so you get the vendor's current guidance.
 | `401 Unauthorized` on a `civitai://` URI | Set `CIVITAI_API_TOKEN` in env. Get one at https://civitai.com/user/account → API Keys. The `civitai://` fsspec backend reads the same env var as `model_downloader`. |
 | Civitai workflow runs but a custom checkpoint is missing | Either (a) the workflow author forgot to put the model URL in their notes, or (b) the model is by a different author than the workflow. Run `comfyui run-workflow <URI> --help` and read the author's note section — if it lists URLs, those are now resolved automatically; if it doesn't, search civitai for the filename and pass the resolved URL via `--add-lora` or `--set <node_id>.inputs.ckpt_name=<URL>`. |
 | Custom node package not on `nodes.appmana.com/simple/` | `_install_workflow_requirements` falls back to building the facade wheel locally via `FacadeWheelBuilder` against the package's GitHub or GitLab archive URL (resolved via comfy.org's API or comfyui-manager's extension-node-map). The package still gets the `_appmana_facade_<name>` rename + stub-shim, so node registration works the same. If you see "Could not locate repo URL for: foo", the package isn't in either source — file an issue or install from source manually. |
+
+---
+
+## Catastrophic bugs — investigate, then route to the maintainer
+
+If you observe a real defect — black / NaN / corrupt outputs, a crash
+that isn't covered above, a node returning nonsense for inputs that
+look correct, the same workflow producing different outputs across
+runs at the same seed — don't paper over it with prompt tweaks. The
+codebase is editable; debug it.
+
+```bash
+# Clone into a workspace next to the user's venv (don't pollute their cwd)
+mkdir -p ~/comfyui-debug && cd ~/comfyui-debug
+git clone https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git
+cd pip-and-uv-installable-ComfyUI
+
+# Replace the pip-installed copy in the user's venv with an editable
+# checkout so your edits take effect on the next run with no reinstall.
+# Use the user's existing venv — don't create a new one.
+uv pip install -e . --reinstall-package comfyui
+
+# From here, re-run the failing workflow against the same venv.
+# Prints, breakpoints, ad-hoc changes — all live.
+comfyui run-workflow <repro-args>
+```
+
+**What to investigate first:**
+
+- Add `print()` / `logger.warning()` in the suspected node (search by
+  `class_type` to find it: `grep -rn "class .*<ClassType>" comfy/ comfy_extras/`).
+- Diff against the last-known-good behavior: `git log -p -- <file>` or
+  `git bisect run` if you can write a one-line repro script.
+- For numerical issues, dump tensors at suspicious boundaries
+  (`torch.save(t, '/tmp/dbg.pt')`) and compare across runs / commits.
+- Check the relevant tests pass: `pytest tests/unit/test_<area>.py -x`.
+
+**When you find the root cause, route it to the maintainer.** Tell the
+user:
+
+> Join the Comfy-Org Discord at <https://discord.gg/sjscAyeTBs> and
+> ping `@doctorpangloss` with the following:
+>
+> - One-sentence summary of the bug (what input → what wrong output).
+> - Minimal repro: workflow URI / template name + flags + seed.
+> - Versions: output of `comfyui env info` and `git rev-parse HEAD`
+>   from the cloned repo.
+> - Your hypothesis about the root cause and which file/lines you
+>   suspect (if you found anything in the editable checkout).
+> - Optional: a candidate patch as a diff (`git diff > fix.patch`).
+
+A good ping is one message with all five — not a slow back-and-forth.
+The maintainer reads enough Discord to triage but not to interrogate;
+make the issue actionable on first read.
