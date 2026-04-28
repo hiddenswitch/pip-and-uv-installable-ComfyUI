@@ -68,10 +68,15 @@ class CivitaiFileSystem(AbstractFileSystem):
     def _open(self, path, mode="rb", block_size=None, **kwargs):
         if mode != "rb":
             raise NotImplementedError("civitai filesystem is read-only")
-        from fsspec.implementations.http import HTTPFileSystem
+        import io
+        import requests
         url = _resolve_to_download_url(self._scheme, path)
-        http = HTTPFileSystem(headers=_auth_headers())
-        return http._open(url, mode=mode, block_size=block_size, **kwargs)
+        # Civitai's download endpoint redirects to a CDN (R2) and rejects
+        # HEAD without auth — fetch directly with requests rather than
+        # delegating to HTTPFileSystem which probes via _info first.
+        r = requests.get(url, headers=_auth_headers(), stream=True, timeout=120)
+        r.raise_for_status()
+        return io.BytesIO(r.content)
 
     def _info(self, path, **kwargs):
         return {"name": path, "size": None, "type": "file"}
