@@ -169,6 +169,14 @@ jobs:
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
             friendly_name: "Python 3.12 ROCm 6.4 Torch (native gfx1102)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
+    env:
+      # Even with the rocm6.4 wheel that ships gfx1102 binaries, HIP picks
+      # the wrong arch on this hardware (the kernel-driver topology query
+      # apparently still reports a non-gfx1102 string in this container).
+      # Force gfx1102 explicitly. The wheel HAS the binary now, so this
+      # is a no-cost identity override (vs. earlier 11.0.0 which forced
+      # gfx1100 onto gfx1102 hardware and faulted).
+      HSA_OVERRIDE_GFX_VERSION: "11.0.2"
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends zip unzip
