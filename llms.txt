@@ -899,9 +899,14 @@ locally; re-fetch so you get the vendor's current guidance.
 6. Run the workflow with `--all` (download missing) and `--seed` (so the
    user can reproduce). Set `CIVITAI_API_TOKEN` first if any input
    resolves through `civitai://` — early-access / gated downloads need it.
-7. If output is wrong, iterate on the prompt or add/remove a LoRA.
+7. **Open the result for the user** if they're on an interactive
+   desktop — `open <path>` (macOS), `start "" "<path>"` (Windows),
+   `xdg-open <path>` (Linux desktop). Skip on headless / SSH /
+   containers; just print the absolute path. See §Show the user the
+   output.
+8. If output is wrong, iterate on the prompt or add/remove a LoRA.
    Don't loop infinitely — after 3 tries, ask the user.
-8. For bulk jobs: daemon + submit. For exotic graph edits: Python.
+9. For bulk jobs: daemon + submit. For exotic graph edits: Python.
 
 ## Troubleshooting quick table
 
@@ -921,11 +926,22 @@ locally; re-fetch so you get the vendor's current guidance.
 
 ## Catastrophic bugs — investigate, then route to the maintainer
 
-If you observe a real defect — black / NaN / corrupt outputs, a crash
-that isn't covered above, a node returning nonsense for inputs that
-look correct, the same workflow producing different outputs across
-runs at the same seed — don't paper over it with prompt tweaks. The
-codebase is editable; debug it.
+Most "errors" you'll see are *not* catastrophic — they're missing
+files. A workflow that fails because a checkpoint isn't in
+`models/checkpoints/`, or because a `LoadImage` references an image
+the user didn't pass, is a resolution problem. Fix it the way the
+rest of this guide already shows: run `comfyui run-workflow <URI>
+--help` to read the author's notes, pass `--all` to mine note URLs +
+the author's Civitai uploads, pass `--image <path-or-URL>` for
+references, or `--add-lora`/`--set` for missing files the workflow
+expected at fixed paths. **Don't escalate these.**
+
+A *catastrophic* bug looks different: a crash that isn't covered in
+the troubleshooting table, a node returning nonsense for inputs that
+look correct, image generation producing black or NaN output even
+though the model loaded, the same workflow producing wildly different
+outputs at the same seed. Those are real defects — the codebase is
+editable, so debug them.
 
 ```bash
 # Clone into a workspace next to the user's venv (don't pollute their cwd)
@@ -939,7 +955,7 @@ cd pip-and-uv-installable-ComfyUI
 uv pip install -e . --reinstall-package comfyui
 
 # From here, re-run the failing workflow against the same venv.
-# Prints, breakpoints, ad-hoc changes — all live.
+# Prints and ad-hoc changes are live.
 comfyui run-workflow <repro-args>
 ```
 
@@ -947,11 +963,9 @@ comfyui run-workflow <repro-args>
 
 - Add `print()` / `logger.warning()` in the suspected node (search by
   `class_type` to find it: `grep -rn "class .*<ClassType>" comfy/ comfy_extras/`).
-- Diff against the last-known-good behavior: `git log -p -- <file>` or
-  `git bisect run` if you can write a one-line repro script.
-- For numerical issues, dump tensors at suspicious boundaries
-  (`torch.save(t, '/tmp/dbg.pt')`) and compare across runs / commits.
-- Check the relevant tests pass: `pytest tests/unit/test_<area>.py -x`.
+- Diff against the last-known-good behavior: `git log -p -- <file>`,
+  or `git bisect run` if you can write a one-line repro script.
+- Run the relevant tests: `pytest tests/unit/test_<area>.py -x`.
 
 **When you find the root cause, route it to the maintainer.** Tell the
 user:
@@ -970,3 +984,43 @@ user:
 A good ping is one message with all five — not a slow back-and-forth.
 The maintainer reads enough Discord to triage but not to interrogate;
 make the issue actionable on first read.
+
+---
+
+## Show the user the output
+
+When the run finishes, the user is almost certainly looking at the
+terminal — not at a file browser. If they're on an interactive
+desktop (most personal machines: macOS, Windows, a Linux desktop),
+open the output for them with the platform's default opener. The
+output paths come from the `run-workflow` log (search for
+`Saved image to ...` / `Saved video to ...`) or from
+`Configuration.output_directory`.
+
+```bash
+# macOS:
+open out/result.png                  # opens in Preview / default viewer
+open out/                            # opens the directory in Finder
+
+# Windows (PowerShell, cmd, or Git Bash):
+start "" "out\result.png"            # opens with the default app
+explorer out\                        # opens the directory in Explorer
+
+# Linux desktop (any distro with xdg-utils — GNOME, KDE, Xfce, ...):
+xdg-open out/result.png              # opens in default image viewer
+xdg-open out/                        # opens the directory in the file manager
+```
+
+Detect the platform from `uname` / `$OSTYPE` (or `sys.platform` if you
+already have a Python REPL open) and pick the right command — don't
+ask the user. **Skip this step on headless servers** (SSH session,
+container, CI): no DISPLAY / Aqua / Win32 desktop means there's nothing
+to open, and the call will print an error or hang. A reasonable
+heuristic: open the output if any of `$DISPLAY`, `$WAYLAND_DISPLAY`,
+`$TERM_PROGRAM` (set by Apple Terminal / iTerm), or
+`$WT_SESSION` (Windows Terminal) is set; otherwise just print the
+absolute path so the user can copy it.
+
+For batch outputs (CSV-driven runs, tens of files), open the *parent
+directory* once instead of every file individually — let the user
+scrub through with their file manager.
