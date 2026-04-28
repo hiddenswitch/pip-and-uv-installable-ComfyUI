@@ -112,6 +112,22 @@ Filter by task with `comfyui workflows list --format json | jq -r
    uv pip install --torch-backend=auto "comfyui[…]"
    ```
 
+   **CPU-only hosts use the same install command.** Don't pass
+   `--torch-backend=cpu`; let `auto` decide. On a host without an
+   NVIDIA / AMD / Intel / Apple accelerator, `auto` falls through to
+   the plain CPU wheel automatically. The CPU/GPU choice is a
+   *runtime* concern, not an install concern: switch on it with the
+   `--cpu` CLI flag (or `COMFYUI_CPU=1` env var) when running:
+   ```bash
+   comfyui --cpu env info               # forces CPU device
+   comfyui run-workflow <wf> --cpu …    # forces CPU sampling
+   ```
+   This keeps a single `.venv` portable across hosts (a laptop with no
+   GPU and a workstation with one can share the same install) — the
+   GPU wheel still loads fine when there's no GPU, and `--cpu` simply
+   tells the runtime to ignore it. On macOS, MPS is the default
+   accelerator; pass `--cpu` to force CPU-only sampling there too.
+
 3. **Triton** — install on Linux for CUDA or ROCm users:
    ```bash
    uv pip install triton
