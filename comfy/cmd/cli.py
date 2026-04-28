@@ -648,7 +648,14 @@ _NODES_INDEX_URL = "https://nodes.appmana.com/simple/"
 
 
 def _install_workflow_requirements(workflow_sources: list[str]) -> None:
-    """Install missing custom node packages for the given workflows."""
+    """Install missing custom node packages for the given workflows.
+
+    Two-tier resolution: (1) try the pip facade index at nodes.appmana.com
+    (which carries pre-built wheels for popular packages); (2) for any
+    package that didn't install (typically because no wheel has been built
+    yet), fall back to a direct ``pip install git+<repo_url>`` using the
+    repository URL from comfy.org's node registry.
+    """
     import shutil
     import subprocess
 
@@ -690,7 +697,44 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
     logger.info("Installing custom nodes: %s", ", ".join(missing))
     cmd = [uv, "pip", "install", "--python", sys.executable,
            "--extra-index-url", _NODES_INDEX_URL] + missing
-    subprocess.run(cmd, check=True)
+    result = subprocess.run(cmd, check=False)
+
+    if result.returncode == 0:
+        return
+
+    # Some packages don't have wheels on the pip facade — retry those
+    # individually via ``pip install git+<repo_url>`` from comfy.org's
+    # node registry (or comfyui-manager's extension-node-map for any
+    # not on comfy.org).
+    from ..custom_node_facade.repo_lookup import resolve_package_repo_url
+    refreshed_installed: set[str] = set()
+    for d in distributions():
+        n = (d.metadata or {}).get("Name")
+        if n:
+            refreshed_installed.add(n.lower().replace("_", "-"))
+    still_missing = [p for p in missing if p not in refreshed_installed]
+    if not still_missing:
+        return
+
+    git_targets: list[str] = []
+    unresolved: list[str] = []
+    for pkg in still_missing:
+        repo_url = resolve_package_repo_url(pkg)
+        if repo_url:
+            git_targets.append(f"{pkg} @ git+{repo_url}")
+        else:
+            unresolved.append(pkg)
+
+    if git_targets:
+        logger.info("Installing %d package(s) via git fallback: %s",
+                    len(git_targets), ", ".join(p.split(" @ ")[0] for p in git_targets))
+        subprocess.run(
+            [uv, "pip", "install", "--python", sys.executable] + git_targets,
+            check=False,
+        )
+
+    if unresolved:
+        logger.warning("Could not locate repo URL for: %s", ", ".join(unresolved))
 
 
 # Pre-built stable-ABI wheel indexes for binary CUDA extensions that we ship.
@@ -814,7 +858,15 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
     from ..model_downloader import _known_models_db, get_or_download, canonicalize_path
+    from .. import civitai_model_cache
     from . import folder_paths
+
+    # Hydrate the Civitai cache for each workflow's author so community
+    # checkpoints/loras uploaded by the same person can resolve at lookup time.
+    civitai_model_cache.init_civitai_model_cache()
+    for source in workflow_sources:
+        if source != "-":
+            civitai_model_cache.prefetch_civitai_models_for_workflow_uri(source)
 
     filename_index: dict[str, list[tuple[str, object]]] = {}
     for db in _known_models_db:
