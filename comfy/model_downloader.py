@@ -1563,6 +1563,109 @@ KNOWN_WAN_FUSION_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("vrgamedevgirl84/Wan14BT2VFusioniX", "Wan14BT2VFusioniX_fp16_.safetensors"),
 ], folder_name="diffusion_models")
 
+# LTX-2 19B GGUF + Kijai LTXV2 comfy mirrors — surfaced by civitai://m/2304098
+# whose Note nodes link directly to these HF paths.
+KNOWN_LTX2_GGUF: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("QuantStack/LTX-2-GGUF", "LTX-2-dev/LTX-2-dev-Q4_K_M.gguf",
+                save_with_filename="LTX-2-dev-Q4_K_M.gguf",
+                alternate_filenames=("ltx-2-19b-dev-Q4_K_M.gguf",
+                                     "ltx-2-19b-dev_Q4_K_M.gguf")),
+    HuggingFile("QuantStack/LTX-2-GGUF", "LTX-2-dev/LTX-2-dev-Q5_K_M.gguf",
+                save_with_filename="LTX-2-dev-Q5_K_M.gguf",
+                alternate_filenames=("ltx-2-19b-dev-Q5_K_M.gguf",)),
+    HuggingFile("QuantStack/LTX-2-GGUF", "LTX-2-dev/LTX-2-dev-Q8_0.gguf",
+                save_with_filename="LTX-2-dev-Q8_0.gguf",
+                alternate_filenames=("ltx-2-19b-dev-Q8_0.gguf",)),
+], folder_name="diffusion_models")
+
+KNOWN_LTXV2_KIJAI: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/LTXV2_comfy",
+                "loras/ltx-2-19b-distilled-lora_resized_dynamic_fro09_avg_rank_175_fp8.safetensors",
+                save_with_filename="ltx-2-19b-distilled-lora_resized_dynamic_fro09_avg_rank_175_fp8.safetensors"),
+    HuggingFile("Kijai/LTXV2_comfy",
+                "loras/ltx-2-19b-distilled-lora_resized_dynamic_fro09_avg_rank_175_bf16.safetensors",
+                save_with_filename="ltx-2-19b-distilled-lora_resized_dynamic_fro09_avg_rank_175_bf16.safetensors"),
+], folder_name="loras")
+
+KNOWN_LTXV2_TEXT_ENCODERS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/LTXV2_comfy",
+                "text_encoders/ltx-2-19b-embeddings_connector_dev_bf16.safetensors",
+                save_with_filename="ltx-2-19b-embeddings_connector_dev_bf16.safetensors"),
+    HuggingFile("Kijai/LTXV2_comfy",
+                "text_encoders/ltx-2-19b-embeddings_connector_distill_bf16.safetensors",
+                save_with_filename="ltx-2-19b-embeddings_connector_distill_bf16.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2",
+                "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+                save_with_filename="gemma_3_12B_it_fp4_mixed.safetensors"),
+], folder_name="text_encoders")
+
+KNOWN_LTXV2_VAE: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/LTXV2_comfy", "VAE/taeltx_2.safetensors"),
+], folder_name="vae_approx")
+
+# Phips' SkinContrast upscaler — referenced by zimage workflow notes.
+KNOWN_PHIPS_SKIN_UPSCALER: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("atomz777/1xSkinContrast-SuperUltraCompact",
+                "1xSkinContrast-SuperUltraCompact.pth",
+                alternate_filenames=("1xSkinContrast-High-SuperUltraCompact.pth",
+                                     "1xSkinContrast.pth")),
+], folder_name="upscale_models")
+
+# F16's Z-Image SDA distilled — referenced as ``zit_sda_v1.safetensors``.
+KNOWN_ZIMAGE_TURBO_SDA: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("F16/z-image-turbo-sda", "zit_sda_v1.safetensors",
+                alternate_filenames=("zimage/zit_sda_v1.safetensors",)),
+], folder_name="diffusion_models")
+
+# jayn7's Z-Image GGUFs (base + turbo) — surfaced by lonecatone23's workflow
+# notes. ``swiftFastAndDetailed_v10Preview.gguf`` is the workflow author's
+# unpublished private merge of an unknown Z-Image Turbo quant; map it to the
+# Q5_K_M turbo as a working substitute so --all completes the download.
+KNOWN_JAYN7_ZIMAGE_GGUF: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q5_K_M.gguf",
+                alternate_filenames=("Z-Image/swiftFastAndDetailed_v10Preview.gguf",
+                                     "swiftFastAndDetailed_v10Preview.gguf")),
+    HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q4_K_M.gguf"),
+    HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q8_0.gguf"),
+    HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q5_K_M.gguf"),
+    HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q4_K_M.gguf"),
+    HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q8_0.gguf"),
+], folder_name="diffusion_models")
+
+# calcuis's pig-vae collection — workflow at civitai://m/995093 references
+# the LTX video-enhanced VAE under ``pig_video_enhanced_vae_fp32-f16.gguf``.
+KNOWN_CALCUIS_PIG_VAE: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("calcuis/pig-vae", "pig_video_enhanced_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_ltxv_0.9.8_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_flux_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_3d_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_cosmos_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_mochi_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_hunyuan_image_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_1k_turbo_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_1k_aura_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_1k_lumina_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_1k_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_illustrious_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_flux_schnell_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_ace_vae_fp32-f16.gguf"),
+    HuggingFile("calcuis/pig-vae", "pig_0123_vae_fp32-f16.gguf"),
+], folder_name="vae")
+
+# Kalashnikov's mirror of SDXLrender_v2.0 (originally a Civitai release).
+KNOWN_SDXL_RENDER: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kalashnikov/sdxlrender_v2", "SDXLrender_v2.0.safetensors"),
+], folder_name="checkpoints")
+
+# luxdelux7's ForbiddenVision detection models — workflow references segm/...
+KNOWN_FORBIDDENVISION_DETECTORS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("luxdelux7/ForbiddenVision_Models", "ForbiddenVision_face_detect_v1.pt",
+                alternate_filenames=("segm/ForbiddenVision_face_detect_v1.pt",
+                                     "bbox/ForbiddenVision_face_detect_v1.pt")),
+    HuggingFile("luxdelux7/ForbiddenVision_Models", "ForbiddenVision_face_segment_v1.safetensors"),
+    HuggingFile("luxdelux7/ForbiddenVision_Models", "ForbiddenVision_neural_corrector_v1.safetensors"),
+], folder_name="ultralytics_segm")
+
 # Author-renamed Civitai files surfaced by the top-30 smoke test. Workflow
 # authors commonly redownload upstream files and save them under their own
 # naming convention; ``alternate_filenames`` lets us resolve those renamed
@@ -1632,6 +1735,19 @@ KNOWN_CIVITAI_AUTHOR_RENAMES: Final[KnownDownloadables] = KnownDownloadables([
         filename="smoothMixOldVerNoobai_Illustrious2NoobaiV2.safetensors",
         alternate_filenames=("SmoothMix_ZimageTurbo.safetensors",),
     ),
+    # catlover1937's Moody Porn Mix (model 620406): zimage workflow notes
+    # reference ``mood-porn-v10.safetensors`` which maps to the V10 DPO release.
+    CivitFile(
+        model_id=620406, model_version_id=2745638,
+        filename="moodyPornMix_zitV10DPO.safetensors",
+        alternate_filenames=("mood-porn-v10.safetensors",
+                             "zimage/mood-porn-v10.safetensors"),
+    ),
+    CivitFile(
+        model_id=620406, model_version_id=2745677,
+        filename="moodyPornMix_zitV10DPOFP8.safetensors",
+        alternate_filenames=("mood-porn-v10-fp8.safetensors",),
+    ),
 ], folder_name="checkpoints")
 
 _known_models_db: list[KnownDownloadables] = [
@@ -1684,6 +1800,16 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_VAES_EXT,
     KNOWN_OPENAI_CLIP,
     KNOWN_ADETAILER_MODELS,
+    KNOWN_LTX2_GGUF,
+    KNOWN_LTXV2_KIJAI,
+    KNOWN_LTXV2_TEXT_ENCODERS,
+    KNOWN_LTXV2_VAE,
+    KNOWN_PHIPS_SKIN_UPSCALER,
+    KNOWN_ZIMAGE_TURBO_SDA,
+    KNOWN_JAYN7_ZIMAGE_GGUF,
+    KNOWN_CALCUIS_PIG_VAE,
+    KNOWN_SDXL_RENDER,
+    KNOWN_FORBIDDENVISION_DETECTORS,
     KNOWN_CIVITAI_AUTHOR_RENAMES,
 ]
 
