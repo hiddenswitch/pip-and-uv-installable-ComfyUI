@@ -54,6 +54,14 @@ _CLASS_TYPE_PACKAGE_OVERRIDES: dict[str, str] = {
     # "comfyui-umeairt-toolkit" package the snapshot maps it to).
     "UltimateSDUpscale": "comfyui-ultimatesdupscale",
     "UltimateSDUpscaleNoUpscale": "comfyui-ultimatesdupscale",
+    "UltimateSDUpscaleCustomSample": "comfyui-ultimatesdupscale",
+    # numz/ComfyUI-SeedVR2_VideoUpscaler — also wrongly attributed to umeairt.
+    "SeedVR2": "comfyui-seedvr2-videoupscaler",
+    "SeedVR2VideoUpscaler": "comfyui-seedvr2-videoupscaler",
+    "SeedVR2LoadDiTModel": "comfyui-seedvr2-videoupscaler",
+    "SeedVR2LoadVAEModel": "comfyui-seedvr2-videoupscaler",
+    "SeedVR2BlockSwap": "comfyui-seedvr2-videoupscaler",
+    "SeedVR2TorchCompileSettings": "comfyui-seedvr2-videoupscaler",
 }
 
 
