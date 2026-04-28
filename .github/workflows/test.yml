@@ -186,6 +186,27 @@ jobs:
           /opt/venv/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/rocm6.4 \
             torch torchvision torchaudio
           /opt/venv/bin/python -c "import torch; print('torch=', torch.__version__); print('archs=', torch.cuda.get_arch_list())"
+
+          # The wheel's bundled libdrm needs amdgpu.ids (PCI-ID → arch map)
+          # at /opt/amdgpu/share/libdrm/amdgpu.ids; without it libdrm
+          # misidentifies the GPU and torch picks the wrong-arch kernel
+          # → "HIP error: invalid device function". Symlink from the image's
+          # existing copy if /opt/amdgpu/ is empty.
+          if [ ! -e /opt/amdgpu/share/libdrm/amdgpu.ids ]; then
+            mkdir -p /opt/amdgpu/share/libdrm
+            for src in /opt/rocm/share/libdrm/amdgpu.ids /usr/share/libdrm/amdgpu.ids /opt/rocm-*/share/libdrm/amdgpu.ids; do
+              if [ -e "$src" ]; then
+                ln -sfn "$src" /opt/amdgpu/share/libdrm/amdgpu.ids
+                echo "linked amdgpu.ids from $src"
+                break
+              fi
+            done
+            if [ ! -e /opt/amdgpu/share/libdrm/amdgpu.ids ]; then
+              apt-get install -y --no-install-recommends libdrm-amdgpu1
+              ln -sfn /usr/share/libdrm/amdgpu.ids /opt/amdgpu/share/libdrm/amdgpu.ids
+            fi
+          fi
+          ls -la /opt/amdgpu/share/libdrm/amdgpu.ids
       - name: HIP smoke test
         run: |
           # Pre-GPU diagnostics: dump everything that distinguishes this
