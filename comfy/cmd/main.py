@@ -304,6 +304,10 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     from ..manager_model_cache import init_manager_model_cache
     init_manager_model_cache(refresh_from_github=args.refresh_manager_models)
 
+    # Initialize Civitai live-search fallback for model lookup
+    from .. import civitai_model_cache
+    civitai_model_cache.init_civitai_model_cache()
+
     # configure extra model paths earlier
     try:
         extra_model_paths_config_path = os.path.join(os_getcwd, "extra_model_paths.yaml")

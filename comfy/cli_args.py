@@ -231,6 +231,7 @@ parser.add_argument("--guess-settings", action="store_true", help="Auto-detect b
 parser.add_argument("--disable-requests-caching", action="store_true", help="Disable requests caching.")
 parser.add_argument("--disable-manager-model-fallback", action="store_true", default=False, help="Disable manager model fallback.")
 parser.add_argument("--refresh-manager-models", action="store_true", default=False, help="Fetch latest model list.")
+parser.add_argument("--disable-civitai-model-fallback", action="store_true", default=False, help="Disable on-demand Civitai model lookup. Civitai fallback is auto-enabled when CIVITAI_API_TOKEN is set.")
 
 
 class EnumAction:

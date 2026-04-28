@@ -188,6 +188,14 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                     logger.debug(f"Found {filename} in manager database: {entry.url}")
 
             if known_file is None:
+                # Fallback to Civitai's live search API (lazy, on-demand).
+                from . import civitai_model_cache
+                entry = civitai_model_cache.get_model_entry(folder_name, filename)
+                if entry:
+                    known_file = civitai_model_cache.entry_to_downloadable(entry, filename)
+                    logger.debug(f"Found {filename} on Civitai: {entry[1]}")
+
+            if known_file is None:
                 logger.debug(f"get_or_download could not find {filename} in {folder_name}, known_files={known_files}")
                 return path
             with comfy_tqdm() as watcher:

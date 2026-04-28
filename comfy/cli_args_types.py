@@ -370,6 +370,7 @@ class Configuration(dict):
         self.enable_video_to_image_fallback: bool = False
         self.disable_manager_model_fallback: bool = False
         self.refresh_manager_models: bool = False
+        self.disable_civitai_model_fallback: bool = False
         self.pip_facade_registry_base_url: str = "https://api.comfy.org"
         self.pip_facade_cache_prefix: Optional[str] = None
         self.pip_facade_cache_revision: Optional[int] = None

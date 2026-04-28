@@ -471,6 +471,11 @@ class Comfy:
             disabled=getattr(self._configuration, "disable_manager_model_fallback", False),
         )
 
+        from .. import civitai_model_cache
+        civitai_model_cache.init_civitai_model_cache(
+            disabled=getattr(self._configuration, "disable_civitai_model_fallback", False),
+        )
+
         return self
 
     async def __aexit__(self, *args):
