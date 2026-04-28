@@ -280,6 +280,84 @@ def workflows_ls(
     workflows_list(format=format, template_dir=template_dir, all_templates=all_templates)
 
 
+def _hosts_for_cli(with_host: Optional[list[str]], without_host: Optional[list[str]]):
+    from ..component_model.workflow_hosts import resolve_host_filter
+    hosts = resolve_host_filter(with_host or [], without_host or [])
+    if not hosts:
+        typer.echo("No hosts selected (check --with-host / --without-host).", err=True)
+        raise typer.Exit(2)
+    return hosts
+
+
+def _emit_results(results: list, json_output: bool) -> None:
+    if json_output:
+        typer.echo(json.dumps([
+            {"host": r.host, "uri": r.uri, "title": r.title, "creator": r.creator,
+             "stats": r.stats, "nsfw": r.nsfw}
+            for r in results
+        ], indent=2, default=str))
+        return
+    width_uri = max((len(r.uri) for r in results), default=10) + 2
+    for r in results:
+        downloads = r.stats.get("downloads", 0)
+        nsfw = " [nsfw]" if r.nsfw else ""
+        creator = f"  by {r.creator}" if r.creator else ""
+        downloads_str = f"  ↓ {downloads:,}" if downloads else ""
+        typer.echo(f"  {r.uri:<{width_uri}}  {r.title}{creator}{downloads_str}{nsfw}")
+
+
+@workflows_app.command(name="top", context_settings=_COMFYUI_ENV)
+def workflows_top(
+    limit: int = typer.Option(100, "--limit", "-n", help="Top N per host."),
+    with_host: Optional[list[str]] = typer.Option(None, "--with-host", help="Only these hosts (csv or repeat)."),
+    without_host: Optional[list[str]] = typer.Option(None, "--without-host", help="Exclude these hosts (csv or repeat)."),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of a grouped table."),
+):
+    """List the most popular workflows on each enabled host."""
+    hosts = _hosts_for_cli(with_host, without_host)
+    all_results = []
+    for h in hosts:
+        try:
+            results = h.top(limit)
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(f"  ({h.id}: {exc})", err=True)
+            continue
+        if json_output:
+            all_results.extend(results)
+            continue
+        typer.echo(f"\n# {h.id}  ({len(results)} results)")
+        _emit_results(results, json_output=False)
+    if json_output:
+        _emit_results(all_results, json_output=True)
+
+
+@workflows_app.command(name="search", context_settings=_COMFYUI_ENV)
+def workflows_search(
+    query: str = typer.Argument(..., help="Search query."),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results per host."),
+    with_host: Optional[list[str]] = typer.Option(None, "--with-host", help="Only these hosts (csv or repeat)."),
+    without_host: Optional[list[str]] = typer.Option(None, "--without-host", help="Exclude these hosts (csv or repeat)."),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of a grouped table."),
+):
+    """Search workflows across enabled hosts."""
+    hosts = _hosts_for_cli(with_host, without_host)
+    all_results = []
+    for h in hosts:
+        try:
+            results = h.search(query, limit)
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(f"  ({h.id}: {exc})", err=True)
+            continue
+        if json_output:
+            all_results.extend(results)
+            continue
+        if results:
+            typer.echo(f"\n# {h.id}  ({len(results)} results)")
+            _emit_results(results, json_output=False)
+    if json_output:
+        _emit_results(all_results, json_output=True)
+
+
 @workflows_app.command(name="params", context_settings=_COMFYUI_ENV)
 def workflows_params(
     workflow: str = typer.Argument(..., help="Workflow file, URI, '-' for stdin, or literal JSON."),
