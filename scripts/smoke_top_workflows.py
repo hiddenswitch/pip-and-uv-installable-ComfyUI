@@ -98,7 +98,7 @@ def _smoke(uri: str, title: str) -> Result:
         try:
             filenames = _collect_model_filenames(api)
             r.model_total = len(filenames)
-            unknown = _check_models_resolvable(filenames)
+            unknown = _check_models_resolvable(filenames, civitai_uri=uri)
             r.model_known = r.model_total - len(unknown)
             r.model_unknown = sorted(unknown)[:10]
         except Exception as e:  # noqa: BLE001
@@ -132,12 +132,14 @@ def _collect_model_filenames(api: dict) -> list[str]:
     return uniq
 
 
-def _check_models_resolvable(filenames: list[str]) -> list[str]:
+def _check_models_resolvable(filenames: list[str], *, civitai_uri: str | None = None) -> list[str]:
     from comfy.model_downloader import _known_models_db
     from comfy.model_downloader_types import canonicalize_path
     try:
         from comfy import civitai_model_cache
         civitai_model_cache.init_civitai_model_cache()
+        if civitai_uri:
+            civitai_model_cache.prefetch_civitai_models_for_workflow_uri(civitai_uri)
     except Exception:  # noqa: BLE001
         pass
 
@@ -187,10 +189,12 @@ _PIP_INDEX_CACHE: dict[str, bool] = {}
 
 
 def _check_pip_index(names: set[str]) -> set[str]:
-    """Return names that don't appear on nodes.appmana.com/simple/."""
+    """Return names that resolve to neither nodes.appmana.com nor a git repo URL."""
     if not names:
         return set()
     import urllib.request
+    from comfy.custom_node_facade.repo_lookup import resolve_package_repo_url
+
     base = "https://nodes.appmana.com/simple/"
     unresolved: set[str] = set()
     for n in names:
@@ -206,6 +210,10 @@ def _check_pip_index(names: set[str]) -> set[str]:
                 ok = 200 <= resp.status < 300
         except Exception:  # noqa: BLE001
             ok = False
+        if not ok:
+            # Treat as resolved if a git fallback URL is available — the
+            # _install_workflow_requirements path will install from there.
+            ok = resolve_package_repo_url(n) is not None
         _PIP_INDEX_CACHE[norm] = ok
         if not ok:
             unresolved.add(n)

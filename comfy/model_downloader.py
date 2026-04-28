@@ -1469,10 +1469,86 @@ KNOWN_UPSCALERS_EXT: Final[KnownDownloadables] = KnownDownloadables([
     UrlFile("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
             _save_with_filename="RealESRGAN_x4.pth", show_in_ui=False),
     UrlFile("https://github.com/Phhofm/models/releases/download/4xNomos8kSCHAT/4xNomos8kSCHAT-L.pth"),
+    UrlFile("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"),
     HuggingFile("uwg/upscaler", "ESRGAN/4x_NMKD-Siax_200k.pth", alternate_filenames=("4x_NMKD-Siax_200k.pth",)),
+    HuggingFile("uwg/upscaler", "ESRGAN/4x_NMKD-Superscale-SP_178000_G.pth",
+                alternate_filenames=("4x_NMKD-Superscale-SP_178000_G.pth",)),
     HuggingFile("uwg/upscaler", "ESRGAN/4x_foolhardy_Remacri.pth"),
     HuggingFile("uwg/upscaler", "ESRGAN/4x-UltraSharp.pth"),
+    # Phhofm's Nomos8k ATD (transformer-based, .safetensors).
+    UrlFile("https://github.com/Phhofm/models/releases/download/4xNomos8k_atd_jpg/4xNomos8k_atd_jpg.safetensors"),
 ], folder_name="upscale_models")
+
+# Official FLUX ControlNets (Canny / Depth) by Black Forest Labs.
+KNOWN_FLUX_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("black-forest-labs/FLUX.1-Canny-dev", "flux1-canny-dev.safetensors"),
+    HuggingFile("Comfy-Org/flux1-canny-dev_lora", "flux1-canny-dev-lora.safetensors"),
+    HuggingFile("comfyanonymous/flux_dev_scaled_fp8_test", "flux1-canny-dev-fp8.safetensors",
+                alternate_filenames=("flux1-canny-dev-fp8.sft",)),
+    HuggingFile("black-forest-labs/FLUX.1-Depth-dev", "flux1-depth-dev.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.1-Fill-dev", "flux1-fill-dev.safetensors"),
+], folder_name="diffusion_models")
+
+# Lightricks LTX-2 19B distilled — the official LTX-2 release files.
+KNOWN_LTX2_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Lightricks/LTX-Video", "ltx-2-19b-distilled.safetensors"),
+    HuggingFile("Lightricks/LTX-Video", "LTX-2-Image2Vid-Adapter.safetensors"),
+    HuggingFile("Kijai/LTX-Video_comfy", "LTX2_audio_vae_bf16.safetensors",
+                alternate_filenames=("LTX2_video_vae_bf16.safetensors",)),
+    HuggingFile("Kijai/LTX-Video_comfy", "ltx-2.3_text_projection_bf16.safetensors"),
+    HuggingFile("Kijai/LTX-Video_comfy", "LTX23_audio_vae_bf16.safetensors"),
+], folder_name="diffusion_models")
+
+# Kijai-quantized WAN VAE variants (fp8 etc) referenced by community workflows.
+KNOWN_WAN_VAES_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1_VAE_fp8_e4m3fn.safetensors",
+                alternate_filenames=("wan2_1_vae_fp8.safetensors",)),
+], folder_name="vae")
+
+# IPAdapter weights — h94/IP-Adapter is the canonical source.
+KNOWN_IPADAPTER_MODELS_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter-plus_sd15.bin",
+                save_with_filename="ip-adapter-plus_sd15.bin",
+                alternate_filenames=("ip-adapter-plus_sd15.bin",)),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter-plus-face_sd15.bin",
+                save_with_filename="ip-adapter-plus-face_sd15.bin"),
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter-plus_sdxl_vit-h.bin",
+                save_with_filename="ip-adapter-plus_sdxl_vit-h.bin"),
+    HuggingFile("h94/IP-Adapter", "models/ip-adapter_sd15.bin"),
+    HuggingFile("h94/IP-Adapter", "sdxl_models/ip-adapter_sdxl_vit-h.bin",
+                save_with_filename="ip-adapter_sdxl_vit-h.bin"),
+], folder_name="ipadapter")
+
+# Common SD1.5 VAEs that workflows reference but aren't in the upstream list.
+KNOWN_VAES_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("stabilityai/sd-vae-ft-mse-original", "vae-ft-mse-840000-ema-pruned.ckpt",
+                alternate_filenames=("vaeFtMse840000Ema_v100.pt",
+                                     "vae-ft-mse-840000-ema-pruned.safetensors")),
+    HuggingFile("stabilityai/sd-vae-ft-ema-original", "vae-ft-ema-560000-ema-pruned.ckpt"),
+], folder_name="vae")
+
+# OpenAI's CLIP-L vision/text encoder — referenced as "clip-vit-large-patch14"
+# by many workflows (FLUX text encoders, IPAdapter face/style, Hunyuan, etc.).
+KNOWN_OPENAI_CLIP: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("openai/clip-vit-large-patch14", "model.safetensors",
+                save_with_filename="clip-vit-large-patch14.safetensors",
+                alternate_filenames=("clip-vit-large-patch14.safetensors",)),
+    HuggingFile("openai/clip-vit-large-patch14", "pytorch_model.bin",
+                save_with_filename="clip-vit-large-patch14.bin"),
+], folder_name="clip_vision")
+
+# Adetailer (Bingsu/adetailer) — bbox/segm yolo detectors used by Impact Pack.
+KNOWN_ADETAILER_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Bingsu/adetailer", "face_yolov8n.pt"),
+    HuggingFile("Bingsu/adetailer", "face_yolov8m.pt"),
+    HuggingFile("Bingsu/adetailer", "person_yolov8n-seg.pt"),
+    HuggingFile("Bingsu/adetailer", "person_yolov8m-seg.pt"),
+    HuggingFile("Bingsu/adetailer", "Eyeful_v2-Paired.pt"),
+    HuggingFile("Bingsu/adetailer", "deepfashion2_yolov8s-seg.pt"),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8n.pt"),
+    HuggingFile("Bingsu/adetailer", "hand_yolov8s.pt"),
+    HuggingFile("Bingsu/adetailer", "Eyes.pt", alternate_filenames=("bbox/Eyes.pt",)),
+], folder_name="ultralytics_bbox")
 
 # QR-code Monster + other community controlnets used by AnimateDiff workflows.
 KNOWN_CONTROLNETS_EXT: Final[KnownDownloadables] = KnownDownloadables([
@@ -1530,6 +1606,13 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_UPSCALERS_EXT,
     KNOWN_CONTROLNETS_EXT,
     KNOWN_WAN_FUSION_CHECKPOINTS,
+    KNOWN_FLUX_CONTROLNETS,
+    KNOWN_LTX2_MODELS,
+    KNOWN_WAN_VAES_EXT,
+    KNOWN_IPADAPTER_MODELS_EXT,
+    KNOWN_VAES_EXT,
+    KNOWN_OPENAI_CLIP,
+    KNOWN_ADETAILER_MODELS,
 ]
 
 
