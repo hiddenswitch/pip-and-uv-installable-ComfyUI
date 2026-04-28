@@ -105,11 +105,21 @@ Filter by task with `comfyui workflows list --format json | jq -r
    uv venv && source .venv/bin/activate     # if no venv is active
    ```
 
-2. **ComfyUI itself + torch.** `--torch-backend=auto` picks the right
-   CUDA / ROCm / MPS wheel for the host (ROCm 7.2 is the default for
-   AMD on Linux; works for almost every AMD user):
+2. **ComfyUI itself + torch.** Install from the git repo, **not** from
+   PyPI — this fork ships features (workflow URI loading, note URL
+   extraction, foreign-format translation, the pip facade, etc.) that
+   the upstream PyPI `comfyui` package doesn't have. `--torch-backend=auto`
+   picks the right CUDA / ROCm / MPS wheel for the host (ROCm 7.2 is
+   the default for AMD on Linux; works for almost every AMD user):
    ```bash
-   uv pip install --torch-backend=auto "comfyui[…]"
+   uv pip install --torch-backend=auto \
+     "comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
+   ```
+   Optional extras follow the usual syntax:
+   ```bash
+   # With dev tooling (pytest, lint, etc.):
+   uv pip install --torch-backend=auto \
+     "comfyui[dev] @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
    ```
 
    **CPU-only hosts use the same install command.** Don't pass
