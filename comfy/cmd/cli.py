@@ -983,6 +983,15 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                     raw_workflow = _DISCOVER_RAW_CACHE.get(ref)
                 except Exception as exc:  # noqa: BLE001
                     typer.echo(f"(Could not discover workflow parameters: {exc})", err=True)
+                    if ref.startswith(("civitai://v/", "civitai-red://v/")):
+                        typer.echo(
+                            "\n  Hint: civitai://v/<id> is a *version* id — usually a LoRA, "
+                            "checkpoint, or other asset, not a workflow. Pass it to "
+                            "--add-lora / --checkpoint instead, e.g.:\n"
+                            f"    comfyui run-workflow <workflow> --add-lora {ref}:0.8\n"
+                            "  Or use `comfyui models search …` to find the right URI for the asset kind.",
+                            err=True,
+                        )
                     typer.echo()
                     typer.echo(self.get_help(ctx))
                     ctx.exit()

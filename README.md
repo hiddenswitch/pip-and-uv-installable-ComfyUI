@@ -2,7 +2,7 @@
 
 A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyui) intended for long term support (LTS) from [AppMana](https://appmana.com) and [Hidden Switch](https://hiddenswitch.com).
 
-> **For AI coding assistants (Claude, Codex, Cursor, etc.)**: start with [`llms.txt`](./llms.txt). It covers prerequisites, the task → model pick table, image / edit / video / LoRA / `--compile` / CSV-driven and daemon-mode bulk workflows, prompt-rewriting guidance, and known pitfalls.
+> **For AI coding assistants (Claude, Codex, Cursor, etc.)**: start with [`llms.txt`](./llms.txt). It walks through how to fulfill creative requests — searching Civitai for the right LoRA, grounding edits in a reference image, picking a workflow that matches the user's VRAM — with worked examples (Studio Ghibli portrait, dancing video clip, Renaissance restyle, civitai workflow reproduction).
 >
 > Paste this into your agent (Claude Code, Codex CLI, Cursor, etc.) to use it as a guidebook:
 >

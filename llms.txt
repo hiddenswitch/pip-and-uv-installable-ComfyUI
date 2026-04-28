@@ -11,7 +11,7 @@ opening the result.
 
 Anything below counts as "make me X" and routes through this guide:
 
-- "Make me a picture of …" — text-to-image. (`run-workflow image_flux2_dev_text_to_image …`)
+- "Make me a picture of …" — text-to-image. (`run-workflow image_flux2_text_to_image …`)
 - "Edit this photo to …" / "remove the background" / "put X in the style
   of Y" — image edit with one or more reference images.
 - "Animate this still" / "make a 3-second clip of …" — image-to-video
@@ -40,8 +40,8 @@ ComfyUI is the runtime; the *content* lives in a public ecosystem:
 - **Workflows** — the recipe (which loaders, samplers, schedulers, in
   what order). Three sources, in order of authority:
     1. **bundled templates** that ship with this fork — names like
-       `image_flux2_dev_text_to_image`, `image_flux2_klein_9b_kv_image_edit`,
-       `video_ltxv_2.3_image_to_video`. Use these by default.
+       `image_flux2_text_to_image`, `image_flux2_klein_9b_kv_image_edit`,
+       `video_ltx2_3_i2v`. Use these by default.
     2. **comfy.org** official templates (e.g. `comfyui-org://t/<id>`).
     3. **civitai community** workflows
        (`civitai://m/<id>` / `civitai://v/<id>`). Lots of variety,
@@ -108,42 +108,54 @@ asks. Copy the pattern.
 #          want one whose `base:` matches a Flux workflow.
 comfyui models search "ghibli style" --kind lora --limit 5
 
-#   (lora) civitai://v/2627385  Studio Ghibli LTX2 style lora       base: LTXV          ↓ 482
+# Recent example output (rankings shift — re-run for current order):
 #   (lora) civitai://v/2769334  Cee_One's Ghibli-Esque Blend        base: Illustrious   ↓ 275
 #   (lora) civitai://v/2786125  Modern Ghibli Hires Style           base: Illustrious   ↓ 138
-#   (lora) civitai://v/2734259  V67 Ghibli Look                     base: Flux.1 D      ↓  68
 #   (lora) civitai://v/2740724  RIP Weights Series - Pink Ghibli    base: Flux.1 D      ↓  44
+# Add `--base-model "Flux.1 D"` to filter to ones that match a Flux2 workflow.
 
-# Step 2 — pick the Flux.1 D row (matches our default Flux2 workflow).
-#          Read its trigger words and weight recommendation:
-comfyui models search "ghibli style" --kind lora --base-model "Flux.1 D" --json | \
-    jq '.[0] | {uri, title, trigger_words, description: .description[:200]}'
+# Step 2 — pin the search to Flux.1 D and read trigger words from the
+#          top result. Trigger words are load-bearing — you must include
+#          them in the prompt or the LoRA contributes nothing.
+comfyui models search "ghibli" --kind lora --base-model "Flux.1 D" --json | \
+    jq '.[0] | {uri, title, base_model, trigger_words}'
 
-#   { "uri": "civitai://v/2734259", "title": "V67 Ghibli Look",
-#     "trigger_words": ["(studio ghibli:1.2)", "ghibli aesthetic",
-#                       "miyazaki style", "soft clouds", "pastel sky", … ] }
+# Recent top hit (much more popular than the earlier "ghibli style" search):
+#   { "uri": "civitai://v/755852",
+#     "title": "Ghibli style Illustrious & Flux & PDXL",
+#     "base_model": "Flux.1 D",
+#     "trigger_words": ["ghiblistyle"] }
 
 # Step 3 — find a Harry Potter reference image. Wikipedia is the
 #          fastest grounding source; any direct image URL works.
 HP_REF="https://upload.wikimedia.org/wikipedia/en/d/d7/Harry_Potter_character_poster.jpg"
 
-# Step 4 — run flux2 image-edit with the LoRA + reference. Include the
-#          LoRA's trigger words in the prompt (they're load-bearing).
+# Step 4 — run a Flux.2 image-edit workflow with the LoRA + reference.
+#          Include the LoRA's trigger word(s) in the prompt verbatim.
 comfyui run-workflow image_flux2_klein_9b_kv_image_edit --all --novram \
     --seed 42 \
     --image "$HP_REF" \
     --prompt "Restyle this portrait of Harry Potter as a Studio Ghibli
-              painting. (studio ghibli:1.2), ghibli aesthetic, miyazaki
-              style, soft watercolor textures, pastel sky, gentle wind.
-              Keep the round glasses, the lightning-bolt scar, and the
-              Gryffindor robe colors recognizable." \
-    --add-lora civitai://v/2734259:0.8
+              animated film key frame: ghiblistyle, soft watercolor
+              textures, pastel sky, gentle wind. Keep the round glasses,
+              the lightning-bolt scar, and the Gryffindor robe colors
+              recognizable." \
+    --add-lora civitai://v/755852:0.8
 
 # Step 5 — open the result for the user (skip on headless hosts).
 xdg-open output/*.png    # Linux desktop
 # open output/*.png      # macOS
 # start "" output\*.png  # Windows
 ```
+
+> **Civitai URI gotcha.** `civitai://v/<id>` is a *version* id (a single
+> file — pass it to `--add-lora`, `--checkpoint`, or
+> `--set <node>.inputs.<field>=<URI>`). `civitai://m/<id>` is a *model*
+> id (an uploaded **workflow**, valid as the `run-workflow` positional).
+> They are not interchangeable. `models search` returns `v/`; `workflows
+> search` returns `m/`. If you accidentally feed a `v/` URI to
+> `run-workflow` you'll see "Could not discover workflow parameters:
+> argument of type 'int' is not iterable" — that's the wrong-shape error.
 
 This is the canonical pattern: **search → pick by base-model match →
 read trigger words → fetch reference → run with `--add-lora` and
@@ -154,19 +166,21 @@ the search query and the trigger words change.
 ### 2. "Make a 3-second clip of a person dancing"
 
 ```bash
-# Search bundled + comfy.org templates first — quality is high and no
-# external download is needed:
-comfyui workflows search "image_to_video" --with-host comfyui-org --limit 8
+# Search bundled templates first (the long tail of comfy.org hosts gets
+# noisier — `comfyui-org://t/api_*` templates require a paid API key
+# and don't run locally; ignore them).
+comfyui workflows list --format json | \
+    jq -r '.[] | select(.tags[]? | test("Image to Video|Text to Video"; "i")) | .template_id'
 
 # For text-to-video, LTX-2.3 is the default:
-comfyui run-workflow video_ltxv_2.3_text_to_video --all --guess-settings \
+comfyui run-workflow video_ltx2_3_t2v --all --guess-settings \
     --prompt "A young woman in a yellow sundress spinning slowly on a
               sunny rooftop, hair catching the wind, soft afternoon
               light, shallow depth of field, smooth handheld camera." \
     --seed 42 --width 768 --height 512
 
 # For image-to-video (animate a still), pass --image:
-comfyui run-workflow video_ltxv_2.3_image_to_video --all --guess-settings \
+comfyui run-workflow video_ltx2_3_i2v --all --guess-settings \
     --image https://example.com/dancer.jpg \
     --prompt "Camera pans slowly right while the dancer continues
               the same motion. 3 seconds." \
@@ -210,7 +224,7 @@ comfyui run-workflow image_sdxl_base_refiner_image_edit --all --novram \
     --add-lora civitai://v/2820801:0.85 --seed 42
 
 # Path B: prompt-only on Flux (works surprisingly well on Flux2 dev):
-comfyui run-workflow image_flux2_dev_image_edit --all \
+comfyui run-workflow image_flux2_klein_image_edit_9b_base --all \
     --image /path/to/dog.jpg \
     --prompt "Oil painting in the style of a Renaissance master:
               chiaroscuro lighting, soft sfumato edges, deep umber and
@@ -275,19 +289,29 @@ matches any LoRA the user supplies; otherwise default by VRAM:
 
 | Task | If VRAM ≥ 24 GB | Otherwise |
 |---|---|---|
-| Text-to-image | `image_flux2_dev_text_to_image` (Flux.2 dev) | `image_flux2_klein_text_to_image` (Flux.2 klein 9B, fp8 mixed, `--novram`) |
-| Image edit / reference | `image_flux2_dev_image_edit` | `image_flux2_klein_9b_kv_image_edit` (klein 9B KV, `--novram`) |
-| Text-to-video | `video_ltxv_2.3_text_to_video` (LTXV 2.3) | same |
-| Image-to-video | `video_ltxv_2.3_image_to_video` | same |
+| Text-to-image | `image_flux2_text_to_image` (Flux.2 dev) | `image_flux2_klein_text_to_image` (Flux.2 klein 9B, fp8 mixed, `--novram`) |
+| Image edit / reference | `image_flux2_klein_image_edit_9b_base` | `image_flux2_klein_9b_kv_image_edit` (klein 9B KV, `--novram`) |
+| Text-to-video | `video_ltx2_3_t2v` (LTXV 2.3) | same |
+| Image-to-video | `video_ltx2_3_i2v` | same |
 | User brought an SDXL LoRA | SDXL workflow (`image_sdxl_base_refiner_text_to_image` or similar) | same |
 | User brought a Flux/Klein LoRA | matching klein/Flux2 workflow | same |
 
-Discover templates with `comfyui workflows list` (columns include the
-inferred `Task`: `text-to-image`, `image-edit`, `text-to-video`,
+Discover templates with `comfyui workflows list` (columns include
+inferred Task — `text-to-image`, `image-edit`, `text-to-video`,
 `image-to-video`, `audio`, or `other`) and
 `comfyui workflows show <name>` (prints a copy-pasteable invocation).
-Filter by task with `comfyui workflows list --format json | jq -r
-'.[] | select(.task=="image-edit") | .template_id'`.
+The JSON output exposes `media_type` (`image` / `video` / `audio`) and
+`tags` (`"Text to Image"`, `"Image to Video"`, …) — filter on those:
+
+```bash
+# All image-edit templates:
+comfyui workflows list --format json | \
+    jq -r '.[] | select(.tags[]? == "Image Edit") | .template_id'
+
+# All video-output templates (text-to-video + image-to-video):
+comfyui workflows list --format json | \
+    jq -r '.[] | select(.tags[]? | test("to Video"; "i")) | .template_id'
+```
 
 ## When to use the CLI vs code
 
@@ -458,7 +482,7 @@ The default path. Use `--prompt` for text, `--seed` for determinism,
 
 ```bash
 # 24 GB+ host: Flux.2 dev
-comfyui run-workflow image_flux2_dev_text_to_image --all --seed 42 \
+comfyui run-workflow image_flux2_text_to_image --all --seed 42 \
     --prompt "a ceramic teapot on a linen tablecloth, soft window light"
 
 # Smaller host: klein 9B with novram streaming
@@ -504,12 +528,12 @@ exactly."
 
 ```bash
 # Text-to-video (LTXV 2.3)
-comfyui run-workflow video_ltxv_2.3_text_to_video --all \
+comfyui run-workflow video_ltx2_3_t2v --all \
     --prompt "A drone sweeps over a coastal cliff at overcast sunset, gulls overhead." \
     --seed 42 --width 768 --height 512
 
 # Image-to-video: use an image as the first frame
-comfyui run-workflow video_ltxv_2.3_image_to_video --all \
+comfyui run-workflow video_ltx2_3_i2v --all \
     --image https://example.com/first_frame.jpg \
     --prompt "Camera slowly pans right over the scene for 3 seconds." \
     --seed 42
@@ -527,23 +551,23 @@ the LoRA applies to the base weights before any existing LoRA or
 multiple LoRAs by repeating the flag:
 
 ```bash
-comfyui run-workflow image_flux2_dev_text_to_image --all --seed 42 \
+comfyui run-workflow image_flux2_text_to_image --all --seed 42 \
     --prompt "a ceramic teapot in the style of a studio ghibli key frame" \
     --add-lora ghibli_style.safetensors:0.8 \
     --add-lora crisp_lines.safetensors:0.4
 
 # URLs work (resolved by model_downloader):
-comfyui run-workflow image_flux2_dev_text_to_image --all \
+comfyui run-workflow image_flux2_text_to_image --all \
     --prompt "..." \
     --add-lora https://civitai.com/api/download/models/12345:0.7
 
 # HF repos:
-comfyui run-workflow image_flux2_dev_text_to_image --all \
+comfyui run-workflow image_flux2_text_to_image --all \
     --prompt "..." \
     --add-lora hf://owner/repo/my_lora.safetensors:0.6
 
 # Absolute path:
-comfyui run-workflow image_flux2_dev_text_to_image --all \
+comfyui run-workflow image_flux2_text_to_image --all \
     --prompt "..." \
     --add-lora /home/user/loras/mine.safetensors
 ```
@@ -570,7 +594,7 @@ subsequent step is 2–4× faster. Good for batch work, mediocre for a
 single image.
 
 ```bash
-comfyui run-workflow image_flux2_dev_text_to_image --all \
+comfyui run-workflow image_flux2_text_to_image --all \
     --prompt "..." --compile --add-lora style.safetensors:0.6
 ```
 
@@ -607,7 +631,7 @@ comfyui run-workflow civitai://m/2304098 --all --guess-settings \
 
 | Shape | Example | Notes |
 |---|---|---|
-| Bundled template name | `image_flux2_dev_text_to_image` | Discover with `comfyui workflows list`. |
+| Bundled template name | `image_flux2_text_to_image` | Discover with `comfyui workflows list`. |
 | Local path | `~/wf.json` or `./wf.json` | UI- or API-format JSON. |
 | Civitai model id | `civitai://m/2304098` | Resolves to the model's latest version primary file. |
 | Civitai version id | `civitai://v/2521513` | Pin to a specific version. |
@@ -908,7 +932,7 @@ forms. Pick the form most likely to resolve on a recipient's host:
 
 | Asset | Use | Example |
 |---|---|---|
-| Bundled workflow template | template name | `image_flux2_dev_text_to_image`, `image_anima_preview` |
+| Bundled workflow template | template name | `image_flux2_text_to_image`, `image_anima_preview` |
 | Workflow JSON you authored | raw `https://…` URL (gist, repo, …) | `https://gist.githubusercontent.com/you/abc/raw/wf.json` |
 | Hugging Face model / LoRA | `hf://owner/repo/filename` | `hf://black-forest-labs/FLUX.1-dev/flux1-dev.safetensors` |
 | Civitai LoRA / checkpoint | Civitai download URL | `https://civitai.com/api/download/models/12345` |
@@ -1041,7 +1065,7 @@ uv pip install --extra-index-url https://nodes.appmana.com/simple/ \
 
 # Or: extract what a specific workflow needs and install just that:
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ \
-    -r <(comfyui workflows requirements image_flux2_dev_image_edit)
+    -r <(comfyui workflows requirements image_flux2_klein_image_edit_9b_base)
 ```
 
 If the user is air-gapped or running CI, host the facade yourself with
