@@ -499,6 +499,58 @@ _AUDIO_INPUT_CLASSES = frozenset(_pu._AUDIO_LOAD_CLASS_TYPES) | frozenset({
 })
 
 
+def assign_ui_groups(workflow: dict, params: list[Param]) -> dict[str, list[Param]]:
+    """Bucket *params* by the UI workflow's groups.
+
+    Returns ``{group_title: [Param, ...]}``. Params whose source node falls
+    outside every group bounding box (or when no groups exist) bucket under
+    the empty-string key.
+
+    LiteGraph groups carry ``bounding=[x, y, w, h]`` and nodes carry
+    ``pos=[x, y]``; we pick the most specific (smallest-area) group that
+    contains the node so nested groups behave intuitively.
+    """
+    if not isinstance(workflow, dict) or "nodes" not in workflow:
+        return {"": list(params)}
+    groups = workflow.get("groups") or []
+    if not isinstance(groups, list) or not groups:
+        return {"": list(params)}
+
+    boxes: list[tuple[float, str]] = []
+    rect_by_title: dict[str, tuple[float, float, float, float]] = {}
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        bb = g.get("bounding")
+        title = g.get("title")
+        if not isinstance(bb, (list, tuple)) or len(bb) < 4 or not isinstance(title, str):
+            continue
+        x, y, w, h = (float(bb[0]), float(bb[1]), float(bb[2]), float(bb[3]))
+        rect_by_title[title] = (x, y, w, h)
+        boxes.append((w * h, title))
+    boxes.sort()  # smallest-area group wins
+
+    pos_by_id: dict[str, tuple[float, float]] = {}
+    for node in workflow.get("nodes") or []:
+        nid = node.get("id")
+        pos = node.get("pos")
+        if isinstance(pos, (list, tuple)) and len(pos) >= 2 and nid is not None:
+            pos_by_id[str(nid)] = (float(pos[0]), float(pos[1]))
+
+    out: dict[str, list[Param]] = {}
+    for p in params:
+        pos = pos_by_id.get(p.node_id)
+        bucket = ""
+        if pos is not None:
+            for _area, title in boxes:
+                rect = rect_by_title[title]
+                if rect[0] <= pos[0] <= rect[0] + rect[2] and rect[1] <= pos[1] <= rect[1] + rect[3]:
+                    bucket = title
+                    break
+        out.setdefault(bucket, []).append(p)
+    return out
+
+
 def count_input_slots(workflow: dict) -> dict[str, tuple[int, int]]:
     """Return ``{kind: (active, total)}`` for image/video/audio loader nodes.
 

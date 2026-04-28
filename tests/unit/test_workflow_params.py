@@ -24,6 +24,7 @@ from comfy.entrypoints.workflow_params import (
     TIER_HEADLINE,
     apply,
     apply_role,
+    assign_ui_groups,
     class_type_roles,
     count_input_slots,
     discover,
@@ -729,6 +730,59 @@ def test_unbypass_extra_loaders_targets_only_requested_kind():
     # Video loader's mode untouched
     video = next(n for n in out["nodes"] if n["type"] == "VHS_LoadVideoFFmpeg")
     assert video["mode"] == 4
+
+
+# ── synthetic unit tests: assign_ui_groups ────────────────────────────────────
+
+
+def test_assign_ui_groups_buckets_params_by_containing_group():
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "Foo", "pos": [100, 100]},
+            {"id": 2, "type": "Foo", "pos": [600, 600]},
+        ],
+        "links": [],
+        "groups": [
+            {"title": "Inputs",  "bounding": [0, 0, 200, 200]},
+            {"title": "Outputs", "bounding": [500, 500, 200, 200]},
+        ],
+    }
+    p1 = Param(node_id="1", class_type="Foo", widget_name="x", value=1)
+    p2 = Param(node_id="2", class_type="Foo", widget_name="y", value=2)
+    out = assign_ui_groups(workflow, [p1, p2])
+    assert out == {"Inputs": [p1], "Outputs": [p2]}
+
+
+def test_assign_ui_groups_empty_bucket_for_orphans():
+    workflow = {
+        "nodes": [{"id": 99, "type": "Foo", "pos": [9999, 9999]}],
+        "links": [],
+        "groups": [{"title": "G", "bounding": [0, 0, 100, 100]}],
+    }
+    p = Param(node_id="99", class_type="Foo", widget_name="x", value=1)
+    out = assign_ui_groups(workflow, [p])
+    assert out == {"": [p]}
+
+
+def test_assign_ui_groups_no_groups_returns_single_bucket():
+    workflow = {"nodes": [{"id": 1, "type": "Foo", "pos": [0, 0]}], "links": []}
+    p = Param(node_id="1", class_type="Foo", widget_name="x", value=1)
+    out = assign_ui_groups(workflow, [p])
+    assert out == {"": [p]}
+
+
+def test_assign_ui_groups_smallest_group_wins_when_nested():
+    workflow = {
+        "nodes": [{"id": 1, "type": "Foo", "pos": [110, 110]}],
+        "links": [],
+        "groups": [
+            {"title": "Outer", "bounding": [0, 0, 1000, 1000]},
+            {"title": "Inner", "bounding": [100, 100, 200, 200]},
+        ],
+    }
+    p = Param(node_id="1", class_type="Foo", widget_name="x", value=1)
+    out = assign_ui_groups(workflow, [p])
+    assert out == {"Inner": [p]}
 
 
 # ── synthetic unit tests: count_input_slots ───────────────────────────────────

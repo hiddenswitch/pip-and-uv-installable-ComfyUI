@@ -55,7 +55,7 @@ warnings.filterwarnings("ignore", message=r"The pynvml package is deprecated\..*
 # gfx1100/1101 only), set HSA_OVERRIDE_GFX_VERSION before torch loads its HIP
 # runtime. Idempotent and skipped if the user already exported the variable.
 try:
-    from .amd_compat import maybe_set_hsa_override as _maybe_set_hsa_override
+    from ..component_model.amd_compat import maybe_set_hsa_override as _maybe_set_hsa_override
     _hsa_value = _maybe_set_hsa_override()
     if _hsa_value:
         this_logger.info(

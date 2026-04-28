@@ -919,7 +919,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         from rich.table import Table
         from rich.text import Text
         from ..entrypoints.workflow_params import (
-            TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE, count_input_slots,
+            TIER_ADVANCED, TIER_COMMON, TIER_HEADLINE, assign_ui_groups, count_input_slots,
         )
 
         console = Console()
@@ -997,12 +997,28 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                     box=box.ROUNDED,
                 ))
 
-        headline_panel = _make_section(headline_rows, f"Workflow parameters — {ref}")
-        if headline_panel:
-            rendered.append(headline_panel)
-        common_panel = _make_section(common_rows, "Common parameters")
-        if common_panel:
-            rendered.append(common_panel)
+        # If the UI workflow has author-defined groups, render headline+common
+        # together split per group (matching the user's mental model in the
+        # editor). Otherwise fall back to flat headline/common panels.
+        groups_map = assign_ui_groups(raw_workflow or {}, headline_rows + common_rows) if raw_workflow else {}
+        if any(title for title in groups_map.keys()) and len(groups_map) > 1:
+            for title, rows in groups_map.items():
+                if not rows:
+                    continue
+                rows_sorted = sorted(rows, key=lambda p: (p.tier, p.node_id, p.widget_name))
+                heading = title or "Other parameters"
+                if title == f"Workflow parameters — {ref}":
+                    heading = title
+                panel = _make_section(rows_sorted, heading or f"Workflow parameters — {ref}")
+                if panel:
+                    rendered.append(panel)
+        else:
+            headline_panel = _make_section(headline_rows, f"Workflow parameters — {ref}")
+            if headline_panel:
+                rendered.append(headline_panel)
+            common_panel = _make_section(common_rows, "Common parameters")
+            if common_panel:
+                rendered.append(common_panel)
 
         # "Suggested for this workflow" panel shows applicable add-ons.
         addons = self._suggest_addons(params)
