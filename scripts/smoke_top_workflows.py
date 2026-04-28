@@ -160,6 +160,11 @@ def _check_models_resolvable(filenames: list[str]) -> list[str]:
     for fn in filenames:
         if not fn or fn in {"None", "Custom", "none"}:
             continue  # placeholder values aren't real model references
+        # Workflow widgets sometimes carry display labels like "VIT-G (medium strength)"
+        # in slots that the schema *also* uses for filenames. Skip values that
+        # contain spaces or parens — real filenames don't.
+        if " " in fn or "(" in fn:
+            continue
         key = canonicalize_path(fn)
         bn = (key or fn).rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         in_known = bool(key and (key in known or bn in known))

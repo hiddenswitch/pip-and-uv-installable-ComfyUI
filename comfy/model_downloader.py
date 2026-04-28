@@ -1376,6 +1376,117 @@ KNOWN_FLASHVSR_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("JunhaoZhuang/FlashVSR-v1.1", "diffusion_pytorch_model_streaming_dmd.safetensors", save_with_filename="FlashVSR/diffusion_pytorch_model_streaming_dmd.safetensors"),
 ], folder_name="FlashVSR")
 
+# FLUX -- Black Forest Labs models. ``.sft`` is a synonym for safetensors that
+# the FLUX repos use; workflows reference both forms.
+KNOWN_FLUX_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("black-forest-labs/FLUX.1-dev", "flux1-dev.safetensors",
+                alternate_filenames=("flux1-dev.sft",)),
+    HuggingFile("black-forest-labs/FLUX.1-schnell", "flux1-schnell.safetensors",
+                alternate_filenames=("flux1-schnell.sft",)),
+    HuggingFile("black-forest-labs/FLUX.1-Kontext-dev", "flux1-kontext-dev.safetensors",
+                alternate_filenames=("flux1-kontext-dev.sft",)),
+], folder_name="diffusion_models")
+
+# WAN video — Kijai's quantized mirrors are the de facto distribution for
+# every workflow that uses WAN 2.1 / 2.2.
+KNOWN_WAN_TEXT_ENCODERS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+                alternate_filenames=("umt5-xxl-encoder-fp8-e4m3fn-scaled.safetensors",)),
+    HuggingFile("city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q5_K_M.gguf"),
+    HuggingFile("city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_S.gguf"),
+    HuggingFile("city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-fp8_e4m3fn.safetensors"),
+], folder_name="text_encoders")
+
+KNOWN_WAN_VAES: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_1_VAE_bf16.safetensors",
+                alternate_filenames=("wan_2.1_vae.safetensors",)),
+    HuggingFile("Kijai/WanVideo_comfy", "Wan2_2_VAE_bf16.safetensors",
+                alternate_filenames=("wan_2.2_vae.safetensors",)),
+], folder_name="vae")
+
+# Common T5 text encoder variants (FLUX, SD3, LTX, Hunyuan all use these).
+KNOWN_T5_TEXT_ENCODERS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp16.safetensors"),
+    HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn.safetensors"),
+    HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn_scaled.safetensors",
+                alternate_filenames=("t5xxl_um_fp8_e4m3fn_scaled.safetensors",)),
+    HuggingFile("comfyanonymous/flux_text_encoders", "clip_l.safetensors"),
+    HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q4_K_M.gguf",
+                alternate_filenames=("t5xxl_fp32-q4_0.gguf",
+                                     "t5-v1_1-xxl-encoder-Q4_K_S.gguf")),
+    HuggingFile("city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q5_K_M.gguf"),
+    HuggingFile("zer0int/CLIP-GmP-ViT-L-14", "ViT-L-14-GmP-SAE-TE-only.safetensors",
+                alternate_filenames=("Long-ViT-L-14-GmP-SAE-TE-only.safetensors",)),
+], folder_name="text_encoders")
+
+# Common CLIP-Vision (ViT-H) variants used by IPAdapter / WAN / WanVideo.
+KNOWN_CLIP_VISION_H: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/sigclip_vision_384", "sigclip_vision_patch14_384.safetensors"),
+    HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_fp16.safetensors",
+                alternate_filenames=("clip_vision_h.safetensors",)),
+    HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_fp8_e4m3fn.safetensors",
+                alternate_filenames=("clip_vision_h_fp8_e4m3fn.safetensors",)),
+], folder_name="clip_vision")
+
+# Hyper-SD / DMD2 distilled LoRAs — extremely common in turbo / fast workflows.
+KNOWN_HYPER_SD_LORAS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("ByteDance/Hyper-SD", "Hyper-SD15-8steps-CFG-lora.safetensors",
+                alternate_filenames=("Hyper-SD15-8steps-lora.safetensors",)),
+    HuggingFile("ByteDance/Hyper-SD", "Hyper-SD15-4steps-CFG-lora.safetensors"),
+    HuggingFile("ByteDance/Hyper-SD", "Hyper-SDXL-8steps-CFG-lora.safetensors"),
+    HuggingFile("ByteDance/Hyper-SD", "Hyper-FLUX.1-dev-8steps-lora.safetensors"),
+    HuggingFile("tianweiy/DMD2", "dmd2_sdxl_4step_lora_fp16.safetensors"),
+], folder_name="loras")
+
+# AnimateDiff motion modules — referenced by ipiv's Morph and many others.
+KNOWN_ANIMATEDIFF_MODELS_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("guoyww/animatediff", "v3_sd15_mm.ckpt"),
+    HuggingFile("guoyww/animatediff", "v3_sd15_adapter.ckpt"),
+    HuggingFile("guoyww/animatediff", "v3_sd15_sparsectrl_rgb.ckpt"),
+    HuggingFile("guoyww/animatediff", "v3_sd15_sparsectrl_scribble.ckpt"),
+    HuggingFile("guoyww/animatediff", "mm_sd_v15_v2.ckpt"),
+    HuggingFile("guoyww/animatediff-motion-lora-v1-5-3", "v3_sd15_adapter.ckpt", show_in_ui=False),
+], folder_name="animatediff_models")
+
+# Depth-Anything checkpoints (vitl/vitb/vits) — comfyui_controlnet_aux preprocessors.
+KNOWN_DEPTH_ANYTHING_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("LiheYoung/depth_anything_vitl14", "pytorch_model.bin",
+                save_with_filename="depth_anything_vitl14.pth",
+                alternate_filenames=("depth_anything_vitl14.pth",)),
+    HuggingFile("LiheYoung/depth_anything_vitb14", "pytorch_model.bin",
+                save_with_filename="depth_anything_vitb14.pth",
+                alternate_filenames=("depth_anything_vitb14.pth",)),
+    HuggingFile("LiheYoung/depth_anything_vits14", "pytorch_model.bin",
+                save_with_filename="depth_anything_vits14.pth",
+                alternate_filenames=("depth_anything_vits14.pth",)),
+], folder_name="depthanything")
+
+# Common ESRGAN-family upscalers that appear in nearly every workflow.
+KNOWN_UPSCALERS_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    UrlFile("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+            _save_with_filename="RealESRGAN_x4plus.pth"),
+    UrlFile("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+            _save_with_filename="RealESRGAN_x4.pth", show_in_ui=False),
+    UrlFile("https://github.com/Phhofm/models/releases/download/4xNomos8kSCHAT/4xNomos8kSCHAT-L.pth"),
+    HuggingFile("uwg/upscaler", "ESRGAN/4x_NMKD-Siax_200k.pth", alternate_filenames=("4x_NMKD-Siax_200k.pth",)),
+    HuggingFile("uwg/upscaler", "ESRGAN/4x_foolhardy_Remacri.pth"),
+    HuggingFile("uwg/upscaler", "ESRGAN/4x-UltraSharp.pth"),
+], folder_name="upscale_models")
+
+# QR-code Monster + other community controlnets used by AnimateDiff workflows.
+KNOWN_CONTROLNETS_EXT: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("monster-labs/control_v1p_sd15_qrcode_monster", "control_v1p_sd15_qrcode_monster.safetensors"),
+    HuggingFile("monster-labs/control_v1p_sd15_qrcode_monster", "v2/control_v1p_sd15_qrcode_monster_v2.safetensors"),
+], folder_name="controlnet")
+
+# Wan FusionX — the most-downloaded WAN 2.1 14B workflow on Civitai pulls
+# this file from vrgamedevgirl84's HF repo.
+KNOWN_WAN_FUSION_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("vrgamedevgirl84/Wan14BT2VFusioniX", "Wan14BT2VFusioniX.safetensors"),
+    HuggingFile("vrgamedevgirl84/Wan14BT2VFusioniX", "Wan14BT2VFusioniX_fp16_.safetensors"),
+], folder_name="diffusion_models")
+
 _known_models_db: list[KnownDownloadables] = [
     KNOWN_CHECKPOINTS,
     KNOWN_VAES,
@@ -1408,6 +1519,17 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_POSE_DETECTION_MODELS,
     KNOWN_VFI_MODELS,
     KNOWN_FLASHVSR_MODELS,
+    KNOWN_FLUX_CHECKPOINTS,
+    KNOWN_WAN_TEXT_ENCODERS,
+    KNOWN_WAN_VAES,
+    KNOWN_T5_TEXT_ENCODERS,
+    KNOWN_CLIP_VISION_H,
+    KNOWN_HYPER_SD_LORAS,
+    KNOWN_ANIMATEDIFF_MODELS_EXT,
+    KNOWN_DEPTH_ANYTHING_MODELS,
+    KNOWN_UPSCALERS_EXT,
+    KNOWN_CONTROLNETS_EXT,
+    KNOWN_WAN_FUSION_CHECKPOINTS,
 ]
 
 
