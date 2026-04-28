@@ -859,7 +859,9 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
     """Download missing models for the given workflows."""
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
-    from ..model_downloader import _known_models_db, get_or_download, canonicalize_path
+    from ..component_model.workflow_note_models import extract_models_from_notes
+    from ..model_downloader import _known_models_db, add_known_models, get_or_download, canonicalize_path
+    from ..model_downloader_types import UrlFile
     from .. import civitai_model_cache
     from . import folder_paths
 
@@ -869,6 +871,25 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
     for source in workflow_sources:
         if source != "-":
             civitai_model_cache.prefetch_civitai_models_for_workflow_uri(source)
+
+    # Mine each workflow's Note / MarkdownNote nodes for model download URLs
+    # (workflow authors document the exact HF / GitHub / Civitai URLs the
+    # workflow needs in markdown notes; treat those as runtime-registered
+    # KnownDownloadables so lookups by filename find them).
+    for source in workflow_sources:
+        if source == "-":
+            continue
+        try:
+            note_workflow = load_workflow_json(source)
+        except Exception:  # noqa: BLE001
+            continue
+        for nm in extract_models_from_notes(note_workflow):
+            url_file = UrlFile(nm.url, _save_with_filename=nm.filename, show_in_ui=False)
+            add_known_models(nm.folder or "checkpoints", url_file)
+            for alt in nm.alternate_names:
+                add_known_models(nm.folder or "checkpoints",
+                                 UrlFile(nm.url, _save_with_filename=alt, show_in_ui=False))
+            logger.debug("Note URL: %s/%s -> %s", nm.folder, nm.filename, nm.url)
 
     filename_index: dict[str, list[tuple[str, object]]] = {}
     for db in _known_models_db:
