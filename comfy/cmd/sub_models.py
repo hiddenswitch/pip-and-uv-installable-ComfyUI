@@ -266,6 +266,133 @@ def models_from_workflow(
         typer.echo(f"{folder_name}/{filename}", err=not found)
 
 
+@models_app.command(name="search", context_settings=_COMFYUI_ENV)
+def models_search(
+    query: str = typer.Argument(..., help="Search query (free text)."),
+    kind: Optional[str] = typer.Option(None, "--kind", "-k", help="Asset kind: lora | checkpoint | embedding | vae | controlnet."),
+    base_model: Optional[list[str]] = typer.Option(None, "--base-model", "-b", help="Filter by base model (Civitai). Repeat or csv. Examples: 'Flux.1 Klein', 'Flux.1 D', 'SDXL 1.0', 'Pony', 'Illustrious'."),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results per host."),
+    with_host: Optional[list[str]] = typer.Option(None, "--with-host", help="Only these hosts (csv or repeat)."),
+    without_host: Optional[list[str]] = typer.Option(None, "--without-host", help="Exclude these hosts."),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+):
+    """Search Civitai and Hugging Face for LoRAs, checkpoints, embeddings, VAEs, controlnets.
+
+    Distinct from `comfyui workflows search`, which finds workflow JSONs.
+    This finds the building blocks a workflow loads, so you can paste the
+    URI straight into `--add-lora`, `--checkpoint`, or
+    `--set <node>.inputs.<field>=<URI>`. Civitai results pin to a version id
+    so a re-publish doesn't silently change which weights you grabbed.
+
+    Output rows print:
+
+      (kind) URI  title  by creator  ↓ downloads
+          base: <base model>
+          trigger: <comma-joined trigger words>
+
+    \b
+    Find a Studio Ghibli LoRA across base models (Flux, Illustrious, SDXL, LTXV):
+      comfyui models search "ghibli style" --kind lora --limit 5
+
+      # Real output (sorted Most Downloaded):
+      #   (lora) civitai://v/2627385  Studio Ghibli LTX2 style lora      base: LTXV          ↓ 482
+      #   (lora) civitai://v/2769334  Cee_One's Ghibli-Esque Blend       base: Illustrious   ↓ 275
+      #   (lora) civitai://v/2786125  Modern Ghibli Hires Style          base: Illustrious   ↓ 138
+      #   (lora) civitai://v/2734259  V67 Ghibli Look                    base: Flux.1 D      ↓  68
+      #   (lora) civitai://v/2740724  RIP Weights Series - Pink Ghibli   base: Flux.1 D      ↓  44
+      #
+      # Pick the row whose `base:` matches the workflow you're running.
+      # Pass the URI to --add-lora directly:
+      #   comfyui run-workflow image_flux2_dev_text_to_image --all \\
+      #       --prompt "..." --add-lora civitai://v/2734259:0.8
+
+    \b
+    Find a popular checkpoint by family:
+      comfyui models search "pony" --kind checkpoint --limit 3
+
+      # Real output:
+      #   (checkpoint) civitai://v/290640   Pony Diffusion V6 XL    base: Pony  ↓ 936,856
+      #   (checkpoint) civitai://v/2884631  CyberRealistic Pony     base: Pony  ↓ 696,919
+      #   (checkpoint) civitai://v/914390   Pony Realism            base: Pony  ↓ 529,545
+
+    \b
+    Filter by exact Civitai base-model string:
+      comfyui models search "ghibli" --kind lora --base-model "Flux.1 D" --limit 3
+
+      # Common --base-model strings:
+      #   "Flux.1 D"  "Flux.1 Klein"  "SDXL 1.0"  "SD 1.5"  "Pony"
+      #   "Illustrious"  "NoobAI"  "LTXV"  "Wan Video 2.1"  "Anima"
+
+    \b
+    Search Hugging Face for a base model repo (HF tags do the kind inference):
+      comfyui models search "flux" --with-host huggingface --limit 5
+
+    \b
+    Anime character checkpoints (the fallback path: client-side substring
+    filter when Civitai's server-side query+type returns 0):
+      comfyui models search "anime" --kind checkpoint --limit 3
+
+      # Real output:
+      #   (checkpoint) civitai://v/128713  DreamShaper          base: SD 1.5  ↓ 1,588,288
+      #   (checkpoint) civitai://v/354657  DreamShaper XL       base: SDXL Lightning  ↓ 595,448
+      #   (checkpoint) civitai://v/425083  ReV Animated         base: SD 1.5  ↓ 570,859
+
+    \b
+    JSON output for piping into jq / Python:
+      comfyui models search "ghibli" --kind lora --limit 3 --json | \\
+        jq -r '.[] | select(.base_model=="Flux.1 D") | .uri'
+
+    Authenticate first if you want NSFW / early-access results:
+      export CIVITAI_API_TOKEN=ci_xxxx
+    """
+    from ..component_model.workflow_hosts import resolve_host_filter
+
+    if base_model:
+        flat: list[str] = []
+        for b in base_model:
+            flat.extend(p.strip() for p in b.split(",") if p.strip())
+        base_model = flat or None
+
+    hosts = resolve_host_filter(with_host or [], without_host or [])
+    capable = [h for h in hosts if hasattr(h, "search_models")]
+    if not capable:
+        typer.echo("No hosts in --with-host/--without-host implement model search "
+                   "(supported: civitai, civitai_red, huggingface).", err=True)
+        raise typer.Exit(2)
+
+    all_results: list = []
+    for h in capable:
+        results = h.search_models(query, kind=kind, base_models=base_model, limit=limit)
+        if json_output:
+            all_results.extend(results)
+            continue
+        if not results:
+            continue
+        typer.echo(f"\n# {h.id}  ({len(results)} results)")
+        width_uri = max((len(r.uri) for r in results), default=10) + 2
+        for r in results:
+            downloads = (r.stats or {}).get("downloads", 0)
+            nsfw = " [nsfw]" if r.nsfw else ""
+            creator = f"  by {r.creator}" if r.creator else ""
+            downloads_str = f"  ↓ {downloads:,}" if downloads else ""
+            typer.echo(f"  ({r.kind}) {r.uri:<{width_uri}}  {r.title}{creator}{downloads_str}{nsfw}")
+            if r.base_model:
+                typer.echo(f"      base: {r.base_model}")
+            if r.trigger_words:
+                typer.echo(f"      trigger: {', '.join(r.trigger_words[:8])}")
+    if json_output:
+        typer.echo(json.dumps([
+            {
+                "host": r.host, "kind": r.kind, "uri": r.uri, "title": r.title,
+                "creator": r.creator, "description": r.description,
+                "base_model": r.base_model, "trigger_words": r.trigger_words,
+                "download_url": r.download_url, "stats": r.stats,
+                "nsfw": r.nsfw, "extra": r.extra,
+            }
+            for r in all_results
+        ], indent=2, default=str))
+
+
 @models_app.command(name="paths", context_settings=_COMFYUI_ENV)
 def models_paths(
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),

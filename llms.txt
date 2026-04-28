@@ -1,39 +1,277 @@
-# ComfyUI — agent-facing usage guide
+# ComfyUI — guide for art, image, and video work
 
-You (Claude) are expected to read this before generating images, videos, or
-automation scripts with ComfyUI. Everything below assumes `comfyui` is on
-`$PATH` in an active uv-managed virtualenv.
+You're reading this because someone asked Claude (or another agent) to
+make a picture, video, edit, or restyle. This guide is the playbook.
+ComfyUI is the engine that makes those things; Claude's job is to drive
+it on the user's behalf — searching for the right ingredients, picking a
+recipe, grounding it in any reference the user supplied, running it,
+opening the result.
 
-ComfyUI is a programmable diffusion / video pipeline. A **workflow** is a
-JSON graph of nodes (loaders → conditioning → samplers → decoders). The
-CLI:
+## What you (Claude) can do for the user
 
-- runs workflows one-shot in the current process (`comfyui run-workflow`,
-  `comfyui workflows run`),
-- runs a daemon that accepts HTTP job submissions (`comfyui start` +
-  `comfyui workflows submit` + `comfyui jobs`), and
-- manages models (`comfyui models …`), custom nodes via a pip facade
-  (`comfyui serve-pip`, `comfyui nodes`), and diagnostics (`comfyui env`).
+Anything below counts as "make me X" and routes through this guide:
 
-## When to use the CLI vs code
+- "Make me a picture of …" — text-to-image. (`run-workflow image_flux2_dev_text_to_image …`)
+- "Edit this photo to …" / "remove the background" / "put X in the style
+  of Y" — image edit with one or more reference images.
+- "Animate this still" / "make a 3-second clip of …" — image-to-video
+  or text-to-video.
+- "Make it look like Studio Ghibli / Pixar / a Renaissance painting" —
+  apply a **LoRA** (a small style pack). Find one with
+  `comfyui models search`, pass it via `--add-lora`.
+- "Use this workflow I found on civitai" — accept a `civitai://` /
+  `https://civitai.com/...` / `hf://` URL, run `--help` first to read
+  the author's notes, then `--all` to install + download + run.
+- "Generate 50 of these" — daemon mode, submit + poll.
 
-| User ask | What you do |
+The user usually does **not** know which model, which workflow, or which
+LoRA. Your job is to figure that out by *searching*, not guessing.
+
+## How the pieces fit
+
+ComfyUI is the runtime; the *content* lives in a public ecosystem:
+
+- **Base models** — the engine that turns prompts into pixels. Modern
+  picks: Flux.1 D / Flux.2 Klein for photorealistic + stylized,
+  Illustrious / Pony / SDXL for anime + character, Wan 2.x and LTX-2.3
+  for video, Z-Image Turbo for fast turbo runs. The official weights
+  live on **Hugging Face** (`hf://black-forest-labs/FLUX.1-dev`, …);
+  community remixes live on **Civitai**.
+- **Workflows** — the recipe (which loaders, samplers, schedulers, in
+  what order). Three sources, in order of authority:
+    1. **bundled templates** that ship with this fork — names like
+       `image_flux2_dev_text_to_image`, `image_flux2_klein_9b_kv_image_edit`,
+       `video_ltxv_2.3_image_to_video`. Use these by default.
+    2. **comfy.org** official templates (e.g. `comfyui-org://t/<id>`).
+    3. **civitai community** workflows
+       (`civitai://m/<id>` / `civitai://v/<id>`). Lots of variety,
+       quality varies — `--help` first.
+- **LoRAs** — small (40–500 MB) style/character/concept packs that bolt
+  onto a base model. Civitai is the primary marketplace; trigger words
+  in the LoRA card matter and you must use them in the prompt.
+- **Reference images / videos** — the user's own photo, a Wikipedia
+  picture, a Civitai gallery image, anything reachable by URL or local
+  path. Any image-edit / image-to-video workflow takes one or more
+  via `--image` / `--video`.
+- **Custom nodes** — extra node types (LatentSync, IPAdapter,
+  ControlNet preprocessors, …). Installed via the pip facade with
+  `--all`; you rarely have to think about them.
+
+## Search first — never guess
+
+When the user asks for a style, character, concept, or workflow, your
+**first** action is a search, not a workflow run. Two commands cover
+it:
+
+```bash
+# Find the right LoRA / checkpoint / VAE / controlnet for a style or subject:
+comfyui models search "ghibli style" --kind lora --limit 5
+comfyui models search "renaissance painting" --kind lora --limit 5
+comfyui models search "pixar" --kind lora --limit 5
+
+# Find a ready-made workflow (someone else's recipe):
+comfyui workflows search "flux kontext" --limit 5
+comfyui workflows top --period Month --family flux --limit 10
+comfyui workflows top --period Month --family wan
+```
+
+`models search` returns rows like:
+
+    (lora) civitai://v/2734259  V67 Ghibli Look                  by angelomaiota   ↓ 68
+        base: Flux.1 D
+        trigger: (studio ghibli:1.2), ghibli aesthetic, miyazaki style, …
+
+The URI pastes straight into `--add-lora`. The `base:` line tells you
+which base model the LoRA expects — match it to your workflow (Flux LoRA
+→ Flux workflow, SDXL LoRA → SDXL workflow). The `trigger:` line is
+mandatory wording the LoRA was trained on; **you must include the
+trigger words in the prompt** or the LoRA contributes nothing.
+
+Useful filters:
+
+| Flag | What it does |
 |---|---|
-| Single image / video / edit | `comfyui run-workflow <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
-| User hands you a workflow URL / civitai / HF link | **First** run `comfyui run-workflow <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
-| Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
-| Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
+| `--kind lora\|checkpoint\|embedding\|vae\|controlnet` | Narrow by asset type. |
+| `--base-model "Flux.1 D"` | Only LoRAs trained on this base (repeatable; csv ok). Common values: `"Flux.1 D"`, `"Flux.1 Klein"`, `"SDXL 1.0"`, `"SD 1.5"`, `"Pony"`, `"Illustrious"`, `"NoobAI"`, `"LTXV"`, `"LTXV 2.3"`, `"Wan Video 2.1"`. |
+| `--with-host civitai\|huggingface` | Restrict to one host. |
+| `--json` | Pipe into `jq` for ranking / programmatic picks. |
 
-**You may read user-provided images, videos, and text and reason about
-their contents.** Use that to rewrite vague prompts into specific ones,
-to describe what to preserve vs change in an image edit, or to caption a
-reference image before generating a video. Ask if unsure what the user
-wants the output to depict.
+## Worked examples (read these — they're the playbook)
 
-## Model picks
+Each example shows the *full* sequence you should run when the user
+asks. Copy the pattern.
 
-Default picks. Override only when the user says so, or when a LoRA's
-heritage forces a specific base (e.g. SDXL LoRA → SDXL base).
+### 1. "Make a Studio Ghibli / Miyazaki–style portrait of Harry Potter"
+
+```bash
+# Step 1 — find a Ghibli LoRA. Multiple base models will turn up; you
+#          want one whose `base:` matches a Flux workflow.
+comfyui models search "ghibli style" --kind lora --limit 5
+
+#   (lora) civitai://v/2627385  Studio Ghibli LTX2 style lora       base: LTXV          ↓ 482
+#   (lora) civitai://v/2769334  Cee_One's Ghibli-Esque Blend        base: Illustrious   ↓ 275
+#   (lora) civitai://v/2786125  Modern Ghibli Hires Style           base: Illustrious   ↓ 138
+#   (lora) civitai://v/2734259  V67 Ghibli Look                     base: Flux.1 D      ↓  68
+#   (lora) civitai://v/2740724  RIP Weights Series - Pink Ghibli    base: Flux.1 D      ↓  44
+
+# Step 2 — pick the Flux.1 D row (matches our default Flux2 workflow).
+#          Read its trigger words and weight recommendation:
+comfyui models search "ghibli style" --kind lora --base-model "Flux.1 D" --json | \
+    jq '.[0] | {uri, title, trigger_words, description: .description[:200]}'
+
+#   { "uri": "civitai://v/2734259", "title": "V67 Ghibli Look",
+#     "trigger_words": ["(studio ghibli:1.2)", "ghibli aesthetic",
+#                       "miyazaki style", "soft clouds", "pastel sky", … ] }
+
+# Step 3 — find a Harry Potter reference image. Wikipedia is the
+#          fastest grounding source; any direct image URL works.
+HP_REF="https://upload.wikimedia.org/wikipedia/en/d/d7/Harry_Potter_character_poster.jpg"
+
+# Step 4 — run flux2 image-edit with the LoRA + reference. Include the
+#          LoRA's trigger words in the prompt (they're load-bearing).
+comfyui run-workflow image_flux2_klein_9b_kv_image_edit --all --novram \
+    --seed 42 \
+    --image "$HP_REF" \
+    --prompt "Restyle this portrait of Harry Potter as a Studio Ghibli
+              painting. (studio ghibli:1.2), ghibli aesthetic, miyazaki
+              style, soft watercolor textures, pastel sky, gentle wind.
+              Keep the round glasses, the lightning-bolt scar, and the
+              Gryffindor robe colors recognizable." \
+    --add-lora civitai://v/2734259:0.8
+
+# Step 5 — open the result for the user (skip on headless hosts).
+xdg-open output/*.png    # Linux desktop
+# open output/*.png      # macOS
+# start "" output\*.png  # Windows
+```
+
+This is the canonical pattern: **search → pick by base-model match →
+read trigger words → fetch reference → run with `--add-lora` and
+`--image` → open.** Re-use it for "Pixar style", "watercolor style",
+"in the style of Caravaggio", "as a Renaissance painting", etc. — only
+the search query and the trigger words change.
+
+### 2. "Make a 3-second clip of a person dancing"
+
+```bash
+# Search bundled + comfy.org templates first — quality is high and no
+# external download is needed:
+comfyui workflows search "image_to_video" --with-host comfyui-org --limit 8
+
+# For text-to-video, LTX-2.3 is the default:
+comfyui run-workflow video_ltxv_2.3_text_to_video --all --guess-settings \
+    --prompt "A young woman in a yellow sundress spinning slowly on a
+              sunny rooftop, hair catching the wind, soft afternoon
+              light, shallow depth of field, smooth handheld camera." \
+    --seed 42 --width 768 --height 512
+
+# For image-to-video (animate a still), pass --image:
+comfyui run-workflow video_ltxv_2.3_image_to_video --all --guess-settings \
+    --image https://example.com/dancer.jpg \
+    --prompt "Camera pans slowly right while the dancer continues
+              the same motion. 3 seconds." \
+    --seed 42
+
+xdg-open output/*.mp4
+```
+
+If the user wants a *talking-head* video (lip-sync to audio), search
+civitai for the workflow rather than reaching for a base template:
+
+```bash
+comfyui workflows search "infinitetalk" --limit 5
+comfyui workflows search "latentsync" --limit 5
+# Then run --help on the chosen URI to read the author's notes.
+```
+
+### 3. "Restyle this photo of my dog as a Renaissance oil painting"
+
+```bash
+# Step 1 — search:
+comfyui models search "renaissance painting" --kind lora --limit 5
+
+#   (lora) civitai://v/2820801  Renaissance 🔏                       base: Illustrious  ↓ 206
+#       trigger: CTTON_RnB, painterly texture, painterly
+#   (lora) civitai://v/2588340  LUTE - SDXL Medieval - Renaissance   base: SDXL 1.0    ↓  50
+#       trigger: playing lute,
+
+# Step 2 — Flux2 doesn't have a renaissance LoRA in the top hits; pick
+#          the SDXL one and run an SDXL edit workflow instead, OR fall
+#          back to a strong text prompt without a LoRA:
+
+# Path A: SDXL with the LoRA (matches the LoRA's base):
+comfyui run-workflow image_sdxl_base_refiner_image_edit --all --novram \
+    --image /path/to/dog.jpg \
+    --prompt "An oil painting in the style of a Renaissance master.
+              CTTON_RnB, painterly texture. The subject is a small
+              brown dog with floppy ears, framed in three-quarter
+              portrait, warm chiaroscuro lighting, deep umber and
+              ochre palette." \
+    --add-lora civitai://v/2820801:0.85 --seed 42
+
+# Path B: prompt-only on Flux (works surprisingly well on Flux2 dev):
+comfyui run-workflow image_flux2_dev_image_edit --all \
+    --image /path/to/dog.jpg \
+    --prompt "Oil painting in the style of a Renaissance master:
+              chiaroscuro lighting, soft sfumato edges, deep umber and
+              ochre palette, the brown dog rendered with the same
+              dignity as a 16th-century portrait sitter." \
+    --seed 42
+```
+
+### 4. "Reproduce something I saw on Civitai"
+
+Civitai posts often have generation parameters embedded; the workflow
+URL or the source PNG is enough:
+
+```bash
+# If they sent a civitai workflow URL:
+comfyui run-workflow civitai://m/<model-id> --help   # read author notes
+comfyui run-workflow civitai://m/<model-id> --all --guess-settings \
+    --prompt "..." --seed 42
+
+# If they sent a *source PNG* with embedded `parameters` text chunk
+# (A1111/Forge/Fooocus shape), the loader auto-translates it to a
+# generic ComfyUI graph and pulls the prompt/sampler/seed out of the
+# chunk. Just point at the PNG:
+comfyui run-workflow ./screenshot.png --all
+```
+
+## Inputs from anywhere
+
+Every `--image` / `--video` / `--audio` flag and every workflow URI
+positional accepts the same set of source forms. The downloader
+handles auth, caching, and PNG-embedded extraction transparently.
+
+| Source | Form | Notes |
+|---|---|---|
+| Direct HTTPS image / video URL | `https://example.com/foo.jpg` | Wikipedia, raw GitHub, Imgur direct (`i.imgur.com/<id>.png`), CDN URLs. |
+| Civitai gallery image | open the post in a browser → right-click "Copy image address" → paste the `https://image.civitai.com/...` URL. The civitai-flavored API token works for gated images too. |
+| Hugging Face file | `hf://owner/repo/path/to/file.png` | Uses `hf_hub_download` cache + `HF_TOKEN`. |
+| S3 object | `s3://bucket/key` | Uses your AWS creds. |
+| Local file | `/abs/path` or `./rel/path` | Use absolute when a workflow may move. |
+| stdin | `-` | `cat wf.json \| comfyui run-workflow -`. |
+| PNG with embedded workflow | `./screenshot.png` | A1111/Forge/Fooocus PNG → auto-translated to ComfyUI graph + extracted params. |
+
+For social-media images (Pinterest pin, Reddit post, Twitter/X
+status), don't try to download from the page URL — fetch the page,
+grab the `<meta property="og:image">` tag, and pass that URL. The
+WebFetch tool you have can do both steps.
+
+When the user pastes a *Civitai post link* (the page, not a direct
+image URL), the gallery API path is
+`https://civitai.com/api/v1/images?postId=<post-id>`; the response is
+a JSON array of image objects with a `url` field. Use it as
+`--image https://civitai.com/api/v1/images?postId=… | jq -r '.items[0].url'`
+when you need to script it.
+
+---
+
+## Picking the right base model / workflow
+
+The defaults pick themselves once you know two things: VRAM, and
+whether the user brought a LoRA / reference. Pick a workflow whose base
+matches any LoRA the user supplies; otherwise default by VRAM:
 
 | Task | If VRAM ≥ 24 GB | Otherwise |
 |---|---|---|
@@ -50,6 +288,21 @@ inferred `Task`: `text-to-image`, `image-edit`, `text-to-video`,
 `comfyui workflows show <name>` (prints a copy-pasteable invocation).
 Filter by task with `comfyui workflows list --format json | jq -r
 '.[] | select(.task=="image-edit") | .template_id'`.
+
+## When to use the CLI vs code
+
+| User ask | What you do |
+|---|---|
+| Single image / video / edit | `comfyui run-workflow <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
+| User hands you a workflow URL / civitai / HF link | **First** run `comfyui run-workflow <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
+| Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
+| Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
+
+**You may read user-provided images, videos, and text and reason about
+their contents.** Use that to rewrite vague prompts into specific ones,
+to describe what to preserve vs change in an image edit, or to caption a
+reference image before generating a video. Ask if unsure what the user
+wants the output to depict.
 
 ---
 
@@ -463,31 +716,50 @@ translatable — those raise `UnsupportedWorkflowFormatError` (a subclass
 of `ApiValueError`) so the failure is clear instead of an opaque schema
 mismatch.
 
-### Discovering workflows
+### Discovering workflows and models
 
-The CLI talks to multiple workflow hosts. `top` lists most-downloaded
-recent uploads; `search` runs a substring match across host catalogs.
+The CLI talks to multiple hosts. Two surfaces:
+
+- `comfyui workflows search / top` — find **recipes** (workflow JSONs).
+- `comfyui models search` — find **building blocks** (LoRAs, checkpoints,
+  embeddings, VAEs, controlnets) ready to paste into `--add-lora`,
+  `--checkpoint`, or `--set <node>.inputs.<field>=<URI>`.
 
 ```bash
-# Top 20 across every host (civitai + civitai-red + comfyui-org + huggingface).
+# Workflows: top 20 across every host (civitai + civitai-red + comfyui-org + huggingface).
 comfyui workflows top --limit 20
 
-# Just civitai, last 30 days, WAN family:
+# Workflows: just civitai, last 30 days, WAN family:
 comfyui workflows top --with-host civitai --period 30d --family wan --limit 10
 
-# Excluding NSFW mirrors:
+# Workflows: excluding NSFW mirrors:
 comfyui workflows top --without-host civitai-red,tensorart
 
-# Substring search across hosts:
+# Workflows: substring search across hosts:
 comfyui workflows search "flux kontext" --limit 10
+
+# Models: a Studio Ghibli LoRA (any base):
+comfyui models search "ghibli style" --kind lora --limit 5
+
+# Models: a LoRA pinned to a specific base for compatibility with your workflow:
+comfyui models search "ghibli" --kind lora --base-model "Flux.1 D" --limit 5
+
+# Models: top SDXL anime checkpoints:
+comfyui models search "anime" --kind checkpoint --base-model "SDXL 1.0" --limit 5
+
+# Models: JSON for programmatic picking:
+comfyui models search "renaissance" --kind lora --json | \
+    jq -r '.[] | select(.base_model=="Flux.1 D") | .uri'
 ```
 
-`--family` accepts `wan`, `flux`, `sdxl`, or `ltxv` (canned per-family
-queries). `--period` accepts `Day` / `Week` / `Month` / `Year` /
-`AllTime`, plus shorthands `30d` / `180d` / `360d` (mapped to the
-nearest API enum bucket — Civitai exposes only those five periods).
-URIs from these commands paste directly into
-`run-workflow <URI> --help`.
+`workflows top --family` accepts `wan`, `flux`, `sdxl`, `ltxv`.
+`--period` accepts `Day` / `Week` / `Month` / `Year` / `AllTime`, plus
+shorthands `30d` / `180d` / `360d`. `models search --base-model` is
+free-form on the Civitai side — common values include `"Flux.1 D"`,
+`"Flux.1 Klein"`, `"SDXL 1.0"`, `"SD 1.5"`, `"Pony"`, `"Illustrious"`,
+`"NoobAI"`, `"LTXV"`, `"LTXV 2.3"`, `"Wan Video 2.1"`, `"Anima"`. URIs
+returned by either command paste directly into `run-workflow`,
+`--add-lora`, etc.
 
 ---
 
@@ -951,13 +1223,22 @@ Python in §Task 7).
    and read the rendered author notes. Those notes carry the canonical
    download URLs and place-in hints for every model — they're more
    reliable than guessing from the workflow's filename inputs.
-4. Otherwise, pick the right workflow from the §Model picks table
-   based on VRAM (visible in step 1's `env check`) and task type.
-5. Check `comfyui models from-workflow <template> --dry-run` and ask
+4. **If the user asked for a style, character, or specific look** that
+   isn't a standard text-to-image render — Studio Ghibli, Pixar, a
+   particular celebrity, a Renaissance painting, anime, etc. — your
+   first move is `comfyui models search "<style>" --kind lora` (and
+   maybe `comfyui workflows search "<topic>"`). Pick a result whose
+   `base:` matches the workflow you'll run; copy its trigger words into
+   the prompt. See §"Search first" and §"Worked examples".
+5. Otherwise, pick the right workflow from the §Picking the right base
+   model / workflow table based on VRAM (visible in step 1's `env check`)
+   and task type.
+6. Check `comfyui models from-workflow <template> --dry-run` and ask
    before triggering large downloads.
-6. Rewrite the user's vague prompt into a specific one. For image
-   edits, include explicit "keep" clauses.
-7. Run with `comfyui run-workflow <wf> --all --seed N`. Set
+7. Rewrite the user's vague prompt into a specific one. For image
+   edits, include explicit "keep" clauses. If you applied a LoRA in
+   step 4, the LoRA's trigger words must appear in the prompt.
+8. Run with `comfyui run-workflow <wf> --all --seed N`. Set
    `CIVITAI_API_TOKEN` first if any input resolves through `civitai://`.
    Open the result for the user if they're on an interactive desktop:
    `open <path>` (macOS), `start "" "<path>"` (Windows),
@@ -965,9 +1246,9 @@ Python in §Task 7).
    headless / SSH / containers (no `$DISPLAY` / `$WAYLAND_DISPLAY` /
    `$TERM_PROGRAM` / `$WT_SESSION`) and just print the absolute path
    instead.
-8. If output is wrong, iterate on the prompt or add/remove a LoRA.
+9. If output is wrong, iterate on the prompt or add/remove a LoRA.
    Don't loop infinitely — after 3 tries, ask the user.
-9. For bulk jobs: daemon + submit. For exotic graph edits: Python.
+10. For bulk jobs: daemon + submit. For exotic graph edits: Python.
 
 ## Troubleshooting quick table
 
