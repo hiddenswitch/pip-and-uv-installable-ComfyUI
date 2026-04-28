@@ -402,9 +402,51 @@ When the source is `civitai://...`, `--all` does three things in order:
    as a remotely-built wheel.
 
 Net effect: civitai workflows whose author documented dependencies in
-notes Just Work without code changes. Set
-`CIVITAI_API_TOKEN=<your-token>` in the env before running so the
-fsspec backend can authenticate.
+notes Just Work without code changes.
+
+### Authenticating against gated assets
+
+The Civitai and Hugging Face gating models are different — what you
+ask the user to do is different too.
+
+**Civitai needs an explicit API token.** Anything early-access /
+adult-rated / NSFW-mature / behind an "Add to Collection" wall returns
+401 without auth. There's no OAuth flow; the user has to create a key
+manually at <https://civitai.com/user/account> → **API Keys**, copy it
+once, and set `CIVITAI_API_TOKEN` in the env (or
+`CIVITAI_API_KEY` — both names work):
+
+```bash
+export CIVITAI_API_TOKEN=ci_xxxxxxxx       # Linux / macOS / WSL
+$env:CIVITAI_API_TOKEN = 'ci_xxxxxxxx'     # PowerShell
+setx CIVITAI_API_TOKEN ci_xxxxxxxx         # Windows persistent
+```
+
+If you're about to run anything with a `civitai://` or
+`https://civitai.com/...` URI and the token isn't set, **ask the user
+to create one before retrying** — quote the URL above so they don't
+have to search for it. The same token covers `civitai-red://` (the
+NSFW mirror) too.
+
+**Hugging Face does not need the user to make a token themselves.**
+For gated repos (Flux, Llama, etc.) the user runs `huggingface-cli
+login` once and follows the OAuth prompt — HF mints a token, stores
+it under `~/.cache/huggingface/token`, and every `hf://` /
+`huggingface.co` download (via `HuggingFile` / `hf_hub_download` /
+the `hf://` fsspec backend) reads it automatically. Don't tell the
+user to "create a Hugging Face token"; that's an extra step they
+don't have to take. The login flow is:
+
+```bash
+uv pip install huggingface-cli           # if not already installed
+huggingface-cli login                    # interactive: paste-or-OAuth
+```
+
+After login, also have the user click **"Agree to the terms"** on the
+gated repo's page (e.g. <https://huggingface.co/black-forest-labs/FLUX.1-dev>)
+while signed in — the token doesn't bypass the per-repo license click.
+You'll see a `GatedRepoError` from `hf_hub_download` if they skipped
+this step.
 
 ### Foreign format auto-translation
 
