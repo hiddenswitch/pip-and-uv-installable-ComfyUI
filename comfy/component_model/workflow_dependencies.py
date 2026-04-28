@@ -41,6 +41,21 @@ _UUID_RE = re.compile(
 
 _DEFAULT_SNAPSHOT_URI = "pkg://comfy.custom_nodes/pip_facade_registry_snapshot.sqlite.xz"
 
+# Snapshot-DB corrections: class_type -> canonical pip facade package name.
+#
+# Some entries in the bundled ``pip_facade_registry_snapshot.sqlite.xz`` are
+# wrong (the snapshot is built by joining comfyui_manager's extension-node-map
+# against pip facade projects, and the join occasionally picks the wrong
+# project when two packages declare overlapping classes). Until the snapshot
+# is rebuilt, fix mismappings here so ``--all`` resolves to a real package
+# on nodes.appmana.com.
+_CLASS_TYPE_PACKAGE_OVERRIDES: dict[str, str] = {
+    # UltimateSDUpscale → ssitu/ComfyUI_UltimateSDUpscale (not the non-existent
+    # "comfyui-umeairt-toolkit" package the snapshot maps it to).
+    "UltimateSDUpscale": "comfyui-ultimatesdupscale",
+    "UltimateSDUpscaleNoUpscale": "comfyui-ultimatesdupscale",
+}
+
 
 @contextmanager
 def _open_snapshot(snapshot_uri: str | None = None):
@@ -117,6 +132,7 @@ def resolve_workflow_packages_versioned(
     from .workflow_rewrites import rewrite_class_type
     class_types = {rewrite_class_type(ct) for ct in extract_class_types_from_workflow(workflow)}
     ct_to_pkg, versions = _load_snapshot_data(snapshot_uri)
+    ct_to_pkg.update(_CLASS_TYPE_PACKAGE_OVERRIDES)
 
     for ct in builtin_class_types:
         ct_to_pkg.pop(ct, None)
