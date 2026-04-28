@@ -144,25 +144,13 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # RX 7600 is gfx1102 (Navi 33). KNOWN BLOCKER on ARC ephemeral pods:
-    # the GPU is not enumerated as an HSA agent inside the container —
-    # `rocminfo` reports only the CPU agent, while `rocm-smi` (which queries
-    # /sys/class/drm directly) does see the GPU. The same image works on
-    # direct `kubectl run` Jobs on the same node, so the difference is the
-    # ARC pod template's userns / device-cgroup setup, not the runtime.
-    #
-    # Symptom: "Memory access fault by GPU node-1 ... Page not present"
-    # on first kernel dispatch, regardless of which torch wheel
-    # (rocm7.2.2 bundled OR pytorch.org rocm6.4 with native gfx1102) or
-    # HSA_OVERRIDE_GFX_VERSION (11.0.0 / 11.0.1 / 11.0.2). The fault is
-    # the GPU MMU rejecting writes from a process whose outside-UID isn't
-    # in the host's `render` group — the kernel driver's permission check
-    # uses the host UID, not the in-container CAP_DAC_OVERRIDE.
-    #
-    # Until the ARC pod template grants render-group access to the runner
-    # user (or disables userns), this job is non-blocking. The smoke test
-    # below detects the missing-GPU-agent case explicitly and skips the
-    # rest of the pipeline with a clear message instead of crashing.
+    # rocm/pytorch:7.2.2 bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0 is
+    # the canonical config — verified working on a direct kubectl Job on
+    # the cluster's RX 7600 (gfx1102) node. On ARC ephemeral pods the same
+    # image SIGABRTs at the first GPU kernel with "Memory access fault by
+    # GPU node-1 ... Page not present", which is why we're investigating.
+    # Diagnostics below dump the actual PCI vendor:device of every DRM card
+    # exposed inside the container so we can confirm what we're talking to.
     continue-on-error: true
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
@@ -176,48 +164,17 @@ jobs:
       matrix:
         runner:
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
-            friendly_name: "Python 3.12 ROCm 6.4 Torch (native gfx1102)"
+            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
     env:
-      HSA_OVERRIDE_GFX_VERSION: "11.0.2"
+      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
     steps:
       - run: |
-          apt-get update && apt-get install -y --no-install-recommends zip unzip
+          apt-get update && apt-get install -y --no-install-recommends zip unzip pciutils
         name: Install system dependencies
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
-      - name: Install PyTorch with native gfx1102 (replace bundled wheel)
-        run: |
-          # Must uninstall first — the bundled wheel's local-version tag
-          # (`+rocm7.2.2.lw.git…`) makes pip see it as higher than 2.7.0+rocm6.4,
-          # so plain --upgrade silently no-ops. Triton ships with a similar
-          # local tag; remove it so the new torch's triton dep resolves.
-          /opt/venv/bin/pip uninstall -y torch torchvision torchaudio triton pytorch-triton-rocm 2>&1 | tail -10
-          /opt/venv/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/rocm6.4 \
-            torch torchvision torchaudio
-          /opt/venv/bin/python -c "import torch; print('torch=', torch.__version__); print('archs=', torch.cuda.get_arch_list())"
-
-          # The wheel's bundled libdrm needs amdgpu.ids (PCI-ID → arch map)
-          # at /opt/amdgpu/share/libdrm/amdgpu.ids; without it libdrm
-          # misidentifies the GPU and torch picks the wrong-arch kernel
-          # → "HIP error: invalid device function". Symlink from the image's
-          # existing copy if /opt/amdgpu/ is empty.
-          if [ ! -e /opt/amdgpu/share/libdrm/amdgpu.ids ]; then
-            mkdir -p /opt/amdgpu/share/libdrm
-            for src in /opt/rocm/share/libdrm/amdgpu.ids /usr/share/libdrm/amdgpu.ids /opt/rocm-*/share/libdrm/amdgpu.ids; do
-              if [ -e "$src" ]; then
-                ln -sfn "$src" /opt/amdgpu/share/libdrm/amdgpu.ids
-                echo "linked amdgpu.ids from $src"
-                break
-              fi
-            done
-            if [ ! -e /opt/amdgpu/share/libdrm/amdgpu.ids ]; then
-              apt-get install -y --no-install-recommends libdrm-amdgpu1
-              ln -sfn /usr/share/libdrm/amdgpu.ids /opt/amdgpu/share/libdrm/amdgpu.ids
-            fi
-          fi
-          ls -la /opt/amdgpu/share/libdrm/amdgpu.ids
       - name: HIP smoke test
         run: |
           # Pre-GPU diagnostics: dump everything that distinguishes this
@@ -232,13 +189,35 @@ jobs:
           echo "== /proc/self/status (Cap*, Seccomp, Groups) =="
           grep -E '^(Cap|Seccomp|Groups|NoNewPrivs)' /proc/self/status || true
           echo "== AMD device nodes =="
-          ls -la /dev/kfd /dev/dri/ 2>&1 || echo "(/dev/kfd or /dev/dri missing)"
+          ls -la /dev/kfd /dev/dri/ /dev/dri/by-path/ 2>&1 || echo "(/dev/kfd or /dev/dri missing)"
+          echo "== /sys/class/drm contents =="
+          ls -la /sys/class/drm/ 2>&1 || true
+          echo "== PCI metadata for each DRM card =="
+          for card in /sys/class/drm/card*; do
+            [ -d "$card/device" ] || continue
+            base=$(basename "$card")
+            vendor=$(cat "$card/device/vendor" 2>/dev/null)
+            device=$(cat "$card/device/device" 2>/dev/null)
+            subsys_vendor=$(cat "$card/device/subsystem_vendor" 2>/dev/null)
+            subsys_device=$(cat "$card/device/subsystem_device" 2>/dev/null)
+            slot=$(readlink "$card/device" 2>/dev/null | sed 's|.*/||')
+            echo "  $base  pci=$slot  vendor:device=$vendor:$device  subsys=$subsys_vendor:$subsys_device"
+            if [ -e "$card/device/uevent" ]; then
+              echo "    uevent:"; sed 's/^/      /' "$card/device/uevent"
+            fi
+          done
+          echo "== lspci (host PCI bus visible to container) =="
+          lspci -nn 2>&1 | grep -iE 'AMD|NVIDIA|VGA|Display|3D' || echo "(lspci returned nothing AMD/NVIDIA/VGA)"
+          echo "== amdgpu module info from /sys =="
+          for path in /sys/module/amdgpu/version /sys/module/amdgpu/srcversion; do
+            [ -r "$path" ] && echo "  $path = $(cat "$path")"
+          done
           echo "== dmesg from current boot (filtered) =="
           dmesg 2>&1 | grep -iE 'amdgpu|kfd|hsa' | tail -20 || echo "(dmesg not accessible)"
           echo "== rocminfo (full) =="
           if command -v rocminfo >/dev/null 2>&1; then rocminfo; fi
           echo "== rocm-smi =="
-          if command -v rocm-smi >/dev/null 2>&1; then rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
+          if command -v rocm-smi >/dev/null 2>&1; then rocm-smi --showproductname --showbus --showvbios 2>&1 || rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
           echo "== /dev/shm =="
           mount | grep /dev/shm
           df -h /dev/shm
