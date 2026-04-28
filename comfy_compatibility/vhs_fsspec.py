@@ -127,13 +127,32 @@ def apply_vhs_fsspec_patch() -> bool:
         setattr(cls, base_attr_name, wrapper)
 
         # VALIDATE_INPUTS rejects non-local paths; relax for URIs.
+        # Preserve the original signature exactly — ComfyUI introspects
+        # VALIDATE_INPUTS to decide which kwargs to pass; widening the
+        # signature to **kwargs makes it pass *everything*, which the
+        # underlying upstream method then chokes on (e.g. force_rate).
         validate = getattr(cls, "VALIDATE_INPUTS", None)
         if validate is not None and not getattr(validate, "_appmana_fsspec_wrapped", False):
+            import functools as _ft
+            import inspect as _inspect
+            inner = validate.__func__ if hasattr(validate, "__func__") else validate
+            try:
+                sig = _inspect.signature(inner)
+            except (TypeError, ValueError):
+                sig = None
+
+            @_ft.wraps(inner)
             def validate_wrapper(*args, **kw):
-                target = (args[1] if len(args) >= 2 else (kw.get("video") or kw.get("audio")))
+                target = (
+                    args[1] if len(args) >= 2 else
+                    (kw.get("video") or kw.get("audio") or kw.get("path"))
+                )
                 if isinstance(target, str) and _has_uri_scheme(target):
                     return True
-                return validate.__func__(*args, **kw) if hasattr(validate, "__func__") else validate(*args, **kw)
+                return inner(*args, **kw)
+
+            if sig is not None:
+                validate_wrapper.__signature__ = sig  # type: ignore[attr-defined]
             validate_wrapper._appmana_fsspec_wrapped = True  # type: ignore[attr-defined]
             setattr(cls, "VALIDATE_INPUTS", classmethod(validate_wrapper))
 

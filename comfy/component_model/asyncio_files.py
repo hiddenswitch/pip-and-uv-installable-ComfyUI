@@ -23,13 +23,17 @@ def load_workflow_json(source: str) -> dict:
     """Load a single workflow JSON from a file path, URI, or literal JSON string.
 
     Supports the same input types as :func:`stream_json_objects` except stdin.
+    Transparently extracts workflows from zip archives or PNG tEXt chunks
+    (so Civitai workflow uploads — typically zips of PNG screenshots — load
+    via the same code path as bare JSON).
     """
     if source.lstrip().startswith("{"):
         return json.loads(source)
     if _is_uri(source):
-        with fsspec.open(source, mode="rb") as f:
-            return json.load(f)
-    return json.loads(Path(source).read_text(encoding="utf-8"))
+        data = fsspec.open(source, mode="rb").open().read()
+    else:
+        data = Path(source).read_bytes()
+    return json.loads(_maybe_extract_workflow_json(data).read())
 
 
 def _is_workflow_shaped(parsed) -> bool:
