@@ -432,6 +432,11 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
+        env:
+          # GPU compute SIGABRTs on the ARC pod (see job-level comment).
+          # Force CPU mode so tests that boot an embedded ComfyUI (e.g.
+          # test_approx_vae.py → VAE encode/decode) don't crash the runner.
+          COMFYUI_CPU: "1"
         run: |
           cd ${GITHUB_WORKSPACE}/src
           python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
