@@ -2,7 +2,13 @@
 
 A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyui) intended for long term support (LTS) from [AppMana](https://appmana.com) and [Hidden Switch](https://hiddenswitch.com).
 
-> **For AI coding assistants (Claude, Cursor, etc.)**: start with [`llms.txt`](./llms.txt). It covers prerequisites, the task → model pick table, image / edit / video / LoRA / `--compile` / CSV-driven and daemon-mode bulk workflows, prompt-rewriting guidance, and known pitfalls.
+> **For AI coding assistants (Claude, Codex, Cursor, etc.)**: start with [`llms.txt`](./llms.txt). It covers prerequisites, the task → model pick table, image / edit / video / LoRA / `--compile` / CSV-driven and daemon-mode bulk workflows, prompt-rewriting guidance, and known pitfalls.
+>
+> Paste this into your agent (Claude Code, Codex CLI, Cursor, etc.) to use it as a guidebook:
+>
+> ```
+> Use https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/llms.txt as a guidebook for ComfyUI. Fetch it now and follow it for any ComfyUI task in this session.
+> ```
 
 ## Used By
 

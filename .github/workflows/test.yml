@@ -149,6 +149,13 @@ jobs:
     # smoke test passes with arch list including gfx1100/1101 (the override
     # makes gfx1102 advertise gfx1100 ISA). TheRock gfx110X-all wheels
     # SIGSEGV due to ROCm 7.12 wheel vs 7.2.2 runtime version drift.
+    #
+    # On ARC ephemeral pods the smoke test SIGABRTs at the first GPU kernel
+    # ("Memory access fault by GPU node-1 ... Page not present") despite the
+    # same image working on direct kubectl Jobs on the same node. Until the
+    # ARC pod template parity issue is resolved, this job is non-blocking
+    # for the workflow status — see runs/25067366477/job/73438275396.
+    continue-on-error: true
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
