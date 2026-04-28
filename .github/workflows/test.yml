@@ -174,16 +174,55 @@ jobs:
         name: Install uv
       - name: HIP smoke test
         run: |
-          /opt/venv/bin/python -c "
-          import os, torch
-          print('HSA_OVERRIDE_GFX_VERSION:', os.environ.get('HSA_OVERRIDE_GFX_VERSION'))
-          print('hip:', torch.version.hip, 'cuda_available:', torch.cuda.is_available())
-          print('device:', torch.cuda.get_device_name(0))
-          print('arch list:', torch.cuda.get_arch_list())
+          # Pre-GPU diagnostics: dump everything that distinguishes this
+          # ephemeral pod from a manual ``kubectl run`` Job on the same node.
+          # The crashes here historically lose stdout when SIGABRT fires
+          # before flush, so use ``python -u`` + faulthandler so we see the
+          # exact line that faults.
+          echo "== environment =="
+          uname -a
+          id
+          ulimit -a
+          echo "== /proc/self/status (Cap*, Seccomp, Groups) =="
+          grep -E '^(Cap|Seccomp|Groups|NoNewPrivs)' /proc/self/status || true
+          echo "== AMD device nodes =="
+          ls -la /dev/kfd /dev/dri/ 2>&1 || echo "(/dev/kfd or /dev/dri missing)"
+          echo "== dmesg from current boot (filtered) =="
+          dmesg 2>&1 | grep -iE 'amdgpu|kfd|hsa' | tail -20 || echo "(dmesg not accessible)"
+          echo "== rocminfo =="
+          if command -v rocminfo >/dev/null 2>&1; then rocminfo | head -n 80; fi
+          echo "== rocm-smi =="
+          if command -v rocm-smi >/dev/null 2>&1; then rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
+          echo "== /dev/shm =="
+          mount | grep /dev/shm
+          df -h /dev/shm
+          echo "== HSA env =="
+          env | grep -E '^(HSA|HIP|ROCR|GPU)' || true
+          echo "== python smoke =="
+          /opt/venv/bin/python -u -c "
+          import os, sys, faulthandler
+          faulthandler.enable()
+          print('PHASE:0 pre-import', flush=True)
+          print('HSA_OVERRIDE_GFX_VERSION:', os.environ.get('HSA_OVERRIDE_GFX_VERSION'), flush=True)
+          print('PHASE:1 importing torch', flush=True)
+          import torch
+          print('PHASE:2 imported torch', flush=True)
+          print('hip:', torch.version.hip, flush=True)
+          print('PHASE:3 cuda_available', flush=True)
+          print('cuda_available:', torch.cuda.is_available(), flush=True)
+          print('PHASE:4 device count', flush=True)
+          print('device count:', torch.cuda.device_count(), flush=True)
+          print('PHASE:5 device name', flush=True)
+          print('device:', torch.cuda.get_device_name(0), flush=True)
+          print('PHASE:6 arch list', flush=True)
+          print('arch list:', torch.cuda.get_arch_list(), flush=True)
+          print('PHASE:7 alloc tensor', flush=True)
           x = torch.randn(2, 2, device='cuda')
+          print('PHASE:8 first kernel', flush=True)
           y = (x + x).sum()
+          print('PHASE:9 synchronize', flush=True)
           torch.cuda.synchronize()
-          print('ok:', y.item())
+          print('PHASE:10 ok:', y.item(), flush=True)
           "
       - uses: actions/checkout@v4
         name: Checkout git repo
