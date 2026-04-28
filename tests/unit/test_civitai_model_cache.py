@@ -36,9 +36,18 @@ def test_get_model_entry_hits_index():
 def test_get_model_entry_basename_match():
     # Workflow values often include directory prefixes; the basename should match.
     e = c.get_model_entry("checkpoints", "subdir/realisticVisionV60B1_v51VAE.safetensors")
-    # canonicalize_path keeps full path — this is expected to miss unless we
-    # add basename fallback. Document that here.
-    assert e is None
+    assert e is not None
+    folder, url = e
+    assert folder == "checkpoints"
+    assert "civitai.com/api/download/models/130072" in url
+
+
+def test_get_model_entry_windows_path_prefix():
+    # Civitai workflow uploads often use Windows-style backslashes for subdirs.
+    e = c.get_model_entry("checkpoints", "SD1.5\\realisticVisionV60B1_v51VAE.safetensors")
+    assert e is not None
+    folder, _ = e
+    assert folder == "checkpoints"
 
 
 def test_get_model_entry_misses_unknown_filename():

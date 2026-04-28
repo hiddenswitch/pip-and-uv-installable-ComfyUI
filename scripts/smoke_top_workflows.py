@@ -158,16 +158,19 @@ def _check_models_resolvable(filenames: list[str]) -> list[str]:
 
     unknown: list[str] = []
     for fn in filenames:
+        if not fn or fn in {"None", "Custom", "none"}:
+            continue  # placeholder values aren't real model references
         key = canonicalize_path(fn)
         bn = (key or fn).rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         in_known = bool(key and (key in known or bn in known))
-        # Try civitai cache
+        # Try civitai cache (also tries basename fallback internally)
         try:
             from comfy.civitai_model_cache import get_model_entry
             in_civitai = any(get_model_entry(folder, fn) is not None
                              for folder in ("checkpoints", "loras", "vae", "controlnet",
                                             "clip", "unet", "embeddings", "upscale_models",
-                                            "clip_vision", "ipadapter", "diffusion_models"))
+                                            "clip_vision", "ipadapter", "diffusion_models",
+                                            "text_encoders", "animatediff_models"))
         except Exception:  # noqa: BLE001
             in_civitai = False
         if not (in_known or in_civitai):

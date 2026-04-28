@@ -183,7 +183,12 @@ def init_civitai_model_cache(
 
 
 def get_model_entry(folder_name: str, filename: str) -> Optional[tuple[str, str]]:
-    """Return ``(folder_name, download_url)`` if our prefetched index has it."""
+    """Return ``(folder_name, download_url)`` if our prefetched index has it.
+
+    Workflows often store filenames with a subdirectory prefix
+    (``SD1.5\\Hyper-SD15-8steps-lora.safetensors``) — look up by full path
+    first, then fall back to the basename.
+    """
     if not _enabled or not filename:
         return None
     from .component_model.files import canonicalize_path
@@ -191,6 +196,11 @@ def get_model_entry(folder_name: str, filename: str) -> Optional[tuple[str, str]
     if not key:
         return None
     entry = _index.get(key)
+    if entry is None:
+        # Fall back to basename — workflows commonly include subdir prefixes.
+        basename = key.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if basename and basename != key:
+            entry = _index.get(canonicalize_path(basename))
     if entry is None:
         return None
     return (entry["folder"], entry["url"])
