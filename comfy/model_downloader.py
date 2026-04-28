@@ -1563,6 +1563,77 @@ KNOWN_WAN_FUSION_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("vrgamedevgirl84/Wan14BT2VFusioniX", "Wan14BT2VFusioniX_fp16_.safetensors"),
 ], folder_name="diffusion_models")
 
+# Author-renamed Civitai files surfaced by the top-30 smoke test. Workflow
+# authors commonly redownload upstream files and save them under their own
+# naming convention; ``alternate_filenames`` lets us resolve those renamed
+# forms back to the canonical Civitai source.
+KNOWN_CIVITAI_AUTHOR_RENAMES: Final[KnownDownloadables] = KnownDownloadables([
+    # Stable_Yogi's Zimage Turbo NSFW (model 2221503): the workflow at
+    # civitai://m/2186721 references the FP8 variant under
+    # ``Xmas_ZIT_by_Stable_Yogi_0.1_fp8_e4m3fn.safetensors``.
+    CivitFile(
+        model_id=2221503, model_version_id=2521513,
+        filename="zimageTurboNSFWBy_xmasFP8.safetensors",
+        alternate_filenames=("Xmas_ZIT_by_Stable_Yogi_0.1_fp8_e4m3fn.safetensors",),
+    ),
+    CivitFile(
+        model_id=2221503, model_version_id=2547276,
+        filename="zimageTurboNSFWBy_xmasBf16.safetensors",
+        alternate_filenames=("Xmas_ZIT_by_Stable_Yogi_0.1_bf16.safetensors",),
+    ),
+    # darksidewalker's DaSiWa WAN 2.2 I2V 14B TrueVision BoundBite (model 2272580).
+    # The workflow at civitai://m/1823089 uses an ``_fp8`` suffix that doesn't
+    # exist on civitai (the author used the safetensors release as-is).
+    CivitFile(
+        model_id=2272580, model_version_id=2769496,
+        filename="DasiwaWAN22I2V14BTruevision_boundbiteHighV10.safetensors",
+        alternate_filenames=("DaSiWa_Wan22_I2V_14B_BoundBite_High_v10_fp8.safetensors",
+                             "DaSiWa_Wan22_I2V_14B_BoundBite_High_v10.safetensors"),
+    ),
+    CivitFile(
+        model_id=2272580, model_version_id=2769497,
+        filename="DasiwaWAN22I2V14BTruevision_boundbiteLowV10.safetensors",
+        alternate_filenames=("DaSiWa_Wan22_I2V_14B_BoundBite_Low_v10_fp8.safetensors",
+                             "DaSiWa_Wan22_I2V_14B_BoundBite_Low_v10.safetensors"),
+    ),
+    # catlover1937's MoodyWildMix V3 (model 2384856): the workflow at
+    # civitai://m/2345999 references the 40-step base + distilled variants
+    # under workflow-author renames containing ``_00001_`` (image-grouped
+    # naming convention).
+    CivitFile(
+        model_id=2384856, model_version_id=2868056,
+        filename="moodyWildMix_v3xeasonBASE40STEP.safetensors",
+        alternate_filenames=(
+            "moody-wild-V3-undistilled-40steps-cfg4_00001_.safetensors",
+            "ComfyUI/moody-wild-V3-undistilled-40steps-cfg4_00001_.safetensors",
+        ),
+    ),
+    CivitFile(
+        model_id=2384856, model_version_id=2868065,
+        filename="moodyWildMix_v3xeasonDISTILLED.safetensors",
+        alternate_filenames=(
+            "moody-real-v5_00001_.safetensors",
+            "zimage/moody-real-v5_00001_.safetensors",
+        ),
+    ),
+    # GBRX's mopIllustriousMixtureOf v20 (model 2027577): the workflow at
+    # civitai://m/1513601 references ``mopMixtureOfPerverts_v20.safetensors``
+    # which is the v20 ToonDMD release of this checkpoint family.
+    CivitFile(
+        model_id=2027577, model_version_id=2551560,
+        filename="mopIllustriousMixtureOf_v20ToonDMD.safetensors",
+        alternate_filenames=("mopMixtureOfPerverts_v20.safetensors",),
+    ),
+    # DigitalPastel's SmoothMixOldVerNoobai (model 621659): workflow at
+    # civitai://m/1598938 references ``SmoothMix_ZimageTurbo``; map to the
+    # most-recent illustrious2Noobai variant.
+    CivitFile(
+        model_id=621659, model_version_id=1836971,
+        filename="smoothMixOldVerNoobai_Illustrious2NoobaiV2.safetensors",
+        alternate_filenames=("SmoothMix_ZimageTurbo.safetensors",),
+    ),
+], folder_name="checkpoints")
+
 _known_models_db: list[KnownDownloadables] = [
     KNOWN_CHECKPOINTS,
     KNOWN_VAES,
@@ -1613,6 +1684,7 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_VAES_EXT,
     KNOWN_OPENAI_CLIP,
     KNOWN_ADETAILER_MODELS,
+    KNOWN_CIVITAI_AUTHOR_RENAMES,
 ]
 
 
