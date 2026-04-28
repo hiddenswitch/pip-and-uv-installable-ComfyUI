@@ -144,19 +144,17 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # rocm/pytorch:7.2.2 bundled torch on RX 7600 (gfx1102, Navi 33).
-    # The wheel's arch list ships gfx1100 + gfx1101 but NOT gfx1102, so we
-    # need HSA_OVERRIDE_GFX_VERSION to make gfx1102 advertise as a sibling.
+    # RX 7600 is gfx1102 (Navi 33). The bundled torch in rocm/pytorch:rocm7.2.2
+    # ships gfx1100 + gfx1101 binaries but NOT gfx1102, so HSA_OVERRIDE_GFX_VERSION
+    # is required just to load. Both 11.0.0 (Navi 31) and 11.0.1 (Navi 32)
+    # SIGABRT in ARC pods with "Memory access fault by GPU node-1 ... Page
+    # not present" at first kernel dispatch — the cross-uarch dispatch isn't
+    # safe for this hardware in this environment.
     #
-    #   11.0.0 = gfx1100 (Navi 31, RX 7900) — failed on ARC pods with
-    #            "Memory access fault by GPU node-1 ... Page not present"
-    #            at first kernel dispatch.
-    #   11.0.1 = gfx1101 (Navi 32, RX 7700/7800) — closer silicon to gfx1102.
-    #            Try this; the gfx1101 binary is in the wheel.
-    #
-    # We also pin HIP_VISIBLE_DEVICES=0 so torch can't enumerate the CPU
-    # HSA agent as device 0 (which would dispatch GPU kernels to the CPU
-    # and reproduce the same fault signature).
+    # Fix: replace the bundled torch with PyTorch's official ROCm 6.4 wheel,
+    # which ships native gfx1102 binaries (no override needed). The wheel
+    # self-contains its ROCm runtime libs (rocblas, miopen, etc.), so it
+    # doesn't conflict with the image's /opt/rocm 7.2.2 system libs.
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
@@ -169,12 +167,8 @@ jobs:
       matrix:
         runner:
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
-            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
+            friendly_name: "Python 3.12 ROCm 6.4 Torch (native gfx1102)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
-    env:
-      HSA_OVERRIDE_GFX_VERSION: "11.0.1"
-      HIP_VISIBLE_DEVICES: "0"
-      ROCR_VISIBLE_DEVICES: "0"
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends zip unzip
@@ -182,6 +176,13 @@ jobs:
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
+      - name: Install PyTorch with native gfx1102 (replace bundled wheel)
+        run: |
+          # The image's bundled torch is rocm7.2.2-built and missing gfx1102
+          # binaries; replace with PyTorch's official ROCm 6.4 wheels which
+          # natively include gfx1102. Use the system venv at /opt/venv.
+          /opt/venv/bin/pip install --no-cache-dir --upgrade --index-url https://download.pytorch.org/whl/rocm6.4 \
+            torch torchvision torchaudio
       - name: HIP smoke test
         run: |
           # Pre-GPU diagnostics: dump everything that distinguishes this
