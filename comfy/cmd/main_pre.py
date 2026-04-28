@@ -49,6 +49,21 @@ warnings.filterwarnings("ignore", message="Inheritance class _InstrumentedApplic
 warnings.filterwarnings("ignore", message="Please import `gaussian_filter` from the `scipy.ndimage` namespace; the `scipy.ndimage.filters` namespace is deprecated", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="The installed version of bitsandbytes was compiled without GPU support")
 warnings.filterwarnings("ignore", message=r"The pynvml package is deprecated\..*", category=FutureWarning)
+
+# AMD ROCm: when the local GPU's gfx arch isn't in torch's compiled list but a
+# same-family fallback is (e.g. RX 7600/gfx1102 on a wheel built for
+# gfx1100/1101 only), set HSA_OVERRIDE_GFX_VERSION before torch loads its HIP
+# runtime. Idempotent and skipped if the user already exported the variable.
+try:
+    from .amd_compat import maybe_set_hsa_override as _maybe_set_hsa_override
+    _hsa_value = _maybe_set_hsa_override()
+    if _hsa_value:
+        this_logger.info(
+            "Set HSA_OVERRIDE_GFX_VERSION=%s (local AMD GPU arch not in torch's compiled list)",
+            _hsa_value,
+        )
+except Exception:  # noqa: BLE001
+    pass
 warnings.filterwarnings("ignore", category=UserWarning, message="Unsupported Windows version .* ONNX Runtime supports Windows 10 and above, only.")
 
 # tokenizers >=0.23.0rc0 dropped the `sep=` and `cls=` kwargs from

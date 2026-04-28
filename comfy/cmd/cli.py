@@ -949,6 +949,32 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
 
         rendered: list = []
 
+        # Author notes: render Note / MarkdownNote contents as the first
+        # section(s) so the workflow's own documentation is the first thing
+        # users read.
+        if raw_workflow is not None and "nodes" in (raw_workflow or {}) and "links" in raw_workflow:
+            for node in raw_workflow.get("nodes") or []:
+                ntype = node.get("type")
+                if ntype not in ("Note", "MarkdownNote"):
+                    continue
+                wv = node.get("widgets_values")
+                text = ""
+                if isinstance(wv, list) and wv:
+                    text = wv[0] if isinstance(wv[0], str) else ""
+                elif isinstance(wv, dict):
+                    text = next((v for v in wv.values() if isinstance(v, str)), "")
+                text = (text or "").strip()
+                if not text:
+                    continue
+                title = node.get("title") or ("Markdown note" if ntype == "MarkdownNote" else "Note")
+                rendered.append(Panel(
+                    text,
+                    title=title,
+                    title_align="left",
+                    border_style="yellow",
+                    box=box.ROUNDED,
+                ))
+
         # Inputs summary: how many images/videos/audios this workflow accepts.
         if raw_workflow is not None:
             counts = count_input_slots(raw_workflow)

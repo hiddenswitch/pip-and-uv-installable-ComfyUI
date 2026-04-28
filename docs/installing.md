@@ -35,13 +35,35 @@ uv run comfyui
 
 ### AMD RX 7000 (RDNA 3)
 
-Requires the latest AMDGPU/Adrenaline driver.
+Requires the latest AMDGPU/Adrenaline driver. Pick the index that matches your card:
+
+| Card | gfx arch | Index |
+| --- | --- | --- |
+| RX 7900 XTX / 7900 XT / 7800 XT / 7700 XT | gfx1100 / gfx1101 | `https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/` |
+| RX 7700S / 7600 / 7600 XT (and Framework 16, 780M iGPU) | gfx1102 / gfx1103 | `https://rocm.nightlies.amd.com/v2/gfx110X-all/` |
+
+`gfx110X-dgpu` ships only gfx1100/1101 kernels and crashes with `HIP error: invalid device function` on gfx1102/1103. `gfx110X-all` bundles all four.
+
+For the dGPU class (gfx1100/1101):
 
 ```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ --pre torch torchaudio torchvision triton
+uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ --pre torch torchaudio torchvision triton
 uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 uv run comfyui --fp32-vae
 ```
+
+For RX 7600 / Framework 16 / 780M (gfx1102/1103) — verified configuration:
+
+```shell
+# Container path (recommended): rocm/pytorch image with bundled torch
+docker run --rm -it --device /dev/kfd --device /dev/dri \
+    -e HSA_OVERRIDE_GFX_VERSION=11.0.0 \
+    rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0 bash
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv run comfyui --fp32-vae
+```
+
+`HSA_OVERRIDE_GFX_VERSION=11.0.0` makes gfx1102 advertise gfx1100 ISA so torch's gfx1100 kernels run on it. ComfyUI sets this automatically when it detects a local gfx1102/gfx1103 GPU on a torch wheel that doesn't include those arches — set the variable yourself to override the auto-detection.
 
 ### AMD RX 9000 (RDNA 4)
 
