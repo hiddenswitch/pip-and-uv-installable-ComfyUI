@@ -12,6 +12,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -968,6 +969,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
     def _render_workflow_help(self, ctx, ref: str, params, raw_workflow: dict | None = None) -> None:
         from rich import box
         from rich.console import Console, Group
+        from rich.markdown import Markdown
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
@@ -1020,8 +1022,30 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                 if not text:
                     continue
                 title = node.get("title") or ("Markdown note" if ntype == "MarkdownNote" else "Note")
+                # MarkdownNote uses GitHub-flavored markdown; wrap in Markdown
+                # so links and headings render properly. Plain Note widgets
+                # are typically free text — keep as-is, but auto-promote to
+                # Markdown if the text looks markdown-shaped (has a link or
+                # heading) so workflows that store URLs in plain Notes still
+                # render clickably.
+                _looks_markdown = ntype == "MarkdownNote" or any(
+                    marker in text for marker in ("](http", "\n# ", "\n## ", "\n* ", "\n- [")
+                ) or text.lstrip().startswith(("# ", "## ", "- [", "* "))
+                if _looks_markdown:
+                    # rich.markdown.Markdown emits OSC 8 hyperlinks but hides
+                    # the URL — for non-hyperlink terminals, log files, and
+                    # piping to less, that loses the actual URL. Inline each
+                    # URL after its link text so users can always copy it.
+                    visible_text = re.sub(
+                        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+                        r"[\1](\2) <\2>",
+                        text,
+                    )
+                    content = Markdown(visible_text)
+                else:
+                    content = text
                 rendered.append(Panel(
-                    text,
+                    content,
                     title=title,
                     title_align="left",
                     border_style="yellow",
