@@ -125,8 +125,7 @@ Filter by task with `comfyui workflows list --format json | jq -r
    This keeps a single `.venv` portable across hosts (a laptop with no
    GPU and a workstation with one can share the same install) — the
    GPU wheel still loads fine when there's no GPU, and `--cpu` simply
-   tells the runtime to ignore it. On macOS, MPS is the default
-   accelerator; pass `--cpu` to force CPU-only sampling there too.
+   tells the runtime to ignore it.
 
 3. **Triton** — install on Linux for CUDA or ROCm users:
    ```bash
