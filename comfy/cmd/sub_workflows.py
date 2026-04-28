@@ -12,7 +12,7 @@ from .cli import (
     _with_options, _ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS,
     _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT,
     _COMFYUI_ENV, _collect_params, _build_config, _set_config_context,
-    _discover_from_ref,
+    _discover_from_ref, _RunWorkflowCommand,
 )
 
 workflows_app = typer.Typer(name="workflows", no_args_is_help=False, add_completion=False)
@@ -55,7 +55,7 @@ def workflows_list(
     )
 
 
-@workflows_app.command(name="run", context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True})
+@workflows_app.command(name="run", context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True}, cls=_RunWorkflowCommand)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def workflows_run(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, '-' for stdin, or literal JSON."),
