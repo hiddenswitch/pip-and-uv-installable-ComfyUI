@@ -178,11 +178,14 @@ jobs:
         name: Install uv
       - name: Install PyTorch with native gfx1102 (replace bundled wheel)
         run: |
-          # The image's bundled torch is rocm7.2.2-built and missing gfx1102
-          # binaries; replace with PyTorch's official ROCm 6.4 wheels which
-          # natively include gfx1102. Use the system venv at /opt/venv.
-          /opt/venv/bin/pip install --no-cache-dir --upgrade --index-url https://download.pytorch.org/whl/rocm6.4 \
+          # Must uninstall first — the bundled wheel's local-version tag
+          # (`+rocm7.2.2.lw.git…`) makes pip see it as higher than 2.7.0+rocm6.4,
+          # so plain --upgrade silently no-ops. Triton ships with a similar
+          # local tag; remove it so the new torch's triton dep resolves.
+          /opt/venv/bin/pip uninstall -y torch torchvision torchaudio triton pytorch-triton-rocm 2>&1 | tail -10
+          /opt/venv/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/rocm6.4 \
             torch torchvision torchaudio
+          /opt/venv/bin/python -c "import torch; print('torch=', torch.__version__); print('archs=', torch.cuda.get_arch_list())"
       - name: HIP smoke test
         run: |
           # Pre-GPU diagnostics: dump everything that distinguishes this
