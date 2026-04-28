@@ -26,6 +26,12 @@ def load_workflow_json(source: str) -> dict:
     Transparently extracts workflows from zip archives or PNG tEXt chunks
     (so Civitai workflow uploads — typically zips of PNG screenshots — load
     via the same code path as bare JSON).
+
+    For non-ComfyUI formats (A1111/Forge dumps, Fooocus presets) the source
+    is translated into an equivalent ComfyUI API-form workflow. For shapes
+    we cannot translate (SwarmUI, InvokeAI, Krita-AI, unknown JSON),
+    :class:`comfy.component_model.foreign_workflow.UnsupportedWorkflowFormatError`
+    is raised with a clear explanation.
     """
     if source.lstrip().startswith("{"):
         return json.loads(source)
@@ -33,7 +39,19 @@ def load_workflow_json(source: str) -> dict:
         data = fsspec.open(source, mode="rb").open().read()
     else:
         data = Path(source).read_bytes()
-    return json.loads(_maybe_extract_workflow_json(data).read())
+    extracted = _maybe_extract_workflow_json(data, source=source)
+    body = extracted.read()
+    # If extraction produced ComfyUI-shaped JSON, parse and return; otherwise
+    # delegate to the foreign-workflow translator (handles A1111/Fooocus or
+    # raises a typed error for unsupported formats).
+    try:
+        parsed = json.loads(body)
+    except Exception:  # noqa: BLE001
+        parsed = None
+    if isinstance(parsed, dict) and _is_workflow_shaped(parsed):
+        return parsed
+    from .foreign_workflow import translate_foreign_workflow
+    return translate_foreign_workflow(parsed if parsed is not None else body, source=source)
 
 
 def _is_workflow_shaped(parsed) -> bool:
@@ -73,23 +91,29 @@ def _workflow_from_png_bytes(body: bytes) -> bytes | None:
     return None
 
 
-def _maybe_extract_workflow_json(data: bytes) -> BytesIO:
-    """Best-effort unwrap a workflow JSON from common Civitai upload shapes.
+def _maybe_extract_workflow_json(data: bytes, *, source: str | None = None) -> BytesIO:
+    """Best-effort unwrap a workflow from common Civitai upload shapes.
 
     Handles:
     * raw bytes already containing JSON (default passthrough)
     * zip archives with one or more .json graphs (picks the first
-      workflow-shaped one)
+      workflow-shaped one, falls back to A1111/Fooocus JSON or a .txt
+      parameter dump if no ComfyUI-shaped JSON is present)
     * zip archives of PNG screenshots only — extracts the workflow from the
       first PNG's tEXt chunks (the "Workflow-in-a-PNG" pattern that many
-      Civitai authors use as their distribution format)
-    * raw PNG bytes with embedded workflow chunks
+      Civitai authors use as their distribution format), or returns the
+      A1111 ``parameters`` chunk as a .txt body if that's all we find
+    * raw PNG bytes with embedded workflow chunks (or A1111 ``parameters``)
+    * raw A1111 ``.txt`` parameter dumps (passthrough for the loader to sniff)
     """
     # Raw PNG with embedded workflow tEXt chunks.
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         body = _workflow_from_png_bytes(data)
         if body is not None:
             return BytesIO(body)
+        a1111 = _a1111_text_from_png_bytes(data)
+        if a1111 is not None:
+            return BytesIO(a1111)
         return BytesIO(data)
     if not data.startswith(b"PK\x03\x04"):
         return BytesIO(data)
@@ -98,6 +122,7 @@ def _maybe_extract_workflow_json(data: bytes) -> BytesIO:
         with zipfile.ZipFile(BytesIO(data)) as zf:
             names = zf.namelist()
             json_names = [n for n in names if n.lower().endswith(".json")]
+            json_bodies: list[bytes] = []
             for name in json_names:
                 with zf.open(name) as inner:
                     body = inner.read()
@@ -107,7 +132,8 @@ def _maybe_extract_workflow_json(data: bytes) -> BytesIO:
                     continue
                 if _is_workflow_shaped(parsed):
                     return BytesIO(body)
-            # No workflow-shaped .json — try PNG-embedded workflows.
+                json_bodies.append(body)
+            # No ComfyUI-shaped .json — try PNG-embedded workflows.
             png_names = [n for n in names if n.lower().endswith(".png")]
             for name in png_names:
                 with zf.open(name) as inner:
@@ -115,13 +141,61 @@ def _maybe_extract_workflow_json(data: bytes) -> BytesIO:
                 extracted = _workflow_from_png_bytes(body)
                 if extracted is not None:
                     return BytesIO(extracted)
-            # Last resort: the first .json entry verbatim.
-            if json_names:
-                with zf.open(json_names[0]) as inner:
-                    return BytesIO(inner.read())
+            # Try .txt parameter dumps (A1111/Forge style).
+            txt_names = [n for n in names if n.lower().endswith(".txt")]
+            for name in txt_names:
+                with zf.open(name) as inner:
+                    body = inner.read()
+                if _looks_like_a1111_bytes(body):
+                    return BytesIO(body)
+            # PNG with A1111 'parameters' chunk only (no ComfyUI workflow).
+            for name in png_names:
+                with zf.open(name) as inner:
+                    body = inner.read()
+                a1111 = _a1111_text_from_png_bytes(body)
+                if a1111 is not None:
+                    return BytesIO(a1111)
+            # Surface the first non-ComfyUI JSON body so the foreign-workflow
+            # translator can classify it (Fooocus / SwarmUI / InvokeAI / ...).
+            if json_bodies:
+                return BytesIO(json_bodies[0])
     except (zipfile.BadZipFile, Exception):  # noqa: BLE001
         pass
     return BytesIO(data)
+
+
+def _a1111_text_from_png_bytes(body: bytes) -> bytes | None:
+    """Extract A1111's ``parameters`` chunk from a PNG.
+
+    A1111/Forge encode the full prompt + metadata block under the ``parameters``
+    tEXt chunk. Returns the raw text bytes, or None if absent.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        with Image.open(BytesIO(body)) as im:
+            text = getattr(im, "text", {}) or {}
+    except Exception:  # noqa: BLE001
+        return None
+    value = text.get("parameters")
+    if isinstance(value, str) and _looks_like_a1111_text(value):
+        return value.encode("utf-8")
+    return None
+
+
+def _looks_like_a1111_bytes(body: bytes) -> bool:
+    try:
+        text = body.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return False
+    return _looks_like_a1111_text(text)
+
+
+def _looks_like_a1111_text(text: str) -> bool:
+    from .foreign_workflow import _looks_like_a1111
+    return _looks_like_a1111(text)
 
 
 async def stream_json_objects(source_path_or_stdin: str | Literal["-"]) -> AsyncGenerator[dict, None]:
