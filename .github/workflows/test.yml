@@ -144,18 +144,19 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # rocm/pytorch:7.2.2 bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0
-    # verified on a direct kubectl Job on the cluster's RX 7600 (gfx1102) —
-    # smoke test passes with arch list including gfx1100/1101 (the override
-    # makes gfx1102 advertise gfx1100 ISA). TheRock gfx110X-all wheels
-    # SIGSEGV due to ROCm 7.12 wheel vs 7.2.2 runtime version drift.
+    # rocm/pytorch:7.2.2 bundled torch on RX 7600 (gfx1102, Navi 33).
+    # The wheel's arch list ships gfx1100 + gfx1101 but NOT gfx1102, so we
+    # need HSA_OVERRIDE_GFX_VERSION to make gfx1102 advertise as a sibling.
     #
-    # On ARC ephemeral pods the smoke test SIGABRTs at the first GPU kernel
-    # ("Memory access fault by GPU node-1 ... Page not present") despite the
-    # same image working on direct kubectl Jobs on the same node. Until the
-    # ARC pod template parity issue is resolved, this job is non-blocking
-    # for the workflow status — see runs/25067366477/job/73438275396.
-    continue-on-error: true
+    #   11.0.0 = gfx1100 (Navi 31, RX 7900) — failed on ARC pods with
+    #            "Memory access fault by GPU node-1 ... Page not present"
+    #            at first kernel dispatch.
+    #   11.0.1 = gfx1101 (Navi 32, RX 7700/7800) — closer silicon to gfx1102.
+    #            Try this; the gfx1101 binary is in the wheel.
+    #
+    # We also pin HIP_VISIBLE_DEVICES=0 so torch can't enumerate the CPU
+    # HSA agent as device 0 (which would dispatch GPU kernels to the CPU
+    # and reproduce the same fault signature).
     environment: "Testing"
     name: ${{ matrix.runner.friendly_name }}
     runs-on: ${{ matrix.runner.labels }}
@@ -171,7 +172,9 @@ jobs:
             friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
     env:
-      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
+      HSA_OVERRIDE_GFX_VERSION: "11.0.1"
+      HIP_VISIBLE_DEVICES: "0"
+      ROCR_VISIBLE_DEVICES: "0"
     steps:
       - run: |
           apt-get update && apt-get install -y --no-install-recommends zip unzip
