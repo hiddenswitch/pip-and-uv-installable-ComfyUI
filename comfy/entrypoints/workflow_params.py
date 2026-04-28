@@ -447,6 +447,55 @@ def workflow_extra_metadata(api: dict, ui: dict | None) -> list[Param]:
     return out
 
 
+def linear_app_inputs(api: dict, ui: dict | None) -> list[Param]:
+    """Honour the frontend's "App Mode" inputs at ``extra.linearData.inputs``.
+
+    Format (from ``src/stores/appModeStore.ts``): list of ``[node_id, widget_name]``
+    pairs that the workflow author explicitly promoted to user-facing inputs
+    in the linear/app builder. Authoritative — these are the canonical
+    parameters when present.
+    """
+    source = ui if ui is not None else api
+    extra = source.get("extra") if isinstance(source, dict) else None
+    if not isinstance(extra, dict):
+        return []
+    linear_data = extra.get("linearData")
+    if not isinstance(linear_data, dict):
+        return []
+    pairs = linear_data.get("inputs")
+    if not isinstance(pairs, list):
+        return []
+
+    out: list[Param] = []
+    for entry in pairs:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        node_id, widget_name = entry[0], entry[1]
+        node_id = str(node_id) if node_id is not None else ""
+        if not node_id or not isinstance(widget_name, str):
+            continue
+        api_node = api.get(node_id)
+        if not isinstance(api_node, dict):
+            continue
+        value = (api_node.get("inputs") or {}).get(widget_name)
+        if value is None or _is_link(value):
+            continue
+        out.append(
+            Param(
+                node_id=node_id,
+                class_type=api_node.get("class_type") or "",
+                widget_name=widget_name,
+                value=value,
+                type=_infer_type(value),
+                roles={"app_input"},
+                tier=TIER_HEADLINE,
+                flag_name=f"set-{_kebab(node_id)}-{_kebab(widget_name)}",
+                source_predicates=["linear_app_inputs"],
+            )
+        )
+    return out
+
+
 def promoted_widgets_metadata(api: dict, ui: dict | None) -> list[Param]:
     source = ui if ui is not None else api
     extra = source.get("extra") if isinstance(source, dict) else None
@@ -640,6 +689,7 @@ _PREDICATES: list[tuple[str, Predicate]] = [
     ("titled_nodes", titled_nodes),
     ("workflow_extra_metadata", workflow_extra_metadata),
     ("promoted_widgets_metadata", promoted_widgets_metadata),
+    ("linear_app_inputs", linear_app_inputs),
 ]
 
 

@@ -30,6 +30,7 @@ from comfy.entrypoints.workflow_params import (
     discover,
     easy_pack_nodes,
     frontend_widget_pool,
+    linear_app_inputs,
     params_by_address,
     params_by_role,
     primitive_nodes,
@@ -730,6 +731,43 @@ def test_unbypass_extra_loaders_targets_only_requested_kind():
     # Video loader's mode untouched
     video = next(n for n in out["nodes"] if n["type"] == "VHS_LoadVideoFFmpeg")
     assert video["mode"] == 4
+
+
+# ── synthetic unit tests: linear_app_inputs (frontend "app mode") ─────────────
+
+
+def test_linear_app_inputs_promotes_extra_linear_data_inputs():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42, "steps": 20}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {"linearData": {"inputs": [[3, "seed"]], "outputs": []}},
+    }
+    out = list(linear_app_inputs(api, ui))
+    assert len(out) == 1
+    assert out[0].roles == {"app_input"}
+    assert out[0].tier == TIER_HEADLINE
+    assert out[0].flag_name == "set-3-seed"
+
+
+def test_linear_app_inputs_drops_invalid_pairs():
+    api = {"3": {"class_type": "KSampler", "inputs": {"seed": 42}}}
+    ui = {
+        "nodes": [{"id": 3, "type": "KSampler"}],
+        "links": [],
+        "extra": {"linearData": {"inputs": [
+            [99, "seed"],            # node missing
+            [3, "missing_widget"],   # widget missing
+            ["3"],                   # short tuple
+            "not_a_pair",
+        ]}},
+    }
+    assert list(linear_app_inputs(api, ui)) == []
+
+
+def test_linear_app_inputs_returns_empty_without_extra_block():
+    assert list(linear_app_inputs({}, None)) == []
+    assert list(linear_app_inputs({}, {"nodes": [], "links": []})) == []
 
 
 # ── synthetic unit tests: assign_ui_groups ────────────────────────────────────
