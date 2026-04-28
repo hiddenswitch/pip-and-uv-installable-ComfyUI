@@ -658,14 +658,33 @@ class FacadeRegistry:
 
     @staticmethod
     def _github_archive_url(repo_url: str, ref: str | None = None) -> str:
+        """Return an archive download URL for *repo_url* (GitHub or GitLab).
+
+        The historical name kept for backward compatibility — handles both
+        ``github.com`` and ``gitlab.com`` archive endpoints. Other Git hosts
+        return the original URL so the caller can fall back to direct
+        ``pip install git+<url>``.
+        """
         url = repo_url.rstrip("/")
         if url.endswith(".git"):
             url = url[:-4]
         parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
         path = parsed.path.strip("/")
-        if ref is not None:
-            return f"https://api.github.com/repos/{path}/zipball/{ref}"
-        return f"https://api.github.com/repos/{path}/zipball"
+        if host == "github.com":
+            if ref is not None:
+                return f"https://api.github.com/repos/{path}/zipball/{ref}"
+            return f"https://api.github.com/repos/{path}/zipball"
+        if host == "gitlab.com":
+            # GitLab's archive URL: encoded project ID-or-path + /archive.zip
+            # The path-encoded form works without auth for public repos.
+            import urllib.parse as _up
+            encoded = _up.quote(path, safe="")
+            r = ref or "HEAD"
+            return f"https://gitlab.com/api/v4/projects/{encoded}/repository/archive.zip?sha={r}"
+        # Unknown host — return the original URL; FacadeWheelBuilder will
+        # fail to extract it and the caller can fall back to git+url install.
+        return url
 
     def _build_injected_project(self, spec: CustomNodeSpec) -> FacadeProject:
         """Create a FacadeProject for a spec that has no CNR entry."""

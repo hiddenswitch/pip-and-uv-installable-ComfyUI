@@ -702,11 +702,12 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
     if result.returncode == 0:
         return
 
-    # Some packages don't have wheels on the pip facade — retry those
-    # individually via ``pip install git+<repo_url>`` from comfy.org's
-    # node registry (or comfyui-manager's extension-node-map for any
-    # not on comfy.org).
-    from ..custom_node_facade.repo_lookup import resolve_package_repo_url
+    # Some packages don't have wheels on the pip facade — build a facade
+    # wheel locally for each missing one (still goes through the same
+    # _appmana_facade_<name> rename + stub-shim flow as a remote build,
+    # so ComfyUI's node loader picks them up correctly), then pip install
+    # the resulting wheels.
+    from ..custom_node_facade.local_build import build_local_facade_wheel
     refreshed_installed: set[str] = set()
     for d in distributions():
         n = (d.metadata or {}).get("Name")
@@ -716,20 +717,20 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
     if not still_missing:
         return
 
-    git_targets: list[str] = []
+    wheel_paths: list[str] = []
     unresolved: list[str] = []
     for pkg in still_missing:
-        repo_url = resolve_package_repo_url(pkg)
-        if repo_url:
-            git_targets.append(f"{pkg} @ git+{repo_url}")
+        wheel = build_local_facade_wheel(pkg)
+        if wheel:
+            wheel_paths.append(wheel)
         else:
             unresolved.append(pkg)
 
-    if git_targets:
-        logger.info("Installing %d package(s) via git fallback: %s",
-                    len(git_targets), ", ".join(p.split(" @ ")[0] for p in git_targets))
+    if wheel_paths:
+        logger.info("Installing %d locally-built facade wheel(s): %s",
+                    len(wheel_paths), ", ".join(os.path.basename(w) for w in wheel_paths))
         subprocess.run(
-            [uv, "pip", "install", "--python", sys.executable] + git_targets,
+            [uv, "pip", "install", "--python", sys.executable] + wheel_paths,
             check=False,
         )
 
