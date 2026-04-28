@@ -20,6 +20,7 @@ CLI:
 | User ask | What you do |
 |---|---|
 | Single image / video / edit | `comfyui run-workflow <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
+| User hands you a workflow URL / civitai / HF link | **First** run `comfyui run-workflow <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
 | Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
 | Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
 
@@ -300,7 +301,130 @@ patched model so every LoRA is in the traced graph.
 
 ---
 
-## Task 6 — Generate an image per row of a CSV
+## Task 6 — Running someone else's workflow (civitai / HF / URL)
+
+**Always run `--help` first.** When a user hands you a workflow URI, the
+first command you run is *not* `--all` — it's `--help`. The author's
+`Note` and `MarkdownNote` nodes are rendered as the first panels of the
+help output, with markdown headings, lists, and links rendered properly
+(each link prints as label + full URL on the next line so you can read
+the source even when stdout is captured to a log). Those notes tell you
+exactly which models the author intended, where to put them
+(`Place in: diffusion_models`), and frequently include example prompts
+or settings. Read them before generating.
+
+```bash
+# Step 1: Read the workflow's docs (no GPU work, no downloads).
+comfyui run-workflow civitai://m/2304098 --help
+
+# Step 2: Run it. --all auto-installs custom nodes and downloads models;
+#         --guess-settings picks the right VRAM mode for the host.
+comfyui run-workflow civitai://m/2304098 --all --guess-settings \
+    --prompt "..." --seed 42
+```
+
+### Recognized workflow URIs
+
+`run-workflow` accepts the same URI shapes as the embedded client:
+
+| Shape | Example | Notes |
+|---|---|---|
+| Bundled template name | `image_flux2_dev_text_to_image` | Discover with `comfyui workflows list`. |
+| Local path | `~/wf.json` or `./wf.json` | UI- or API-format JSON. |
+| Civitai model id | `civitai://m/2304098` | Resolves to the model's latest version primary file. |
+| Civitai version id | `civitai://v/2521513` | Pin to a specific version. |
+| Civitai HTTPS URL | `https://civitai.com/models/<id>` | Auto-canonicalized to `civitai://m/<id>`; `?modelVersionId=<v>` becomes `civitai://v/<v>`. |
+| Civitai Red mirror | `civitai-red://m/<id>` | NSFW mirror; same shape as `civitai://`. |
+| Hugging Face | `hf://owner/repo/path` | Or `https://huggingface.co/owner/repo/{resolve,blob,raw}/<ref>/path`. |
+| Generic HTTPS | `https://gist.../wf.json` | Any URL that returns workflow JSON or a zip / PNG containing one. |
+| stdin | `-` | `cat wf.json \| comfyui run-workflow -`. |
+
+Civitai workflow uploads are typically zip archives containing one or
+more `.json` graphs (sometimes alongside `.png` screenshots with the
+graph embedded as a tEXt chunk). The loader transparently extracts the
+first workflow-shaped JSON, falls back to PNG-embedded graphs, and
+finally to A1111-style `.txt` parameter dumps inside the zip.
+
+### What `--all` does on a civitai workflow URI
+
+When the source is `civitai://...`, `--all` does three things in order:
+
+1. **Hydrates the model index from the author's profile.** Calls
+   `civitai_model_cache.prefetch_civitai_models_for_workflow_uri(uri)`
+   which looks up the workflow's creator and pulls all of that user's
+   other Civitai uploads (checkpoints, LoRAs, VAEs) into the lookup
+   table. A workflow that loads
+   `MyModel_v2.safetensors` from the same author resolves automatically.
+2. **Mines Note/MarkdownNote URLs.** Walks the workflow's note nodes,
+   extracts every markdown link `[label](url)` and bare URL whose path
+   ends in a model extension, attributes each to a folder via the
+   nearest `Place in:` hint, and registers it as a typed
+   `Downloadable`:
+   - `huggingface.co/owner/repo/(resolve\|blob\|raw)/ref/path` →
+     `HuggingFile` (uses `hf_hub_download` cache + `HF_TOKEN`).
+   - `civitai.com/api/download/models/<v>` → `FsspecFile("civitai://v/<v>")`
+     (uses the registered `civitai://` fsspec backend with
+     `CIVITAI_API_TOKEN` auth — early-access / NSFW gated downloads
+     work).
+   - Anything else → plain `UrlFile`.
+3. **Custom-node install path.** Tries
+   `nodes.appmana.com/simple/` first; for any package without a
+   pre-built wheel (most of the long tail), builds the facade wheel
+   *locally in-process* from the package's GitHub or GitLab archive
+   URL via `FacadeWheelBuilder`, then `pip install`s the local wheel.
+   The facade rename (`_appmana_facade_<name>`) and stub-shim still
+   apply, so ComfyUI's node loader picks up the package the same way
+   as a remotely-built wheel.
+
+Net effect: civitai workflows whose author documented dependencies in
+notes Just Work without code changes. Set
+`CIVITAI_API_TOKEN=<your-token>` in the env before running so the
+fsspec backend can authenticate.
+
+### Foreign format auto-translation
+
+Some Civitai uploads are A1111/Forge `.txt` parameter dumps or Fooocus
+JSON presets rather than ComfyUI workflows. Those are translated to a
+generic ComfyUI checkpoint → LoRA chain → KSampler → VAEDecode →
+SaveImage graph automatically. The dump's prompt, negative prompt,
+sampler/scheduler, steps, CFG, seed, dimensions, model, and LoRAs
+(both `Lora hashes:` line entries and inline `<lora:name:weight>`
+tokens) all transfer.
+
+SwarmUI / InvokeAI / Krita-AI shapes are recognized but not
+translatable — those raise `UnsupportedWorkflowFormatError` (a subclass
+of `ApiValueError`) so the failure is clear instead of an opaque schema
+mismatch.
+
+### Discovering workflows
+
+The CLI talks to multiple workflow hosts. `top` lists most-downloaded
+recent uploads; `search` runs a substring match across host catalogs.
+
+```bash
+# Top 20 across every host (civitai + civitai-red + comfyui-org + huggingface).
+comfyui workflows top --limit 20
+
+# Just civitai, last 30 days, WAN family:
+comfyui workflows top --with-host civitai --period 30d --family wan --limit 10
+
+# Excluding NSFW mirrors:
+comfyui workflows top --without-host civitai-red,tensorart
+
+# Substring search across hosts:
+comfyui workflows search "flux kontext" --limit 10
+```
+
+`--family` accepts `wan`, `flux`, `sdxl`, or `ltxv` (canned per-family
+queries). `--period` accepts `Day` / `Week` / `Month` / `Year` /
+`AllTime`, plus shorthands `30d` / `180d` / `360d` (mapped to the
+nearest API enum bucket — Civitai exposes only those five periods).
+URIs from these commands paste directly into
+`run-workflow <URI> --help`.
+
+---
+
+## Task 7 — Generate an image per row of a CSV
 
 For a bulk job, write an ad-hoc Python script using the embedded
 client. This is faster than spawning `comfyui run-workflow` per row
@@ -736,16 +860,23 @@ locally; re-fetch so you get the vendor's current guidance.
    what you see back to the user to confirm understanding before
    generating — especially for edits, where what to *preserve* matters
    as much as what to *change*.
-2. Pick the right workflow from the §Model picks table based on VRAM
-   (check with `comfyui env info`) and task type.
-3. Check `comfyui models from-workflow <template> --dry-run` and ask
+2. **If the user gave you a workflow URL** (civitai / Hugging Face /
+   gist / arbitrary URL), run `comfyui run-workflow <URL> --help` first
+   and read the rendered author notes. Those notes carry the canonical
+   download URLs and place-in hints for every model — they're more
+   reliable than guessing from the workflow's filename inputs.
+3. Otherwise, pick the right workflow from the §Model picks table based
+   on VRAM (check with `comfyui env info`) and task type.
+4. Check `comfyui models from-workflow <template> --dry-run` and ask
    before triggering large downloads.
-4. Rewrite the user's vague prompt into a specific one. For image
+5. Rewrite the user's vague prompt into a specific one. For image
    edits, include explicit "keep" clauses.
-5. Run the workflow. Use `--seed` so the user can reproduce.
-6. If output is wrong, iterate on the prompt or add/remove a LoRA.
+6. Run the workflow with `--all` (download missing) and `--seed` (so the
+   user can reproduce). Set `CIVITAI_API_TOKEN` first if any input
+   resolves through `civitai://` — early-access / gated downloads need it.
+7. If output is wrong, iterate on the prompt or add/remove a LoRA.
    Don't loop infinitely — after 3 tries, ask the user.
-7. For bulk jobs: daemon + submit. For exotic graph edits: Python.
+8. For bulk jobs: daemon + submit. For exotic graph edits: Python.
 
 ## Troubleshooting quick table
 
@@ -756,3 +887,7 @@ locally; re-fetch so you get the vendor's current guidance.
 | `FutureWarning: The pynvml package is deprecated` | Harmless noise from a transitive dep; the pip facade rewrites this to `nvidia-ml-py` automatically. |
 | `ModuleNotFoundError: webcolors` from Inspire-Pack | Inspire-Pack facade declares `webcolors` as an extra requirement; rebuild the facade wheel (`uv pip install -U --extra-index-url https://nodes.appmana.com/simple/ comfyui-inspire-pack`). |
 | Triton `fp8e4nv not supported` on Ampere | Auto-fixed at quant_ops import on sm < 8.9. If you still see it, run `comfyui env check` to confirm the triton backend is DISABLED. |
+| `UnsupportedWorkflowFormatError: workflow format 'swarmui'/'invokeai'/'krita-ai' is not a valid ComfyUI workflow` | The URL points at a non-ComfyUI workflow format. A1111/Forge `.txt` and Fooocus JSON auto-translate (lossy txt2img mapping); SwarmUI/InvokeAI/Krita-AI shapes have no equivalent and must be re-authored. Find a ComfyUI alternative with `comfyui workflows search "<topic>" --with-host civitai`. |
+| `401 Unauthorized` on a `civitai://` URI | Set `CIVITAI_API_TOKEN` in env. Get one at https://civitai.com/user/account → API Keys. The `civitai://` fsspec backend reads the same env var as `model_downloader`. |
+| Civitai workflow runs but a custom checkpoint is missing | Either (a) the workflow author forgot to put the model URL in their notes, or (b) the model is by a different author than the workflow. Run `comfyui run-workflow <URI> --help` and read the author's note section — if it lists URLs, those are now resolved automatically; if it doesn't, search civitai for the filename and pass the resolved URL via `--add-lora` or `--set <node_id>.inputs.ckpt_name=<URL>`. |
+| Custom node package not on `nodes.appmana.com/simple/` | `_install_workflow_requirements` falls back to building the facade wheel locally via `FacadeWheelBuilder` against the package's GitHub or GitLab archive URL (resolved via comfy.org's API or comfyui-manager's extension-node-map). The package still gets the `_appmana_facade_<name>` rename + stub-shim, so node registration works the same. If you see "Could not locate repo URL for: foo", the package isn't in either source — file an issue or install from source manually. |

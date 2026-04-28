@@ -179,6 +179,18 @@ Use `--pip-facade-only-known-nodes` to restrict to tested nodes. Use `snapshot-p
 
 The installed wheel is only a transport wrapper. It exposes a `comfyui.custom_nodes` entry point, points ComfyUI at the vendored custom-node directory, and then the node is imported as a vanilla custom node with the same compatibility shims used for `custom_nodes/` clones.
 
+### Local Facade Build for Long-Tail Packages
+
+The bundled `pip_facade_registry_snapshot.sqlite.xz` carries the `class_type → canonical_name` mapping for ~3956 packages, but only the ~44 most popular have pre-built wheels on `nodes.appmana.com/simple/`. When `comfyui run-workflow ... --all` resolves a workflow's custom-node requirements and a package isn't on the index, the CLI falls back to building a facade wheel **locally in-process** rather than installing from git directly:
+
+1. `comfy.custom_node_facade.repo_lookup.resolve_package_repo_url(canonical_name)` looks up the source repository URL via comfy.org's node registry (`api.comfy.org/nodes/<name>`), then ComfyUI-Manager's `extension-node-map.json` as a second source.
+2. `comfy.custom_node_facade.local_build.build_local_facade_wheel(canonical_name)` synthesizes a one-shot `FacadeRegistry`, points `FacadeWheelBuilder` at the GitHub or GitLab archive URL (`https://api.github.com/repos/<owner>/<repo>/zipball` or `https://gitlab.com/api/v4/projects/<encoded>/repository/archive.zip`), and produces the same kind of wheel the remote facade serves.
+3. `uv pip install <wheel-path>` installs it.
+
+This goes through the same `_appmana_facade_<name>` rename and stub-shim path as a remotely-built wheel, so ComfyUI's node loader picks it up without any special-casing. Examples that resolve via this path: `comfyui-umeairt-toolkit` (GitLab), `daxnodes` (GitHub but no wheel on the index), `comfyui-fbcnn`, `comfyui-image-saver`. Direct `pip install git+<url>` is **not** used because it would skip the rename and break ComfyUI's vanilla-custom-node import path.
+
+Cache lives at `~/.cache/comfyui/facade_build/`; rebuild by removing it.
+
 ---
 
 ## Programmatic Custom Node Management

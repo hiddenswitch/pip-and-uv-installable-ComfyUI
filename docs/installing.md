@@ -274,6 +274,58 @@ See the [uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integrat
 - For consumer RDNA 3+ GPUs, use the architecture-specific nightly wheel index from the compatibility matrix instead of generic wheels.
 - If ComfyUI starts but VAE decode is unstable on AMD, run with `--fp32-vae`.
 
+## Running Workflows from Civitai, Hugging Face, or a URL
+
+`comfyui run-workflow` accepts URIs in addition to template names and local paths:
+
+```shell
+# Civitai workflow by model id (resolves to the latest version's primary file)
+comfyui run-workflow civitai://m/2304098 --help          # read author notes first
+comfyui run-workflow civitai://m/2304098 --all           # then run
+
+# Civitai workflow by version id, the NSFW mirror, or HTTPS URLs (auto-canonicalized)
+comfyui run-workflow civitai://v/2521513 --all
+comfyui run-workflow civitai-red://m/12345 --all
+comfyui run-workflow https://civitai.com/models/2304098 --all
+
+# Hugging Face direct file or repo
+comfyui run-workflow hf://owner/repo/workflow.json --all
+comfyui run-workflow https://huggingface.co/owner/repo/blob/main/wf.json --all
+
+# Any URL that returns workflow JSON, a zip containing one, or a PNG with an embedded graph
+comfyui run-workflow https://gist.githubusercontent.com/.../wf.json --all
+```
+
+**Always run `--help` first.** When a workflow URI is from Civitai, the help output renders every `Note` and `MarkdownNote` node from the graph as the first sections, with markdown headings, lists, and links rendered properly (each link prints as label + full URL on the next line). Workflow authors put download URLs and "place in" hints there; reading them is faster than discovering missing files at run time.
+
+Set `CIVITAI_API_TOKEN=<your-token>` in the env before running so the `civitai://` fsspec backend can authenticate against early-access / NSFW gated downloads. Get one at https://civitai.com/user/account → API Keys.
+
+### What `--all` does on a Civitai workflow URI
+
+- **Hydrates the model index from the workflow's author.** All of that user's Civitai uploads (checkpoints, LoRAs, VAEs) become resolvable by filename.
+- **Mines `Note` / `MarkdownNote` URLs.** Every markdown link `[label](url)` whose URL points at a model file (`.safetensors`, `.gguf`, `.ckpt`, etc.) is extracted, attributed to a folder via the nearest `Place in:` hint, and registered as a typed `Downloadable` (`HuggingFile` for `huggingface.co`, `FsspecFile("civitai://v/<id>")` for `civitai.com/api/download/models/`, `UrlFile` otherwise) so the right cache + auth path applies.
+- **Builds custom-node facade wheels locally** for any package without a pre-built wheel on `nodes.appmana.com`. See [Custom Nodes — Local Facade Build for Long-Tail Packages](custom_nodes.md#local-facade-build-for-long-tail-packages).
+
+### Foreign workflow formats
+
+Some Civitai uploads are A1111 / Forge `.txt` parameter dumps or Fooocus JSON presets rather than ComfyUI graphs. Those are auto-translated to a generic ComfyUI checkpoint → LoRA → KSampler → VAEDecode → SaveImage workflow using the dump's prompt, sampler, steps, CFG, seed, dimensions, model, and LoRAs. SwarmUI / InvokeAI / Krita-AI shapes raise `UnsupportedWorkflowFormatError` (a subclass of `ApiValueError`).
+
+### Discovering workflows
+
+```shell
+# Top 20 across every host (civitai + civitai-red + comfyui-org + huggingface)
+comfyui workflows top --limit 20
+
+# Filter by host and family
+comfyui workflows top --with-host civitai --period 30d --family wan --limit 10
+comfyui workflows top --without-host civitai-red,tensorart
+
+# Substring search across hosts
+comfyui workflows search "flux kontext" --limit 10
+```
+
+`--family` accepts `wan`, `flux`, `sdxl`, `ltxv`. `--period` accepts `Day` / `Week` / `Month` / `Year` / `AllTime`, plus the shorthands `30d` / `180d` / `360d`. URIs from the output paste straight into `comfyui run-workflow <URI> --help`.
+
 ## Model Downloading
 
 ComfyUI LTS supports downloading models on demand.
