@@ -136,6 +136,74 @@ def test_infer_folder_from_filename_hints():
     assert _infer_folder("my_lora_v1.safetensors", "lora", None) == "loras"
 
 
+def test_to_downloadable_huggingface_resolve_url():
+    nm = NoteModel(
+        filename="model.safetensors",
+        url="https://huggingface.co/Kijai/LTXV2_comfy/resolve/main/loras/model.safetensors",
+        folder="loras",
+    )
+    d = nm.to_downloadable()
+    from comfy.model_downloader_types import HuggingFile
+    assert isinstance(d, HuggingFile)
+    assert d.repo_id == "Kijai/LTXV2_comfy"
+    assert d.filename == "loras/model.safetensors"
+
+
+def test_to_downloadable_huggingface_blob_url_is_normalized_then_typed():
+    nm = NoteModel(
+        filename="model.gguf",
+        url="https://huggingface.co/QuantStack/LTX-2-GGUF/resolve/main/LTX-2-dev/LTX-2-dev-Q4_K_M.gguf",
+        folder="diffusion_models",
+    )
+    d = nm.to_downloadable()
+    from comfy.model_downloader_types import HuggingFile
+    assert isinstance(d, HuggingFile)
+    assert d.repo_id == "QuantStack/LTX-2-GGUF"
+    assert d.filename == "LTX-2-dev/LTX-2-dev-Q4_K_M.gguf"
+    # The author-saved filename was different from the in-repo path;
+    # save_with_filename preserves the workflow's preferred name so
+    # workflow values referencing it still resolve.
+    assert d.save_with_filename == "model.gguf"
+
+
+def test_to_downloadable_civitai_download_url():
+    nm = NoteModel(
+        filename="some_model.safetensors",
+        url="https://civitai.com/api/download/models/12345",
+        folder="checkpoints",
+    )
+    d = nm.to_downloadable()
+    from comfy.model_downloader_types import FsspecFile
+    assert isinstance(d, FsspecFile)
+    assert d.uri == "civitai://v/12345"
+    assert d.save_with_filename == "some_model.safetensors"
+
+
+def test_to_downloadable_other_url_stays_url_file():
+    nm = NoteModel(
+        filename="m.pth",
+        url="https://github.com/foo/bar/releases/download/v1/m.pth",
+        folder="upscale_models",
+    )
+    d = nm.to_downloadable()
+    from comfy.model_downloader_types import UrlFile
+    assert isinstance(d, UrlFile)
+    assert d.url == "https://github.com/foo/bar/releases/download/v1/m.pth"
+    assert d.save_with_filename == "m.pth"
+
+
+def test_to_downloadable_huggingface_with_revision_other_than_main():
+    nm = NoteModel(
+        filename="x.safetensors",
+        url="https://huggingface.co/foo/bar/resolve/v1.2/x.safetensors",
+        folder="checkpoints",
+    )
+    d = nm.to_downloadable()
+    from comfy.model_downloader_types import HuggingFile
+    assert isinstance(d, HuggingFile)
+    assert d.revision == "v1.2"
+
+
 def test_real_world_ltx2_pattern():
     """Reproduce the actual LTX-2 19B Q4_K_M MarkdownNote shape."""
     wf = _wf("""# LTXV-2 Model Files & Dependencies

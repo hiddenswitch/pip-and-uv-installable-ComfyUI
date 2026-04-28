@@ -37,6 +37,79 @@ class NoteModel:
     folder: str | None = None
     alternate_names: tuple[str, ...] = field(default_factory=tuple)
 
+    def to_downloadable(self):
+        """Return a typed ``Downloadable`` for *self.url*.
+
+        HuggingFace URLs → ``HuggingFile`` so downloads use the HF cache
+        (resume support, dedup with other clients) and HF auth headers.
+
+        Civitai download URLs → ``FsspecFile("civitai://v/<id>")`` so the
+        registered ``civitai://`` fsspec backend handles auth (the bare
+        ``UrlFile`` path uses an unauthenticated requests Session and would
+        fail for early-access / NSFW gated downloads).
+
+        Anything else → plain ``UrlFile``.
+        """
+        from ..model_downloader_types import CivitFile, FsspecFile, HuggingFile, UrlFile
+
+        hf = _parse_huggingface_url(self.url)
+        if hf is not None:
+            repo_id, filename, revision = hf
+            return HuggingFile(
+                repo_id=repo_id,
+                filename=filename,
+                save_with_filename=self.filename if self.filename != filename.rsplit("/", 1)[-1] else None,
+                alternate_filenames=tuple(self.alternate_names),
+                revision=revision if revision != "main" else None,
+                show_in_ui=False,
+            )
+
+        cv = _parse_civitai_download_url(self.url)
+        if cv is not None:
+            version_id = cv
+            return FsspecFile(
+                _uri=f"civitai://v/{version_id}",
+                _save_with_filename=self.filename,
+                show_in_ui=False,
+            )
+
+        return UrlFile(self.url, _save_with_filename=self.filename, show_in_ui=False)
+
+
+def _parse_huggingface_url(url: str) -> tuple[str, str, str] | None:
+    """Return (repo_id, filename, revision) for a HF resolve/blob URL, else None.
+
+    Examples accepted::
+
+        https://huggingface.co/owner/repo/resolve/main/path/to/file.safetensors
+        https://huggingface.co/owner/repo/blob/main/x.safetensors        (already
+                                                          normalized upstream)
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host not in ("huggingface.co", "www.huggingface.co"):
+        return None
+    parts = [p for p in (parsed.path or "").split("/") if p]
+    # Need at least owner/repo/(resolve|blob|raw)/ref/file
+    if len(parts) < 5 or parts[2] not in ("resolve", "blob", "raw"):
+        return None
+    repo_id = f"{parts[0]}/{parts[1]}"
+    revision = parts[3]
+    filename = "/".join(parts[4:])
+    if not filename:
+        return None
+    return repo_id, filename, revision
+
+
+def _parse_civitai_download_url(url: str) -> str | None:
+    """Return the version_id for a ``civitai.com/api/download/models/<id>`` URL."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host not in ("civitai.com", "www.civitai.com", "civitai.red", "www.civitai.red"):
+        return None
+    m = re.match(r"^/api/download/models/(\d+)/?$", parsed.path or "")
+    return m.group(1) if m else None
+
 
 # Recognized model file extensions. Anything ending in these is a download
 # target; anything else is just an external link.
