@@ -33,6 +33,7 @@ from .ldm.flux.redux import ReduxImageEncoder
 from .ldm.genmo.vae import model as genmo_model
 from .ldm.hunyuan3d.vae import ShapeVAE
 from .ldm.lightricks.vae import causal_video_autoencoder as lightricks
+from .ldm.lightricks.vae.audio_vae import AudioVAE
 from .ldm.mmaudio.vae.autoencoder import AudioAutoencoder
 from .ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
 from .ldm.wan import vae as wan_vae

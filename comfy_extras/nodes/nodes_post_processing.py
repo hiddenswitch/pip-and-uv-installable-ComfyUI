@@ -819,6 +819,7 @@ class ColorTransfer(io.ComfyNode):
         HW_ref = image_ref.shape[1] * image_ref.shape[2]
 
         # Precompute ref stats
+        ref_mean = ref_sc = None
         if single_ref or stats_mode in ('uniform', 'target_frame'):
             ref_mean, ref_sc = cls._pool_stats(image_ref, device, is_reinhard, eps)
 

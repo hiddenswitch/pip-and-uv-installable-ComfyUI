@@ -2064,7 +2064,7 @@ class ErnieImage(BaseModel):
         out = super().extra_conds(**kwargs)
         cross_attn = kwargs.get("cross_attn", None)
         if cross_attn is not None:
-            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+            out['c_crossattn'] = conds.CONDRegular(cross_attn)
         return out
 
 class SAM3(BaseModel):
@@ -2124,5 +2124,5 @@ class CogVideoX(BaseModel):
             if ofs is None:
                 noise = kwargs.get("noise", None)
                 ofs = torch.full((noise.shape[0],), 2.0, device=noise.device, dtype=noise.dtype)
-            out['ofs'] = comfy.conds.CONDRegular(ofs)
+            out['ofs'] = conds.CONDRegular(ofs)
         return out

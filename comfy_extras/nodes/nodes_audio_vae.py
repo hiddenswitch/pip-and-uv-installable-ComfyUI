@@ -33,7 +33,7 @@ class AudioVAEModelManageable(ModelManageableStub):
         return self.is_clone(clone)
 
     def model_size(self) -> int:
-        return self.model.device_manager.patcher.model_size()
+        return sum(p.numel() * p.element_size() for p in self.model.parameters())
 
     def model_patches_to(self, arg: torch.device | torch.dtype):
         if isinstance(arg, torch.device):
@@ -57,14 +57,14 @@ class AudioVAEModelManageable(ModelManageableStub):
             self.model.to(device=device_to)
         return self.model
 
-    # Delegate AudioVAE methods
-    # Note: AudioVAE has its own internal ModelDeviceManager that calls load_model_gpu
-    # via ensure_model_loaded(). We don't call load_models_gpu here to avoid conflicts.
     def encode(self, audio: dict) -> torch.Tensor:
-        return self.model.encode(audio)
+        comfy.model_management.load_models_gpu([self])
+        waveform = audio["waveform"].to(self.load_device)
+        return self.model.encode(waveform, sample_rate=audio["sample_rate"])
 
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
-        return self.model.decode(latents)
+        comfy.model_management.load_models_gpu([self])
+        return self.model.decode(latents.to(self.load_device))
 
     def num_of_latents_from_frames(self, frames_number: int, frame_rate: int) -> int:
         return self.model.num_of_latents_from_frames(frames_number, frame_rate)
@@ -129,7 +129,9 @@ class LTXVAudioVAELoader(io.ComfyNode):
     def execute(cls, ckpt_name: str) -> io.NodeOutput:
         ckpt_path = get_full_path_or_raise("checkpoints", ckpt_name)
         sd, metadata = comfy.utils.load_torch_file(ckpt_path, return_metadata=True)
-        model = AudioVAE(sd, metadata)
+        sd = comfy.utils.state_dict_prefix_replace(sd, {"audio_vae.": "autoencoder."})
+        model = AudioVAE(metadata=metadata)
+        model.load_state_dict(sd, strict=False)
         return io.NodeOutput(AudioVAEModelManageable(model, ckpt_name))
 
 

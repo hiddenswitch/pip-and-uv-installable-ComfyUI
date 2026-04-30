@@ -514,6 +514,7 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ace_step_1.5_ComfyUI_files", "checkpoints/ace_step_1.5_turbo_aio.safetensors"),
     HuggingFile("Comfy-Org/ACE-Step_ComfyUI_repackaged", "all_in_one/ace_step_v1_3.5b.safetensors"),
     HuggingFile("Comfy-Org/SDPose", "checkpoints/sdpose_wholebody_fp16.safetensors"),
+    HuggingFile("Comfy-Org/sam3.1", "checkpoints/sam3.1_multiplex_fp16.safetensors"),
     CivitFile(8714, 13359, filename="AOM2-Hard.safetensors"),
     CivitFile(4291, 132454, filename="AOM3A3.safetensors"),
     CivitFile(140737, 357037, filename="albedobaseXL_v21.safetensors", alternate_filenames=("sdxl/AlbedoBaseXL.safetensors", "sdxl/albedobaseXL_v21.safetensors")),
@@ -1267,6 +1268,7 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("DiffSynth-Studio/Qwen-Image-Layered-Control", "qwen_image_layered_control_bf16.safetensors"),
     # ERNIE Image (Comfy-Org)
     HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image.safetensors"),
+    HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image-turbo.safetensors"),
     # FireRed Image Edit 1.1 (FireRedTeam)
     HuggingFile("FireRedTeam/FireRed-Image-Edit-1.1-ComfyUI", "FireRed-Image-Edit-1.1-transformer.safetensors"),
     # Wan 2.2 Animate (Comfy-Org repack)

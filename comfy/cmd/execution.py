@@ -990,6 +990,8 @@ def iterate_obj_classes(prompt: dict[str, typing.Any]) -> typing.Generator[typin
 async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing.Dict[str, ValidateInputsTuple], visiting: Optional[list[str]] = None) -> ValidateInputsTuple:
     # todo: this should check if LoadImage / LoadImageMask paths exist
     # todo: or, nodes should provide a way to validate their values
+    if visiting is None:
+        visiting = []
     unique_id = item
     if unique_id in validated:
         return validated[unique_id]

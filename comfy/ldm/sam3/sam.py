@@ -301,6 +301,7 @@ class ViTDet(nn.Module):
 class FPNScaleConv(nn.Module):
     def __init__(self, in_dim, out_dim, scale, device=None, dtype=None, operations=None):
         super().__init__()
+        proj_in = in_dim
         if scale == 4.0:
             self.dconv_2x2_0 = operations.ConvTranspose2d(in_dim, in_dim // 2, kernel_size=2, stride=2, device=device, dtype=dtype)
             self.dconv_2x2_1 = operations.ConvTranspose2d(in_dim // 2, in_dim // 4, kernel_size=2, stride=2, device=device, dtype=dtype)

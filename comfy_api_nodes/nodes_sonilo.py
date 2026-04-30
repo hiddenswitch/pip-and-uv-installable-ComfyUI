@@ -21,7 +21,7 @@ from comfy_api_nodes.util._helpers import (
     is_processing_interrupted,
 )
 from comfy_api_nodes.util.common_exceptions import ProcessingInterrupted
-from server import PromptServer
+from comfy.cmd.server import PromptServer
 
 logger = logging.getLogger(__name__)
 

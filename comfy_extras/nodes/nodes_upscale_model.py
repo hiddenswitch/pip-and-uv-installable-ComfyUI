@@ -150,13 +150,15 @@ class ImageUpscaleWithModel:
         tile = upscale_model.tile
         overlap = 32
 
+        output_device = comfy.model_management.intermediate_device()
+
         oom = True
         s = None
         while oom:
             try:
                 steps = in_img.shape[0] * utils.get_tiled_scale_steps(in_img.shape[3], in_img.shape[2], tile_x=tile, tile_y=tile, overlap=overlap)
                 pbar = utils.ProgressBar(steps)
-                s = utils.tiled_scale(in_img, lambda a: upscale_model.model(a), tile_x=tile, tile_y=tile, overlap=overlap, upscale_amount=upscale_model.scale, pbar=pbar)
+                s = utils.tiled_scale(in_img, lambda a: upscale_model.model(a), tile_x=tile, tile_y=tile, overlap=overlap, upscale_amount=upscale_model.scale, pbar=pbar, output_device=output_device)
                 oom = False
             except model_management.OOM_EXCEPTION as e:
                 tile //= 2
@@ -173,14 +175,12 @@ class ImageUpscaleWithModel:
                 else:
                     raise exc_info
 
-        # upscale_model.to("cpu")
-        s = torch.clamp(s.movedim(-3, -1), min=0, max=1.0)
+        s = torch.clamp(s.movedim(-3, -1), min=0, max=1.0).to(comfy.model_management.intermediate_dtype())
 
         if s.shape[-1] == 1:
             s = s.expand(-1, -1, -1, 3)
 
         del in_img
-        s = s.to(comfy.model_management.intermediate_device())
         return (s,)
 
 

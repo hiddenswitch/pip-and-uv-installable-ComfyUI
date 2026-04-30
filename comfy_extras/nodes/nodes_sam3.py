@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 import comfy.model_management
 import comfy.utils
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, io, ui
 import av
 from fractions import Fraction

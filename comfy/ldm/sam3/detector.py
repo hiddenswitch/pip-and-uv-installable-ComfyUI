@@ -577,7 +577,7 @@ class SAM3Model(nn.Module):
         if text_prompts:
             resizer = self.detector.backbone["language_backbone"]["resizer"]
             resized = [(resizer(emb), m.bool() if m is not None else None) for emb, m in text_prompts]
-            def detect_fn(trunk_out):
+            def detect_fn(trunk_out):  # pylint: disable=function-redefined
                 all_scores, all_masks = [], []
                 for emb, mask in resized:
                     det = self.detector.forward_from_trunk(trunk_out, emb, mask)

@@ -55,7 +55,7 @@ from comfy_api_nodes.util import (
     validate_video_dimensions,
     validate_video_duration,
 )
-from server import PromptServer
+from comfy.cmd.server import PromptServer
 
 BYTEPLUS_IMAGE_ENDPOINT = "/proxy/byteplus/api/v3/images/generations"
 

@@ -260,6 +260,7 @@ class VideoFromFile(VideoInput):
         # Default to False so we decode until EOF if duration is 0
         video_done = False
         audio_done = True
+        resampler = None
 
         if len(container.streams.audio):
             audio_stream = container.streams.audio[-1]

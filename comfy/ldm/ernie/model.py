@@ -3,12 +3,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from comfy.ldm.modules.attention import optimized_attention
-import comfy.model_management
+from ..modules.attention import optimized_attention
+from ... import model_management
 
 def rope(pos: torch.Tensor, dim: int, theta: int) -> torch.Tensor:
     assert dim % 2 == 0
-    if not comfy.model_management.supports_fp64(pos.device):
+    if not model_management.supports_fp64(pos.device):
         device = torch.device("cpu")
     else:
         device = pos.device

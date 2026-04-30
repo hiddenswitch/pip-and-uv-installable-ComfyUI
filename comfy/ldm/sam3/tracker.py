@@ -9,7 +9,9 @@ from tqdm import tqdm
 try:
     import cv2
     _HAS_CV2 = True
+    ndimage = None
 except ImportError:
+    cv2 = None
     from scipy import ndimage
     _HAS_CV2 = False
 
@@ -1650,6 +1652,7 @@ class SAM31Tracker(nn.Module):
         # Prefetch next frame's backbone on a separate CUDA stream
         prefetch = False
         backbone_stream = None
+        next_bb = None
         if comfy.model_management.is_device_cuda(device):
             try:
                 backbone_stream = torch.cuda.Stream(device=device)

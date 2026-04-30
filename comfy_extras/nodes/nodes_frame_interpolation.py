@@ -4,10 +4,10 @@ from typing_extensions import override
 
 import comfy.model_patcher
 import comfy.utils
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy import model_management
-from comfy_extras.frame_interpolation_models.ifnet import IFNet, detect_rife_config
-from comfy_extras.frame_interpolation_models.film_net import FILMNet
+from ..frame_interpolation_models.ifnet import IFNet, detect_rife_config
+from ..frame_interpolation_models.film_net import FILMNet
 from comfy_api.latest import ComfyExtension, io
 
 FrameInterpolationModel = io.Custom("INTERP_MODEL")

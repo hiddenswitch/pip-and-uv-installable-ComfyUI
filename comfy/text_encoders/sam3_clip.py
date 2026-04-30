@@ -1,5 +1,5 @@
 import re
-from comfy import sd1_clip
+from .. import sd1_clip
 
 SAM3_CLIP_CONFIG = {
     "architectures": ["CLIPTextModel"],
@@ -17,8 +17,10 @@ SAM3_CLIP_CONFIG = {
 
 
 class SAM3ClipModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, max_length=32, layer="last", textmodel_json_config=SAM3_CLIP_CONFIG, special_tokens={"start": 49406, "end": 49407, "pad": 0}, return_projected_pooled=False, return_attention_masks=True, enable_attention_masks=True, model_options=model_options)
+    def __init__(self, device="cpu", textmodel_json_config=None, dtype=None, model_options={}):
+        if textmodel_json_config is None:
+            textmodel_json_config = SAM3_CLIP_CONFIG
+        super().__init__(device=device, dtype=dtype, max_length=32, layer="last", textmodel_json_config=textmodel_json_config, special_tokens={"start": 49406, "end": 49407, "pad": 0}, return_projected_pooled=False, return_attention_masks=True, enable_attention_masks=True, model_options=model_options)
 
 
 class SAM3Tokenizer(sd1_clip.SDTokenizer):

@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from comfy.ldm.modules.attention import optimized_attention
-import comfy.patcher_extension
-import comfy.ldm.common_dit
+from ..modules.attention import optimized_attention
+from ..common_dit import pad_to_patch_size
+from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 
 
 def _get_1d_rotary_pos_embed(dim, pos, theta=10000.0):
@@ -435,10 +435,10 @@ class CogVideoXTransformer3DModel(nn.Module):
     def forward(self, x, timestep, context, ofs=None, transformer_options=None, **kwargs):
         if transformer_options is None:
             transformer_options = {}
-        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        return WrapperExecutor.new_class_executor(
             self._forward,
             self,
-            comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
+            get_all_wrappers(WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(x, timestep, context, ofs, transformer_options, **kwargs)
 
     def _forward(self, x, timestep, context, ofs=None, transformer_options=None, **kwargs):
@@ -449,7 +449,7 @@ class CogVideoXTransformer3DModel(nn.Module):
 
         # Pad to patch size (temporal + spatial), same pattern as WAN
         p_t = self.patch_size_t if self.patch_size_t is not None else 1
-        x = comfy.ldm.common_dit.pad_to_patch_size(x, (p_t, self.patch_size, self.patch_size))
+        x = pad_to_patch_size(x, (p_t, self.patch_size, self.patch_size))
 
         # CogVideoX expects [B, T, C, H, W]
         x = x.permute(0, 2, 1, 3, 4)

@@ -300,7 +300,9 @@ def test_file_request_parameter(use_temporary_input_directory):
     load_image_node_rgb, _ = load_image_node.load_image(image=os.path.basename(image_path))
 
     assert loaded_image.shape == load_image_node_rgb.shape
-    assert torch.allclose(loaded_image, load_image_node_rgb)
+    # LoadImage now decodes through pyav (upstream dae3d347), which introduces
+    # small YUV-conversion rounding compared to the PIL-based ImageRequestParameter.
+    assert torch.allclose(loaded_image, load_image_node_rgb, atol=0.01)
 
 
 def test_file_request_parameter2(use_temporary_input_directory):

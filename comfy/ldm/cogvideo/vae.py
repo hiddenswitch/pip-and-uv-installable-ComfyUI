@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
-ops = comfy.ops.disable_weight_init
+from ...ops import disable_weight_init, cast_to_input
+ops = disable_weight_init
 
 
 class CausalConv3d(nn.Module):
@@ -51,8 +51,8 @@ class CausalConv3d(nn.Module):
                     # Fast path: single frame, no cache. All temporal padding
                     # frames are copies of the input (replicate-style), so the
                     # 3D conv reduces to a 2D conv with summed temporal kernel.
-                    w = comfy.ops.cast_to_input(self.conv.weight, x)
-                    b = comfy.ops.cast_to_input(self.conv.bias, x) if self.conv.bias is not None else None
+                    w = cast_to_input(self.conv.weight, x)
+                    b = cast_to_input(self.conv.bias, x) if self.conv.bias is not None else None
                     w2d = w.sum(dim=2, keepdim=True)
                     out = F.conv3d(x, w2d, b,
                                    self.conv.stride, self.conv.padding,

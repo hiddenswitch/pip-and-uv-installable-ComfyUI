@@ -789,7 +789,7 @@ def free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins
 
 def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins_required=0, ram_required=0):
     cleanup_models_gc()
-    comfy.memory_management.extra_ram_release(max(pins_required, ram_required))
+    memory_management.extra_ram_release(max(pins_required, ram_required))
     unloaded_model = []
     can_unload = []
     unloaded_models = []

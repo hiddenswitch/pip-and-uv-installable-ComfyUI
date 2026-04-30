@@ -1,0 +1,46 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sam3.1_multiplex_fp16.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "LoadImageFromURL",
+    "inputs": {
+      "value": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/chroma/fennec_girl_sing.png"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "person",
+      "clip": ["1", 1]
+    }
+  },
+  "4": {
+    "class_type": "SAM3_Detect",
+    "inputs": {
+      "threshold": 0.5,
+      "refine_iterations": 1,
+      "individual_masks": false,
+      "model": ["1", 0],
+      "image": ["2", 0],
+      "conditioning": ["3", 0]
+    }
+  },
+  "5": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": ["2", 0],
+      "alpha": ["4", 0]
+    }
+  },
+  "6": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "sam3-segment",
+      "images": ["5", 0]
+    }
+  }
+}
