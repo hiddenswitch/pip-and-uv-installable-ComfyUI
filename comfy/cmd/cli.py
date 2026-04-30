@@ -1174,6 +1174,16 @@ def run_workflow(
     (https://, hf://, s3://), literal JSON strings, or '-' for stdin.
 
     \b
+    NEXT STEP — INSPECT YOUR WORKFLOW:
+    Re-run --help with the workflow path/URL to see this workflow's actual
+    parameters (the prompts, steps, seed, LoRA strengths, etc. that this
+    specific workflow exposes), plus any author notes embedded in the file:
+      comfyui run-workflow WORKFLOW_FILE_OR_URL --help
+    The same is true of `comfyui workflows run`. Without a workflow argument,
+    --help only shows the *generic* options below — it cannot know which
+    parameters your particular workflow takes until you give it one.
+
+    \b
     With --all, automatically install missing custom nodes from
     nodes.appmana.com and download missing models before running:
       comfyui run-workflow workflow.json --all --guess-settings
@@ -1188,6 +1198,7 @@ def run_workflow(
 
     \b
     Examples:
+      comfyui run-workflow workflow.json --help        # inspect the workflow
       comfyui run-workflow workflow.json --all --guess-settings
       comfyui run-workflow workflow.json --prompt "a sunset" --steps 20 --seed 42
       comfyui run-workflow https://example.com/workflow.json --all

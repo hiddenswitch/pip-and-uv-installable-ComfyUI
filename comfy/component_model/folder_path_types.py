@@ -124,6 +124,23 @@ class PathsList:
         p: FolderNames = self.parent()
         return len(list(p.directory_paths(self.folder_name)))
 
+    def __str__(self) -> str:
+        # PathsList is a *list* of paths (one per registered base directory),
+        # not a single path. The dataclass default __repr__ leaks the
+        # ``parent=<weakref ...>`` plumbing into logs and — worse — into
+        # callers that ``str()`` the object expecting a path string, then
+        # use it as a directory name (so directories like
+        # ``PathsList(folder_name=...)/`` get created on disk).
+        # Return the resolved list so log-formatted output is at least
+        # semantically meaningful, while still failing loudly when treated
+        # as a single ``os.PathLike``.
+        return str(list(self))
+
+    # Deliberately no ``__fspath__``: a list of paths is not a single path.
+    # Callers that try ``os.fspath(paths_list)`` or ``open(paths_list)`` will
+    # hit a TypeError at the boundary instead of silently writing to a
+    # ``"['p1', 'p2']"`` directory.
+
 
 @dataclasses.dataclass
 class SupportedExtensions:

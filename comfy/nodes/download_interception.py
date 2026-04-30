@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -132,16 +133,28 @@ def patch_folder_names_dict():
 
     def _intercepted_setitem(self, key, value):
         from ..cmd.folder_paths import add_model_folder_path
+        from ..component_model.folder_path_types import PathsList
         if isinstance(value, (tuple, list)) and len(value) >= 2:
             paths, extensions = value[0], value[1]
             ext_set = set(extensions) if extensions else None
-            if isinstance(paths, (list, tuple)):
+            # PathsList is iterable (yields path strings) but is *not* a
+            # plain list — without this branch the ``else`` path falls
+            # through to ``str(paths)`` and stores the dataclass repr
+            # ("PathsList(folder_name=..., parent=<weakref ...>)") as a
+            # bogus directory.
+            if isinstance(paths, (list, tuple, PathsList)):
                 for path in paths:
                     logger.info("Intercepted folder_names_and_paths[%r] write: path=%s extensions=%s", key, path, extensions)
                     add_model_folder_path(key, str(path), extensions=ext_set)
-            else:
+            elif isinstance(paths, (str, Path)):
                 logger.info("Intercepted folder_names_and_paths[%r] write: path=%s extensions=%s", key, paths, extensions)
                 add_model_folder_path(key, str(paths), extensions=ext_set)
+            else:
+                logger.warning(
+                    "Intercepted folder_names_and_paths[%r] write with unexpected paths type %s; falling through",
+                    key, type(paths).__name__,
+                )
+                original_setitem(self, key, value)
         else:
             logger.info("Intercepted folder_names_and_paths[%r] write (passthrough)", key)
             original_setitem(self, key, value)

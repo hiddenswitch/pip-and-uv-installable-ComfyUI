@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.20.3"
+version = "0.20.4"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -72,6 +72,10 @@ dependencies = [
     "fsspec",
     "yt-dlp",
     "natsort",
+    # Many community custom nodes (ComfyUI-Inspire-Pack, others) import
+    # webcolors at module load and hard-fail otherwise. Pin it as a base
+    # dep so any node pack relying on it works out of the box.
+    "webcolors",
     "OpenEXR; python_version < '3.14'",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-sdk>=1.29.0",

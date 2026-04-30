@@ -27,6 +27,18 @@ Anything below counts as "make me X" and routes through this guide:
 The user usually does **not** know which model, which workflow, or which
 LoRA. Your job is to figure that out by *searching*, not guessing.
 
+> **Whenever the next step uses a workflow, run `--help` on it first.**
+> `comfyui run-workflow WORKFLOW_FILE_OR_URL --help` (and the equivalent
+> `comfyui workflows run WORKFLOW_FILE_OR_URL --help`) **inspects the
+> actual workflow** and prints the per-workflow parameter table — the
+> prompts, dimensions, seed, LoRA strengths, etc. that *this specific*
+> workflow exposes — plus any author notes (`Note` / `MarkdownNote`
+> nodes) embedded in the file. The bare `comfyui run-workflow --help`
+> (no workflow argument) only shows the *generic* options; it cannot
+> know your workflow's parameters until you give it one. This works for
+> bundled template names, local files, civitai/HF URIs, https URLs,
+> stdin (`-`), and PNGs with embedded workflow JSON.
+
 ## How the pieces fit
 
 ComfyUI is the runtime; the *content* lives in a public ecosystem:
