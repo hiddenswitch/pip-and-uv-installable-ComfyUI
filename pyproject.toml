@@ -110,7 +110,6 @@ dependencies = [
     "pydantic-ai-slim[openai,anthropic,google]>=0.0.36; python_version>='3.11'",
     "google-generativeai",
     "humanize",
-    "lightning",
     "jax",
     "colour",
     "av>=14.2.0,<16",
