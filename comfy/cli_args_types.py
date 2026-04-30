@@ -89,6 +89,7 @@ class Configuration(dict):
         enable_cors_header (Optional[str]): Enables CORS with the specified origin.
         max_upload_size (float): Maximum upload size in MB. Defaults to 100.
         extra_model_paths_config (Optional[List[str]]): Extra model paths configuration files.
+        add_model_folder_path (list[str]): Additional folder paths registered under a folder_paths kind. Each entry is a string of the form "KIND=PATH" (e.g. "checkpoints=/mnt/nas/sdxl"). Applied at startup before any node executes.
         output_directory (Optional[str]): Directory for output files. This can also be a relative path to the cwd or current working directory.
         temp_directory (Optional[str]): Temporary directory for processing.
         input_directory (Optional[str]): Directory for input files. When this is a relative path, it will be looked up relative to the cwd (current working directory) and all of the base_paths.
@@ -391,6 +392,7 @@ class Configuration(dict):
         self.diffusion_model: Optional[str] = None
         self.set: list[str] = []
         self.add_lora: Optional[list[str]] = None
+        self.add_model_folder_path: list[str] = []
         self.compile: bool = False
 
         for key, value in kwargs.items():

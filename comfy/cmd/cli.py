@@ -91,6 +91,7 @@ _DIRECTORY_OPTS: list[tuple] = [
     ("temp_directory", Optional[str], typer.Option(None, "--temp-directory", help="Set the ComfyUI temp directory.")),
     ("input_directory", Optional[str], typer.Option(None, "--input-directory", help="Set the ComfyUI input directory.")),
     ("user_directory", Optional[str], typer.Option(None, "--user-directory", help="Set the ComfyUI user directory with an absolute path.")),
+    ("add_model_folder_path", Optional[list[str]], typer.Option(None, "--add-model-folder-path", envvar="COMFYUI_ADD_MODEL_FOLDER_PATH", help="Register an additional directory under a folder_paths kind. Format: KIND=PATH (e.g. checkpoints=/mnt/nas/sdxl). Repeatable. Comma-separated entries also accepted.")),
 ]
 
 _DEVICE_OPTS: list[tuple] = [
@@ -275,6 +276,7 @@ _NULLABLE_LIST_FIELDS = frozenset({
     "fast", "base_paths", "extra_model_paths_config", "panic_when",
     "whitelist_custom_nodes", "blacklist_custom_nodes", "workflows",
     "image", "video", "audio", "set", "add_lora",
+    "add_model_folder_path",
     "enable_comfy_kitchen_backends", "disable_comfy_kitchen_backends",
 })
 
@@ -376,6 +378,7 @@ def _build_config(params: dict) -> Configuration:
     for list_field in ("base_paths", "extra_model_paths_config", "panic_when",
                        "whitelist_custom_nodes", "blacklist_custom_nodes",
                        "image", "video", "audio", "workflows",
+                       "add_model_folder_path",
                        "enable_comfy_kitchen_backends", "disable_comfy_kitchen_backends"):
         if list_field in filtered and isinstance(filtered[list_field], (list, tuple)):
             expanded = []
@@ -855,8 +858,105 @@ def _install_workflow_stable_abi_extensions(workflow_sources: list[str]) -> None
         subprocess.run(cmd, check=True)
 
 
-def _download_workflow_models(workflow_sources: list[str]) -> None:
-    """Download missing models for the given workflows."""
+def _auto_register_existing_models() -> tuple[list, list[str]]:
+    """Search the OS index + walk fallbacks for model files, classify, and
+    register parent dirs via ``folder_paths.add_model_folder_path``.
+
+    Returns ``(classifications, scan_summary)`` for use by ``--dry-run``.
+    """
+    from .model_search import find_files
+    from .model_classifier import classify_many
+    from . import folder_paths
+
+    scan = find_files()
+    classifications = classify_many(scan.paths)
+    registered: set[tuple[str, str]] = set()
+    for c in classifications:
+        if c.kind is None or c.register_dir is None:
+            continue
+        key = (c.kind, c.register_dir)
+        if key in registered:
+            continue
+        registered.add(key)
+        folder_paths.add_model_folder_path(c.kind, c.register_dir)
+    return classifications, scan.summary
+
+
+def _print_dry_run_plan(
+    workflow_sources: list[str],
+    classifications: list,
+    scan_summary: list[str],
+    planned_downloads: list[tuple[str, str]],
+) -> None:
+    """Pretty-print what ``--all`` would do."""
+    import shutil
+    from collections import defaultdict
+    from . import folder_paths
+
+    print("=" * 78)
+    print(f"workflow:    {', '.join(workflow_sources)}")
+    print()
+
+    # Discovered: group by (kind, register_dir), show count
+    classified = [c for c in classifications if c.kind and c.register_dir]
+    by_kind_dir: dict[tuple[str, str], int] = defaultdict(int)
+    for c in classified:
+        by_kind_dir[(c.kind, c.register_dir)] += 1
+    if by_kind_dir:
+        print(f"discovered ({len(classified)} model files in {len(by_kind_dir)} dirs)")
+        for (kind, d), n in sorted(by_kind_dir.items(), key=lambda x: (x[0][0], x[0][1])):
+            print(f"  {kind:>22}  {d}  ({n} files)")
+        print()
+    hf_cache_count = sum(1 for c in classifications if c.is_hf_cache)
+    unclassified = sum(1 for c in classifications if c.kind is None and not c.is_hf_cache)
+    if hf_cache_count or unclassified:
+        if hf_cache_count:
+            print(f"  {'HF cache':>22}  {hf_cache_count} files (resolved per-file via huggingface_hub)")
+        if unclassified:
+            print(f"  {'unclassified':>22}  {unclassified} files (no kind inferred)")
+        print()
+
+    # Folder paths registered (deduplicated)
+    if by_kind_dir:
+        print("folder paths to register")
+        for (kind, d), _n in sorted(by_kind_dir.items()):
+            print(f"  --add-model-folder-path {kind}={d}")
+        print()
+
+    # Models to download
+    if planned_downloads:
+        print(f"models to download ({len(planned_downloads)})")
+        for folder, name in planned_downloads:
+            print(f"  ↓ {folder}/{name}")
+        print()
+    else:
+        print("models to download: 0 (everything resolved locally)")
+        print()
+
+    # Scan summary
+    print("scan summary")
+    for line in scan_summary:
+        print(f"  {line}")
+    print()
+
+    # Disk
+    output_dir = str(folder_paths.get_output_directory())
+    try:
+        u = shutil.disk_usage(output_dir)
+        print("disk")
+        print(f"  {output_dir:<60} free {u.free / 2**30:.1f} GB")
+    except OSError:
+        pass
+
+
+def _download_workflow_models(workflow_sources: list[str], dry_run: bool = False) -> list[tuple[str, str]]:
+    """Download missing models for the given workflows.
+
+    With ``dry_run=True``, no downloads are issued and the returned list
+    contains the ``(folder_name, filename)`` pairs that would have been
+    downloaded. With ``dry_run=False`` (the default), downloads run and the
+    list returned is the same — what was downloaded.
+    """
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
     from ..component_model.workflow_note_models import extract_models_from_notes
@@ -904,6 +1004,7 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
                     if key:
                         filename_index.setdefault(key, []).append((folder_name, item))
 
+    planned: list[tuple[str, str]] = []
     seen: set[str] = set()
     for source in workflow_sources:
         if source == "-":
@@ -928,8 +1029,11 @@ def _download_workflow_models(workflow_sources: list[str]) -> None:
                 if matches:
                     folder_name = matches[0][0]
                     if not folder_paths.get_full_path(folder_name, value):
-                        logger.info("Downloading %s/%s", folder_name, value)
-                        get_or_download(folder_name, value)
+                        planned.append((folder_name, value))
+                        if not dry_run:
+                            logger.info("Downloading %s/%s", folder_name, value)
+                            get_or_download(folder_name, value)
+    return planned
 
 
 class _RunWorkflowCommand(typer.core.TyperCommand):
@@ -1163,6 +1267,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
 def run_workflow(
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
     all: bool = typer.Option(False, "--all/--no-all", "-a", help="Install missing custom nodes and download missing models before running."),
+    dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Print the execution plan (discovered models, folder-path registrations, missing downloads, disk free) and exit. Implies --all."),
     disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
     block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation/--no-block-runtime-package-installation", help="Block runtime package installations."),
     **kwargs,
@@ -1207,10 +1312,13 @@ def run_workflow(
     """
     from ..component_model.setup import setup_pre_torch, setup_post_torch
 
-    _all = all
+    _all = all or dry_run
+    _dry_run = dry_run
     params = _collect_params(locals(), kwargs)
     params.pop("all", None)
     params.pop("_all", None)
+    params.pop("dry_run", None)
+    params.pop("_dry_run", None)
 
     if params.get("output") is not None:
         params["output_directory"] = params["output"]
@@ -1241,8 +1349,17 @@ def run_workflow(
     if _all:
         # After torch is available we know cu128 vs cu130, so do this here
         # rather than alongside _install_workflow_requirements.
-        _install_workflow_stable_abi_extensions(config.workflows)
-        _download_workflow_models(config.workflows)
+        if not _dry_run:
+            _install_workflow_stable_abi_extensions(config.workflows)
+        # Auto-discover existing models on disk before checking what to download.
+        # Discovery + classification + folder_paths registration runs every time
+        # --all is requested, so subsequent _download_workflow_models() calls
+        # find locally-resolved files via folder_paths.get_full_path().
+        classifications, scan_summary = _auto_register_existing_models()
+        planned = _download_workflow_models(config.workflows, dry_run=_dry_run)
+        if _dry_run:
+            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned)
+            return
 
     from ..execution_context import context_configuration
     from ..nodes.package import import_all_nodes_in_workspace

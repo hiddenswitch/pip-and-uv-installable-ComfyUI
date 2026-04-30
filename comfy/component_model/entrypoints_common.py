@@ -22,6 +22,15 @@ def configure_application_paths(args: Configuration, folder_names: Optional[Fold
     if args.extra_model_paths_config:
         for config_path in args.extra_model_paths_config:
             load_extra_path_config(config_path)
+    if args.add_model_folder_path:
+        from ..cmd.folder_paths import add_model_folder_path
+        for entry in args.add_model_folder_path:
+            kind, _, path = entry.partition("=")
+            kind = kind.strip()
+            path = path.strip()
+            if not kind or not path:
+                raise ValueError(f"--add-model-folder-path expects KIND=PATH, got {entry!r}")
+            add_model_folder_path(kind, str(construct_path(path)), folder_names_and_paths=folder_names)
 
 
 async def executor_from_args(configuration:Optional[Configuration]=None):
