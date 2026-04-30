@@ -176,6 +176,7 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
       - name: HIP smoke test
+        shell: bash
         # The expected dGPU is RX 7600 (Navi 33) = PCI 1002:7480 = gfx1102.
         # If the runner pod template mounts the wrong /dev/dri/render index,
         # we end up with the host's Raphael iGPU (PCI 1002:164e, gfx1036)
