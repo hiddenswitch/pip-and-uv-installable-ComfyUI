@@ -90,6 +90,29 @@ def _competing_gpu_processes() -> list[str]:
         return []
 
 
+def _nvidia_compute_caps() -> list[tuple[int, int]]:
+    """Return list of (major, minor) compute capabilities for each NVIDIA GPU.
+
+    Empty list if nvidia-smi is missing or fails. Probes via
+    `nvidia-smi --query-gpu=compute_cap` so the CUDA runtime doesn't initialise.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    caps: list[tuple[int, int]] = []
+    for line in result.stdout.strip().splitlines():
+        m = re.match(r"\s*(\d+)\.(\d+)\s*$", line)
+        if m:
+            caps.append((int(m.group(1)), int(m.group(2))))
+    return caps
+
+
 def _amd_gfx_version() -> Optional[str]:
     """Return the GFX target ID (e.g. 'gfx1100', 'gfx1201') or None."""
     try:
@@ -169,6 +192,18 @@ def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disab
             fast.add(PerformanceFeature.CublasOps)
             configuration.fast = list(fast)
             logger.info("NVIDIA GPU detected, enabling cublas_ops")
+
+        # cudaMallocAsync is unsafe on Windows (CUDA driver bug surfaces as
+        # silent corruption / device-side asserts under stream pressure) and
+        # unsupported on Pascal (sm_6x). Disable in those cases — elsewhere
+        # leave the explicit user/default setting alone.
+        caps = _nvidia_compute_caps()
+        sm6x = any(major == 6 for major, _ in caps)
+        if sys.platform == "win32" or sm6x:
+            reason = "Windows" if sys.platform == "win32" else f"SM 6.x ({caps})"
+            logger.info(f"{reason} detected, disabling cudaMallocAsync")
+            configuration.disable_cuda_malloc = True
+            configuration.cuda_malloc = False
 
     if is_nvidia:
         user_set_vram = any(getattr(configuration, f, False) for f in VRAM_MODES)
