@@ -1946,8 +1946,8 @@ class SAM3(supported_models_base.BASE):
         return model_base.SAM3(self, device=device)
 
     def clip_target(self, state_dict={}):
-        import comfy.text_encoders.sam3_clip
-        return supported_models_base.ClipTarget(comfy.text_encoders.sam3_clip.SAM3TokenizerWrapper, comfy.text_encoders.sam3_clip.SAM3ClipModelWrapper)
+        from .text_encoders import sam3_clip
+        return supported_models_base.ClipTarget(sam3_clip.SAM3TokenizerWrapper, sam3_clip.SAM3ClipModelWrapper)
 
 
 class SAM31(SAM3):

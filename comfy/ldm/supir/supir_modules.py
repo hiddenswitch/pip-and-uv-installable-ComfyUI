@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-from comfy.ldm.modules.diffusionmodules.util import timestep_embedding
-from comfy.ldm.modules.diffusionmodules.openaimodel import Downsample, TimestepEmbedSequential, ResBlock, SpatialTransformer
-from comfy.ldm.modules.attention import optimized_attention
+from ..modules.diffusionmodules.util import timestep_embedding
+from ..modules.diffusionmodules.openaimodel import Downsample, TimestepEmbedSequential, ResBlock, SpatialTransformer
+from ..modules.attention import optimized_attention
 
 
 class ZeroSFT(nn.Module):

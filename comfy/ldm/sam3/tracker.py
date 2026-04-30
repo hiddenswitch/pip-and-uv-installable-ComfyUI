@@ -15,14 +15,12 @@ except ImportError:
     from scipy import ndimage
     _HAS_CV2 = False
 
-import comfy.model_management
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.sam3.sam import rope_2d, PositionEmbeddingSine
-from comfy.ops import cast_to_input
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.cascade.common import LayerNorm2d_op
-from comfy.ldm.sam3.sam import MLP, PositionEmbeddingRandom
-from comfy.ldm.sam3.sam import TwoWayTransformer as SAMTwoWayTransformer
+from ... import model_management
+from ..modules.attention import optimized_attention
+from .sam import rope_2d, PositionEmbeddingSine, MLP, PositionEmbeddingRandom, TwoWayTransformer as SAMTwoWayTransformer
+from ...ops import cast_to_input
+from ..flux.math import apply_rope1
+from ..cascade.common import LayerNorm2d_op
 
 NO_OBJ_SCORE = -1024.0
 
@@ -1110,7 +1108,7 @@ class SAM3Tracker(nn.Module):
                     if old_idx < frame_idx - lookback:
                         del output_dict["non_cond_frame_outputs"][old_idx]
             # Move masks to CPU immediately to free VRAM
-            all_masks.append(current_out["pred_masks_high_res"].to(comfy.model_management.intermediate_device()))
+            all_masks.append(current_out["pred_masks_high_res"].to(model_management.intermediate_device()))
             if pbar is not None:
                 pbar.update(1)
 
@@ -1641,7 +1639,7 @@ class SAM31Tracker(nn.Module):
         N, device, dt = images.shape[0], images.device, images.dtype
         output_dict = {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
         all_masks = []
-        idev = comfy.model_management.intermediate_device()
+        idev = model_management.intermediate_device()
         mux_state = None
         if initial_masks is not None:
             mux_state = MultiplexState(initial_masks.shape[0], self.num_multiplex, device, dt)
@@ -1653,7 +1651,7 @@ class SAM31Tracker(nn.Module):
         prefetch = False
         backbone_stream = None
         next_bb = None
-        if comfy.model_management.is_device_cuda(device):
+        if model_management.is_device_cuda(device):
             try:
                 backbone_stream = torch.cuda.Stream(device=device)
                 prefetch = True

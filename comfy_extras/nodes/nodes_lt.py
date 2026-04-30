@@ -16,7 +16,7 @@ from comfy.nodes import base_nodes as nodes
 from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
-from comfy_extras.nodes.nodes_audio import TorchAudioNotFoundError
+from .nodes_audio import TorchAudioNotFoundError
 
 
 class EmptyLTXVLatentVideo(io.ComfyNode):

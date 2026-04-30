@@ -6,10 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.flux.math import apply_rope
-from comfy.ldm.flux.layers import EmbedND
-from comfy.ops import cast_to_input
+from ..modules.attention import optimized_attention
+from ..flux.math import apply_rope
+from ..flux.layers import EmbedND
+from ...ops import cast_to_input
 
 
 class MLP(nn.Module):

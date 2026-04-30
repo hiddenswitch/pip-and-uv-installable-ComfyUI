@@ -1,5 +1,5 @@
 import torch
-from comfy.ldm.modules.diffusionmodules.openaimodel import Upsample
+from ..modules.diffusionmodules.openaimodel import Upsample
 
 
 class SUPIRPatch:

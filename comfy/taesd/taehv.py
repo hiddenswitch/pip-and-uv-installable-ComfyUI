@@ -7,8 +7,7 @@ from tqdm.auto import tqdm
 from collections import namedtuple, deque
 
 from ..ops import disable_weight_init
-
-import comfy.model_management
+from .. import model_management
 operations = disable_weight_init
 
 DecoderResult = namedtuple("DecoderResult", ("frame", "memory"))
@@ -197,6 +196,6 @@ class TAEHV(nn.Module):
         x = x.movedim(1, 2) if x.shape[1] != self.latent_channels else x  # [B, T, C, H, W] or [B, C, T, H, W]
         x = self.process_in(x).movedim(2, 1)  # [B, C, T, H, W] -> [B, T, C, H, W]
         x = apply_model_with_memblocks(self.decoder, x, self.parallel, self.show_progress_bar,
-                                        output_device=comfy.model_management.intermediate_device(),
+                                        output_device=model_management.intermediate_device(),
                                         patch_size=self.patch_size, decode=True)
         return x[:, self.frames_to_trim:].movedim(2, 1)

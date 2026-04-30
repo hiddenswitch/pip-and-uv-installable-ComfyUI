@@ -8,6 +8,8 @@ This document describes the custom linting rules used in ComfyUI and how to reso
 pylint -j 32 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
 ```
 
+**Never pipe pylint through `head`, `tail`, or `grep`.** CI evaluates pylint's exit code, which is non-zero whenever any error/warning fires even if the score still rounds to 10.00/10. Filtering hides those failures locally and lets a broken commit ship. Run pylint raw and read the full output. If the volume is unmanageable, fix what's flagged first.
+
 ## Custom Linting Rules
 
 ### W9001: SDClipModel Missing Config

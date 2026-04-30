@@ -10,7 +10,7 @@ from comfy import node_helpers
 import logging
 
 from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
-from comfy_extras.nodes.nodes_audio_vae import AudioVAEModelManageable
+from .nodes_audio_vae import AudioVAEModelManageable
 
 logger = logging.getLogger(__name__)
 from typing_extensions import override
