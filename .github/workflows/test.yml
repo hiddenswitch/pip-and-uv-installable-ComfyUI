@@ -15,16 +15,16 @@ concurrency:
 jobs:
   build_and_execute_nvidia:
     environment: "Testing"
-    name: ${{ matrix.runner.friendly_name }}
-    runs-on: ${{ matrix.runner.labels }}
+    name: ${{ matrix.target.friendly_name }}
+    runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 45
     container:
-      image: ${{ matrix.runner.container }}
+      image: ${{ matrix.target.container }}
       options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
-        runner:
+        target:
           - labels: [self-hosted, linux, X64, cuda-3060-12gb]
             friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
             container: "nvcr.io/nvidia/pytorch:25.12-py3"
@@ -104,14 +104,14 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
-        if: matrix.runner.stable_abi_cuda != ''
+        if: matrix.target.stable_abi_cuda != ''
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
-          uv pip install --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
+          uv pip install --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -141,7 +141,7 @@ jobs:
         run: |
           pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
-#        if: matrix.runner.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
+#        if: matrix.target.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
@@ -154,16 +154,16 @@ jobs:
     # exposed inside the container so we can confirm what we're talking to.
     continue-on-error: true
     environment: "Testing"
-    name: ${{ matrix.runner.friendly_name }}
-    runs-on: ${{ matrix.runner.labels }}
+    name: ${{ matrix.target.friendly_name }}
+    runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 30
     container:
-      image: ${{ matrix.runner.container }}
+      image: ${{ matrix.target.container }}
       options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
-        runner:
+        target:
           - labels: [self-hosted, linux, X64, rocm-7600-8gb]
             friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
             container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
@@ -315,16 +315,16 @@ jobs:
 #          python -m pytest -v tests/inference
   build_and_execute_intel:
     environment: "Testing"
-    name: ${{ matrix.runner.friendly_name }}
-    runs-on: ${{ matrix.runner.labels }}
+    name: ${{ matrix.target.friendly_name }}
+    runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 25
     container:
-      image: ${{ matrix.runner.container }}
+      image: ${{ matrix.target.container }}
       options: --shm-size=8g
     strategy:
       fail-fast: false
       matrix:
-        runner:
+        target:
           - labels: [self-hosted, linux, X64, ipex-a380-6gb]
             friendly_name: "Python IPEX 2.8.10 XPU"
             container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
@@ -407,15 +407,15 @@ jobs:
     # image. Re-enable once the runner image is fixed.
     if: false
     environment: "Testing"
-    name: ${{ matrix.runner.friendly_name }}
-    runs-on: ${{ matrix.runner.labels }}
+    name: ${{ matrix.target.friendly_name }}
+    runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 45
     container:
-      image: ${{ matrix.runner.container }}
+      image: ${{ matrix.target.container }}
     strategy:
       fail-fast: false
       matrix:
-        runner:
+        target:
           - labels: [self-hosted, windows-cuda-3060-12gb]
             friendly_name: "Windows CUDA 12.8 PyTorch 2.10.0"
             container: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.0-ltsc2022
@@ -462,11 +462,11 @@ jobs:
         run: |
           uv pip install --python C:/venv/Scripts/python.exe -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact || true
       - name: Install stable ABI CUDA extensions
-        if: matrix.runner.stable_abi_cuda != ''
+        if: matrix.target.stable_abi_cuda != ''
         run: |
           uv pip install --python C:/venv/Scripts/python.exe triton-windows
-          uv pip install --python C:/venv/Scripts/python.exe --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
-          uv pip install --python C:/venv/Scripts/python.exe --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.runner.stable_abi_cuda }}"
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do
