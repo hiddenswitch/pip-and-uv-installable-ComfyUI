@@ -1128,6 +1128,39 @@ user asks for "something that does X", grep those aliases.
   invocation command for a template (useful when you're unsure which
   flags the template consumes).
 
+### Reading server logs
+
+When a daemon is running and you need to see what just happened — a job
+silently misbehaved, a custom node failed to register, a worker is
+stuck — use:
+
+```bash
+comfyui logs                                 # last ~1000 entries
+comfyui logs -f                              # stream (tail -f equivalent)
+comfyui logs --server http://remote:8188     # remote daemon
+```
+
+`comfyui logs` tries the live `/internal/logs/raw` HTTP endpoint first
+(an in-memory ring buffer of the last 1000 log records, populated by
+every `logger.*` call), and falls back to reading
+`~/.comfyui/comfyui.log` (only present when the server was started
+with `comfyui start --detach`). It's the right answer for both local
+and remote daemons.
+
+For programmatic access (no shelling out):
+
+| Method | Use when |
+|---|---|
+| `GET /internal/logs/raw` | Live server. JSON: `{entries: [{t, m}, ...], size: {cols, rows}}`. ~Last 1000. |
+| `GET /internal/logs` | Same buffer as a single concatenated string (timestamps + messages). |
+| `PATCH /internal/logs/subscribe` (websocket) | Real-time log stream. Body: `{clientId, enabled}`. |
+| Read `~/.comfyui/comfyui.log` | Daemonized server (started with `--detach`). Full history, not capped. |
+
+For *embedded* runs (no server, e.g. inside `comfyui run-workflow` or
+the embedded client), logs are emitted to stderr by Python's standard
+logging — capture with `logger = logging.getLogger("comfy.<pkg>")` +
+your own handler, or just read stderr.
+
 ---
 
 ## Pitfalls
