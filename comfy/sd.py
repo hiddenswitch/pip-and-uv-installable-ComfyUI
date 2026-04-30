@@ -37,6 +37,7 @@ from .ldm.mmaudio.vae.autoencoder import AudioAutoencoder
 from .ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
 from .ldm.wan import vae as wan_vae
 from .ldm.wan import vae2_2 as wan_vae2_2
+from .ldm.cogvideo.vae import AutoencoderKLCogVideoX
 from .lora import load_lora, model_lora_keys_unet, model_lora_keys_clip
 from .lora_convert import convert_lora
 from .model_management import load_models_gpu, module_size
@@ -73,6 +74,7 @@ from .text_encoders import anima
 from .text_encoders import ace15
 from .text_encoders import longcat_image
 from .text_encoders import qwen35 as qwen_35
+from .text_encoders import ernie
 
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
@@ -669,6 +671,17 @@ class VAE:
 
                 self.memory_used_encode = lambda shape, dtype: (1400 * 9 * shape[-2] * shape[-1]) * model_management.dtype_size(dtype)
                 self.memory_used_decode = lambda shape, dtype: (3600 * 4 * shape[-2] * shape[-1] * 16 * 16) * model_management.dtype_size(dtype)
+            elif "decoder.conv_in.conv.weight" in sd and "decoder.mid_block.resnets.0.norm1.norm_layer.weight" in sd:  # CogVideoX VAE
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
+                self.upscale_index_formula = (4, 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
+                self.downscale_index_formula = (4, 8, 8)
+                self.latent_dim = 3
+                self.latent_channels = sd["encoder.conv_out.conv.weight"].shape[0] // 2
+                self.first_stage_model = AutoencoderKLCogVideoX(latent_channels=self.latent_channels)
+                self.memory_used_decode = lambda shape, dtype: (2800 * max(2, ((shape[2] - 1) * 4) + 1) * shape[3] * shape[4] * (8 * 8)) * model_management.dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: (1400 * max(1, shape[2]) * shape[3] * shape[4]) * model_management.dtype_size(dtype)
+                self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
             elif "decoder.conv_in.conv.weight" in sd:
                 ddconfig = {'double_z': True, 'z_channels': 4, 'resolution': 256, 'in_channels': 3, 'out_ch': 3, 'ch': 128, 'ch_mult': [1, 2, 4, 4], 'num_res_blocks': 2, 'attn_resolutions': [], 'dropout': 0.0}
                 ddconfig["conv3d"] = True
@@ -823,6 +836,24 @@ class VAE:
                     self.downscale_index_formula = (4, 8, 8)
                     self.memory_used_encode = lambda shape, dtype: (700 * (max(1, (shape[-3] ** 0.66 * 0.11)) * shape[-2] * shape[-1]) * model_management.dtype_size(dtype))
                     self.memory_used_decode = lambda shape, dtype: (50 * (max(1, (shape[-3] ** 0.65 * 0.26)) * shape[-2] * shape[-1] * 32 * 32) * model_management.dtype_size(dtype))
+            elif "vocoder.resblocks.0.convs1.0.weight" in sd or "vocoder.vocoder.resblocks.0.convs1.0.weight" in sd: # LTX Audio
+                sd = utils.state_dict_prefix_replace(sd, {"audio_vae.": "autoencoder."})
+                self.first_stage_model = AudioVAE(metadata=metadata)
+                self.memory_used_encode = lambda shape, dtype: (shape[2] * 330) * model_management.dtype_size(dtype)
+                self.memory_used_decode = lambda shape, dtype: (shape[2] * shape[3] * 87000) * model_management.dtype_size(dtype)
+                self.latent_channels = self.first_stage_model.latent_channels
+                self.audio_sample_rate_output = self.first_stage_model.output_sample_rate
+                self.autoencoder = self.first_stage_model.autoencoder  # TODO: remove hack for ltxv custom nodes
+                self.output_channels = 2
+                self.pad_channel_value = "replicate"
+                self.upscale_ratio = 4096
+                self.downscale_ratio = 4096
+                self.latent_dim = 2
+                self.process_output = lambda audio: audio
+                self.process_input = lambda audio: audio
+                self.working_dtypes = [torch.float32]
+                self.disable_offload = True
+                self.extra_1d_channel = 16
             else:
                 logger.warning("WARNING: No VAE weights detected, VAE not initalized.")
                 self.first_stage_model = None
@@ -1317,6 +1348,7 @@ class TEModel(Enum):
     QWEN35_4B = 25
     QWEN35_9B = 26
     QWEN35_27B = 27
+    MINISTRAL_3_3B = 28
 
 
 def detect_te_model(sd):
@@ -1383,6 +1415,8 @@ def detect_te_model(sd):
                 return TEModel.MISTRAL3_24B
             else:
                 return TEModel.MISTRAL3_24B_PRUNED_FLUX2
+        if weight.shape[0] == 3072:
+            return TEModel.MINISTRAL_3_3B
 
         return TEModel.LLAMA3_8
     return None
@@ -1543,6 +1577,10 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
         elif te_model == TEModel.QWEN3_06B:
             clip_target.clip = anima.te(**llama_detect(clip_data))
             clip_target.tokenizer = anima.AnimaTokenizer
+        elif te_model == TEModel.MINISTRAL_3_3B:
+            clip_target.clip = ernie.te(**llama_detect(clip_data))
+            clip_target.tokenizer = ernie.ErnieTokenizer
+            tokenizer_data["tekken_model"] = clip_data[0].get("tekken_model", None)
         else:
             # clip_l
             if clip_type == CLIPType.SD3:

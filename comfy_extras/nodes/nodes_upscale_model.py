@@ -4,6 +4,7 @@ from typing import Optional, Any
 import torch
 from spandrel import ModelLoader, ImageModelDescriptor
 
+import comfy.model_management
 from comfy import model_management
 from comfy import utils
 from comfy.component_model.tensor_types import RGBImageBatch
@@ -144,7 +145,7 @@ class ImageUpscaleWithModel:
         upscale_model.set_input_size_from_images(image)
         load_models_gpu([upscale_model])
 
-        in_img = image.movedim(-1, -3).to(upscale_model.current_device, dtype=upscale_model.model_dtype())
+        in_img = image.movedim(-1, -3).to(upscale_model.current_device, dtype=upscale_model.model_dtype()).to(upscale_model.load_device)
 
         tile = upscale_model.tile
         overlap = 32
@@ -179,6 +180,7 @@ class ImageUpscaleWithModel:
             s = s.expand(-1, -1, -1, 3)
 
         del in_img
+        s = s.to(comfy.model_management.intermediate_device())
         return (s,)
 
 

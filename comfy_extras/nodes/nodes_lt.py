@@ -16,6 +16,9 @@ from comfy.nodes import base_nodes as nodes
 from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
+from comfy_extras.nodes.nodes_audio import TorchAudioNotFoundError
+
+
 class EmptyLTXVLatentVideo(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -39,6 +42,7 @@ class EmptyLTXVLatentVideo(io.ComfyNode):
         return io.NodeOutput({"samples": latent})
 
     generate = execute  # TODO: remove
+
 
 class LTXVImgToVideo(io.ComfyNode):
     @classmethod
@@ -235,6 +239,7 @@ class LTXVAddGuide(io.ComfyNode):
                 io.Latent.Output(display_name="latent"),
             ],
         )
+
     @classmethod
     def encode(cls, vae, latent_width, latent_height, images, scale_factors):
         time_scale_factor, width_scale_factor, height_scale_factor = scale_factors
@@ -251,7 +256,7 @@ class LTXVAddGuide(io.ComfyNode):
         latent_count = latent_length - num_keyframes
         frame_idx = frame_idx if frame_idx >= 0 else max((latent_count - 1) * time_scale_factor + 1 + frame_idx, 0)
         if guide_length > 1 and frame_idx != 0:
-            frame_idx = (frame_idx - 1)// time_scale_factor * time_scale_factor  + 1 # frame index - 1 must be divisible by 8 or frame_idx == 0
+            frame_idx = (frame_idx - 1) // time_scale_factor * time_scale_factor + 1  # frame index - 1 must be divisible by 8 or frame_idx == 0
 
         latent_idx = (frame_idx + time_scale_factor - 1) // time_scale_factor
 
@@ -381,8 +386,8 @@ class LTXVCropGuides(io.ComfyNode):
             category="conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
-                             io.Conditioning.Input("negative"),
-                             io.Latent.Input("latent"),
+                io.Conditioning.Input("negative"),
+                io.Latent.Input("latent"),
             ],
             outputs=[
                 io.Conditioning.Output(display_name="positive"),
@@ -398,7 +403,7 @@ class LTXVCropGuides(io.ComfyNode):
 
         _, num_keyframes = get_keyframe_idxs(positive)
         if num_keyframes == 0:
-            return io.NodeOutput(positive, negative, {"samples": latent_image, "noise_mask": noise_mask},)
+            return io.NodeOutput(positive, negative, {"samples": latent_image, "noise_mask": noise_mask}, )
 
         latent_image = latent_image[:, :, :-num_keyframes]
         noise_mask = noise_mask[:, :, :-num_keyframes]
@@ -494,24 +499,24 @@ class LTXVScheduler(io.ComfyNode):
             category="sampling/custom_sampling/schedulers",
             inputs=[
                 io.Int.Input("steps", default=20, min=1, max=10000),
-                io.Float.Input("max_shift", default=2.05, min=0.0, max=100.0, step= 0.01),
-                io.Float.Input("base_shift", default=0.95, min=0.0, max=100.0, step= 0.01),
+                io.Float.Input("max_shift", default=2.05, min=0.0, max=100.0, step=0.01),
+                io.Float.Input("base_shift", default=0.95, min=0.0, max=100.0, step=0.01),
                 io.Boolean.Input(
                     id="stretch",
-                         default= True,
-                         tooltip="Stretch the sigmas to be in the range [terminal, 1].",
-                     advanced=True,
+                    default=True,
+                    tooltip="Stretch the sigmas to be in the range [terminal, 1].",
+                    advanced=True,
                 ),
                 io.Float.Input(
                     id="terminal",
-                         default=0.1,
+                    default=0.1,
                     min=0.0,
                     max=0.99,
-                    step= 0.01,
-                             tooltip="The terminal value of the sigmas after stretching.",
-                         advanced=True,),
-                     io.Latent.Input("latent", optional=True),
-                     ],
+                    step=0.01,
+                    tooltip="The terminal value of the sigmas after stretching.",
+                    advanced=True, ),
+                io.Latent.Input("latent", optional=True),
+            ],
             outputs=[
                 io.Sigmas.Output(),
             ],
@@ -620,6 +625,8 @@ class LTXVPreprocess(io.ComfyNode):
 
 
 import comfy.nested_tensor
+
+
 class LTXVConcatAVLatent(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -715,7 +722,18 @@ class LTXVReferenceAudio(io.ComfyNode):
     @classmethod
     def execute(cls, model, positive, negative, reference_audio, audio_vae, identity_guidance_scale, start_percent, end_percent) -> io.NodeOutput:
         # Encode reference audio to latents and patchify
-        audio_latents = audio_vae.encode(reference_audio)
+        sample_rate = reference_audio["sample_rate"]
+        vae_sample_rate = getattr(audio_vae, "audio_sample_rate", 44100)
+        if vae_sample_rate != sample_rate:
+            try:
+                import torchaudio
+            except (ImportError, ModuleNotFoundError) as exc_info:
+                raise TorchAudioNotFoundError from exc_info
+            waveform = torchaudio.functional.resample(reference_audio["waveform"], sample_rate, vae_sample_rate)
+        else:
+            waveform = reference_audio["waveform"]
+
+        audio_latents = audio_vae.encode(waveform.movedim(1, -1))
         b, c, t, f = audio_latents.shape
         ref_tokens = audio_latents.permute(0, 2, 1, 3).reshape(b, t, c * f)
         ref_audio = {"tokens": ref_tokens}

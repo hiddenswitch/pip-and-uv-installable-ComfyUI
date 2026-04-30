@@ -8,6 +8,10 @@ import os
 import hashlib
 from comfy import node_helpers
 import logging
+
+from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
+from comfy_extras.nodes.nodes_audio_vae import AudioVAEModelManageable
+
 logger = logging.getLogger(__name__)
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, IO, UI
@@ -86,7 +90,7 @@ class VAEEncodeAudio(IO.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, vae, audio) -> IO.NodeOutput:
+    def execute(cls, vae: AudioVAE | AudioVAEModelManageable, audio) -> IO.NodeOutput:
         sample_rate = audio["sample_rate"]
         try:
             import torchaudio  # pylint: disable=import-error
@@ -113,7 +117,7 @@ def vae_decode_audio(vae, samples, tile=None, overlap=None):
     std = torch.std(audio, dim=[1, 2], keepdim=True) * 5.0
     std[std < 1.0] = 1.0
     audio /= std
-    vae_sample_rate = getattr(vae, "audio_sample_rate", 44100)
+    vae_sample_rate = getattr(vae, "audio_sample_rate_output", getattr(vae, "audio_sample_rate", 44100))
     return {"waveform": audio, "sample_rate": vae_sample_rate if "sample_rate" not in samples else samples["sample_rate"]}
 
 

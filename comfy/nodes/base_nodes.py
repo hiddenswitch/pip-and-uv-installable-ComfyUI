@@ -17,7 +17,7 @@ from PIL.PngImagePlugin import PngInfo
 from huggingface_hub import snapshot_download
 from natsort import natsorted
 
-from comfy_api.latest import io
+from comfy_api.latest import io, ComfyExtension, InputImpl
 from .. import clip_vision as clip_vision_module
 from .. import controlnet
 from .. import diffusers_load
@@ -1856,6 +1856,11 @@ class LoadImage:
 
     def load_image(self, image: str) -> ImageMaskTuple:
         image_path = folder_paths.get_annotated_filepath(image)
+
+        components = InputImpl.VideoFromFile(image_path).get_components()
+        if components.images.shape[0] > 0:
+            return (components.images, 1.0 - components.alpha[..., -1] if components.alpha is not None else torch.zeros((components.images.shape[0], 64, 64), dtype=torch.float32, device="cpu"))
+
         output_images = []
         output_masks = []
         w, h = None, None

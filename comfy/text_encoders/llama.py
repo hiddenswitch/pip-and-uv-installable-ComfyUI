@@ -68,6 +68,31 @@ class Mistral3Small24BConfig:
 
 
 @dataclass
+class Ministral3_3BConfig:
+    vocab_size: int = 131072
+    hidden_size: int = 3072
+    intermediate_size: int = 9216
+    num_hidden_layers: int = 26
+    num_attention_heads: int = 32
+    num_key_value_heads: int = 8
+    max_position_embeddings: int = 262144
+    rms_norm_eps: float = 1e-5
+    rope_theta: float = 1000000.0
+    transformer_type: str = "llama"
+    head_dim = 128
+    rms_norm_add = False
+    mlp_activation = "silu"
+    qkv_bias = False
+    rope_dims = None
+    q_norm = None
+    k_norm = None
+    rope_scale = None
+    final_norm: bool = True
+    lm_head: bool = False
+    stop_tokens = [2]
+
+
+@dataclass
 class Qwen25_3BConfig:
     vocab_size: int = 151936
     hidden_size: int = 2048
@@ -340,7 +365,9 @@ class Gemma3_4B_Config:
     lm_head: bool = False
     stop_tokens = [1, 106]
 
+
 GEMMA3_VISION_CONFIG = {"num_channels": 3, "hidden_act": "gelu_pytorch_tanh", "hidden_size": 1152, "image_size": 896, "intermediate_size": 4304, "model_type": "siglip_vision_model", "num_attention_heads": 16, "num_hidden_layers": 27, "patch_size": 14}
+
 
 @dataclass
 class Gemma3_4B_Vision_Config(Gemma3_4B_Config):
@@ -420,12 +447,13 @@ def precompute_freqs_cis(head_dim, position_ids, theta, rope_scale=None, rope_di
             cos = cos.unsqueeze(1)
             sin = sin.unsqueeze(1)
         sin_split = sin.shape[-1] // 2
-        out.append((cos, sin[..., : sin_split], -sin[..., sin_split :]))
+        out.append((cos, sin[..., : sin_split], -sin[..., sin_split:]))
 
     if len(out) == 1:
         return out[0]
 
     return out
+
 
 def apply_rope(xq, xk, freqs_cis):
     org_dtype = xq.dtype
@@ -435,13 +463,13 @@ def apply_rope(xq, xk, freqs_cis):
 
     q_embed = (xq * cos)
     q_split = q_embed.shape[-1] // 2
-    q_embed[..., : q_split].addcmul_(xq[..., q_split :], nsin)
-    q_embed[..., q_split :].addcmul_(xq[..., : q_split], sin)
+    q_embed[..., : q_split].addcmul_(xq[..., q_split:], nsin)
+    q_embed[..., q_split:].addcmul_(xq[..., : q_split], sin)
 
     k_embed = (xk * cos)
     k_split = k_embed.shape[-1] // 2
-    k_embed[..., : k_split].addcmul_(xk[..., k_split :], nsin)
-    k_embed[..., k_split :].addcmul_(xk[..., : k_split], sin)
+    k_embed[..., : k_split].addcmul_(xk[..., k_split:], nsin)
+    k_embed[..., k_split:].addcmul_(xk[..., : k_split], sin)
 
     return q_embed.to(org_dtype), k_embed.to(org_dtype)
 
@@ -477,7 +505,7 @@ class Attention(nn.Module):
             freqs_cis: Optional[torch.Tensor] = None,
             optimized_attention=None,
             past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        sliding_window: Optional[int] = None,
+            sliding_window: Optional[int] = None,
     ):
         batch_size, seq_length, _ = hidden_states.shape
 
@@ -823,6 +851,7 @@ class BaseLlama:
     def forward(self, input_ids, *args, **kwargs):
         return self.model(input_ids, *args, **kwargs)
 
+
 class BaseGenerate:
     model: torch.nn.Module
 
@@ -901,7 +930,7 @@ class BaseGenerate:
         if repetition_penalty != 1.0:
             for i in range(logits.shape[0]):
                 for token_id in set(token_history):
-                    logits[i, token_id] *= repetition_penalty if logits[i, token_id] < 0 else 1/repetition_penalty
+                    logits[i, token_id] *= repetition_penalty if logits[i, token_id] < 0 else 1 / repetition_penalty
 
         if presence_penalty is not None and presence_penalty != 0.0:
             for i in range(logits.shape[0]):
@@ -934,6 +963,7 @@ class BaseGenerate:
         probs = torch.nn.functional.softmax(logits, dim=-1)
 
         return torch.multinomial(probs, num_samples=1, generator=generator)
+
 
 class BaseQwen3:
     model: Any  # Provided by mixed-in class
@@ -971,6 +1001,16 @@ class Mistral3Small24B(BaseLlama, torch.nn.Module):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Mistral3Small24BConfig(**config_dict)
+        self.num_layers = config.num_hidden_layers
+
+        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
+        self.dtype = dtype
+
+
+class Ministral3_3B(BaseLlama, BaseQwen3, BaseGenerate, torch.nn.Module):
+    def __init__(self, config_dict, dtype, device, operations):
+        super().__init__()
+        config = Ministral3_3BConfig(**config_dict)
         self.num_layers = config.num_hidden_layers
 
         self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
@@ -1068,7 +1108,7 @@ class Qwen25_7BVLI(BaseLlama, BaseGenerate, torch.nn.Module):
         self.dtype = dtype
 
         # todo: should this be tied or not?
-        #self.lm_head = operations.Linear(config.hidden_size, config.vocab_size, bias=False, device=device, dtype=dtype)
+        # self.lm_head = operations.Linear(config.hidden_size, config.vocab_size, bias=False, device=device, dtype=dtype)
 
     def preprocess_embed(self, embed, device):
         if embed["type"] == "image":
@@ -1148,6 +1188,7 @@ class Gemma3_4B_Vision(BaseLlama, BaseGenerate, torch.nn.Module):
             image = clip_preprocess(embed["data"], size=self.image_size, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], crop=True)
             return self.multi_modal_projector(self.vision_model(image.to(device, dtype=torch.float32))[0]), None
         return None, None
+
 
 class Gemma3_12B(BaseLlama, BaseGenerate, torch.nn.Module):
     def __init__(self, config_dict, dtype, device, operations):

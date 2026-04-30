@@ -7,26 +7,26 @@ import heapq
 import inspect
 import json
 import logging
+import sys
 import threading
+import time
 import traceback
 import typing
-import comfy_aimdo
 from contextlib import nullcontext
 from enum import Enum
 from os import PathLike
 from typing import List, Optional, Literal
 
-import sys
-import time
+import comfy_aimdo
 import torch
 from opentelemetry.trace import get_current_span, StatusCode, Status
 from typing_extensions import NotRequired, TypedDict, NamedTuple
-from .. import memory_management
 
 from comfy_api.internal import _ComfyNodeInternal, _NodeOutputInternal, first_real_override, is_class, \
     make_locked_method_func
 from comfy_api.latest import io, _io
 from comfy_compatibility.vanilla import vanilla_environment_node_execution_hooks
+from comfy_execution.cache_provider import _has_cache_providers, _get_cache_providers, _logger as _cache_logger
 from comfy_execution.caching import (
     BasicCache,
     CacheKeySetID,
@@ -49,6 +49,7 @@ from comfy_execution.progress import get_progress_state, reset_progress_state, a
 from comfy_execution.utils import CurrentNodeContext
 from comfy_execution.validation import validate_node_input
 from .. import interruption
+from .. import memory_management
 from .. import model_management
 from ..cli_args_types import LatentPreviewMethod
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue
@@ -57,8 +58,8 @@ from ..component_model.executor_types import ExecutorToClientProgress, Validatio
     RecursiveExecutionErrorDetails, RecursiveExecutionErrorDetailsInterrupted, ExecutionResult, HistoryResultDict, \
     ExecutionErrorMessage, ExecutionInterruptedMessage, ComboOptions
 from ..component_model.files import canonicalize_path
-from ..component_model.node_traceback import format_node_exception, filter_traceback, suppress_error_stack_trace
 from ..component_model.module_property import create_module_properties
+from ..component_model.node_traceback import format_node_exception, filter_traceback, suppress_error_stack_trace
 from ..component_model.queue_types import QueueTuple, HistoryEntry, QueueItem, MAXIMUM_HISTORY_SIZE, ExecutionStatus, \
     ExecutionStatusAsDict, AbstractPromptQueueGetCurrentQueueItems
 from ..execution_context import context_execute_node, context_execute_prompt
@@ -67,9 +68,6 @@ from ..execution_ext import should_panic_on_exception
 from ..node_requests_caching import use_requests_caching
 from ..nodes.package_typing import InputTypeSpec, FloatSpecOptions, IntSpecOptions, CustomNode
 from ..nodes_context import get_nodes
-from comfy_api.internal import _ComfyNodeInternal, _NodeOutputInternal, first_real_override, is_class, make_locked_method_func
-from comfy_api.latest import io, _io
-from comfy_execution.cache_provider import _has_cache_providers, _get_cache_providers, _logger as _cache_logger
 
 _module_properties = create_module_properties()
 logger = logging.getLogger(__name__)
@@ -499,13 +497,15 @@ def _is_intermediate_output(dynprompt, node_id):
     class_def = get_nodes().NODE_CLASS_MAPPINGS[class_type]
     return getattr(class_def, 'HAS_INTERMEDIATE_OUTPUT', False)
 
+
 def _send_cached_ui(server, node_id, display_node_id, cached, prompt_id, ui_outputs):
     if server.client_id is None:
         return
     cached_ui = cached.ui or {}
-    server.send_sync("executed", { "node": node_id, "display_node": display_node_id, "output": cached_ui.get("output", None), "prompt_id": prompt_id }, server.client_id)
+    server.send_sync("executed", {"node": node_id, "display_node": display_node_id, "output": cached_ui.get("output", None), "prompt_id": prompt_id}, server.client_id)
     if cached.ui is not None:
         ui_outputs[node_id] = cached.ui
+
 
 async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, caches, node_id: str, extra_data: dict, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs) -> RecursiveExecutionTuple:
     """
@@ -946,7 +946,7 @@ class PromptExecutor:
 
                     if self.cache_type == CacheType.RAM_PRESSURE:
                         model_management.free_memory(0, None, pins_required=ram_headroom, ram_required=ram_headroom)
-                        memory_management.extra_ram_release(ram_headroom)
+                        ram_release_callback(ram_headroom, free_active=True)
                 else:
                     # Only execute when the while-loop ends without break
                     # Send cached UI for intermediate output nodes that weren't executed
@@ -987,11 +987,27 @@ def iterate_obj_classes(prompt: dict[str, typing.Any]) -> typing.Generator[typin
         yield get_nodes().NODE_CLASS_MAPPINGS[node['class_type']]
 
 
-async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing.Dict[str, ValidateInputsTuple]) -> ValidateInputsTuple:
+async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing.Dict[str, ValidateInputsTuple], visiting: Optional[list[str]] = None) -> ValidateInputsTuple:
     # todo: this should check if LoadImage / LoadImageMask paths exist
     # todo: or, nodes should provide a way to validate their values
     unique_id = item
     if unique_id in validated:
+        return validated[unique_id]
+
+    if unique_id in visiting:
+        cycle_path_nodes = visiting[visiting.index(unique_id):] + [unique_id]
+        cycle_nodes = list(dict.fromkeys(cycle_path_nodes))
+        cycle_path = " -> ".join(f"{node_id} ({prompt[node_id]['class_type']})" for node_id in cycle_path_nodes)
+        for node_id in cycle_nodes:
+            validated[node_id] = ValidateInputsTuple(False, [{
+                "type": "dependency_cycle",
+                "message": "Dependency cycle detected",
+                "details": cycle_path,
+                "extra_info": {
+                    "node_id": node_id,
+                    "cycle_nodes": cycle_nodes,
+                }
+            }], node_id)
         return validated[unique_id]
 
     inputs = prompt[unique_id]['inputs']
@@ -1092,9 +1108,13 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                 errors.append(error)
                 continue
             try:
-                r2 = await validate_inputs(prompt_id, prompt, o_id, validated)
+                visiting.append(unique_id)
+                try:
+                    r2 = await validate_inputs(prompt_id, prompt, o_id, validated, visiting)
+                finally:
+                    visiting.pop()
                 if r2[0] is False:
-                    # `r` will be set in `validated[o_id]` already
+                    # `r2` will be set in `validated[o_id]` already
                     valid = False
                     continue
             except Exception as ex:
@@ -1271,10 +1291,13 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                     errors.append(error)
                     continue
 
-    if len(errors) > 0 or valid is not True:
-        ret = ValidateInputsTuple(False, errors, unique_id)
-    else:
-        ret = ValidateInputsTuple(True, [], unique_id)
+    ret = validated.get(unique_id, (True, [], unique_id))
+    # Recursive cycle detection may have already populated an error on us. Join it.
+    ret = ValidateInputsTuple(
+        ret[0] and valid is True and not errors,
+        ret[1] + [error for error in errors if error not in ret[1]],
+        unique_id,
+    )
 
     validated[unique_id] = ret
     return ret

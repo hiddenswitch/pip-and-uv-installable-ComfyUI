@@ -18,9 +18,10 @@
 
 import logging
 import math
-import torch
 from enum import Enum
 from typing import TypeVar, Type, Protocol, Any, Optional
+
+import torch
 
 from . import conds
 from . import latent_formats
@@ -28,7 +29,9 @@ from . import model_management
 from . import ops
 from . import utils
 from .conds import CONDRegular, CONDConstant
+from .context_windows import slice_cond
 from .ldm.ace import ace_step15
+from .ldm.ace.ace_step15 import AceStepConditionGenerationModel
 from .ldm.ace.model import ACEStepTransformer2DModel
 from .ldm.anima.model import Anima as AnimaModel
 from .ldm.audio.dit import AudioDiffusionTransformer
@@ -37,8 +40,10 @@ from .ldm.aura.mmdit import MMDiT as AuraMMDiT
 from .ldm.cascade.stage_b import StageB
 from .ldm.cascade.stage_c import StageC
 from .ldm.chroma import model as chroma_model
+from .ldm.chroma_radiance import model as chroma_radiance
 from .ldm.cosmos.model import GeneralDIT
 from .ldm.cosmos.predict2 import MiniTrainDIT
+from .ldm.ernie.model import ErnieImageModel
 from .ldm.flux import model as flux_model
 from .ldm.genmo.joint_model.asymm_models_joint import AsymmDiTJoint
 from .ldm.hidream.model import HiDreamImageTransformer2DModel
@@ -46,31 +51,29 @@ from .ldm.hunyuan3d.model import Hunyuan3Dv2 as Hunyuan3Dv2Model
 from .ldm.hunyuan3dv2_1.hunyuandit import HunYuanDiTPlain
 from .ldm.hunyuan_video.model import HunyuanVideo as HunyuanVideoModel
 from .ldm.hydit.models import HunYuanDiT
+from .ldm.kandinsky5 import model as kadinsky5_model
 from .ldm.lightricks.av_model import LTXAVModel
 from .ldm.lightricks.model import LTXVModel
 from .ldm.lumina.model import NextDiT
+from .ldm.lumina.model import NextDiTPixelSpace
 from .ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
 from .ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
 from .ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
 from .ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
-from .ldm.chroma_radiance import model as chroma_radiance
 from .ldm.omnigen.omnigen2 import OmniGen2Transformer2DModel
 from .ldm.pixart.pixartms import PixArtMS
-from .ldm.kandinsky5 import model as kadinsky5_model
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
+from .ldm.rt_detr.rtdetr_v4 import RTv4
+from .ldm.sam3.detector import SAM3Model
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
 from .ldm.wan.model_animate import AnimateWanModel
-from .ldm.rt_detr.rtdetr_v4 import RTv4
+from .ldm.cogvideo.model import CogVideoXTransformer3DModel
 from .model_management_types import ModelManageable
-from .ldm.ace import ace_step15
-from .ldm.ace.ace_step15 import AceStepConditionGenerationModel
-from .model_sampling import CONST, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG
+from .model_sampling import CONST, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG, IMG_TO_IMG_FLOW, V_PREDICTION_DDPM
 from .model_sampling import StableCascadeSampling, COSMOS_RFLOW, ModelSamplingCosmosRFlow, V_PREDICTION, \
     ModelSamplingContinuousEDM, ModelSamplingDiscrete, EPS, EDM, ModelSamplingContinuousV
 from .ops import Operations
 from .patcher_extension import WrapperExecutor, WrappersMP, get_all_wrappers
-from .ldm.lumina.model import NextDiTPixelSpace
-from .context_windows import slice_cond
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,7 @@ class ModelType(Enum):
     IMG_TO_IMG = 9
     FLOW_COSMOS = 10
     IMG_TO_IMG_FLOW = 11
+    V_PREDICTION_DDPM = 12
 
 
 def model_sampling(model_config, model_type):
@@ -121,7 +125,9 @@ def model_sampling(model_config, model_type):
         c = COSMOS_RFLOW
         s = ModelSamplingCosmosRFlow
     elif model_type == ModelType.IMG_TO_IMG_FLOW:
-        c = model_sampling.IMG_TO_IMG_FLOW  # pylint: disable=no-member
+        c = IMG_TO_IMG_FLOW
+    elif model_type == ModelType.V_PREDICTION_DDPM:
+        c = V_PREDICTION_DDPM
 
     class ModelSampling(s, c):
         pass
@@ -622,8 +628,8 @@ class Stable_Zero123(BaseModel):
     def __init__(self, model_config, model_type=ModelType.EPS, device=None, cc_projection_weight=None, cc_projection_bias=None):
         super().__init__(model_config, model_type, device=device)
         self.cc_projection = ops.manual_cast.Linear(cc_projection_weight.shape[1], cc_projection_weight.shape[0], dtype=self.get_dtype(), device=device)
-        self.cc_projection.weight.copy_(cc_projection_weight)
-        self.cc_projection.bias.copy_(cc_projection_bias)
+        self.cc_projection.weight = torch.nn.Parameter(cc_projection_weight.clone())
+        self.cc_projection.bias = torch.nn.Parameter(cc_projection_bias.clone())
 
     def extra_conds(self, **kwargs):
         out = {}
@@ -2049,3 +2055,74 @@ class Kandinsky5Image(Kandinsky5):
 class RT_DETR_v4(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=RTv4)
+
+class ErnieImage(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=ErnieImageModel)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        return out
+
+class SAM3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=SAM3Model)
+
+class CogVideoX(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.V_PREDICTION_DDPM, image_to_video=False, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=CogVideoXTransformer3DModel)
+        self.image_to_video = image_to_video
+
+    def concat_cond(self, **kwargs):
+        noise = kwargs.get("noise", None)
+        # Detect extra channels needed (e.g. 32 - 16 = 16 for ref latent)
+        extra_channels = self.diffusion_model.in_channels - noise.shape[1]
+        if extra_channels == 0:
+            return None
+
+        image = kwargs.get("concat_latent_image", None)
+        device = kwargs["device"]
+
+        if image is None:
+            shape = list(noise.shape)
+            shape[1] = extra_channels
+            return torch.zeros(shape, dtype=noise.dtype, layout=noise.layout, device=noise.device)
+
+        latent_dim = self.latent_format.latent_channels
+        image = utils.common_upscale(image.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
+
+        if noise.ndim == 5 and image.ndim == 5:
+            if image.shape[-3] < noise.shape[-3]:
+                image = torch.nn.functional.pad(image, (0, 0, 0, 0, 0, noise.shape[-3] - image.shape[-3]), "constant", 0)
+            elif image.shape[-3] > noise.shape[-3]:
+                image = image[:, :, :noise.shape[-3]]
+
+        for i in range(0, image.shape[1], latent_dim):
+            image[:, i:i + latent_dim] = self.process_latent_in(image[:, i:i + latent_dim])
+        image = utils.resize_to_batch_size(image, noise.shape[0])
+
+        if image.shape[1] > extra_channels:
+            image = image[:, :extra_channels]
+        elif image.shape[1] < extra_channels:
+            repeats = extra_channels // image.shape[1]
+            remainder = extra_channels % image.shape[1]
+            parts = [image] * repeats
+            if remainder > 0:
+                parts.append(image[:, :remainder])
+            image = torch.cat(parts, dim=1)
+
+        return image
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        # OFS embedding (CogVideoX 1.5 I2V), default 2.0 as used by SparkVSR
+        if self.diffusion_model.ofs_proj_dim is not None:
+            ofs = kwargs.get("ofs", None)
+            if ofs is None:
+                noise = kwargs.get("noise", None)
+                ofs = torch.full((noise.shape[0],), 2.0, device=noise.device, dtype=noise.dtype)
+            out['ofs'] = comfy.conds.CONDRegular(ofs)
+        return out

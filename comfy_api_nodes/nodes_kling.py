@@ -278,6 +278,7 @@ async def finish_omni_video_task(cls: type[IO.ComfyNode], response: TaskStatusRe
         cls,
         ApiEndpoint(path=f"/proxy/kling/v1/videos/omni-video/{response.data.task_id}"),
         response_model=TaskStatusResponse,
+        max_poll_attempts=280,
         status_extractor=lambda r: (r.data.task_status if r.data else None),
     )
     return IO.NodeOutput(await download_url_to_video_output(final_response.data.task_result.videos[0].url))
@@ -864,7 +865,7 @@ class OmniProTextToVideoNode(IO.ComfyNode):
                 ),
                 IO.Combo.Input("aspect_ratio", options=["16:9", "9:16", "1:1"]),
                 IO.Int.Input("duration", default=5, min=3, max=15, display_mode=IO.NumberDisplay.slider),
-                IO.Combo.Input("resolution", options=["1080p", "720p"], optional=True),
+                IO.Combo.Input("resolution", options=["4k", "1080p", "720p"], default="1080p", optional=True),
                 IO.DynamicCombo.Input(
                     "storyboards",
                     options=[
@@ -906,12 +907,13 @@ class OmniProTextToVideoNode(IO.ComfyNode):
                 depends_on=IO.PriceBadgeDepends(widgets=["duration", "resolution", "model_name", "generate_audio"]),
                 expr="""
                 (
-                  $mode := (widgets.resolution = "720p") ? "std" : "pro";
+                  $res := widgets.resolution;
+                  $mode := $res = "4k" ? "4k" : ($res = "720p" ? "std" : "pro");
                   $isV3 := $contains(widgets.model_name, "v3");
                   $audio := $isV3 and widgets.generate_audio;
                   $rates := $audio
-                    ? {"std": 0.112, "pro": 0.14}
-                    : {"std": 0.084, "pro": 0.112};
+                    ? {"std": 0.112, "pro": 0.14, "4k": 0.42}
+                    : {"std": 0.084, "pro": 0.112, "4k": 0.42};
                   {"type":"usd","usd": $lookup($rates, $mode) * widgets.duration}
                 )
                 """,
@@ -936,6 +938,8 @@ class OmniProTextToVideoNode(IO.ComfyNode):
                 raise ValueError("kling-video-o1 only supports durations of 5 or 10 seconds.")
             if generate_audio:
                 raise ValueError("kling-video-o1 does not support audio generation.")
+            if resolution == "4k":
+                raise ValueError("kling-video-o1 does not support 4k resolution.")
         stories_enabled = storyboards is not None and storyboards["storyboards"] != "disabled"
         if stories_enabled and model_name == "kling-video-o1":
             raise ValueError("kling-video-o1 does not support storyboards.")
@@ -965,6 +969,12 @@ class OmniProTextToVideoNode(IO.ComfyNode):
                     f"must equal the global duration ({duration}s)."
                 )
 
+        if resolution == "4k":
+            mode = "4k"
+        elif resolution == "1080p":
+            mode = "pro"
+        else:
+            mode = "std"
         response = await sync_op(
             cls,
             ApiEndpoint(path="/proxy/kling/v1/videos/omni-video", method="POST"),
@@ -974,7 +984,7 @@ class OmniProTextToVideoNode(IO.ComfyNode):
                 prompt=prompt,
                 aspect_ratio=aspect_ratio,
                 duration=str(duration),
-                mode="pro" if resolution == "1080p" else "std",
+                mode=mode,
                 multi_shot=multi_shot,
                 multi_prompt=multi_prompt_list,
                 shot_type="customize" if multi_shot else None,
@@ -1016,7 +1026,7 @@ class OmniProFirstLastFrameNode(IO.ComfyNode):
                     optional=True,
                     tooltip="Up to 6 additional reference images.",
                 ),
-                IO.Combo.Input("resolution", options=["1080p", "720p"], optional=True),
+                IO.Combo.Input("resolution", options=["4k", "1080p", "720p"], default="1080p", optional=True),
                 IO.DynamicCombo.Input(
                     "storyboards",
                     options=[
@@ -1063,12 +1073,13 @@ class OmniProFirstLastFrameNode(IO.ComfyNode):
                 depends_on=IO.PriceBadgeDepends(widgets=["duration", "resolution", "model_name", "generate_audio"]),
                 expr="""
                 (
-                  $mode := (widgets.resolution = "720p") ? "std" : "pro";
+                  $res := widgets.resolution;
+                  $mode := $res = "4k" ? "4k" : ($res = "720p" ? "std" : "pro");
                   $isV3 := $contains(widgets.model_name, "v3");
                   $audio := $isV3 and widgets.generate_audio;
                   $rates := $audio
-                    ? {"std": 0.112, "pro": 0.14}
-                    : {"std": 0.084, "pro": 0.112};
+                    ? {"std": 0.112, "pro": 0.14, "4k": 0.42}
+                    : {"std": 0.084, "pro": 0.112, "4k": 0.42};
                   {"type":"usd","usd": $lookup($rates, $mode) * widgets.duration}
                 )
                 """,
@@ -1095,6 +1106,8 @@ class OmniProFirstLastFrameNode(IO.ComfyNode):
                 raise ValueError("kling-video-o1 does not support durations greater than 10 seconds.")
             if generate_audio:
                 raise ValueError("kling-video-o1 does not support audio generation.")
+            if resolution == "4k":
+                raise ValueError("kling-video-o1 does not support 4k resolution.")
         stories_enabled = storyboards is not None and storyboards["storyboards"] != "disabled"
         if stories_enabled and model_name == "kling-video-o1":
             raise ValueError("kling-video-o1 does not support storyboards.")
@@ -1163,6 +1176,12 @@ class OmniProFirstLastFrameNode(IO.ComfyNode):
                 validate_image_aspect_ratio(i, (1, 2.5), (2.5, 1))
             for i in await upload_images_to_comfyapi(cls, reference_images, wait_label="Uploading reference frame(s)"):
                 image_list.append(OmniParamImage(image_url=i))
+        if resolution == "4k":
+            mode = "4k"
+        elif resolution == "1080p":
+            mode = "pro"
+        else:
+            mode = "std"
         response = await sync_op(
             cls,
             ApiEndpoint(path="/proxy/kling/v1/videos/omni-video", method="POST"),
@@ -1172,7 +1191,7 @@ class OmniProFirstLastFrameNode(IO.ComfyNode):
                 prompt=prompt,
                 duration=str(duration),
                 image_list=image_list,
-                mode="pro" if resolution == "1080p" else "std",
+                mode=mode,
                 sound="on" if generate_audio else "off",
                 multi_shot=multi_shot,
                 multi_prompt=multi_prompt_list,
@@ -1206,7 +1225,7 @@ class OmniProImageToVideoNode(IO.ComfyNode):
                     "reference_images",
                     tooltip="Up to 7 reference images.",
                 ),
-                IO.Combo.Input("resolution", options=["1080p", "720p"], optional=True),
+                IO.Combo.Input("resolution", options=["4k", "1080p", "720p"], default="1080p", optional=True),
                 IO.DynamicCombo.Input(
                     "storyboards",
                     options=[
@@ -1253,12 +1272,13 @@ class OmniProImageToVideoNode(IO.ComfyNode):
                 depends_on=IO.PriceBadgeDepends(widgets=["duration", "resolution", "model_name", "generate_audio"]),
                 expr="""
                 (
-                  $mode := (widgets.resolution = "720p") ? "std" : "pro";
+                  $res := widgets.resolution;
+                  $mode := $res = "4k" ? "4k" : ($res = "720p" ? "std" : "pro");
                   $isV3 := $contains(widgets.model_name, "v3");
                   $audio := $isV3 and widgets.generate_audio;
                   $rates := $audio
-                    ? {"std": 0.112, "pro": 0.14}
-                    : {"std": 0.084, "pro": 0.112};
+                    ? {"std": 0.112, "pro": 0.14, "4k": 0.42}
+                    : {"std": 0.084, "pro": 0.112, "4k": 0.42};
                   {"type":"usd","usd": $lookup($rates, $mode) * widgets.duration}
                 )
                 """,
@@ -1284,6 +1304,8 @@ class OmniProImageToVideoNode(IO.ComfyNode):
                 raise ValueError("kling-video-o1 does not support durations greater than 10 seconds.")
             if generate_audio:
                 raise ValueError("kling-video-o1 does not support audio generation.")
+            if resolution == "4k":
+                raise ValueError("kling-video-o1 does not support 4k resolution.")
         stories_enabled = storyboards is not None and storyboards["storyboards"] != "disabled"
         if stories_enabled and model_name == "kling-video-o1":
             raise ValueError("kling-video-o1 does not support storyboards.")
@@ -1322,6 +1344,12 @@ class OmniProImageToVideoNode(IO.ComfyNode):
         image_list: list[OmniParamImage] = []
         for i in await upload_images_to_comfyapi(cls, reference_images, wait_label="Uploading reference image"):
             image_list.append(OmniParamImage(image_url=i))
+        if resolution == "4k":
+            mode = "4k"
+        elif resolution == "1080p":
+            mode = "pro"
+        else:
+            mode = "std"
         response = await sync_op(
             cls,
             ApiEndpoint(path="/proxy/kling/v1/videos/omni-video", method="POST"),
@@ -1332,7 +1360,7 @@ class OmniProImageToVideoNode(IO.ComfyNode):
                 aspect_ratio=aspect_ratio,
                 duration=str(duration),
                 image_list=image_list,
-                mode="pro" if resolution == "1080p" else "std",
+                mode=mode,
                 sound="on" if generate_audio else "off",
                 multi_shot=multi_shot,
                 multi_prompt=multi_prompt_list,
@@ -2862,7 +2890,7 @@ class KlingVideoNode(IO.ComfyNode):
                         IO.DynamicCombo.Option(
                             "kling-v3",
                             [
-                                IO.Combo.Input("resolution", options=["1080p", "720p"]),
+                                IO.Combo.Input("resolution", options=["4k", "1080p", "720p"], default="1080p"),
                                 IO.Combo.Input(
                                     "aspect_ratio",
                                     options=["16:9", "9:16", "1:1"],
@@ -2915,7 +2943,11 @@ class KlingVideoNode(IO.ComfyNode):
                 ),
                 expr="""
                 (
-                  $rates := {"1080p": {"off": 0.112, "on": 0.168}, "720p": {"off": 0.084, "on": 0.126}};
+                  $rates := {
+                    "4k": {"off": 0.42, "on": 0.42},
+                    "1080p": {"off": 0.112, "on": 0.168},
+                    "720p": {"off": 0.084, "on": 0.126}
+                  };
                   $res := $lookup(widgets, "model.resolution");
                   $audio := widgets.generate_audio ? "on" : "off";
                   $rate := $lookup($lookup($rates, $res), $audio);
@@ -2945,7 +2977,12 @@ class KlingVideoNode(IO.ComfyNode):
         start_frame: Input.Image | None = None,
     ) -> IO.NodeOutput:
         _ = seed
-        mode = "pro" if model["resolution"] == "1080p" else "std"
+        if model["resolution"] == "4k":
+            mode = "4k"
+        elif model["resolution"] == "1080p":
+            mode = "pro"
+        else:
+            mode = "std"
         custom_multi_shot = False
         if multi_shot["multi_shot"] == "disabled":
             shot_type = None
@@ -3027,6 +3064,7 @@ class KlingVideoNode(IO.ComfyNode):
             cls,
             ApiEndpoint(path=poll_path),
             response_model=TaskStatusResponse,
+            max_poll_attempts=280,
             status_extractor=lambda r: (r.data.task_status if r.data else None),
         )
         return IO.NodeOutput(await download_url_to_video_output(final_response.data.task_result.videos[0].url))
@@ -3059,7 +3097,7 @@ class KlingFirstLastFrameNode(IO.ComfyNode):
                         IO.DynamicCombo.Option(
                             "kling-v3",
                             [
-                                IO.Combo.Input("resolution", options=["1080p", "720p"]),
+                                IO.Combo.Input("resolution", options=["4k", "1080p", "720p"], default="1080p"),
                             ],
                         ),
                     ],
@@ -3091,7 +3129,11 @@ class KlingFirstLastFrameNode(IO.ComfyNode):
                 ),
                 expr="""
                 (
-                  $rates := {"1080p": {"off": 0.112, "on": 0.168}, "720p": {"off": 0.084, "on": 0.126}};
+                  $rates := {
+                    "4k": {"off": 0.42, "on": 0.42},
+                    "1080p": {"off": 0.112, "on": 0.168},
+                    "720p": {"off": 0.084, "on": 0.126}
+                  };
                   $res := $lookup(widgets, "model.resolution");
                   $audio := widgets.generate_audio ? "on" : "off";
                   $rate := $lookup($lookup($rates, $res), $audio);
@@ -3120,6 +3162,12 @@ class KlingFirstLastFrameNode(IO.ComfyNode):
         validate_image_aspect_ratio(end_frame, (1, 2.5), (2.5, 1))
         image_url = await upload_image_to_comfyapi(cls, first_frame, wait_label="Uploading first frame")
         image_tail_url = await upload_image_to_comfyapi(cls, end_frame, wait_label="Uploading end frame")
+        if model["resolution"] == "4k":
+            mode = "4k"
+        elif model["resolution"] == "1080p":
+            mode = "pro"
+        else:
+            mode = "std"
         response = await sync_op(
             cls,
             ApiEndpoint(path="/proxy/kling/v1/videos/image2video", method="POST"),
@@ -3129,7 +3177,7 @@ class KlingFirstLastFrameNode(IO.ComfyNode):
                 image=image_url,
                 image_tail=image_tail_url,
                 prompt=prompt,
-                mode="pro" if model["resolution"] == "1080p" else "std",
+                mode=mode,
                 duration=str(duration),
                 sound="on" if generate_audio else "off",
             ),
@@ -3142,6 +3190,7 @@ class KlingFirstLastFrameNode(IO.ComfyNode):
             cls,
             ApiEndpoint(path=f"/proxy/kling/v1/videos/image2video/{response.data.task_id}"),
             response_model=TaskStatusResponse,
+            max_poll_attempts=280,
             status_extractor=lambda r: (r.data.task_status if r.data else None),
         )
         return IO.NodeOutput(await download_url_to_video_output(final_response.data.task_result.videos[0].url))

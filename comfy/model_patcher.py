@@ -47,6 +47,7 @@ from .model_management import lora_compute_dtype
 from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem, TrainingSupport, HooksSupport, sort_loading_list_in_place
 from .patcher_extension import CallbacksMP, WrappersMP, PatcherInjection
 from .quant_ops import QuantizedTensor
+from . import ops
 
 logger = logging.getLogger(__name__)
 
@@ -580,6 +581,10 @@ class ModelPatcher(ModelManageable, PatchSupport):
     def set_model_noise_refiner_patch(self, patch):
         self.set_model_patch(patch, "noise_refiner")
 
+    def set_model_middle_block_after_patch(self, patch):
+        self.set_model_patch(patch, "middle_block_after_patch")
+
+
     def set_model_rope_options(self, scale_x, shift_x, scale_y, shift_y, scale_t, shift_t, **kwargs):
         rope_options = self.model_options["transformer_options"].get("rope_options", {})
         rope_options["scale_x"] = scale_x
@@ -772,9 +777,9 @@ class ModelPatcher(ModelManageable, PatchSupport):
                         sd.pop(k)
             return sd
 
-    def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False):
+    def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False, force_cast=False):
         weight, set_func, convert_func = get_key_weight(self.model, key)
-        if key not in self.patches:
+        if key not in self.patches and not force_cast:
             return weight
 
         inplace_update = self.weight_inplace_update or inplace_update
@@ -792,7 +797,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         if key not in self.backup and not return_weight:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
-        temp_dtype = lora_compute_dtype(device_to)
+        temp_dtype = lora_compute_dtype(device_to) if key in self.patches else None
         if device_to is not None:
             temp_weight = model_management.cast_to_device(weight, device_to, temp_dtype, copy=True)
         else:
@@ -800,9 +805,10 @@ class ModelPatcher(ModelManageable, PatchSupport):
         if convert_func is not None:
             temp_weight = convert_func(temp_weight, inplace=True)
 
-        out_weight = lora.calculate_weight(self.patches[key], temp_weight, key)
+        out_weight = lora.calculate_weight(self.patches[key], temp_weight, key) if key in self.patches else temp_weight
         if set_func is None:
-            out_weight = stochastic_rounding(out_weight, weight.dtype, seed=utils.string_to_seed(key))
+            if key in self.patches:
+                out_weight = stochastic_rounding(out_weight, weight.dtype, seed=utils.string_to_seed(key))
             if return_weight:
                 return out_weight
             elif inplace_update:
@@ -973,7 +979,9 @@ class ModelPatcher(ModelManageable, PatchSupport):
                     if m.comfy_patched_weights == True:
                         continue
 
-                for param in params:
+                for param, param_value in params.items():
+                    if hasattr(m, "comfy_cast_weights") and getattr(param_value, "is_meta", False):
+                        ops.disable_weight_init._zero_init_parameter(m, param)
                     key = key_param_name_to_key(n, param)
                     self.unpin_weight(key)
                     self.patch_weight_to_device(key, device_to=device_to)
@@ -1758,7 +1766,7 @@ class ModelPatcherDynamic(ModelPatcher):
                     key = key_param_name_to_key(n, param_key)
                     if key in self.backup:
                         utils.set_attr_param(self.model, key, self.backup[key].weight)
-                    self.patch_weight_to_device(key, device_to=device_to)
+                    self.patch_weight_to_device(key, device_to=device_to, force_cast=True)
                     weight, _, _ = get_key_weight(self.model, key)
                     if weight is not None:
                         self.model.model_loaded_weight_memory += weight.numel() * weight.element_size()
@@ -1782,6 +1790,10 @@ class ModelPatcherDynamic(ModelPatcher):
                         if vbar is not None and not hasattr(m, "_v"):
                             m._v = vbar.alloc(v_weight_size)
                         allocated_size += v_weight_size
+
+                    for param in params:
+                        if param not in ("weight", "bias"):
+                            force_load_param(self, param, device_to)
 
                 else:
                     for param in params:
