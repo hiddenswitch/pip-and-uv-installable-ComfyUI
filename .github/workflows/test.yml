@@ -190,7 +190,14 @@ jobs:
 
           echo "== exposed DRM card =="
           EXPOSED_PCI_ID=""
+          # /sys/class/drm/card* globs both top-level cards (card0, card1)
+          # AND their connector subdirs (card1-DP-1, card1-HDMI-A-1), which
+          # are not GPUs and have no vendor/device files. Filter to the
+          # top-level cards only with a regex so we don't end up reading
+          # blank vendor IDs from a connector entry on the last iteration.
           for card in /sys/class/drm/card*; do
+            base=$(basename "$card")
+            [[ "$base" =~ ^card[0-9]+$ ]] || continue
             [ -d "$card/device" ] || continue
             v=$(tr -d '\n' < "$card/device/vendor" 2>/dev/null | sed 's/^0x//')
             d=$(tr -d '\n' < "$card/device/device" 2>/dev/null | sed 's/^0x//')
@@ -200,7 +207,7 @@ jobs:
               fv && /^[0-9a-fA-F]{4} / { fv=0 }
               fv && tolower($1)==tolower(did) { sub("^[ \t]+[0-9a-fA-F]{4}[ \t]+",""); print; exit }
             ' /usr/share/misc/pci.ids 2>/dev/null)
-            echo "  $(basename "$card")  pci=$slot  id=$v:$d  ($name)"
+            echo "  $base  pci=$slot  id=$v:$d  ($name)"
             EXPOSED_PCI_ID="$v:$d"
           done
           [ -z "$EXPOSED_PCI_ID" ] && echo "  (no DRM cards in /sys/class/drm)"
