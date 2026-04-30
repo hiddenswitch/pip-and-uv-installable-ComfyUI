@@ -40,7 +40,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=latest-cuda,enable={{is_default_branch}}
             type=raw,value={{branch}},enable=${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=raw,value={{branch}}-{{sha}}-{{date 'X'}}
+            type=raw,value={{branch}}-{{sha}}-{{date 'X'}},enable=${{ startsWith(github.ref, 'refs/heads/') }}
             type=sha,prefix=
             type=sha,prefix=,suffix=-cuda
             type=match,pattern=v?(\d+\.\d+\.\d+\.\d+),group=1
