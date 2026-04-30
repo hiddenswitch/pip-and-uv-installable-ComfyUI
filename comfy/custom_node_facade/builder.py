@@ -85,6 +85,13 @@ PYPI_PROXY_PACKAGES: list[PyPIProxySpec] = [
         name="nunchaku",
         upstream_index_url_template="https://appmana.github.io/forks-nunchaku-stable-abi/{cuda}/nunchaku/",
     ),
+    # insightface has no CUDA dependency (onnxruntime backend) so it serves
+    # one wheel set from a flat URL — the {cuda} placeholder is intentionally
+    # absent and PyPIProxySpec.upstream_index_url() leaves the template alone.
+    PyPIProxySpec(
+        name="insightface",
+        upstream_index_url_template="https://appmana.github.io/forks-insightface-stable-abi/insightface/",
+    ),
 ]
 
 PYPI_PROXY_INDEX: dict[str, PyPIProxySpec] = {

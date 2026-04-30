@@ -302,6 +302,26 @@ def test_serve_pip_can_install_comfyui_nunchaku_with_nunchaku_dep(facade_server:
     assert "darwin" in metadata, "nunchaku dep should have sys_platform != darwin marker"
 
 
+def test_serve_pip_proxies_insightface_index(facade_server: FacadeServer):
+    """The insightface index page must proxy through to the GitHub Pages site
+    on the stable-ABI fork. Unlike sageattention/nunchaku, insightface has no
+    CUDA dependency and the upstream is a flat URL, but the facade still
+    serves it under both default and cu128/cu130 prefixes since the {cuda}
+    placeholder is absent from the template (str.format is a no-op).
+    """
+    with urllib.request.urlopen(f"{facade_server.base_url}/simple/insightface/") as resp:
+        insightface_html = resp.read().decode()
+    assert ".whl" in insightface_html, "insightface index should contain wheel links"
+    assert "appmana.github.io/forks-insightface-stable-abi" in insightface_html or \
+           "github.com/AppMana/forks-insightface-stable-abi" in insightface_html, \
+           "insightface index should resolve to the AppMana stable-ABI fork"
+
+    for cuda in ("cu128", "cu130"):
+        with urllib.request.urlopen(f"{facade_server.base_url}/simple/{cuda}/insightface/") as resp:
+            cuda_html = resp.read().decode()
+        assert ".whl" in cuda_html, f"insightface {cuda} index should contain wheel links"
+
+
 @pytest.fixture
 def facade_server_all_nodes(tmp_path: Path) -> Generator[FacadeServer, None, None]:
     """Start a serve-pip process without --pip-facade-only-known-nodes."""
