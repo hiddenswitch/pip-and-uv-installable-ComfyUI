@@ -171,6 +171,8 @@ Upstream uses `comfyui_version.py` at the repository root. We deleted this file 
 
 When merging, accept our deletion of `comfyui_version.py` and update the `__version__` in `comfy/__init__.py` instead.
 
+**Never bump the version in `comfy/__init__.py` or `pyproject.toml`.** The version field tracks **upstream** ComfyUI (currently `0.20.1`); leaving it pinned to upstream lets users reason about feature parity at a glance. Fork releases use a four-part **`v<UPSTREAM>.<FORK_PATCH>`** tag scheme — e.g. `v0.20.1.1`, `v0.20.1.2`, … — with the fork-patch counter bumped per fork-only release. Never invent a 0.20.2 / 0.20.3 / 0.20.4 etc. — those numbers belong to upstream and writing them locally creates a fake fork-of-the-future. The Docker tag-match patterns already accept four-part versions (`type=match,pattern=v?(\d+\.\d+\.\d+\.\d+)` in `.github/workflows/docker-build*.yml`).
+
 ## Requirements
 
 Upstream uses `requirements.txt` at the repository root. We deleted this file and moved all dependencies to `pyproject.toml`.
