@@ -49,7 +49,7 @@ class ExecutionContext:
         yield self.list_index
 
 
-comfyui_execution_context: Final[ContextVar] = ContextVar("comfyui_execution_context", default=ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub(), configuration=Configuration(), preview_method_override=None))
+comfyui_execution_context: Final[ContextVar] = ContextVar("comfyui_execution_context", default=ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub(), configuration=Configuration(), preview_method_override=None))  # noqa: B039  intentional: deep-copied per-frame in cvpickle to avoid sharing
 # enables context var propagation across process boundaries for process pool executors
 cvpickle.register_contextvar(comfyui_execution_context, __name__)
 
@@ -98,7 +98,7 @@ def context_configuration(configuration: Optional[Configuration] = None):
 
     # Check if paths changed and reinitialize folder_names_and_paths if needed
     if _config_fields_changed(current_ctx.configuration, configuration, AFFECTS_PATHS):
-        from .cmd.folder_paths import init_default_paths  # pylint: disable=import-error
+        from .cmd.folder_paths import init_default_paths
         new_folder_names = FolderNames(is_root=True)
         init_default_paths(new_folder_names, configuration, replace_existing=True)
         new_ctx = replace(current_ctx, configuration=configuration, folder_names_and_paths=new_folder_names)

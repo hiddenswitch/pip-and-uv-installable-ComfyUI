@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 try:
@@ -12,8 +11,6 @@ from typing import Literal, AsyncGenerator
 import fsspec
 import ijson
 import aiofiles
-import sys
-import shlex
 
 
 from .uris import is_uri as _is_uri

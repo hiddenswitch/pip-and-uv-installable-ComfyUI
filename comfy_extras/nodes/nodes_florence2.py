@@ -1,9 +1,12 @@
+import logging
 from typing import List, Union, Optional
 
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
 from typing_extensions import TypedDict, NotRequired
+
+logger = logging.getLogger(__name__)
 
 from comfy.component_model.tensor_types import RGBImageBatch, MaskBatch
 from comfy.language.language_types import TOKENS_TYPE_NAME, LanguageModel
@@ -81,7 +84,7 @@ def draw_polygons(image: Image, prediction: PolygonResult) -> Image:
         for _polygon in polygons:
             _polygon = np.array(_polygon).reshape(-1, 2)
             if len(_polygon) < 3:
-                print('Invalid polygon:', _polygon)
+                logger.warning("Invalid polygon: %s", _polygon)
                 continue
 
             _polygon = (_polygon * scale).reshape(-1).tolist()

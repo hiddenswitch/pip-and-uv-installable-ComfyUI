@@ -93,7 +93,7 @@ class VAEEncodeAudio(IO.ComfyNode):
     def execute(cls, vae: AudioVAE | AudioVAEModelManageable, audio) -> IO.NodeOutput:
         sample_rate = audio["sample_rate"]
         try:
-            import torchaudio  # pylint: disable=import-error
+            import torchaudio
         except ImportError:
             raise TorchAudioNotFoundError()
         vae_sample_rate = getattr(vae, "audio_sample_rate", 44100)
@@ -515,7 +515,7 @@ class JoinAudioChannels(IO.ComfyNode):
 
 def match_audio_sample_rates(waveform_1, sample_rate_1, waveform_2, sample_rate_2):
     try:
-        import torchaudio  # pylint: disable=import-error
+        import torchaudio
     except ImportError:
         raise TorchAudioNotFoundError()
     if sample_rate_1 != sample_rate_2:
@@ -751,7 +751,7 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
     @classmethod
     def execute(cls, audio, low_gain_dB, low_freq, mid_gain_dB, mid_freq, mid_q, high_gain_dB, high_freq) -> IO.NodeOutput:
-        import torchaudio  # pylint: disable=import-error
+        import torchaudio
 
         waveform = audio["waveform"]
         sample_rate = audio["sample_rate"]

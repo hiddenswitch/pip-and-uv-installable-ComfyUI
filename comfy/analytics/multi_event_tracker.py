@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 
 from .event_tracker import EventTracker
 

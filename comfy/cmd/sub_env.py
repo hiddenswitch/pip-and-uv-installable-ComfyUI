@@ -186,7 +186,7 @@ def env_create_dirs(
     _set_config_context(config)
 
     from ..execution_context import context_configuration
-    from .folder_paths import create_directories  # pylint: disable=import-error
+    from .folder_paths import create_directories
     from ..nodes.package import import_all_nodes_in_workspace
     with context_configuration(config):
         import_all_nodes_in_workspace(raise_on_failure=False)

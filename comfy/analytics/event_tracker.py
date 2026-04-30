@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-import asyncio
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 
 
 class EventTracker(ABC):

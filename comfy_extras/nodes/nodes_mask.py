@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.ndimage
 import torch
-import comfy.utils
 from typing_extensions import override
 
 from comfy import node_helpers, model_management

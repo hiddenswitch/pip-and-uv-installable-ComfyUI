@@ -29,7 +29,7 @@ try:
             logger.debug(f"You need pytorch with cu130 or higher to use optimized CUDA operations, found {torch.version.cuda}")
 
     try:
-        import triton  # pylint: disable=import-error
+        pass
     except:
         logger.debug("Disabling triton support, it was not installed")
         ck.registry.disable("triton")
@@ -62,7 +62,7 @@ try:
 
     for k, v in ck.list_backends().items():
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
-except Exception as e:  # pylint: disable=broad-exception-caught
+except Exception as e:
     logger.debug(f"Failed to import comfy_kitchen, Error: {e}, fp8 and fp4 support will not be available.")
     _CK_AVAILABLE = False
     ck = None
@@ -102,7 +102,7 @@ if _CK_AVAILABLE:
         logger.debug("comfy_kitchen does not support MXFP8")
 
 if not _CK_MXFP8_AVAILABLE:
-    class _CKMxfp8Layout:  # pylint: disable=function-redefined
+    class _CKMxfp8Layout:  # noqa: F811
         pass
 
 
@@ -145,7 +145,7 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
         return qdata, params
 
 
-class TensorCoreMXFP8Layout(_CKMxfp8Layout):  # pylint: disable=possibly-used-before-assignment
+class TensorCoreMXFP8Layout(_CKMxfp8Layout):
     @classmethod
     def quantize(cls, tensor, scale=None, stochastic_rounding=0, inplace_ops=False):
         if tensor.dim() != 2:

@@ -80,7 +80,7 @@ def _import_opengl():
     global gl
     if gl is None:
         logger.debug("_import_opengl: importing OpenGL.GL")
-        import OpenGL.GL as _gl  # pylint: disable=import-error
+        import OpenGL.GL as _gl
         gl = _gl
         logger.debug("_import_opengl: import completed")
     return gl
@@ -174,7 +174,7 @@ def _init_glfw():
         raise RuntimeError("GLFW backend not supported on macOS")
 
     logger.debug("_init_glfw: importing glfw module")
-    import glfw as _glfw  # pylint: disable=import-error
+    import glfw as _glfw
 
     logger.debug("_init_glfw: calling glfw.init()")
     if not _glfw.init():
@@ -205,8 +205,8 @@ def _init_glfw():
 def _init_egl():
     """Initialize EGL for headless rendering. Returns (display, context, surface, EGL_module). Raises RuntimeError on failure."""
     logger.debug("_init_egl: starting")
-    from OpenGL import EGL as _EGL  # pylint: disable=import-error
-    from OpenGL.EGL import (  # pylint: disable=import-error
+    from OpenGL import EGL as _EGL
+    from OpenGL.EGL import (
         eglGetDisplay, eglInitialize, eglChooseConfig, eglCreateContext,
         eglMakeCurrent, eglCreatePbufferSurface, eglBindAPI,
         eglTerminate, eglDestroyContext, eglDestroySurface,
@@ -228,7 +228,7 @@ def _init_egl():
             raise RuntimeError("eglGetDisplay() failed")
 
         logger.debug("_init_egl: calling eglInitialize()")
-        major, minor = _EGL.EGLint(), _EGL.EGLint()  # pylint: disable=no-value-for-parameter
+        major, minor = _EGL.EGLint(), _EGL.EGLint()
         if not eglInitialize(display, major, minor):
             display = None  # Not initialized, don't terminate
             raise RuntimeError("eglInitialize() failed")
@@ -241,7 +241,7 @@ def _init_egl():
             EGL_DEPTH_SIZE, 0, EGL_NONE
         ]
         configs = (_EGL.EGLConfig * 1)()
-        num_configs = _EGL.EGLint()  # pylint: disable=no-value-for-parameter
+        num_configs = _EGL.EGLint()
         if not eglChooseConfig(display, config_attribs, configs, 1, num_configs) or num_configs.value == 0:
             raise RuntimeError("eglChooseConfig() failed")
         config = configs[0]
@@ -294,8 +294,8 @@ def _init_osmesa():
     os.environ["PYOPENGL_PLATFORM"] = "osmesa"
 
     logger.debug("_init_osmesa: importing OpenGL.osmesa")
-    from OpenGL import GL as _gl  # pylint: disable=import-error
-    from OpenGL.osmesa import (  # pylint: disable=import-error
+    from OpenGL import GL as _gl
+    from OpenGL.osmesa import (
         OSMesaCreateContextExt, OSMesaMakeCurrent, OSMesaDestroyContext,
         OSMESA_RGBA,
     )
@@ -449,10 +449,10 @@ class GLContext:
         if self._backend == "glfw":
             glfw.make_context_current(self._window)
         elif self._backend == "egl":
-            from OpenGL.EGL import eglMakeCurrent  # pylint: disable=import-error
+            from OpenGL.EGL import eglMakeCurrent
             eglMakeCurrent(self._egl_display, self._egl_surface, self._egl_surface, self._egl_context)
         elif self._backend == "osmesa":
-            from OpenGL.osmesa import OSMesaMakeCurrent  # pylint: disable=import-error
+            from OpenGL.osmesa import OSMesaMakeCurrent
             OSMesaMakeCurrent(self._osmesa_ctx, self._osmesa_buffer, gl.GL_UNSIGNED_BYTE, 64, 64)
 
         if self._vao is not None:

@@ -42,15 +42,16 @@ pip install <package-name>
 
 ## Linting
 
-**IMPORTANT:** After fixing imports and other merge issues, run the linter on the **entire codebase** at least once, not just the changed files. Upstream changes may introduce issues in unchanged files due to cross-module dependencies, and CI's pylint step checks exit code — pre-existing warnings that don't matter for the score still fail the job.
+**IMPORTANT:** After fixing imports and other merge issues, run **both linters** on the **entire codebase** at least once, not just the changed files. Upstream changes may introduce issues in unchanged files due to cross-module dependencies, and CI checks exit codes — pre-existing warnings that don't matter for the score still fail the job.
 
 ```bash
-pylint -j 32 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
 ```
 
-Run pylint **raw** — never pipe it through `head`, `tail`, or `grep`. Filtering hides the warnings CI will fail on. The full lint must exit 0 (no errors, no warnings) before the merge is complete.
+Ruff handles standard Python lint rules; pylint runs only the five custom checkers in `tests/*_checker.py`. Run them **raw** — never pipe through `head`, `tail`, or `grep`. Filtering hides the warnings CI will fail on. Both must exit 0 before the merge is complete.
 
-See [Linting Guidelines](linting.md) for custom rules and common fixes.
+See [Linting Guidelines](linting.md) for custom rules, the ruff/pylint split, and pragma-comment conventions.
 
 ## CLI Arguments
 

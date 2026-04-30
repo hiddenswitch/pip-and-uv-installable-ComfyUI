@@ -44,7 +44,7 @@ from .lora import calculate_weight
 from .lora_types import PatchDict, PatchDictKey, PatchTuple, PatchWeightTuple, ModelPatchesDictValue, PatchSupport
 from .model_base import BaseModel
 from .model_management import lora_compute_dtype
-from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem, TrainingSupport, HooksSupport, sort_loading_list_in_place
+from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem, sort_loading_list_in_place
 from .patcher_extension import CallbacksMP, WrappersMP, PatcherInjection
 from .quant_ops import QuantizedTensor
 from . import ops

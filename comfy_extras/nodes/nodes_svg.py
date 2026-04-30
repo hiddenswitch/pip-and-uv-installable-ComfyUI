@@ -42,7 +42,7 @@ class ImageToSVG(CustomNode):
     CATEGORY = "image/svg"
 
     def convert_to_svg(self, image, colormode, hierarchical, mode, filter_speckle, color_precision, layer_difference, corner_threshold, length_threshold, max_iterations, splice_threshold, path_precision):
-        import vtracer  # pylint: disable=import-outside-toplevel
+        import vtracer
         svg_strings = []
 
         for i in image:
@@ -112,8 +112,8 @@ class SVGToImage(CustomNode):
             try:
                 cleaned_svg = self.clean_svg_string(svg_string)
 
-                stream = skia.MemoryStream(cleaned_svg.encode('utf-8'), True)  # pylint: disable=c-extension-no-member
-                svg_dom = skia.SVGDOM.MakeFromStream(stream)  # pylint: disable=c-extension-no-member
+                stream = skia.MemoryStream(cleaned_svg.encode('utf-8'), True)
+                svg_dom = skia.SVGDOM.MakeFromStream(stream)
 
                 if svg_dom is None:
                     raise ValueError(f"Failed to parse SVG content for image {i}")
@@ -124,9 +124,9 @@ class SVGToImage(CustomNode):
                 width = int(svg_width * scale)
                 height = int(svg_height * scale)
 
-                surface = skia.Surface(width, height)  # pylint: disable=c-extension-no-member
+                surface = skia.Surface(width, height)
                 with surface as canvas:
-                    canvas.clear(skia.ColorTRANSPARENT)  # pylint: disable=c-extension-no-member
+                    canvas.clear(skia.ColorTRANSPARENT)
 
                     canvas.scale(scale, scale)
                     svg_dom.render(canvas)

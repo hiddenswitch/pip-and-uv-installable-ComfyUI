@@ -24,7 +24,7 @@ from .client_types import V1QueuePromptResponse
 from ..api.components.schema.prompt import PromptDict
 from ..cli_args_types import Configuration
 from ..cli_args import default_configuration
-from ..cmd.folder_paths import init_default_paths  # pylint: disable=import-error
+from ..cmd.folder_paths import init_default_paths
 from ..component_model.executor_types import ExecutorToClientProgress
 from ..component_model.make_mutable import make_mutable
 from ..component_model.queue_types import QueueItem, ExecutionStatus, TaskInvocation, QueueTuple, ExtraData

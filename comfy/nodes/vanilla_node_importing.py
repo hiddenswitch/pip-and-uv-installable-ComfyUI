@@ -11,7 +11,7 @@ import types
 from contextlib import contextmanager, nullcontext
 from os.path import join, basename, dirname, isdir, isfile, exists, abspath, split, splitext, realpath
 from typing import Iterable, Any, Generator
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from comfy_compatibility.vanilla import prepare_vanilla_environment, patch_pip_install_subprocess_run, patch_pip_install_popen
 from . import base_nodes
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # MathExpression). Restore them as aliases of ast.Constant so `isinstance(node, ast.Num)`
 # and `node.n` continue to work on 3.14+.
 if sys.version_info >= (3, 14):
-    import ast as _ast  # pylint: disable=import-outside-toplevel
+    import ast as _ast
     for _legacy_name in ("Num", "Str", "Bytes", "NameConstant", "Ellipsis"):
         if not hasattr(_ast, _legacy_name):
             setattr(_ast, _legacy_name, _ast.Constant)
@@ -178,7 +178,7 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
                         sys.path.insert(0, glob_path)
                         glob_path_added = True
                         # Patch security_check
-                        import security_check  # pylint: disable=import-error
+                        import security_check
                         original_check = security_check.security_check
 
                         def patched_security_check():
@@ -325,7 +325,7 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
                 def _patched_to(self, device, _orig=original_to):
                     _orig(self, device)
                     if hasattr(self, "pipe"):
-                        import torch  # pylint: disable=import-outside-toplevel
+                        import torch
                         self.pipe.device = torch.device(device) if isinstance(device, str) else device
                         self.pipe.model = self.pipe.model.to(device)
                     return self
@@ -344,7 +344,7 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
             return
 
         def _patched_torch_download(filename, ckpts_dir=None):
-            import torch  # pylint: disable=import-outside-toplevel
+            import torch
             model_url = "https://download.pytorch.org/models/" + filename
             cache_dir = torch.hub.get_dir()
             local_dir = os.path.join(cache_dir, "checkpoints")
@@ -374,7 +374,6 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
                 original_i2t = model.image2tensor
 
                 def _patched_i2t(raw_image, input_size=518, _orig=original_i2t, _device=self.device):
-                    import torch as _torch  # pylint: disable=import-outside-toplevel
                     image, hw = _orig(raw_image, input_size)
                     return image.to(_device), hw
 
@@ -401,7 +400,7 @@ def _install_deferred_controlnet_patches(module_name: str) -> None:
         return
 
     # Install a single __import__ hook for all remaining deferred patches
-    import builtins  # pylint: disable=import-outside-toplevel
+    import builtins
 
     # Walk the chain of any previously-installed _import_hook closures to find
     # the real built-in __import__, so re-entrant calls never loop back to us.

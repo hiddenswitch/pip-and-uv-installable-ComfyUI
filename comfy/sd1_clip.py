@@ -26,9 +26,9 @@ from .component_model.files import get_path_as_dict, get_package_as_path
 from .text_encoders.spiece_tokenizer import SPieceTokenizer
 
 try:
-    from importlib.resources.abc import Traversable  # pylint: disable=no-name-in-module
+    from importlib.resources.abc import Traversable
 except ImportError:
-    from importlib.abc import Traversable  # pylint: disable=no-name-in-module, deprecated-class
+    from importlib.abc import Traversable
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,11 @@ class ClipTokenWeightEncoder:
             if hasattr(self, "gen_empty_tokens"):
                 to_encode.append(self.gen_empty_tokens(self.special_tokens, max_token_len))
             else:
-                to_encode.append(gen_empty_tokens(self.special_tokens, max_token_len))  # pylint: disable=no-member
+                to_encode.append(gen_empty_tokens(self.special_tokens, max_token_len))
 
         assert hasattr(self, "encode")
-        assert isinstance(self.encode, Callable)  # pylint: disable=no-member
-        o = self.encode(to_encode)  # pylint: disable=no-member
+        assert isinstance(self.encode, Callable)
+        o = self.encode(to_encode)
         out, pooled = o[:2]
 
         if pooled is not None:

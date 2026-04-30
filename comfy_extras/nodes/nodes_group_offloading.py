@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 from comfy.language.transformers_model_management import TransformersManagedModel
-from comfy.model_management import vram_state, VRAMState, unload_all_models, get_free_memory, get_torch_device
+from comfy.model_management import vram_state, VRAMState, unload_all_models, get_free_memory
 from comfy.model_management_types import HooksSupport, ModelManageable
 from comfy.model_patcher import ModelPatcher
 from comfy.node_helpers import export_custom_nodes
@@ -70,7 +70,7 @@ if _DIFFUSERS_IMPORT_ERROR is None:
             torch.nn.Embedding
         ]
         try:
-            from torch.nn import RMSNorm as TorchRMSNorm  # pylint: disable=no-member
+            from torch.nn import RMSNorm as TorchRMSNorm
             types.append(TorchRMSNorm)
         except (ImportError, ModuleNotFoundError):
             pass

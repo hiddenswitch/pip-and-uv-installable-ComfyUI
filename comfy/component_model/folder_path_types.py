@@ -221,13 +221,13 @@ class ModelPaths(AbstractPaths):
             if self.folder_names_are_relative_directory_paths_too:
                 for folder_name in self.folder_names:
                     resolved_default_folder_name_path = base_path / self.folder_name_base_path_subdir / folder_name
-                    if not resolved_default_folder_name_path in yielded_so_far:
+                    if resolved_default_folder_name_path not in yielded_so_far:
                         yield resolved_default_folder_name_path
                         yielded_so_far.add(resolved_default_folder_name_path)
 
             for additional_relative_directory_path in self.additional_relative_directory_paths:
                 resolved_additional_relative_path = base_path / additional_relative_directory_path
-                if not resolved_additional_relative_path in yielded_so_far:
+                if resolved_additional_relative_path not in yielded_so_far:
                     yield resolved_additional_relative_path
                     yielded_so_far.add(resolved_additional_relative_path)
 
@@ -238,7 +238,7 @@ class ModelPaths(AbstractPaths):
                 resolved_absolute_path = additional_absolute_path.resolve()
             except (OSError, AttributeError):
                 resolved_absolute_path = additional_absolute_path
-            if not resolved_absolute_path in yielded_so_far:
+            if resolved_absolute_path not in yielded_so_far:
                 yield resolved_absolute_path
                 yielded_so_far.add(resolved_absolute_path)
 

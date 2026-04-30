@@ -17,8 +17,8 @@ from ...ops import scaled_dot_product_attention
 logger = logging.getLogger(__name__)
 
 if model_management.xformers_enabled():
-    import xformers  # pylint: disable=import-error
-    import xformers.ops  # pylint: disable=import-error
+    import xformers
+    import xformers.ops
 
 sageattn = torch.nn.functional.scaled_dot_product_attention
 SAGE_ATTENTION_IS_AVAILABLE = False
@@ -41,7 +41,7 @@ except ImportError:
 flash_attn_func = torch.nn.functional.scaled_dot_product_attention
 FLASH_ATTENTION_IS_AVAILABLE = False
 try:
-    from flash_attn import flash_attn_func  # pylint: disable=import-error
+    from flash_attn import flash_attn_func
 
     FLASH_ATTENTION_IS_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
@@ -468,7 +468,7 @@ def attention_xformers(q, k, v, heads, mask=None, attn_precision=None, skip_resh
         mask = mask_out[..., :mask.shape[-1]]
         mask = mask.expand(b, heads, -1, -1)
 
-    out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=mask)  # pylint: disable=possibly-used-before-assignment
+    out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=mask)
 
     if skip_output_reshape:
         out = out.permute(0, 2, 1, 3)
@@ -707,7 +707,7 @@ try:
     @torch.library.custom_op("flash_attention::flash_attn", mutates_args=())
     def flash_attn_wrapper(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
                            dropout_p: float = 0.0, causal: bool = False) -> torch.Tensor:
-        return flash_attn_func(q, k, v, dropout_p=dropout_p, causal=causal)  # pylint: disable=possibly-used-before-assignment,used-before-assignment
+        return flash_attn_func(q, k, v, dropout_p=dropout_p, causal=causal)
 
 
     @flash_attn_wrapper.register_fake

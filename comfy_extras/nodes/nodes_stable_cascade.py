@@ -21,8 +21,6 @@ import comfy.nodes.common
 import comfy.utils
 from typing_extensions import override
 
-import comfy.utils
-from comfy.nodes import base_nodes as nodes
 from comfy_api.latest import ComfyExtension, io
 
 

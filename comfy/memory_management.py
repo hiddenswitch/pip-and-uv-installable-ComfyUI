@@ -5,7 +5,6 @@ import dataclasses
 import torch
 from typing import NamedTuple
 
-import torch
 
 from .component_model.module_property import create_module_properties
 from .quant_ops import QuantizedTensor

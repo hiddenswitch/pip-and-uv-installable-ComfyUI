@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import glob
 import logging
 
 from typing import Optional
@@ -17,7 +16,7 @@ from PIL.PngImagePlugin import PngInfo
 from huggingface_hub import snapshot_download
 from natsort import natsorted
 
-from comfy_api.latest import io, ComfyExtension, InputImpl
+from comfy_api.latest import io, InputImpl
 from .. import clip_vision as clip_vision_module
 from .. import controlnet
 from .. import diffusers_load

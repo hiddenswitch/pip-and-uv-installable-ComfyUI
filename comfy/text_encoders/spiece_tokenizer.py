@@ -15,7 +15,6 @@ class SPieceTokenizer:
         self.add_eos = add_eos
         self.special_tokens = special_tokens
 
-        import sentencepiece
         if torch.is_tensor(tokenizer_path):
             tokenizer_path = tokenizer_path.numpy().tobytes()
 
@@ -31,7 +30,7 @@ class SPieceTokenizer:
                 raise ValueError(f"invalid tokenizer {tokenizer_path}")
             construction_args["model_file"] = tokenizer_path
 
-        self.tokenizer = sentencepiece.SentencePieceProcessor(**construction_args)  # pylint: disable=unexpected-keyword-arg
+        self.tokenizer = sentencepiece.SentencePieceProcessor(**construction_args)
 
         self.end = self.tokenizer.eos_id()
         self.eos_token_id = self.end

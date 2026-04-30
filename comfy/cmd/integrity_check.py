@@ -193,8 +193,8 @@ def _check_triton() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("triton runtime", None, "no GPU device (CUDA/ROCm)")
     try:
-        import triton  # noqa: F401  # pylint: disable=import-error
-        import triton.language as tl  # noqa: F401  # pylint: disable=import-error
+        import triton  # noqa: F401
+        import triton.language as tl  # noqa: F401
 
         @triton.jit
         def _add_kernel(x_ptr, y_ptr, out_ptr, n: tl.constexpr):
@@ -222,7 +222,7 @@ def _check_sageattention() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("sageattention runtime", None, "no CUDA device")
     try:
-        from sageattention import sageattn_qk_int8_pv_fp16_cuda  # pylint: disable=import-error
+        from sageattention import sageattn_qk_int8_pv_fp16_cuda
         q = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
         k = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
         v = torch.randn(1, 8, 64, 64, dtype=torch.float16, device="cuda")
@@ -240,7 +240,7 @@ def _check_xformers() -> _CheckResult:
     if not torch.cuda.is_available():
         return ("xformers runtime", None, "no GPU device")
     try:
-        from xformers.ops import memory_efficient_attention  # pylint: disable=import-error
+        from xformers.ops import memory_efficient_attention
         q = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
         k = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
         v = torch.randn(1, 64, 8, 64, dtype=torch.float16, device="cuda")
@@ -299,6 +299,57 @@ def _build_suffix(version_str: str) -> str:
     return ""
 
 
+def _parse_arch_entry(entry: str) -> tuple[str, int, int] | None:
+    """Parse a torch arch-list entry into (kind, major, minor).
+
+    CUDA entries look like ``sm_75``, ``sm_90a`` (Hopper architectural variants),
+    or ``compute_90`` (PTX). Returns ``None`` for HIP entries (``gfx906`` etc.)
+    or anything unrecognised.
+    """
+    for prefix, kind in (("sm_", "sm"), ("compute_", "compute")):
+        if not entry.startswith(prefix):
+            continue
+        tail = entry[len(prefix):]
+        digits = ""
+        for ch in tail:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        if not digits:
+            return None
+        if len(digits) >= 2:
+            return kind, int(digits[:-1]), int(digits[-1])
+        return kind, int(digits), 0
+    return None
+
+
+def _norm_gfx(entry: str) -> str:
+    """Strip ROCm feature suffixes: ``gfx90a:sramecc+:xnack-`` -> ``gfx90a``."""
+    return entry.split(":", 1)[0] if entry else ""
+
+
+def _cuda_device_supported(major: int, minor: int, arch_list: list[str]) -> bool:
+    """Apply NVIDIA's intra-major forward-compat rule plus PTX JIT compat.
+
+    A cubin compiled for compute capability ``M.k`` runs on devices with the
+    same major ``M`` and minor ``n >= k`` (per the CUDA Programming Guide's
+    binary-compatibility section). PTX (``compute_X.Y``) JIT-compiles to any
+    device with capability ``>= (X, Y)``.
+    """
+    cc = (major, minor)
+    for entry in arch_list:
+        parsed = _parse_arch_entry(entry)
+        if parsed is None:
+            continue
+        kind, e_major, e_minor = parsed
+        if kind == "sm" and e_major == major and e_minor <= minor:
+            return True
+        if kind == "compute" and (e_major, e_minor) <= cc:
+            return True
+    return False
+
+
 def _check_torch_requirement(pkg: str, torch_version: str) -> str | None:
     """Check if *pkg*'s metadata requires a different torch version. Returns warning or None."""
     from packaging.requirements import Requirement
@@ -347,9 +398,67 @@ def _section_torch_alignment(console: Console):
     details.add_row("torch.version.hip", str(getattr(torch.version, "hip", None) or "n/a"))
     cudnn = "n/a"
     if torch.backends.cudnn.is_available():
-        cudnn = str(torch.backends.cudnn.version())
+        try:
+            cudnn = str(torch.backends.cudnn.version())
+        except RuntimeError as exc:
+            cudnn = f"unavailable ({exc.__class__.__name__}: {exc})"
     details.add_row("cuDNN version", cudnn)
     console.print(details)
+
+    is_hip = getattr(torch.version, "hip", None) is not None
+    try:
+        arch_list = list(torch.cuda.get_arch_list())
+    except Exception:
+        arch_list = []
+    try:
+        device_count = torch.cuda.device_count()
+    except Exception:
+        device_count = 0
+
+    if not arch_list and device_count == 0:
+        return
+
+    console.print()
+    align = Table(show_edge=False, pad_edge=False, box=None)
+    align.add_column("Status", no_wrap=True)
+    align.add_column("Device", no_wrap=True)
+    align.add_column("Arch", no_wrap=True)
+    align.add_column("Detail")
+
+    arches_str = " ".join(arch_list) if arch_list else "(none)"
+
+    if device_count == 0:
+        align.add_row(_SKIP, "(no accelerator)", "-", f"compiled for: {arches_str}")
+    else:
+        for i in range(device_count):
+            try:
+                props = torch.cuda.get_device_properties(i)
+            except Exception as exc:
+                align.add_row(_FAIL, f"device {i}", "?", f"could not read properties: {exc}")
+                continue
+            name = getattr(props, "name", f"device {i}")
+            if is_hip:
+                raw = getattr(props, "gcnArchName", "") or ""
+                device_arch = _norm_gfx(raw)
+                hip_arches = {_norm_gfx(a) for a in arch_list if a}
+                compatible = bool(device_arch) and device_arch in hip_arches
+                detail = (f"compiled for: {arches_str}"
+                          if compatible
+                          else f"torch was not built for {device_arch}; compiled for: {arches_str}")
+            else:
+                major = int(getattr(props, "major", 0))
+                minor = int(getattr(props, "minor", 0))
+                device_arch = f"sm_{major}{minor}"
+                compatible = _cuda_device_supported(major, minor, arch_list)
+                if compatible:
+                    detail = f"compiled for: {arches_str}"
+                else:
+                    detail = (f"torch was not built for {device_arch} "
+                              f"(no SASS in same major and no compatible PTX); "
+                              f"compiled for: {arches_str}")
+            align.add_row(_PASS if compatible else _FAIL, name, device_arch or "?", detail)
+
+    console.print(align)
 
 
 def _status_label(result: bool | None) -> str:
@@ -562,7 +671,7 @@ def _section_comfy_kitchen_capabilities(console: Console):
             row = [op_name, dtype_label]
             try:
                 kwargs = kwargs_factory()
-            except Exception as exc:  # pylint: disable=broad-exception-caught
+            except Exception as exc:
                 for _ in backends:
                     row.append(f"SKIP ({type(exc).__name__})")
                 table.add_row(*row)
@@ -649,7 +758,7 @@ def _check_backend_capability(ck, backend: str, op_name: str, kwargs: dict) -> s
     try:
         with ck.registry.use_backend(backend):
             op_fn(**kwargs)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception as exc:
         msg = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
         return f"FAIL ({msg[:32]})"
     return "PASS"

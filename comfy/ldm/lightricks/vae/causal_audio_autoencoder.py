@@ -40,7 +40,7 @@ class StringConvertibleEnum(Enum):
         # None maps to NONE member if it exists
         if value is None:
             if hasattr(cls, "NONE"):
-                return cls.NONE  # pylint: disable=no-member
+                return cls.NONE
             raise ValueError(f"{cls.__name__} does not have a NONE member to map None to")
 
         # String conversion (case-insensitive)

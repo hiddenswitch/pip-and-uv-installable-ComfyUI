@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from comfy.cli_args import args
 from comfy.language.language_types import LanguageModel

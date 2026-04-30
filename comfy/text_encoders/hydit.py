@@ -37,7 +37,7 @@ class MT5XLTokenizer(sd1_clip.SDTokenizer):
     def __init__(self, tokenizer_data=None, **kwargs):
         if tokenizer_data is None:
             tokenizer_data = dict()
-        if not "spiece_model" in tokenizer_data:
+        if "spiece_model" not in tokenizer_data:
             raise FileNotFoundError("expected a checkpoint that contains the mt5 tokenizer's sentencepiece model")
         tokenizer = tokenizer_data.get("spiece_model", None)
         super().__init__(tokenizer, pad_with_end=False, embedding_size=2048, embedding_key='mt5xl', tokenizer_class=SPieceTokenizer, has_start_token=False, pad_to_max_length=False, max_length=99999999, min_length=256, tokenizer_data=tokenizer_data)

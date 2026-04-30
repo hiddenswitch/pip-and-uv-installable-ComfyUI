@@ -14,7 +14,7 @@ from comfy.model_management_types import ModelManageableStub
 
 logger = logging.getLogger(__name__)
 try:
-    from spandrel_extra_arches import EXTRA_REGISTRY  # pylint: disable=import-error
+    from spandrel_extra_arches import EXTRA_REGISTRY
     from spandrel import MAIN_REGISTRY
 
     MAIN_REGISTRY.add(*EXTRA_REGISTRY)

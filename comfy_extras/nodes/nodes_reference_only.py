@@ -1,4 +1,8 @@
+import logging
+
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 class ReferenceOnlySimple:
@@ -45,7 +49,7 @@ class ReferenceOnlySimple:
         if len(mask.shape) < 3:
             mask = mask.unsqueeze(0)
         if mask.shape[0] < latent["samples"].shape[0]:
-            print(latent["samples"].shape, mask.shape)
+            logger.debug("samples=%s mask=%s", latent["samples"].shape, mask.shape)
             mask = mask.repeat(latent["samples"].shape[0], 1, 1)
 
         out_mask = torch.zeros((1, mask.shape[1], mask.shape[2]), dtype=torch.float32, device="cpu")

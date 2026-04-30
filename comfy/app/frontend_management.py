@@ -18,7 +18,7 @@ from aiohttp import web
 from typing_extensions import NotRequired
 
 from ..cli_args import DEFAULT_VERSION_STRING
-from ..cmd.folder_paths import add_model_folder_path  # pylint: disable=import-error
+from ..cmd.folder_paths import add_model_folder_path
 
 logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 10  # seconds

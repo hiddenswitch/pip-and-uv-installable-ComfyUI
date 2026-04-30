@@ -72,7 +72,7 @@ def clean_text(text: str) -> str:
     text = " ".join(text.split())
 
     # Strip any remaining leading/trailing punctuation, whitespace, and quotes
-    text = text.strip(' -,*:"\'"“”')  # pylint: disable=bad-str-strip-call
+    text = text.strip(' -,*:"\'"“”')  # noqa: B005
 
     return text
 
@@ -95,8 +95,8 @@ class Mistral12b(LanguageModel):
     @staticmethod
     def from_pretrained(ckpt_name: str, subfolder: Optional[str] = None) -> "Mistral12b":
         try:
-            from cosmos1.models.autoregressive.configs.base.model_config import create_text_model_config  # pylint: disable=import-error
-            from cosmos1.models.autoregressive.model import AutoRegressiveModel  # pylint: disable=import-error
+            from cosmos1.models.autoregressive.configs.base.model_config import create_text_model_config
+            from cosmos1.models.autoregressive.model import AutoRegressiveModel
         except (ImportError, ModuleNotFoundError) as exc_info:
             _log_install_cosmos()
             raise exc_info
@@ -140,8 +140,8 @@ class Mistral12b(LanguageModel):
         dialogs = [[{"role": "user", "content": prompt}]]
 
         try:
-            from cosmos1.models.diffusion.prompt_upsampler.inference import chat_completion  # pylint: disable=import-error
-            from cosmos1.models.autoregressive.model import AutoRegressiveModel  # pylint: disable=import-error
+            from cosmos1.models.diffusion.prompt_upsampler.inference import chat_completion
+            from cosmos1.models.autoregressive.model import AutoRegressiveModel
         except (ImportError, ModuleNotFoundError) as exc_info:
             _log_install_cosmos()
             raise exc_info

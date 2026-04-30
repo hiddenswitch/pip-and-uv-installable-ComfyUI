@@ -1,4 +1,4 @@
-from can_ada import can_parse, parse  # pylint: disable=no-name-in-module
+from can_ada import can_parse, parse
 
 
 def is_uri(path: str) -> bool:

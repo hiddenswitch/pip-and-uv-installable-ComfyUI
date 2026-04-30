@@ -132,7 +132,7 @@ def start_server_in_colab() -> str:
         comfyui_execution_context.set(ExecutionContext(server=ServerStub(), folder_names_and_paths=FolderNames(is_root=True), custom_nodes=ExportedNodes(), progress_registry=ProgressRegistryStub()))
 
         # now we're ready to import
-        from ..cmd.folder_paths import init_default_paths, folder_names_and_paths  # pylint: disable=import-error
+        from ..cmd.folder_paths import init_default_paths, folder_names_and_paths
         # experimental workarounds for colab
         from ..cmd.main import _start_comfyui
 

@@ -654,17 +654,17 @@ def prompt_polarity(api: dict, ui: dict | None) -> list[Param]:
         node = api.get(node_id) or {}
         class_type = node.get("class_type") or ""
         fields = _pu._TEXT_ENCODE_FIELDS.get(class_type, [])
-        for field in fields:
-            if field not in (node.get("inputs") or {}):
+        for field_name in fields:
+            if field_name not in (node.get("inputs") or {}):
                 continue
-            value = node["inputs"][field]
+            value = node["inputs"][field_name]
             if _is_link(value):
                 continue
             out.append(
                 Param(
                     node_id=str(node_id),
                     class_type=class_type,
-                    widget_name=field,
+                    widget_name=field_name,
                     value=value,
                     type=_infer_type(value),
                     roles={role},

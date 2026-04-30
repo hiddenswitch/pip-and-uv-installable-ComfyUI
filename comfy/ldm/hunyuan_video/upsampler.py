@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from ..modules.diffusionmodules.model import ResnetBlock, VideoConv3d
 from .vae_refiner import RMS_norm
 from ...model_management import vae_device, vae_offload_device, load_models_gpu, vae_dtype
-from ...model_patcher import ModelPatcher, get_model_patcher_class
+from ...model_patcher import get_model_patcher_class
 
 
 class SRResidualCausalBlock3D(nn.Module):

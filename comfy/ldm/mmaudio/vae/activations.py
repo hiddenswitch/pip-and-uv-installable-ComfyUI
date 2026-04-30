@@ -3,7 +3,7 @@
 
 import torch
 from torch import nn
-from torch import sin, pow  # pylint: disable=no-name-in-module
+from torch import sin, pow
 from torch.nn import Parameter
 from ....model_management import cast_to
 

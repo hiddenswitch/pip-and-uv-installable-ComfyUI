@@ -8,7 +8,7 @@ from torch import Tensor
 logger = logging.getLogger(__name__)
 
 try:
-    from torchaudio.transforms import MelScale  # pylint: disable=import-error
+    from torchaudio.transforms import MelScale
 except:
     logger.debug("torchaudio missing, ACE model will be broken")
 

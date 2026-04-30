@@ -2,7 +2,7 @@ import json
 import os
 from io import BytesIO
 from itertools import chain
-from typing import Tuple, Dict, Any, Literal
+from typing import Tuple, Dict, Any
 
 import requests
 import torch

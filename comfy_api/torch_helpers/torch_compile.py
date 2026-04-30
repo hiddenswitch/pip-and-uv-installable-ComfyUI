@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Callable, Optional
 import torch
 
 import comfy.utils
-from comfy import model_management
 from comfy.patcher_extension import WrappersMP
 
 if TYPE_CHECKING:

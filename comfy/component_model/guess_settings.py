@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def _total_ram_gb() -> float:
     """Return total physical RAM in GiB."""
     try:
-        import psutil  # pylint: disable=import-outside-toplevel
+        import psutil
         return psutil.virtual_memory().total / (1024 ** 3)
     except ImportError:
         pass
@@ -46,13 +46,13 @@ def _total_ram_gb() -> float:
 
 def _has_nvidia_gpu() -> bool:
     """True if ``nvidia-smi`` is on PATH (works on Linux and Windows)."""
-    import shutil  # pylint: disable=import-outside-toplevel
+    import shutil
     return shutil.which("nvidia-smi") is not None
 
 
 def _has_amd_gpu() -> bool:
     """Heuristic: check for ROCm tooling or ``/dev/kfd``."""
-    import shutil  # pylint: disable=import-outside-toplevel
+    import shutil
     if shutil.which("rocm-smi") is not None or shutil.which("rocminfo") is not None:
         return True
     if os.path.exists("/dev/kfd"):
@@ -69,7 +69,7 @@ def _competing_gpu_processes() -> list[str]:
     Returns an empty list when ``nvidia-smi`` is unavailable or fails.
     """
     try:
-        result = subprocess.run(  # pylint: disable=subprocess-run-check
+        result = subprocess.run(
             ["nvidia-smi", "--query-compute-apps=process_name", "--format=csv,noheader"],
             capture_output=True,
             text=True,
@@ -157,13 +157,13 @@ def _has_package(name: str) -> bool:
 
 
 
-def apply_guess_settings(configuration: Configuration) -> None:  # pylint: disable=too-many-branches
+def apply_guess_settings(configuration: Configuration) -> None:
     """Mutate *configuration* with auto-detected defaults.
 
     Only touches settings that are still at their parser defaults so that
     explicit CLI flags always win.
     """
-    from ..cli_args_types import PerformanceFeature  # pylint: disable=import-outside-toplevel
+    from ..cli_args_types import PerformanceFeature
 
     is_macos = sys.platform == "darwin"
     is_nvidia = _has_nvidia_gpu()

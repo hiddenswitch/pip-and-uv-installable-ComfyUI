@@ -1,6 +1,5 @@
 from comfy import utils
 from typing_extensions import override
-import comfy.utils
 from comfy_api.latest import ComfyExtension, io
 
 

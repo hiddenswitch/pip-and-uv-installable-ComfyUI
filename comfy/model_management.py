@@ -121,7 +121,7 @@ if args.deterministic:
 directml_device = None
 if args.directml is not None:
     logger.warning("WARNING: torch-directml barely works, is very slow, has not been updated in over 1 year and might be removed soon, please don't use it, there are better options.")
-    import torch_directml  # pylint: disable=import-error
+    import torch_directml
 
     device_index = args.directml
     if device_index < 0:
@@ -133,7 +133,7 @@ if args.directml is not None:
     lowvram_available = False  # TODO: need to find a way to get free memory in directml before this can be enabled by default.
 
 try:
-    import intel_extension_for_pytorch as ipex  # pylint: disable=import-error, noqa: F401
+    import intel_extension_for_pytorch as ipex
 except:
     pass
 
@@ -151,7 +151,6 @@ except:
     pass
 
 try:
-    import torch_npu  # pylint: disable=import-error, noqa: F401
 
     _ = torch.npu.device_count()
     npu_available = torch.npu.is_available()
@@ -159,7 +158,6 @@ except:
     npu_available = False
 
 try:
-    import torch_mlu  # pylint: disable=import-error, noqa: F401
 
     _ = torch.mlu.device_count()
     mlu_available = torch.mlu.is_available()
@@ -252,7 +250,7 @@ def get_total_memory(dev=None, torch_total_too=False):
             mem_total = 1024 * 1024 * 1024  # TODO
             mem_total_torch = mem_total
         elif is_intel_xpu():
-            stats = torch.xpu.memory_stats(dev)  # pylint: disable=no-member
+            stats = torch.xpu.memory_stats(dev)
             mem_reserved = stats['reserved_bytes.all.current']
             mem_total_xpu = torch.xpu.get_device_properties(dev).total_memory
             mem_total_torch = mem_reserved
@@ -339,8 +337,8 @@ if args.disable_xformers:
     XFORMERS_IS_AVAILABLE = False
 else:
     try:
-        import xformers  # pylint: disable=import-error
-        import xformers.ops  # pylint: disable=import-error
+        import xformers
+        import xformers.ops
 
         XFORMERS_IS_AVAILABLE = True
         try:
@@ -482,7 +480,7 @@ if torch.cuda.is_available() and torch.backends.cudnn.is_available() and Perform
 
 try:
     if torch_version_numeric >= (2, 5):
-        torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(True)  # pylint: disable=no-member
+        torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(True)
 except:
     logger.warning("Warning, could not set allow_fp16_bf16_reduction_math_sdp")
 
@@ -1423,7 +1421,7 @@ def get_offload_stream(device):
     if NUM_STREAMS == 0:
         return None
 
-    if hasattr(torch.compiler, "is_compiling") and torch.compiler.is_compiling():  # pylint: disable=no-member
+    if hasattr(torch.compiler, "is_compiling") and torch.compiler.is_compiling():
         return None
 
     if device in STREAMS:
@@ -1712,7 +1710,7 @@ def get_free_memory(dev=None, torch_free_too=False):
             mem_free_total = 1024 * 1024 * 1024  # TODO
             mem_free_torch = mem_free_total
         elif is_intel_xpu():
-            stats = torch.xpu.memory_stats(dev)  # pylint: disable=no-member
+            stats = torch.xpu.memory_stats(dev)
             mem_active = stats['active_bytes.all.current']
             mem_reserved = stats['reserved_bytes.all.current']
             mem_free_xpu = torch.xpu.get_device_properties(dev).total_memory - mem_reserved
@@ -2049,13 +2047,13 @@ def _soft_empty_cache(force=False):
         return
     global cpu_state
     if cpu_state == CPUState.MPS:
-        torch.mps.empty_cache()  # pylint: disable=no-member
+        torch.mps.empty_cache()
     elif is_intel_xpu():
-        torch.xpu.empty_cache()  # pylint: disable=no-member
+        torch.xpu.empty_cache()
     elif is_ascend_npu():
-        torch.npu.empty_cache()  # pylint: disable=no-member
+        torch.npu.empty_cache()
     elif is_mlu():
-        torch.mlu.empty_cache()  # pylint: disable=no-member
+        torch.mlu.empty_cache()
     elif torch.cuda.is_available():
         torch.cuda.synchronize()
         torch.cuda.empty_cache()

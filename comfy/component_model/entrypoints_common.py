@@ -4,8 +4,6 @@ from ..cli_args_types import Configuration
 from ..cmd.extra_model_paths import load_extra_path_config
 from .folder_path_types import FolderNames
 from ..component_model.platform_path import construct_path
-import itertools
-import os
 
 from ..distributed.executors import ContextVarExecutor, ContextVarProcessPoolExecutor
 

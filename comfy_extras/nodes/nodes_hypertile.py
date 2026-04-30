@@ -4,7 +4,7 @@ import math
 from typing_extensions import override
 from einops import rearrange
 # Use torch rng for consistency across generations
-from torch import randint  # pylint: disable=no-name-in-module
+from torch import randint
 from comfy_api.latest import ComfyExtension, io
 
 

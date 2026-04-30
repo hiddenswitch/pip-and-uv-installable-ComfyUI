@@ -1,5 +1,7 @@
 import importlib
-import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def import_exception_class(fqn: str):
@@ -50,7 +52,7 @@ def should_panic_on_exception(exc: Exception, panic_classes: list[str]) -> bool:
         exception_types = [import_exception_class(name)
                            for name in expanded_classes if name]
     except ValueError as e:
-        print(f"Warning: {str(e)}", file=sys.stderr)
+        logger.warning("%s", e)
         return False
 
     # Check if exception matches any of the specified types

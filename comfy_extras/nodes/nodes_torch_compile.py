@@ -8,7 +8,6 @@ import torch._inductor.codecache
 from torch.nn import LayerNorm
 
 from comfy import model_management
-from comfy.language.transformers_model_management import TransformersManagedModel
 from comfy.model_management_types import HooksSupport
 from comfy.model_patcher import ModelPatcher
 from comfy.nodes.package_typing import CustomNode, InputTypes
@@ -88,9 +87,9 @@ class TorchCompileModel(CustomNode):
         try:
             if backend == "torch_tensorrt":
                 try:
-                    import torch_tensorrt
+                    import torch_tensorrt  # noqa: F401  availability probe
                 except (ImportError, ModuleNotFoundError):
-                    logger.error(f"Install torch-tensorrt and modelopt")
+                    logger.exception("Install torch-tensorrt and modelopt")
                     raise
                 compile_kwargs["options"] = {
                     # https://pytorch.org/TensorRT/dynamo/torch_compile.html
@@ -128,13 +127,13 @@ class TorchCompileModel(CustomNode):
                 return model,
         except OSError as os_error:
             try:
-                torch._inductor.utils.clear_inductor_caches()  # pylint: disable=no-member
+                torch._inductor.utils.clear_inductor_caches()
             except Exception:
                 pass
             raise os_error
         except Exception as exc_info:
             try:
-                torch._inductor.utils.clear_inductor_caches()  # pylint: disable=no-member
+                torch._inductor.utils.clear_inductor_caches()
             except Exception:
                 pass
             logger.error(f"An exception occurred while trying to compile {str(model)}, gracefully skipping compilation", exc_info=exc_info)
@@ -187,15 +186,15 @@ class QuantizeModel(CustomNode):
         if strategy == "quanto":
             logger.warning(f"Quantizing {model} will produce poor results due to Optimum's limitations")
             self.warn_in_place(model)
-            from optimum.quanto import quantize, qint8  # pylint: disable=import-error
+            from optimum.quanto import quantize, qint8
             exclusion_list = [
                 name for name, module in unet.named_modules() if isinstance(module, LayerNorm) and module.weight is None
             ]
             quantize(unet, weights=qint8, activations=qint8, exclude=exclusion_list)
             _in_place_fixme = unet
         elif "torchao" in strategy:
-            from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, autoquant  # pylint: disable=import-error
-            from torchao.utils import unwrap_tensor_subclass  # pylint: disable=import-error
+            from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, autoquant
+            from torchao.utils import unwrap_tensor_subclass
             self.warn_in_place(model)
             model_management.load_models_gpu([model])
 

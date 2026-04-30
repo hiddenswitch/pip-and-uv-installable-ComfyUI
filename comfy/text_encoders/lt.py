@@ -69,7 +69,7 @@ class Gemma3_Tokenizer():
             else:
                 llama_text = llama_template.format(text)
 
-        text_tokens = super().tokenize_with_weights(llama_text, return_word_ids)  # pylint: disable=no-member
+        text_tokens = super().tokenize_with_weights(llama_text, return_word_ids)
 
         if len(images) > 0:
             embed_count = 0

@@ -5,7 +5,7 @@ from aiohttp import web
 
 from ...services.terminal_service import TerminalService
 from ....app.logger import get_logs as _logger_get_logs
-from ....cmd.folder_paths import folder_names_and_paths, get_directory_by_type  # pylint: disable=import-error
+from ....cmd.folder_paths import folder_names_and_paths, get_directory_by_type
 
 
 class InternalRoutes:

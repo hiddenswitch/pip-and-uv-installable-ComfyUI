@@ -7,7 +7,6 @@ import numpy as np
 import torch
 from PIL import Image
 from comfy.cmd import folder_paths
-import base64
 from comfy_api.latest import IO, ComfyExtension, Input
 from typing_extensions import override
 

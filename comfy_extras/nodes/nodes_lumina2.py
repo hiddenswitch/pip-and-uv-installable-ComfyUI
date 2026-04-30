@@ -1,7 +1,5 @@
 import torch
 
-from comfy.comfy_types import IO
-from comfy.nodes.package_typing import CustomNode
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 

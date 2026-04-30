@@ -15,7 +15,6 @@ so that third-party packages (transformers, spandrel, diffusers) that
 
 from __future__ import annotations
 
-# pylint: disable=broad-exception-caught,invalid-name
 
 InterpolationMode = None  # type: ignore[assignment]
 
@@ -40,7 +39,7 @@ for _modpath in (
 if InterpolationMode is None:
     from enum import Enum
 
-    class InterpolationMode(Enum):  # type: ignore[no-redef]  # pylint: disable=function-redefined
+    class InterpolationMode(Enum):  # type: ignore[no-redef]  # noqa: F811
         NEAREST = "nearest"
         NEAREST_EXACT = "nearest-exact"
         BILINEAR = "bilinear"
@@ -51,14 +50,14 @@ if InterpolationMode is None:
 
 # 3. Monkey-patch so third-party code finds the symbol in the usual locations.
 try:
-    import torchvision.transforms as _transforms  # pylint: disable=import-outside-toplevel
+    import torchvision.transforms as _transforms
     if not hasattr(_transforms, "InterpolationMode"):
         _transforms.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
 except Exception:
     pass
 
 try:
-    import torchvision.transforms.functional as _functional  # pylint: disable=import-outside-toplevel
+    import torchvision.transforms.functional as _functional
     if not hasattr(_functional, "InterpolationMode"):
         _functional.InterpolationMode = InterpolationMode  # type: ignore[attr-defined]
 except Exception:

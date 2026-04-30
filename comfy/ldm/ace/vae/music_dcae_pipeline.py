@@ -7,7 +7,7 @@ from .autoencoder_dc import AutoencoderDC
 
 logger = logging.getLogger(__name__)
 try:
-    import torchaudio  # pylint: disable=import-error
+    import torchaudio
 except:
     logger.debug("torchaudio missing, ACE model will be broken")
 

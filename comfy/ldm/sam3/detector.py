@@ -9,7 +9,7 @@ from torchvision.ops import roi_align
 
 from ..modules.attention import optimized_attention
 from .tracker import SAM3Tracker, SAM31Tracker
-from .sam import SAM3VisionBackbone, MLP, PositionEmbeddingSine  # noqa: F401  SAM3VisionBackbone re-exported for __init__
+from .sam import SAM3VisionBackbone, MLP, PositionEmbeddingSine  # noqa: F401
 from ...ops import cast_to_input
 
 TRACKER_CLASSES = {"SAM3": SAM3Tracker, "SAM31": SAM31Tracker}
@@ -576,7 +576,7 @@ class SAM3Model(nn.Module):
         if text_prompts:
             resizer = self.detector.backbone["language_backbone"]["resizer"]
             resized = [(resizer(emb), m.bool() if m is not None else None) for emb, m in text_prompts]
-            def detect_fn(trunk_out):  # pylint: disable=function-redefined
+            def detect_fn(trunk_out):  # noqa: F811
                 all_scores, all_masks = [], []
                 for emb, mask in resized:
                     det = self.detector.forward_from_trunk(trunk_out, emb, mask)

@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
-from ...common_dit import pad_to_patch_size, rms_norm
+from ...common_dit import pad_to_patch_size
 
 
 # From PyTorch internals

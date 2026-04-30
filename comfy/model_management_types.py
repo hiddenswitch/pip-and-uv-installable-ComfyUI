@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import dataclasses
 from abc import ABCMeta, abstractmethod
 import weakref
 from typing import Any, Callable, Protocol, runtime_checkable, Optional, TypeVar, NamedTuple, TYPE_CHECKING

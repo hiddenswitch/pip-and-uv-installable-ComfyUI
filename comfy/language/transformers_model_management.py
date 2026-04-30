@@ -391,7 +391,7 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
             text_streamer = _ProgressTextStreamer(on_finalized_text, tokenizer, True)
 
             try:
-                import triton  # pylint: disable=import-error
+                import triton  # noqa: F401  availability probe
                 has_triton = True
             except (ImportError, ModuleNotFoundError):
                 has_triton = False

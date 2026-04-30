@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from typing import Union, Callable, List, Optional, Protocol, runtime_checkable, Literal
+from typing import Union, Optional, Protocol, runtime_checkable, Literal
 
-import numpy as np
 import torch
-from PIL.Image import Image
-from transformers import BatchEncoding, BatchFeature, TensorType
-from transformers.tokenization_utils_base import TextInput, PreTokenizedInput, TruncationStrategy
-from transformers.utils import PaddingStrategy
+from transformers import BatchEncoding, BatchFeature
 from typing_extensions import TypedDict, NotRequired
 
 from ..component_model.tensor_types import RGBImageBatch

@@ -8,8 +8,8 @@ RMSNorm = None
 logger = logging.getLogger(__name__)
 
 try:
-    rms_norm_torch = torch.nn.functional.rms_norm  # pylint: disable=no-member
-    RMSNorm = torch.nn.RMSNorm  # pylint: disable=no-member
+    rms_norm_torch = torch.nn.functional.rms_norm
+    RMSNorm = torch.nn.RMSNorm
 except:
     rms_norm_torch = None
 

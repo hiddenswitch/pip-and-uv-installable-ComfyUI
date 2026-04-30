@@ -111,8 +111,8 @@ class CausalContinuousVideoTokenizer(nn.Module):
         mean = self.latent_mean.view(latent_ch, -1)
         std = self.latent_std.view(latent_ch, -1)
 
-        mean = mean.repeat(1, math.ceil(latent_t / mean.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)  # pylint: disable=unsubscriptable-object
-        std = std.repeat(1, math.ceil(latent_t / std.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)  # pylint: disable=unsubscriptable-object
+        mean = mean.repeat(1, math.ceil(latent_t / mean.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)
+        std = std.repeat(1, math.ceil(latent_t / std.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)
         return ((z - mean) / std) * self.sigma_data
 
     def decode(self, z):
@@ -122,8 +122,8 @@ class CausalContinuousVideoTokenizer(nn.Module):
         mean = self.latent_mean.view(latent_ch, -1)
         std = self.latent_std.view(latent_ch, -1)
 
-        mean = mean.repeat(1, math.ceil(latent_t / mean.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)  # pylint: disable=unsubscriptable-object
-        std = std.repeat(1, math.ceil(latent_t / std.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)  # pylint: disable=unsubscriptable-object
+        mean = mean.repeat(1, math.ceil(latent_t / mean.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)
+        std = std.repeat(1, math.ceil(latent_t / std.shape[-1]))[:, : latent_t].reshape([1, latent_ch, -1, 1, 1]).to(dtype=in_dtype, device=z.device)
 
         z = z / self.sigma_data
         z = z * std + mean

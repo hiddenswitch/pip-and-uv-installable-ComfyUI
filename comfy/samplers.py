@@ -10,7 +10,6 @@ import numpy
 import scipy.stats
 import torch
 
-from . import model_management
 from . import model_patcher
 from . import patcher_extension
 from . import sampler_helpers

@@ -6,14 +6,12 @@ Rodin API docs: https://developer.hyper3d.ai/
 """
 
 from inspect import cleandoc
-from comfy.comfy_types.node_typing import IO
 from comfy.cmd import folder_paths as comfy_paths
 import os
 import logging
 import math
 
 logger = logging.getLogger(__name__)
-from typing import Optional
 from io import BytesIO
 from typing_extensions import override
 from PIL import Image

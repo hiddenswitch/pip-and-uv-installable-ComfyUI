@@ -18,7 +18,6 @@ import argparse
 import logging
 import os
 import warnings
-import numpy as np
 import re
 
 import gguf
@@ -969,7 +968,7 @@ def gguf_tokenizer_loader(path, temb_shape):
 
     if get_field(reader, "tokenizer.ggml.model", str) == "t5":
         if temb_shape == (256384, 4096):  # probably UMT5
-            spm.trainer_spec.model_type == 1  # Unigram (do we have a T5 w/ BPE?)
+            spm.trainer_spec.model_type = 1  # Unigram (do we have a T5 w/ BPE?)
         else:
             raise NotImplementedError("Unknown model, can't set tokenizer!")
     else:
@@ -1419,7 +1418,7 @@ class GGMLLayer(torch.nn.Module):
             out = self.forward_ggml_cast_weights(input, *args, **kwargs)
         else:
             # this is from the mixin
-            out = super().forward_comfy_cast_weights(input, *args, **kwargs)  # pylint: disable=no-member
+            out = super().forward_comfy_cast_weights(input, *args, **kwargs)
 
         # non-ggml forward might still propagate custom tensor class
         if isinstance(out, GGMLTensor):

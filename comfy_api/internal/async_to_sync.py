@@ -193,7 +193,7 @@ class AsyncToSyncConverter:
         if exception_ is not None:
             if isinstance(exception_, Exception):
                 assert exception_ is not None
-                raise exception_  # pylint: disable=raising-bad-type
+                raise exception_
             else:
                 raise ValueError(exception_)
 

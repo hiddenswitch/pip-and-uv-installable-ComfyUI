@@ -11,7 +11,6 @@ import av
 import numpy as np
 import torch
 try:
-    import torchaudio  # pylint: disable=import-error
     TORCH_AUDIO_AVAILABLE = True
 except:
     TORCH_AUDIO_AVAILABLE = False
@@ -311,7 +310,7 @@ class AudioSaveHelper:
                 # Resample if necessary
                 if sample_rate != audio["sample_rate"]:
                     try:
-                        import torchaudio  # pylint: disable=import-error
+                        import torchaudio
                         waveform = torchaudio.functional.resample(waveform, audio["sample_rate"], sample_rate)
                     except (ImportError, ModuleNotFoundError):
                         logger.warning("could not resample because torchaudio not found")

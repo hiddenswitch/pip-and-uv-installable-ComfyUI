@@ -4,7 +4,7 @@ from .whisper import WhisperLargeV3
 
 from .. import model_management
 from ..model_management import text_encoder_offload_device, text_encoder_device, load_models_gpu, text_encoder_dtype
-from ..model_patcher import ModelPatcher, get_model_patcher_class
+from ..model_patcher import get_model_patcher_class
 from ..ops import manual_cast
 from ..utils import state_dict_prefix_replace
 
@@ -41,7 +41,7 @@ class AudioEncoderModel:
 
     def encode_audio(self, audio, sample_rate):
         # this one we will allow to just bubble up the exception
-        import torchaudio  # pylint: disable=import-error
+        import torchaudio
         load_models_gpu([self.patcher])
         audio = torchaudio.functional.resample(audio, sample_rate, self.model_sample_rate)
         out, all_layers = self.model(audio.to(self.load_device))

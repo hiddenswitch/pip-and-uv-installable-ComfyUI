@@ -341,7 +341,6 @@ class BaseModel(torch.nn.Module):
         if concat_cond is not None:
             out['c_concat'] = conds.CONDNoiseShape(concat_cond)
 
-        # pylint: disable=assignment-from-none
         adm = self.encode_adm(**kwargs)
         if adm is not None:
             out['y'] = conds.CONDRegular(adm)

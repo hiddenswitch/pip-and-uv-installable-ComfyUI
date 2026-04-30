@@ -108,7 +108,7 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     # Media (--image/--video/--audio) needs a class_type rewrite for filesystem
     # loaders → URL loaders, and add_loras/enable_compile splice new nodes
     # into the graph; both stay bespoke.
-    from ..component_model.prompt_utils import (  # pylint: disable=import-outside-toplevel
+    from ..component_model.prompt_utils import (
         replace_images, replace_videos, replace_audios,
         add_loras, enable_compile,
     )
@@ -199,7 +199,6 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
 async def _run_with_progress(comfy: Comfy, prompt: dict):
     """Execute a prompt with a rich progress bar on stderr."""
     from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
-    import sys
 
     task = comfy.queue_with_progress(prompt)
     node_tasks: dict[str, int] = {}

@@ -26,7 +26,7 @@ import aiohttp
 from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 from aiohttp import web
-from can_ada import URL, parse as urlparse  # pylint: disable=no-name-in-module
+from can_ada import URL, parse as urlparse
 from packaging import version
 from typing_extensions import NamedTuple
 

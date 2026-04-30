@@ -14,8 +14,8 @@ ops = ops.disable_weight_init
 logger = logging.getLogger(__name__)
 
 if model_management.xformers_enabled_vae():
-    import xformers  # pylint: disable=import-error
-    import xformers.ops  # pylint: disable=import-error
+    import xformers
+    import xformers.ops
 
 
 def torch_cat_if_needed(xl, dim):

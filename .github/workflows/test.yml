@@ -135,7 +135,8 @@ jobs:
           if command -v rocm-smi >/dev/null 2>&1; then rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
       - name: Lint for errors
         run: |
-          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
           pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
@@ -302,7 +303,8 @@ jobs:
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
@@ -390,7 +392,8 @@ jobs:
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src
-          pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
           cd ${GITHUB_WORKSPACE}/src
@@ -473,7 +476,8 @@ jobs:
           done
       - name: Lint for errors
         run: |
-          C:/venv/Scripts/pylint.exe comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          C:/venv/Scripts/ruff.exe check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          C:/venv/Scripts/pylint.exe -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
         run: |
           C:/venv/Scripts/python.exe -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
@@ -509,4 +513,5 @@ jobs:
           done
       - name: Lint for errors
         run: |
-          uv run pylint comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          uv run ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+          uv run pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/

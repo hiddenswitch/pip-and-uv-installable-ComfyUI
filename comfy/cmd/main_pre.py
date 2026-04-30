@@ -12,7 +12,6 @@ import importlib.util
 import logging
 import os
 import shutil
-import sys
 import warnings
 
 # must be set before any transitive import of requests
@@ -138,7 +137,7 @@ if args.oneapi_device_selector is not None:
     this_logger.info("Set oneapi device selector to: {}".format(args.oneapi_device_selector))
 
 try:
-    from . import cuda_malloc
+    pass
 except Exception:
     pass
 
@@ -263,10 +262,10 @@ _fix_pytorch_240()
 
 def _stub_soundfile():
     try:
-        import soundfile  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
+        import soundfile  # noqa: F401  # noqa: F401
     except (OSError, ImportError):
-        import sys  # pylint: disable=import-outside-toplevel
-        import types  # pylint: disable=import-outside-toplevel
+        import sys
+        import types
         sf = types.ModuleType("soundfile")
         sf.__version__ = "0.0.0"
         sys.modules["soundfile"] = sf
@@ -277,7 +276,7 @@ _stub_soundfile()
 # Patch torchvision InterpolationMode for compatibility with newer torchvision
 # builds where InterpolationMode moved. Must happen before third-party imports
 # (transformers, spandrel, diffusers) that use the old location.
-from .. import torchvision_compat  # pylint: disable=unused-import
+from .. import torchvision_compat  # noqa: F401
 
 # tracer is a lazy module property: created on first access so that when the
 # CLI path (setup_post_torch → setup_tracing) has already initialised the

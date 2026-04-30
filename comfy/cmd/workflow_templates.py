@@ -87,7 +87,7 @@ def _templates_from_package() -> list[TemplateInfo]:
 
 
 def _templates_from_custom_nodes() -> list[TemplateInfo]:
-    from .folder_paths import get_folder_paths  # pylint: disable=import-error
+    from .folder_paths import get_folder_paths
     from ..app.custom_node_manager import CustomNodeManager
 
     custom_node_roots = list(get_folder_paths("custom_nodes"))

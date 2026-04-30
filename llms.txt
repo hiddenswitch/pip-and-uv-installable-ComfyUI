@@ -392,6 +392,26 @@ wants the output to depict.
    uv pip install --torch-backend=auto \
      "comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
    ```
+
+   **Older NVIDIA GPUs (Maxwell / Pascal / Volta — anything older than
+   Turing / RTX 20xx) need `--torch-backend=cu126`.** The current `auto`
+   default is the cu13x wheel, which only ships SASS for `sm_75 sm_80
+   sm_86 sm_90 sm_100 sm_120` and bundles a cuDNN that *refuses to
+   initialize* on devices with compute capability < 7.5. The cu126 wheel
+   still ships `sm_50 sm_60 sm_70 sm_75 sm_80 sm_86 sm_90` and an older
+   cuDNN, and runs on every Pascal/Volta card via NVIDIA's intra-major
+   forward-compat (an `sm_60` cubin executes on `sm_61` hardware, etc.).
+   Affected cards include GTX 9xx (Maxwell), GTX 10xx / Tesla P100 /
+   Quadro P-series (Pascal), and Tesla V100 / Titan V (Volta):
+   ```bash
+   uv pip install --torch-backend=cu126 \
+     "comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
+   ```
+   Symptom of the wrong wheel on these GPUs: `comfyui env check` itself
+   crashes with `RuntimeError: cuDNN version 91900 is not compatible
+   with devices with SM < 7.5`, or torch warns
+   `<your card> with CUDA capability sm_XX is not compatible with the
+   current PyTorch installation`.
    Optional extras follow the usual syntax:
    ```bash
    # With dev tooling (pytest, lint, etc.):

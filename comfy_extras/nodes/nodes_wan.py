@@ -7,8 +7,6 @@ import torch
 from typing_extensions import override
 
 import comfy.clip_vision
-import comfy.clip_vision
-import comfy.latent_formats
 import comfy.latent_formats
 import comfy.model_management
 import comfy.utils
@@ -16,10 +14,7 @@ from comfy import node_helpers
 from comfy.nodes import base_nodes as nodes
 import comfy.latent_formats
 import comfy.clip_vision
-import json
-import numpy as np
-from typing import Tuple, TypedDict
-from typing_extensions import override
+from typing import TypedDict
 from comfy_api.latest import ComfyExtension, io
 from comfy.ldm.wan.model_multitalk import InfiniteTalkOuterSampleWrapper, MultiTalkCrossAttnPatch, MultiTalkGetAttnMapPatch, project_audio_features
 

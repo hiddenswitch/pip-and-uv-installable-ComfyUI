@@ -116,7 +116,7 @@ class RemoteLanguageModel(LanguageModel):
             settings["top_p"] = sampler["top_p"]
         model_settings = ModelSettings(**settings)
 
-        agent = Agent(  # pylint: disable=unexpected-keyword-arg
+        agent = Agent(
             model=self._model_id,
             instructions=system_prompt or "",
         )
@@ -128,7 +128,7 @@ class RemoteLanguageModel(LanguageModel):
 
             async def _run():
                 nonlocal token_count, full_response
-                async with agent.run_stream(  # pylint: disable=no-member
+                async with agent.run_stream(
                     user_prompt=user_parts,
                     model_settings=model_settings,
                 ) as result:

@@ -324,7 +324,7 @@ def load_surface_sharpedge(mesh, num_points=4096, num_sharp_points=4096, sharped
     """Load a surface with optional sharp-edge annotations from a trimesh mesh."""
 
     try:
-        import trimesh  # pylint: disable=import-error
+        import trimesh
     except (ImportError, ModuleNotFoundError) as exc_info:
         logger.warning("trimesh not installed")
         raise exc_info

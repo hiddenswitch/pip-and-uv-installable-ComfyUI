@@ -18,7 +18,7 @@
 
 import json
 import logging
-from typing import Optional, Type
+from typing import Optional
 
 import comfy_aimdo.model_vbar
 import comfy_aimdo.torch
@@ -43,7 +43,7 @@ _RUN_EVERY_OP_ENABLED = model_management.torch_version_numeric >= (2, 5)
 def run_every_op():
     global _RUN_EVERY_OP_ENABLED
     # this is not available on torch 2.3 by testing
-    if not _RUN_EVERY_OP_ENABLED or torch.compiler.is_compiling():  # pylint: disable=no-member
+    if not _RUN_EVERY_OP_ENABLED or torch.compiler.is_compiling():
         return
 
     throw_exception_if_processing_interrupted()
@@ -97,7 +97,7 @@ def _check_cudnn_nvrtc_compatibility():
 
 try:
     if torch.cuda.is_available():
-        from torch.nn.attention import SDPBackend, sdpa_kernel  # pylint: disable=import-error
+        from torch.nn.attention import SDPBackend, sdpa_kernel
         import inspect
 
         if "set_priority" in inspect.signature(sdpa_kernel).parameters:
@@ -1204,7 +1204,7 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                     return sd
 
                 if self.bias is not None:
-                    sd["{}bias".format(prefix)] = self.bias  # pylint: disable=unsupported-assignment-operation
+                    sd["{}bias".format(prefix)] = self.bias
 
                 if self.weight is None:
                     return sd
@@ -1217,13 +1217,13 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                     quant_conf = {"format": self.quant_format}
                     if self._full_precision_mm_config:
                         quant_conf["full_precision_matrix_mult"] = True
-                    sd["{}comfy_quant".format(prefix)] = torch.tensor(list(json.dumps(quant_conf).encode('utf-8')), dtype=torch.uint8)  # pylint: disable=unsupported-assignment-operation
+                    sd["{}comfy_quant".format(prefix)] = torch.tensor(list(json.dumps(quant_conf).encode('utf-8')), dtype=torch.uint8)
 
                     input_scale = getattr(self, 'input_scale', None)
                     if input_scale is not None:
-                        sd["{}input_scale".format(prefix)] = input_scale  # pylint: disable=unsupported-assignment-operation
+                        sd["{}input_scale".format(prefix)] = input_scale
                 else:
-                    sd["{}weight".format(prefix)] = self.weight  # pylint: disable=unsupported-assignment-operation
+                    sd["{}weight".format(prefix)] = self.weight
                 return sd
 
             def _forward(self, input, weight, bias):

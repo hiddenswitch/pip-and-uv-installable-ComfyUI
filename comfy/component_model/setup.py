@@ -113,7 +113,7 @@ def setup_guess_settings(config: Configuration):
 
 
 def setup_cuda_malloc():
-    from ..cmd import cuda_malloc  # pylint: disable=unused-import
+    from ..cmd import cuda_malloc  # noqa: F401
 
 
 _tracing_initialized = False
@@ -243,5 +243,5 @@ def setup_post_torch(config: Configuration):
     setup_logging(config)
     setup_fsspec()
     fix_pytorch_240()
-    from .. import torchvision_compat  # pylint: disable=unused-import
+    from .. import torchvision_compat  # noqa: F401
     setup_tracing(config)

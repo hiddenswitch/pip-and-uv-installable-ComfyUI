@@ -690,7 +690,7 @@ class UNetMidBlock3D(nn.Module):
         inject_noise: bool = False,
         timestep_conditioning: bool = False,
         spatial_padding_mode: str = "zeros",
-        attention_head_dim: int = 8,  # pylint: disable=unused-argument
+        attention_head_dim: int = 8,
     ):
         super().__init__()
         resnet_groups = (

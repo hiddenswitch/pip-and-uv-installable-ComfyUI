@@ -11,7 +11,6 @@ import time
 import types
 from functools import reduce
 from importlib.metadata import entry_points
-from threading import RLock
 
 from opentelemetry.trace import Span, Status, StatusCode
 from comfy_api.internal import register_versions, ComfyAPIWithVersion
@@ -153,7 +152,7 @@ def _import_and_enumerate_nodes_in_module(module: types.ModuleType,
             logger.log(logging.DEBUG if success else logging.ERROR, f"{duration:6.1f} seconds{'' if success else ' (IMPORT FAILED)'}, {module_name} ({len(new_nodes)} nodes loaded)")
     if raise_on_failure and len(exceptions) > 0:
         try:
-            raise ExceptionGroup("Node import failed", exceptions)  # pylint: disable=using-exception-groups-in-unsupported-version
+            raise ExceptionGroup("Node import failed", exceptions)
         except NameError:
             raise exceptions[0]
     return exported_nodes
@@ -167,7 +166,7 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     except (LookupError, AttributeError):
         _nodes_available_at_startup = _nodes_local.nodes = ExportedNodes()
     args = current_execution_context().configuration
-    import sys as _sys, os as _os
+    import sys as _sys
 
     # todo: this is some truly braindead stuff
     register_versions([

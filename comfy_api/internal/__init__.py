@@ -1,5 +1,4 @@
 # Internal infrastructure for ComfyAPI
-# pylint: disable=no-self-argument
 from .api_registry import (
     ComfyAPIBase as ComfyAPIBase,
     ComfyAPIWithVersion as ComfyAPIWithVersion,

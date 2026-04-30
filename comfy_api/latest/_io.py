@@ -1,5 +1,4 @@
 from __future__ import annotations
-# pylint: disable=no-self-argument, unexpected-keyword-arg
 
 import copy
 import inspect
@@ -578,7 +577,7 @@ class Conditioning(ComfyTypeIO):
     Type = CondList
 
 @comfytype(io_type="SAMPLER")
-class Sampler(ComfyTypeIO):  # pylint: disable=function-redefined
+class Sampler(ComfyTypeIO):  # noqa: F811
     if TYPE_CHECKING:
         Type = Sampler
 
@@ -601,7 +600,7 @@ class Clip(ComfyTypeIO):
         Type = CLIP
 
 @comfytype(io_type="CONTROL_NET")
-class ControlNet(ComfyTypeIO):  # pylint: disable=function-redefined
+class ControlNet(ComfyTypeIO):  # noqa: F811
     if TYPE_CHECKING:
         Type = ControlNet
 
@@ -2145,7 +2144,7 @@ class NodeOutput(_NodeOutputInternal):
         if "expand" in data:
             expand = data["expand"]
         # todo: this is being called incorrectly, but since it's untested and unused anyway, maybe we'll wait for upstream to fix it
-        return cls(*args, ui=ui, expand=expand)  # pylint: disable=unexpected-keyword-arg
+        return cls(*args, ui=ui, expand=expand)
 
     def __getitem__(self, index) -> Any:
         return self.args[index]

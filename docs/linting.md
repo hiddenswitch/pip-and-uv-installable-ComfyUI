@@ -4,11 +4,29 @@ This document describes the custom linting rules used in ComfyUI and how to reso
 
 ## Running the Linter
 
+This project uses **two linters that run sequentially**:
+
+1. **ruff** — handles every standard Python lint rule (F-codes, E-codes, W-codes, B-codes from flake8-bugbear, T-codes from flake8-print, S307/S102 from flake8-bandit). This is the bulk of what used to be pylint's coverage. Configuration lives under `[tool.ruff]` in `pyproject.toml`.
+2. **pylint** — runs *only* the five custom checkers in `tests/*_checker.py` (W0001 absolute-import-used, W0002 main-pre-import-not-first, W8001 missing-init, W8002 root-comfy-extras-nodes-file, W9001 sd-clip-model-missing-config). The default pylint profile is disabled via `disable = ["all"]` so pylint does no built-in inference — it's a pure plugin host. This is much faster than full pylint.
+
+Always run **both**, in this order:
+
 ```bash
-pylint -j 32 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
 ```
 
-**Never pipe pylint through `head`, `tail`, or `grep`.** CI evaluates pylint's exit code, which is non-zero whenever any error/warning fires even if the score still rounds to 10.00/10. Filtering hides those failures locally and lets a broken commit ship. Run pylint raw and read the full output. If the volume is unmanageable, fix what's flagged first.
+**Never pipe either tool through `head`, `tail`, or `grep`.** CI evaluates exit codes, which are non-zero whenever any error/warning fires even if pylint's score still rounds to 10.00/10. Filtering hides those failures locally and lets a broken commit ship. Run them raw and read the full output. If the volume is unmanageable, fix what's flagged first.
+
+## Pragma Comments — `# noqa` vs `# pylint: disable=`
+
+- For **ruff** rules (F401, F811, B005, etc.) use `# noqa: <CODE>[,<CODE2>]` at end of line.
+- For **pylint** custom rules use `# pylint: disable=<symbol>`.
+- **Do not combine them** in a single comment like `# pylint: disable=import-error, noqa: F401`. Pylint's option parser treats everything after `disable=` as pylint message symbols and emits W0012 unknown-option-value for `noqa` and `F401`. Keep them as two separate comments if both are needed:
+
+  ```python
+  import optional_pkg  # noqa: F401  # pylint: disable=absolute-import-used
+  ```
 
 ## Custom Linting Rules
 

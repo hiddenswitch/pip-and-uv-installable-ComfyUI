@@ -21,7 +21,7 @@ class WhisperFeatureExtractor(nn.Module):
         self.n_samples = 480000
 
         try:
-            import torchaudio  # pylint: disable=import-error
+            import torchaudio
         except (ImportError, ModuleNotFoundError) as exc_info:
             logger.warning("could not load whisper because torchaudio not found")
             raise exc_info

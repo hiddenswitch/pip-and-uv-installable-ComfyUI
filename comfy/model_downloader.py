@@ -24,7 +24,7 @@ from safetensors.torch import save_file
 
 from .cli_args import args
 from .cmd import folder_paths
-from .cmd.folder_paths import add_model_folder_path, supported_pt_extensions  # pylint: disable=import-error
+from .cmd.folder_paths import add_model_folder_path, supported_pt_extensions
 from .component_model.deprecation import _deprecate_method
 from .component_model.files import canonicalize_path
 from .interruption import InterruptProcessingException
@@ -37,9 +37,9 @@ _hf_fs = HfFileSystem()
 logger = logging.getLogger(__name__)
 
 
-from can_ada import parse as urlparse  # pylint: disable=no-name-in-module
+from can_ada import parse as urlparse
 
-from .component_model.uris import is_uri, is_hf_uri
+from .component_model.uris import is_uri
 
 
 def _get_hf_token():
@@ -265,7 +265,7 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                                     if key.startswith("HF_"):
                                         if key == "HF_TOKEN":
                                             value = "*****"
-                                        print(f"{key}={value}", file=sys.stderr)
+                                        logger.error("%s=%s", key, value)
 
                     if path is not None and known_file.convert_to_16_bit and file_size is not None and file_size != 0:
                         tensors = {}
@@ -853,7 +853,6 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
     'microsoft/Florence-2-base',
     'microsoft/Florence-2-base-ft',
     'microsoft/Florence-2-large',
-    'microsoft/Florence-2-large-ft',
     'thwri/CogFlorence-2.1-Large',
     'thwri/CogFlorence-2.2-Large',
     'gokaygokay/Florence-2-SD3-Captioner',

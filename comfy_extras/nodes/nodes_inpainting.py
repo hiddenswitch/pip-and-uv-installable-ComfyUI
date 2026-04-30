@@ -20,8 +20,8 @@ class CompositeContext(NamedTuple):
 
 
 def composite(
-        destination: Float[Tensor, "B C H W"],
-        source: Float[Tensor, "B C H W"],
+        destination: Float[Tensor, "B C H W"],  # noqa: F722
+        source: Float[Tensor, "B C H W"],  # noqa: F722
         x: int,
         y: int,
         mask: Optional[MaskBatch] = None,

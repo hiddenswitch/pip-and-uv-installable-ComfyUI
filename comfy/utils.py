@@ -79,13 +79,13 @@ if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in 
     # scalar.__module__ = "numpy.core.multiarray"
 
     try:
-        from numpy.core.multiarray import scalar  # pylint: disable=no-name-in-module
+        from numpy.core.multiarray import scalar
     except (ImportError, ModuleNotFoundError):
         from numpy import generic as scalar
     from numpy import dtype
 
     try:
-        from numpy.dtypes import Float64DType  # pylint: disable=no-name-in-module,import-error
+        from numpy.dtypes import Float64DType
     except (ImportError, ModuleNotFoundError):
         Float64DType = np.float64
 

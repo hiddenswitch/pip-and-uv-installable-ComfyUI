@@ -50,7 +50,7 @@ class NoteModel:
 
         Anything else → plain ``UrlFile``.
         """
-        from ..model_downloader_types import CivitFile, FsspecFile, HuggingFile, UrlFile
+        from ..model_downloader_types import FsspecFile, HuggingFile, UrlFile
 
         hf = _parse_huggingface_url(self.url)
         if hf is not None:

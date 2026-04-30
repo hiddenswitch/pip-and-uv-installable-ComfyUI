@@ -2,7 +2,6 @@ import json
 import logging
 from typing import Optional
 
-import torch
 
 from . import clip_model
 from . import model_management
