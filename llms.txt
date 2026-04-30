@@ -482,28 +482,87 @@ wants the output to depict.
 
 ---
 
-## Discover what's installed vs missing
+## Acquiring models
 
-Don't assume. The user's models live under `models/<folder>/`; custom
-nodes live as facade packages. Check before downloading.
+`--all` on `comfyui run-workflow` is the surface. Discovery, registration,
+and download all happen as part of it; you don't invoke them separately.
 
 ```bash
-# What models are present locally?
-comfyui models ls --folder loras
-comfyui models ls --folder checkpoints
-
-# What does this workflow need? (reads its node inputs)
-comfyui models from-workflow image_flux2_klein_text_to_image --dry-run
-# prints found models to stdout; missing models (that would be fetched
-# with --all) to stderr.
-
-# Where are things looked up?
-comfyui models paths --folder loras
+comfyui run-workflow workflow.json --all
 ```
 
-When models are missing, **ask the user before downloading**. Rule of
-thumb: anything over 1 GB deserves a yes/no check. `--all` on a
-workflow run (see below) will download missing models automatically.
+What `--all` does, in order:
+
+1. **Resolve HF-hosted files** via `huggingface_hub.hf_hub_download(local_files_only=True)`.
+   The cache is owned by `huggingface_hub`; never register it as a folder path.
+2. **Find non-HF files** by querying the OS file index — Spotlight on macOS
+   (`mdfind`), Windows Search on Windows (`Search.CollatorDSO` via pywin32),
+   `plocate`/`mlocate`/`locate` on Linux. No root list — the OS index decides
+   what's reachable. On Windows, fixed drives outside the indexer's scope
+   (almost always D:\, E:\, …) are walked under a per-drive timeout (default
+   30 s, override with `COMFYUI_SCAN_TIMEOUT=N`). When `locate` is missing on
+   Linux, the same walk fallback runs against `~`, `/opt`, `/mnt`, `/srv`,
+   `/media/$USER`. Walks are depth-bounded (6) and skip the usual noise
+   (`$RECYCLE.BIN`, `node_modules`, `.git`, `.cargo`, `.gradle`, …).
+3. **Classify** each `.safetensors`/`.ckpt`/`.pt`/`.gguf`/`.onnx` by
+   parent-directory name (`Stable-diffusion`/`checkpoints` → `checkpoints`,
+   `Lora`/`loras` → `loras`, `vae` → `vae`, `ControlNet`/`controlnet` →
+   `controlnet`, `ultralytics/bbox`/`adetailer` → `ultralytics_bbox`, …),
+   then by filename pattern. Files inside a HF cache snapshot (any segment
+   matching `models--<org>--<repo>`) are tagged `is_hf_cache` and resolved
+   per-file via `hf_hub_download`, not registered.
+4. **Register** each `(kind, parent_dir)` pair via
+   `folder_paths.add_model_folder_path` for the run. No symlink, hardlink,
+   or copy. The source files are never touched. In-memory only.
+5. **Download** what remains — `hf download` for HF refs, `comfyui models download`
+   for Civitai / direct URLs. Blobs land in `~/.cache/huggingface/hub`, which
+   the next `--all` finds for free.
+
+### `--dry-run`
+
+Print the plan and exit without downloading or executing:
+
+```bash
+comfyui run-workflow workflow.json --all --dry-run
+```
+
+Output groups discovered files by `(kind, parent_dir)`, lists the literal
+`--add-model-folder-path` entries that would be applied, lists the missing
+files that would be downloaded with their target folder, summarizes each
+backend (which indexer ran, how long, how many matches per walked drive,
+which hit the timeout), and shows free disk on the output volume. Errors —
+permission denied on a scan dir, missing pywin32 on Windows, an
+unresolvable filename — propagate as Python tracebacks. There are no
+confirmation prompts, ever.
+
+### `--add-model-folder-path` (escape hatch)
+
+Repeatable common arg on every subcommand. Format `KIND=PATH`. Use when
+auto-discovery missed something — a NAS that isn't in the OS index, an
+unusual layout the classifier didn't recognize, or a path you want
+registered before discovery even runs.
+
+```bash
+comfyui run-workflow workflow.json --all \
+  --add-model-folder-path checkpoints=/mnt/cold-storage/sdxl \
+  --add-model-folder-path loras=/mnt/nas/loras
+
+comfyui serve --add-model-folder-path checkpoints=~/ComfyUI/models/checkpoints
+```
+
+Env-var form: `COMFYUI_ADD_MODEL_FOLDER_PATH="checkpoints=/mnt/nas/sdxl,loras=/mnt/nas/loras"`
+(`,` separates entries; if a path contains `,`, repeat the flag instead).
+
+### Inspecting state without `--all`
+
+```bash
+comfyui models ls --folder loras           # files in registered loras dirs
+comfyui models paths --folder loras        # registered loras dirs
+comfyui models from-workflow <ref> --dry-run   # what models a template needs
+```
+
+These don't run discovery — they just show the current state. Use `--all
+--dry-run` when you want the picture *with* discovery applied.
 
 ---
 
