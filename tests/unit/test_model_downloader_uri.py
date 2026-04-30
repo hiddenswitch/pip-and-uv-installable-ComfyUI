@@ -10,7 +10,8 @@ import os
 import pytest
 from unittest.mock import patch
 
-from comfy.model_downloader import is_hf_uri, is_uri, parse_hf_uri, get_or_download
+from comfy.component_model.uris import is_hf_uri, is_uri
+from comfy.model_downloader import parse_hf_uri, get_or_download
 from comfy.model_downloader_types import HuggingFile
 
 

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 from can_ada import parse as urlparse
 
-from .component_model.uris import is_uri, is_hf_uri  # noqa: F401  is_hf_uri re-exported for tests/external callers
+from .component_model.uris import is_uri
 
 
 def _get_hf_token():
