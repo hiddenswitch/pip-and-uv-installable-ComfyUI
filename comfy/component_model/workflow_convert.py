@@ -12,6 +12,7 @@ The logic mirrors the frontend ``graphToPrompt`` implementation from
 """
 from __future__ import annotations
 
+import contextvars
 from copy import deepcopy
 import logging
 import re
@@ -21,6 +22,13 @@ from typing import Final, Optional
 from .litegraph_types import LiteLink
 
 logger = logging.getLogger(__name__)
+
+# Node mappings active during a ``convert_ui_to_api`` call. Used by deep
+# helpers (e.g. ``_get_inner_widget_value``) to look up INPUT_TYPES on inner
+# subgraph nodes without threading the parameter through every recursion.
+_active_node_mappings: contextvars.ContextVar = contextvars.ContextVar(
+    "_active_node_mappings", default=None,
+)
 
 _WIDGET_TYPES: Final[frozenset[str]] = frozenset({"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"})
 
@@ -288,12 +296,11 @@ def _consume_dynamic_combo_subwidgets(
                     continue
                 result[dotted] = _wrap_value(default_value)
 
-            for extra_name in _extra_widgets_after(
-                sub_opts, name=sub_name, type_spec=sub_type,
-            ):
+            # The frontend does not add the auto seed control widget for
+            # dynamic combo sub-inputs (only top-level seed/noise_seed widgets
+            # get it). Only honor explicit control_after_generate here.
+            if sub_opts.get("control_after_generate"):
                 if idx < len(widgets_values):
-                    if extra_name is not None:
-                        result[f"{dotted}.{extra_name}"] = _wrap_value(widgets_values[idx])
                     idx += 1
 
     return idx
@@ -885,6 +892,82 @@ def _build_dto_map(workflow, sg_defs):
     return dto_map
 
 
+def _get_inner_widget_value(inner_node: dict, target_name: str, node_mappings) -> tuple[bool, object]:
+    """Find a widget's value on an inner subgraph node by replicating the frontend
+    widget construction order.
+
+    Mirrors ``resolvePromotedWidgetAtHost`` (frontend ``core/graph/subgraph/
+    resolveConcretePromotedWidget.ts``): finds ``node.widgets[name]`` and returns
+    its ``.value``. The widget index in ``widgets_values`` is determined by
+    walking ``INPUT_TYPES`` in declaration order, with the same extra-widget
+    logic as ``_map_widgets`` (seed control, image/video/audio upload buttons,
+    DynamicCombo sub-widgets).
+    """
+    if node_mappings is None:
+        return False, None
+
+    class_type = inner_node.get('type')
+    class_def = _get_node_class(node_mappings, class_type) if class_type else None
+    if class_def is None:
+        return False, None
+
+    input_types = _get_input_types(class_def)
+    if not input_types:
+        return False, None
+
+    inner_wv = inner_node.get('widgets_values', [])
+    if not isinstance(inner_wv, list):
+        return False, None
+
+    # Walk widgets in the same order _map_widgets does. Track the widget index
+    # used to address widgets_values, advancing past extras (seed control,
+    # upload buttons, DynamicCombo sub-widgets) so the lookup matches the
+    # frontend's ``node.widgets`` array indexing.
+    required = input_types.get("required", {})
+    optional = input_types.get("optional", {})
+    idx = 0
+    for name, entry in list(required.items()) + list(optional.items()):
+        type_spec, opts = _input_type_and_opts(entry)
+        if not _is_widget_type(type_spec, opts):
+            continue
+        if opts.get("forceInput"):
+            continue
+        if name == target_name:
+            if idx < len(inner_wv):
+                return True, inner_wv[idx]
+            default_value = _frontend_widget_default(type_spec, opts)
+            return (True, default_value) if default_value is not None else (False, None)
+        idx += 1
+        for _ in _extra_widgets_after(opts, name=name, type_spec=type_spec):
+            idx += 1
+        if type_spec == "COMFY_DYNAMICCOMBO_V3":
+            # Dynamic combo: skip past sub-widgets for the SELECTED option.
+            selected_key = inner_wv[idx - 1] if (idx - 1) < len(inner_wv) else None
+            options = opts.get("options", []) if isinstance(opts, dict) else []
+            matched_option = None
+            for option in options:
+                if not isinstance(option, dict):
+                    continue
+                key = option.get("key")
+                if key == selected_key or getattr(key, "value", None) == selected_key:
+                    matched_option = option
+                    break
+            if matched_option is not None:
+                sub_inputs = matched_option.get("inputs", {})
+                for section in ("required", "optional"):
+                    for _sub_name, sub_entry in sub_inputs.get(section, {}).items():
+                        sub_type, sub_opts = _input_type_and_opts(sub_entry)
+                        if not _is_widget_type(sub_type, sub_opts):
+                            continue
+                        if sub_opts.get("forceInput"):
+                            continue
+                        idx += 1
+                        if sub_opts.get("control_after_generate"):
+                            idx += 1
+
+    return False, None
+
+
 def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
     inp_name = _get_subgraph_boundary_name(sg_node, slot, sg_def)
     if inp_name is None:
@@ -899,6 +982,18 @@ def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
     if isinstance(wv, dict):
         wv = []
 
+    # Modern proxyWidgets format: [[internalNodeId, widgetName], ...] aligned
+    # positionally with subgraph_def.inputs and widgets_values. When the
+    # boundary slot has a corresponding proxy widget AND the user has
+    # customised the value (widgets_values has an entry at this slot),
+    # return the matching widgets_values entry.
+    if slot < len(proxy_widgets) and slot < len(wv):
+        pw = proxy_widgets[slot]
+        if isinstance(pw, (list, tuple)) and len(pw) >= 2 and pw[1] == inp_name:
+            return True, wv[slot]
+
+    # Legacy group-node format: proxyWidgets entries with sentinel '-1' nodeId
+    # are matched by widget name only.
     for pw_idx, pw in enumerate(proxy_widgets):
         if not isinstance(pw, (list, tuple)) or len(pw) < 2:
             continue
@@ -909,6 +1004,44 @@ def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
 
     if sg_def and wv and not proxy_widgets:
         return _get_sg_widget_positional(sg_def, inp_name, wv)
+
+    # Outer widgets_values is empty (subgraph not customised) and a proxy
+    # widget is registered: read the inner promoted widget's actual value
+    # by following the inner link from the subgraph_input boundary slot to
+    # the target inner node's input. Mirrors ``PromotedWidgetView.value`` ->
+    # ``resolveAtHost`` (frontend ``core/graph/subgraph/promotedWidgetView.ts``
+    # line 131-135), which falls through to the interior widget's value when
+    # ``useWidgetValueStore`` has no override for that proxy.
+    if sg_def and not wv and proxy_widgets:
+        # Walk the subgraph's inner links to find the inner node that consumes
+        # this boundary slot.
+        for raw in sg_def.get('links', []):
+            link = _parse_link(raw)
+            if link.src_node != _SUBGRAPH_INPUT_NODE_ID or link.src_slot != slot:
+                continue
+            target_node = None
+            for inner in sg_def.get('nodes', []):
+                if inner.get('id') == link.dst_node:
+                    target_node = inner
+                    break
+            if target_node is None:
+                continue
+            # Determine the inner widget name from the target input slot.
+            target_inputs = target_node.get('inputs', [])
+            if link.dst_slot >= len(target_inputs):
+                continue
+            target_input = target_inputs[link.dst_slot]
+            widget = target_input.get('widget')
+            inner_widget_name = None
+            if isinstance(widget, dict):
+                inner_widget_name = widget.get('name')
+            if inner_widget_name is None:
+                inner_widget_name = target_input.get('name')
+            if not inner_widget_name:
+                continue
+            return _get_inner_widget_value(
+                target_node, inner_widget_name, _active_node_mappings.get(),
+            )
 
     return False, None
 
@@ -1178,6 +1311,14 @@ def convert_ui_to_api(
         from ..nodes_context import get_nodes
         node_mappings = get_nodes()
 
+    _node_mappings_token = _active_node_mappings.set(node_mappings)
+    try:
+        return _convert_ui_to_api_impl(workflow, preserve_unknown_nodes, node_mappings)
+    finally:
+        _active_node_mappings.reset(_node_mappings_token)
+
+
+def _convert_ui_to_api_impl(workflow, preserve_unknown_nodes, node_mappings):
     workflow = _compress_widget_input_slots(workflow)
     sg_defs = _collect_subgraph_defs(workflow)
 

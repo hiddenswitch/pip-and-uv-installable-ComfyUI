@@ -80,11 +80,23 @@ def cleanup_temp():
     from ..cmd import folder_paths
     tmp_dir = Path(args.temp_directory or folder_paths.get_temp_directory())
     counter_path = tmp_dir / "counter.txt"
-    fc_i = -1
+    fc = FileCounter(counter_path)
     try:
-        with FileCounter(counter_path) as fc:
+        with fc:
             yield
-        fc_i = fc.ctr
     finally:
-        if fc_i == 0 and tmp_dir.is_dir():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # Race-safe cleanup: re-acquire the FileCounter lock so the count
+        # check and rmtree happen atomically with respect to other threads
+        # entering/exiting cleanup_temp. Without the lock, a peer thread
+        # could enter (count=1) and assert the directory exists in the
+        # interval between this thread's decrement-to-zero and the rmtree.
+        lock = filelock.SoftFileLock(f"{counter_path}.lock")
+        with lock:
+            try:
+                with open(counter_path, 'r') as f:
+                    content = f.read().strip()
+                    current_count = int(content) if content else 0
+            except (FileNotFoundError, ValueError):
+                current_count = 0
+            if current_count == 0 and tmp_dir.is_dir():
+                shutil.rmtree(tmp_dir, ignore_errors=True)

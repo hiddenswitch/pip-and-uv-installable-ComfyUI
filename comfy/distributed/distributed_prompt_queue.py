@@ -3,6 +3,7 @@ from ..cmd.main_pre import tracer
 
 import typing
 import asyncio
+import logging
 import time
 import uuid
 from asyncio import AbstractEventLoop, Queue, QueueEmpty
@@ -25,6 +26,8 @@ from ..component_model.abstract_prompt_queue import AsyncAbstractPromptQueue, Ab
 from ..component_model.executor_types import ExecutorToClientProgress, SendSyncEvent, SendSyncData, HistoryResultDict, ExecutionErrorMessage
 from ..component_model.queue_types import Flags, HistoryEntry, QueueTuple, QueueItem, ExecutionStatus, TaskInvocation, \
     ExecutionError
+
+logger = logging.getLogger(__name__)
 
 
 class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
@@ -293,15 +296,31 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
         if self._is_caller:
             await self._caller_progress_handlers.unregister_all()
 
-        # Purge the result queue before closing the RPC so that
-        # delete(if_empty=True) in RPC.close() does not fail with
-        # PRECONDITION_FAILED when leftover messages remain (e.g.
-        # dead-lettered messages or in-flight replies).
+        # Tear down the RPC's result queue before calling rpc.close().
+        # aio_pika's RPC.close() calls ``result_queue.delete()`` with the
+        # default ``if_empty=True``/``if_unused=True``, which races with
+        # in-flight or dead-lettered replies and raises PRECONDITION_FAILED.
+        # Pre-deleting unconditionally avoids the race; rpc.close() then
+        # tries to delete an already-removed queue (NOT_FOUND), which we
+        # swallow.
         if self._rpc and hasattr(self._rpc, 'result_queue'):
-            await self._rpc.result_queue.purge()
+            try:
+                await self._rpc.result_queue.delete(if_unused=False, if_empty=False)
+            except Exception as exc:
+                logger.debug("Pre-delete of RPC result queue failed: %s", exc)
 
-        await self._rpc.close()
-        await self._channel.close()
-        await self._connection.close()
+        try:
+            await self._rpc.close()
+        except Exception as exc:
+            logger.debug("aio_pika RPC.close raised after pre-delete: %s", exc)
+
+        try:
+            await self._channel.close()
+        except Exception as exc:
+            logger.debug("Channel close failed: %s", exc)
+        try:
+            await self._connection.close()
+        except Exception as exc:
+            logger.debug("Connection close failed: %s", exc)
         self._initialized = False
         self._closing = False

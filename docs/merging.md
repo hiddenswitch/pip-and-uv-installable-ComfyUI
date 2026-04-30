@@ -726,6 +726,16 @@ The Python module `comfy/component_model/workflow_convert.py` implements the sam
 
 The Playwright parity test (`tests/unit/test_workflow_convert_playwright.py`) validates that the Python conversion produces identical output to the real frontend JavaScript for every template workflow shipped with `comfyui-workflow-templates`.
 
+### Hard Rule: Port the Frontend Exactly
+
+To fix any workflow conversion bug, you **must translate exactly what the frontend does in TypeScript into Python** by cloning the matching tag of the frontend repo and reading the source:
+
+```bash
+git clone --depth 1 --branch v<VERSION> https://github.com/Comfy-Org/ComfyUI_frontend.git /tmp/comfyui-frontend
+```
+
+Do not guess from cached output, infer from a single failing test, or invent heuristics. Every divergence between Python and the frontend is fixed by finding the corresponding TypeScript code path and replicating its behavior 1:1. If you cannot find the relevant frontend code, keep searching — do not patch around it.
+
 ### How the Test Works
 
 1. A headless Chromium browser loads the compiled ComfyUI frontend

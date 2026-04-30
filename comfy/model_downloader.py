@@ -959,6 +959,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/flux2-dev", "split_files/diffusion_models/flux2_dev_fp8mixed.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4B", "flux-2-klein-base-4b.safetensors"),
     HuggingFile("Comfy-Org/flux2-klein", "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
+    # ERNIE Image (Comfy-Org)
+    HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image-turbo.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/diffusion_models/z_image_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/z_image", "split_files/diffusion_models/z_image_bf16.safetensors"),
@@ -1268,7 +1270,6 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("DiffSynth-Studio/Qwen-Image-Layered-Control", "qwen_image_layered_control_bf16.safetensors"),
     # ERNIE Image (Comfy-Org)
     HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image.safetensors"),
-    HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image-turbo.safetensors"),
     # FireRed Image Edit 1.1 (FireRedTeam)
     HuggingFile("FireRedTeam/FireRed-Image-Edit-1.1-ComfyUI", "FireRed-Image-Edit-1.1-transformer.safetensors"),
     # Wan 2.2 Animate (Comfy-Org repack)
