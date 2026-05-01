@@ -491,56 +491,187 @@ and download all happen as part of it; you don't invoke them separately.
 comfyui run-workflow workflow.json --all
 ```
 
-What `--all` does, in order:
+What `--all` does, in order: install missing custom-node packages,
+**discover existing model files on the host** (the rest of this section),
+**classify and register** each one against ComfyUI's `folder_paths` index,
+then download whatever's still missing. Everything is in-memory — no
+symlink, hardlink, junction, or copy is ever made; the source files are
+never touched.
 
-1. **Resolve HF-hosted files** via `huggingface_hub.hf_hub_download(local_files_only=True)`.
-   The cache is owned by `huggingface_hub`; never register it as a folder path.
-2. **Find non-HF files** by querying the OS file index — Spotlight on macOS
-   (`mdfind`), Windows Search on Windows (`Search.CollatorDSO` via pywin32),
-   `plocate`/`mlocate`/`locate` on Linux. No root list — the OS index decides
-   what's reachable. On Windows, fixed drives outside the indexer's scope
-   (almost always D:\, E:\, …) are walked under a per-drive timeout (default
-   30 s, override with `COMFYUI_SCAN_TIMEOUT=N`). When `locate` is missing on
-   Linux, the same walk fallback runs against `~`, `/opt`, `/mnt`, `/srv`,
-   `/media/$USER`. Walks are depth-bounded (6) and skip the usual noise
-   (`$RECYCLE.BIN`, `node_modules`, `.git`, `.cargo`, `.gradle`, …).
-3. **Classify** each `.safetensors`/`.ckpt`/`.pt`/`.gguf`/`.onnx` by
-   parent-directory name (`Stable-diffusion`/`checkpoints` → `checkpoints`,
-   `Lora`/`loras` → `loras`, `vae` → `vae`, `ControlNet`/`controlnet` →
-   `controlnet`, `ultralytics/bbox`/`adetailer` → `ultralytics_bbox`, …),
-   then by filename pattern. Files inside a HF cache snapshot (any segment
-   matching `models--<org>--<repo>`) are tagged `is_hf_cache` and resolved
-   per-file via `hf_hub_download`, not registered.
-4. **Register** each `(kind, parent_dir)` pair via
-   `folder_paths.add_model_folder_path` for the run. No symlink, hardlink,
-   or copy. The source files are never touched. In-memory only.
-5. **Download** what remains — `hf download` for HF refs, `comfyui models download`
-   for Civitai / direct URLs. Blobs land in `~/.cache/huggingface/hub`, which
-   the next `--all` finds for free.
+The bulk of this section explains the discovery mechanism so you know how
+the find-don't-download behavior works and how to debug it when it misses
+something.
+
+### Stage 1 — HF-hosted resolution (`huggingface_hub`)
+
+A workflow's required filename is first checked against the local
+HuggingFace cache via:
+
+```python
+from huggingface_hub import hf_hub_download
+blob = hf_hub_download(repo_id, filename, local_files_only=True)
+# returns absolute path to the cached blob, or raises if not present
+```
+
+`huggingface_hub` already knows about every cache root the user could have
+configured: `$HF_HOME`, `~/.cache/huggingface/hub` (Linux/macOS),
+`%LOCALAPPDATA%\huggingface\hub` (Windows), and `XDG_CACHE_HOME`. ComfyUI
+**does not** add the HF cache as a `folder_paths` entry — the HF snapshot
+layout (`models--<org>--<repo>/snapshots/<rev>/...`, blob symlinks,
+config/tokenizer files) doesn't match a flat `checkpoints/` shape and
+mixing them confuses the loader. Resolution stays per-file via
+`hf_hub_download`; the returned absolute path is passed to the loader as-is.
+
+### Stage 2 — On-disk search (`comfy.cmd.model_search`)
+
+For files that aren't in the HF cache, `find_files()` queries the host's
+native indexer through proper Python bindings — never shell glue:
+
+| OS | Backend | Underlying API |
+|---|---|---|
+| macOS | `mdfind` (subprocess; same engine as `NSMetadataQuery`) | Spotlight |
+| Windows | `pywin32` → `ADODB.Connection` over `Search.CollatorDSO` | Windows Search |
+| Linux | `plocate` → `mlocate` → `locate` (subprocess; whichever is installed) | locate database |
+
+The query is a single SQL-shaped clause matching every default extension
+(`.safetensors`, `.ckpt`, `.pt`, `.gguf`, `.onnx` — `.bin` is excluded
+because cargo, gradle, browsers, and Unity all generate too many noise
+matches). Results come back in milliseconds when the index is warm.
+
+#### Walk fallback for indexer gaps
+
+Indexers don't see everything. Two common gaps:
+
+- **Windows secondary drives.** `Search.CollatorDSO` only sees what's been
+  added to the indexer's scope — by default, `%USERPROFILE%`, the Start
+  Menu, and offline files. Secondary fixed drives (D:\\, E:\\, NVMe vaults
+  where the multi-TB model collection lives) almost never make it in.
+- **Linux without `plocate`.** Ubuntu Server, Fedora minimal, most Docker
+  base images — no locate database at all. The query returns 0 rows and
+  every model on the system is invisible to Stage 2.
+
+In both cases, a depth-bounded `os.scandir` walk runs against a fixed root
+set under a **per-drive/per-root timeout** (default 30 s, override with
+`COMFYUI_SCAN_TIMEOUT=N`). Roots:
+
+| OS | Walked roots |
+|---|---|
+| Windows | every fixed drive returned by `GetDriveTypeW(... ) == DRIVE_FIXED` |
+| Linux (no locate) | `~`, `/opt`, `/srv`, `/mnt`, `/media/$USER` |
+| macOS | (locate is not used; Spotlight is always available) |
+
+Each walk:
+
+- caps depth at 6 from the root,
+- skips the usual noise (`$RECYCLE.BIN`, `System Volume Information`,
+  `Windows`, `Program Files`, `node_modules`, `.git`, `.cache`, `.cargo`,
+  `.gradle`, `.npm`, `venv`, `.venv`, `__pycache__`, …),
+- catches **only** `PermissionError` on `os.scandir` so system-protected
+  dirs are skipped silently while real errors surface,
+- emits a per-root summary line for the dry-run (matches found, time
+  elapsed, whether it hit the deadline).
+
+If a walk hits its timeout, the dry-run summary marks it `(timeout)`. The
+fix is either `--scan-timeout <N>` for that run, or
+`--add-model-folder-path KIND=PATH` to point the agent directly at the
+location, or pulling that drive into the OS index (Windows: Settings →
+Search → Searching Windows; Linux: install `plocate` and run
+`updatedb`).
+
+### Stage 3 — Classification (`comfy.cmd.model_classifier`)
+
+Each discovered path is mapped to a ComfyUI `folder_paths` kind plus the
+parent directory that should be registered. Three signals, in order:
+
+1. **Parent-directory name match** (high confidence). Walks `path.parents`
+   from the immediate parent outward, returning on the first segment that
+   matches the kind table. Excerpts:
+
+   | Parent dir name (case-insensitive) | → kind |
+   |---|---|
+   | `checkpoints`, `Stable-diffusion`, `stablediffusion`, `sdxl`, `sd` | `checkpoints` |
+   | `loras`, `Lora`, `lycoris` | `loras` |
+   | `vae`, `vaes` | `vae` |
+   | `clip_vision`, `clip-vision` | `clip_vision` |
+   | `controlnet`, `controlnets`, `t2i_adapter`, `diff_controlnet` | `controlnet` |
+   | `upscale_models`, `ESRGAN`, `RealESRGAN`, `swinir` | `upscale_models` |
+   | `embeddings`, `textual_inversion` | `embeddings` |
+   | `diffusion_models`, `unet`, `unet_models` | `diffusion_models` |
+   | `text_encoders`, `clip` | `text_encoders` |
+   | `style_models`, `hypernetworks`, `photomaker`, `audio_encoders`, … | (kind = dir name) |
+   | `ultralytics_bbox`, `bbox`, `adetailer` | `ultralytics_bbox` |
+   | `insightface`, `antelopev2`, `buffalo_l`, `buffalo_m`, `buffalo_s` | `insightface` |
+
+   The right-hand-side aliases cover A1111 / Forge / InvokeAI / ImpactPack
+   layouts so a neighbor `~/stable-diffusion-webui/models/Stable-diffusion/`
+   resolves into ComfyUI's `checkpoints` kind without renaming anything.
+
+2. **Filename-pattern match** (medium confidence). Used when no parent dir
+   in the chain hits the table:
+   - `*_lora*.safetensors` or `lora_*.safetensors` → `loras`
+   - `*vae*.safetensors` → `vae`
+   - `*yolov*.pt`, `*face*.pt`, `*hand*.pt`, `*person*.pt` → `ultralytics_bbox`
+   - `*.gguf` → `diffusion_models`
+
+3. **HF cache passthrough.** If any path segment matches
+   `models--<org>--<repo>` (the HF cache convention), the file is tagged
+   `is_hf_cache=True` and **not classified** — Stage 1 already handles those.
+
+Files that miss all three signals are reported as `unclassified` in the
+dry-run output and are not registered. They become visible to ComfyUI only
+if you point an `--add-model-folder-path` at them.
+
+### Stage 4 — Registration (`folder_paths.add_model_folder_path`)
+
+For each unique `(kind, parent_dir)` pair the classifier produced,
+ComfyUI calls:
+
+```python
+folder_paths.add_model_folder_path(kind, parent_dir)
+```
+
+This appends `parent_dir` to the runtime list of directories ComfyUI
+searches when a node asks for a file of that kind. ComfyUI's loader logic
+(`folder_paths.get_full_path`) iterates that list at lookup time and
+returns the absolute path of the first match. **The file is never
+moved, copied, or symlinked** — the registered dir lives wherever the
+user originally put it (HF cache, neighbor ComfyUI install, NAS mount,
+`~/Downloads`).
+
+Registration is per-process. To persist registrations across runs, write
+them to `extra_model_paths.yaml` (ComfyUI loads that file at startup) or
+use the `--add-model-folder-path` flag in your shell history / scripts.
+
+### Stage 5 — Download what's still unresolved
+
+After registration, `_download_workflow_models` walks the workflow's node
+inputs, looks each filename up via `folder_paths.get_full_path`, and only
+downloads the ones that still don't resolve. Found files are silently
+reused from wherever Stage 2 + 3 + 4 placed them.
 
 ### `--dry-run`
 
-Print the plan and exit without downloading or executing:
+Prints the plan and exits without downloading or executing:
 
 ```bash
 comfyui run-workflow workflow.json --all --dry-run
 ```
 
-Output groups discovered files by `(kind, parent_dir)`, lists the literal
-`--add-model-folder-path` entries that would be applied, lists the missing
-files that would be downloaded with their target folder, summarizes each
-backend (which indexer ran, how long, how many matches per walked drive,
-which hit the timeout), and shows free disk on the output volume. Errors —
-permission denied on a scan dir, missing pywin32 on Windows, an
-unresolvable filename — propagate as Python tracebacks. There are no
-confirmation prompts, ever.
+Output groups discovered files by `(kind, parent_dir)` with counts, lists
+the literal `--add-model-folder-path` entries that would be applied, lists
+the missing files that would be downloaded with their target folder,
+summarizes each backend (which indexer ran, how long, how many matches per
+walked drive, which hit the timeout), and shows free disk on the output
+volume. Errors — permission denied on a scan dir, missing pywin32 on
+Windows, an unresolvable filename — propagate as Python tracebacks. There
+are no confirmation prompts, ever.
 
 ### `--add-model-folder-path` (escape hatch)
 
 Repeatable common arg on every subcommand. Format `KIND=PATH`. Use when
-auto-discovery missed something — a NAS that isn't in the OS index, an
-unusual layout the classifier didn't recognize, or a path you want
-registered before discovery even runs.
+discovery missed something — a NAS that isn't in the OS index, an unusual
+layout the classifier didn't recognize, or a path you want registered
+before discovery even runs.
 
 ```bash
 comfyui run-workflow workflow.json --all \
@@ -552,6 +683,8 @@ comfyui serve --add-model-folder-path checkpoints=~/ComfyUI/models/checkpoints
 
 Env-var form: `COMFYUI_ADD_MODEL_FOLDER_PATH="checkpoints=/mnt/nas/sdxl,loras=/mnt/nas/loras"`
 (`,` separates entries; if a path contains `,`, repeat the flag instead).
+Each occurrence is applied via `folder_paths.add_model_folder_path` at
+process start, before any node executes.
 
 ### Inspecting state without `--all`
 
@@ -561,8 +694,9 @@ comfyui models paths --folder loras        # registered loras dirs
 comfyui models from-workflow <ref> --dry-run   # what models a template needs
 ```
 
-These don't run discovery — they just show the current state. Use `--all
---dry-run` when you want the picture *with* discovery applied.
+These don't run discovery — they just show the current `folder_paths`
+state. Use `--all --dry-run` when you want the picture *with* discovery
+applied.
 
 ---
 
