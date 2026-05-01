@@ -348,15 +348,29 @@ wants the output to depict.
    install.
 
    First, check whether a usable venv already exists in the working
-   directory. If so, use that and do not touch the system Python. The
-   system Python is unreliable often enough that the working
-   assumption is "don't". A venv counts as "usable" if any of:
+   directory. **A venv only counts as "usable" if it satisfies the
+   current requirements exactly:** Python 3.13 with `comfyui` already
+   importable. The point of this guide is to run the *latest* ComfyUI,
+   and upgrading an old venv in place is fragile (torch wheel pins,
+   accumulated `uv pip install` cruft, mismatched Python minor). The
+   default is to **recreate**, not reuse. Never touch the system Python
+   either way.
 
-   - `$VIRTUAL_ENV` is set (venv is already activated in this shell).
-   - `./.venv/` or `./venv/` exists with an `activate` script.
+   A venv counts as usable when **all** of these hold:
 
-   If found, `source .venv/bin/activate` (or the equivalent for
-   `venv/`) before doing anything else.
+   - `$VIRTUAL_ENV` is set, or `./.venv/` / `./venv/` exists with an
+     `activate` script.
+   - After sourcing it, `python --version` reports `Python 3.13.x`.
+   - After sourcing it, `python -c "import comfy"` exits 0.
+
+   If a venv exists but fails any of these checks, **delete it and
+   create a new one**. Don't try to upgrade in place. For an on-disk
+   `./.venv/` you discovered yourself, just `rm -rf .venv` and recreate
+   per step 1. If the venv is already active via `$VIRTUAL_ENV` (the
+   user's shell state), warn the user and ask before deleting.
+
+   If a usable venv is found, `source .venv/bin/activate` (or the
+   equivalent for `venv/`) before doing anything else.
 
    If no venv is present, install `uv` in the way that matches the
    host. **Don't prompt the user** — detect the platform and run the
@@ -388,11 +402,17 @@ wants the output to depict.
    install, source the shell hook the installer prints (or open a
    new shell) so `uv` and `uvx` are on PATH.
 
-1. **Python / venv.** Use `uv`; the user's current `.venv` if one is
-   active, otherwise create a new one on the system-managed Python:
+1. **Python / venv.** Use `uv` with a uv-managed Python 3.13. Reuse
+   the user's current `.venv` only if it passed the §0 usability check
+   (Python 3.13 + `import comfy` works); otherwise create a new one:
    ```bash
-   uv venv && source .venv/bin/activate     # if no venv is active
+   uv venv --managed-python -p 3.13 && source .venv/bin/activate
    ```
+   `--managed-python` forces uv's own interpreter (downloading 3.13 if
+   it isn't cached yet) and ignores whatever `python3` happens to be
+   on PATH. `-p 3.13` pins the version. Don't drop it: the system
+   `python3` may be 3.10/3.11/3.12, and the latest ComfyUI + torch
+   stack is targeted at 3.13.
 
 2. **ComfyUI itself + torch.** Install from the git repo, **not** from
    PyPI — this fork ships features (workflow URI loading, note URL
