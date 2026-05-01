@@ -60,7 +60,7 @@ jobs:
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
         name: Install uv
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout git repo
       - name: Update numpy
         run: |
@@ -259,7 +259,7 @@ jobs:
           y = (x + x).sum(); torch.cuda.synchronize()
           print('PHASE:9 ok:', y.item(), flush=True)
           "
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout git repo
         with:
           path: src
@@ -363,7 +363,7 @@ jobs:
             intel-opencl-icd intel-level-zero-gpu level-zero
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout git repo
         with:
           path: src
@@ -514,7 +514,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout git repo
       - name: Set up Python
         uses: actions/setup-python@v5

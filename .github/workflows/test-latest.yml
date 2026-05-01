@@ -20,7 +20,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm git python uv zip base-devel libxcb mesa
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Create venv
         run: |
