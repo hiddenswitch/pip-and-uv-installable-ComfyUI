@@ -411,15 +411,18 @@ jobs:
           ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
           pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
-        # Force CPU compute for the test pass: the upstream torch+xpu wheel +
-        # 6GB A380 OOMs on the first CLIP encode in test_base_nodes.py, after
-        # which every subsequent test gets UR_RESULT_ERROR_DEVICE_LOST. The
-        # XPU install path itself is verified by the "Environment info" step
-        # above (xpu_available True, Arc A380 enumerated). Real GPU testing
-        # on XPU is blocked on a less memory-constrained card or per-test
-        # process isolation.
+        # Hide the XPU from Level Zero so torch.xpu.is_available() == False
+        # and comfy auto-falls-back to CPU for the test pass. The 6GB A380
+        # OOMs on the first CLIP encode in test_base_nodes.py, then every
+        # subsequent test gets UR_RESULT_ERROR_DEVICE_LOST. COMFYUI_CPU=1
+        # alone doesn't fix this (tests import comfy modules directly, not
+        # via the CLI argparser that reads it). ZE_AFFINITY_MASK=99 picks an
+        # index that doesn't exist, leaving zero enumerable devices. The
+        # XPU install path is verified by the "Environment info" step above
+        # (xpu_available True, Arc A380 enumerated). Real GPU testing on
+        # XPU is blocked on a less memory-constrained card.
         env:
-          COMFYUI_CPU: "1"
+          ZE_AFFINITY_MASK: "99"
         run: |
           cd ${GITHUB_WORKSPACE}/src
           python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
