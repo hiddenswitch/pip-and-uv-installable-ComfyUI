@@ -342,7 +342,17 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y software-properties-common curl
-          add-apt-repository -y ppa:deadsnakes/ppa
+          # Retry add-apt-repository — Launchpad's REST API (api.launchpad.net)
+          # is regularly unreachable / slow, and this command syncs the PPA
+          # signing key over that API. Without retries, a single transient
+          # 504 / connection-timed-out fails the entire CI job.
+          for i in 1 2 3 4 5; do
+              if add-apt-repository -y ppa:deadsnakes/ppa; then
+                  break
+              fi
+              echo "add-apt-repository attempt $i failed; sleeping $((i*10))s and retrying"
+              sleep $((i*10))
+          done
           apt-get update
           apt-get purge -y python3.11 python3.11-minimal libpython3.11 libpython3.11-minimal libpython3.11-stdlib
           apt-get install -y python3.11 python3.11-venv python3.11-dev libpython3.11
