@@ -143,6 +143,24 @@ try:
 except:
     xpu_available = False
 
+# Intel Arc Alchemist (DG2) consumer SKUs (A310, A380, A580, A750, A770) crash
+# with UR_RESULT_ERROR_UNKNOWN -> DEVICE_LOST when torch.triu / torch.tril (or
+# their method/in-place variants) run on an XPU tensor after a CLIP-shaped
+# allocation pattern. Reproduced on torch+xpu 2.9.0, 2.10.0, 2.11.0 (every
+# currently published xpu wheel). Detected by name string so it works on
+# Linux and Windows without lspci. The activation below imports a helper
+# module that monkey-patches the affected ops to detour XPU tensors via CPU.
+INTEL_XPU_DG2_TRIU_WORKAROUND = False
+try:
+    if xpu_available:
+        for _i in range(torch.xpu.device_count()):
+            _name = torch.xpu.get_device_name(_i)
+            if "Arc(TM) A" in _name and any(f"A{_n}" in _name for _n in (310, 380, 580, 750, 770)):
+                INTEL_XPU_DG2_TRIU_WORKAROUND = True
+                break
+except:
+    pass
+
 try:
     if torch.backends.mps.is_available():
         cpu_state = CPUState.MPS
@@ -171,6 +189,13 @@ except:
 
 if args.cpu or (args.torch_device is not None and args.torch_device == "cpu"):
     cpu_state = CPUState.CPU
+
+if INTEL_XPU_DG2_TRIU_WORKAROUND:
+    from . import _xpu_dg2_workarounds  # noqa: F401  side-effect import (monkey-patches torch.triu/tril)
+    logger.warning(
+        "Detected Intel Arc DG2 GPU; applied torch.triu/tril CPU-detour "
+        "workaround for known XPU kernel crash."
+    )
 
 
 def is_intel_xpu():

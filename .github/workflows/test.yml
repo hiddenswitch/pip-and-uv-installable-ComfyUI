@@ -410,18 +410,10 @@ jobs:
           cd ${GITHUB_WORKSPACE}/src
           ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
           pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      # Unit tests are intentionally not run on the XPU matrix entry. The
-      # 6GB A380 OOMs on the first CLIP encode in test_base_nodes.py,
-      # then every subsequent test gets UR_RESULT_ERROR_DEVICE_LOST or a
-      # Level-Zero segfault during torch.xpu.is_available() enumeration.
-      # Workarounds tried and rejected: COMFYUI_CPU=1 doesn't propagate at
-      # pytest import time (tests import comfy modules directly, not via
-      # the CLI argparser); ZE_AFFINITY_MASK=99 segfaults the Level-Zero
-      # loader during device_count() called from comfy_kitchen's triton
-      # backend probe. The XPU install + enumeration path is verified by
-      # the "Environment info" step above (xpu_available True, Arc A380
-      # named). Functional unit tests are exercised on the CUDA matrix
-      # entries which have larger GPUs (12-24GB) and stable runtimes.
+      - name: Run unit tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/src
+          python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
