@@ -182,6 +182,12 @@ def _run_compatibility_checks() -> list[_CheckResult]:
     # macOS-specific checks
     checks.append(_check_fp8_mps())
 
+    # Per-op torch health survey (XPU/CUDA/ROCm/MPS). Each op runs in its
+    # own subprocess so a kernel crash in one op cannot poison the rest;
+    # see torch_op_health.py for the case list.
+    from .torch_op_health import run_torch_ops_check
+    checks.extend(run_torch_ops_check())
+
     return checks
 
 
