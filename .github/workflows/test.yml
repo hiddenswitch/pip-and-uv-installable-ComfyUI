@@ -411,9 +411,23 @@ jobs:
           ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
           pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
+        env:
+          # Persist the SYCL kernel cache between processes. Without this,
+          # every (op, shape, dtype) JIT-compiles fresh on first use; one
+          # cold CLIP-L layer costs ~30s of compile time, which blows past
+          # pytest's default 300s timeout when the cache is in-memory only.
+          # Verified per-op timings on Arc A380: cold 6.5s for fp16->fp32
+          # cast, 8.7s for first einsum, 4.4s for first GELU; all sub-ms
+          # on the second call. SYCL_CACHE_DIR points at a writable path
+          # inside the workflow container.
+          SYCL_CACHE_PERSISTENT: "1"
+          SYCL_CACHE_DIR: "/tmp/sycl_cache"
         run: |
+          mkdir -p "$SYCL_CACHE_DIR"
           cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
+          # Bump pytest timeout to absorb the first-run JIT cost on XPU
+          # (~30s + cold imports). Once warm, every later test is fast.
+          python -m pytest -v --timeout=900 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
 #      - name: Run inference tests
 #        run: |
 #          cd ${GITHUB_WORKSPACE}/src
