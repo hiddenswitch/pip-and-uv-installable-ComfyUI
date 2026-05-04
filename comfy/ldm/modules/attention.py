@@ -804,7 +804,34 @@ register_attention_function("sub_quad", attention_sub_quad)
 register_attention_function("split", attention_split)
 
 
+def _is_arc_dg2_xpu(device) -> bool:
+    # Intel Arc DG2 (Alchemist: A310/380/580/750/770) on torch+xpu has a
+    # broken F.scaled_dot_product_attention path (oneDNN 'could not create
+    # a primitive' / 'OpenCL device not found' on Arc). attention_basic
+    # uses einsum + softmax which work fine on this hardware. The matrix
+    # of working / failing torch ops on this hardware is documented by
+    # `comfyui env check`.
+    try:
+        if not (
+            isinstance(device, torch.device)
+            and device.type == "xpu"
+            and hasattr(torch, "xpu")
+            and torch.xpu.is_available()
+        ):
+            return False
+        for _i in range(torch.xpu.device_count()):
+            _name = torch.xpu.get_device_name(_i)
+            if "Arc(TM) A" in _name and any(f"A{_n}" in _name for _n in (310, 380, 580, 750, 770)):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def optimized_attention_for_device(device, mask=False, small_input=False):
+    if _is_arc_dg2_xpu(device):
+        return attention_basic
+
     if small_input:
         if model_management.pytorch_attention_enabled():
             return attention_pytorch  # TODO: need to confirm but this is probably slightly faster for small inputs in all cases
