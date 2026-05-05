@@ -172,14 +172,7 @@ class CLIPTextModel_(torch.nn.Module):
             mask = 1.0 - attention_mask.to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])).expand(attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1])
             mask = mask.masked_fill(mask.to(torch.bool), -torch.finfo(x.dtype).max)
 
-        # Build the causal mask on CPU and transfer (~12KB max). Workaround
-        # for an Intel Arc DG2 (Alchemist: A310/A380/A580/A750/A770) bug
-        # where torch.full(...).triu_(1) on an XPU tensor crashes the device
-        # with UR_RESULT_ERROR_UNKNOWN -> DEVICE_LOST after a CLIP-shaped
-        # allocation pattern. Reproduced on torch+xpu 2.9-2.11. The mask is
-        # rebuilt on every forward regardless, so the CPU build + transfer
-        # is negligible on every backend.
-        causal_mask = torch.full((x.shape[1], x.shape[1]), -torch.finfo(x.dtype).max, dtype=x.dtype).triu_(1).to(x.device)
+        causal_mask = torch.full((x.shape[1], x.shape[1]), -torch.finfo(x.dtype).max, dtype=x.dtype, device=x.device).triu_(1)
 
         if mask is not None:
             mask += causal_mask
