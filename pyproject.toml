@@ -95,7 +95,8 @@ dependencies = [
     "certifi",
     "spandrel>=0.3.4",
     # https://github.com/conda-forge/numba-feedstock/issues/158 until numba is released with support for a later version of numpy
-    "numpy>=1.24.4,<2.3",
+    "numpy>=1.24.4,<2.3; python_version < '3.14'",
+    "numpy>=2.3; python_version >= '3.14'",
     "soundfile>=0.13 ; sys_platform != 'darwin'",
     "soundfile>=0.12,<0.13 ; sys_platform == 'darwin'",
     "watchdog",
