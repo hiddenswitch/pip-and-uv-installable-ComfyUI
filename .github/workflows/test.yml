@@ -12,6 +12,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  COMFYUI_LINUX_SYSTEM_PACKAGES: >-
+    libgl1 libglib2.0-0 libsndfile1 libxcb1 zip unzip
+  COMFYUI_UBUNTU_BOOTSTRAP_PACKAGES: >-
+    curl ca-certificates gpg gnupg2 git python3 python3-dev python3-venv python-is-python3
+  COMFYUI_GPU_DIAGNOSTIC_PACKAGES: pciutils
+
 jobs:
   build_and_execute_nvidia:
     environment: "Testing"
@@ -56,7 +63,7 @@ jobs:
     steps:
       - run: |
           apt-get update
-          apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libsndfile1 libxcb1 zip unzip
+          apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES
         name: Install system dependencies
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -180,7 +187,7 @@ jobs:
     steps:
       - run: |
           apt-get update
-          apt-get install -y --no-install-recommends zip unzip pciutils
+          apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES $COMFYUI_GPU_DIAGNOSTIC_PACKAGES
         name: Install system dependencies
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -265,9 +272,6 @@ jobs:
         name: Checkout git repo
         with:
           path: src
-      - run: |
-          apt-get install -y --no-install-recommends libsndfile1 libxcb1
-        name: sndfile Dependency
       - name: Write Overrides
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -353,9 +357,8 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-              curl ca-certificates gpg gnupg2 git \
-              python3 python3-dev python3-venv python-is-python3 \
-              libgl1 libglib2.0-0 libsndfile1 libxcb1 zip unzip
+              $COMFYUI_UBUNTU_BOOTSTRAP_PACKAGES \
+              $COMFYUI_LINUX_SYSTEM_PACKAGES
           curl -fsSL https://repositories.intel.com/gpu/intel-graphics.key \
             | gpg --dearmor -o /usr/share/keyrings/intel-graphics.gpg
           echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble client" \
