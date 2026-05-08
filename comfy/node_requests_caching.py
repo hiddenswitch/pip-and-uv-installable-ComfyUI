@@ -1,24 +1,10 @@
 import os.path
 import pathlib
-from http.cookiejar import CookieJar
 
-import attr
-import requests.models
-import requests.sessions
-from requests.cookies import RequestsCookieJar
 import requests_cache
-import requests_cache.models.response
 from contextlib import contextmanager
 
 from .cli_args import args
-
-requests.sessions.RequestsCookieJar = RequestsCookieJar
-requests.sessions.CookieJar = CookieJar
-requests.models.RequestsCookieJar = RequestsCookieJar
-requests.models.CookieJar = CookieJar
-requests_cache.models.response.RequestsCookieJar = RequestsCookieJar
-requests_cache.models.response.CookieJar = CookieJar
-attr.resolve_types(requests_cache.models.response.CachedResponse)
 
 @contextmanager
 def use_requests_caching(
