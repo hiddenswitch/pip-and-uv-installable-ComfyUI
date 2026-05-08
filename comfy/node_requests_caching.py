@@ -1,10 +1,16 @@
 import os.path
 import pathlib
+from http.cookiejar import CookieJar
 
+import requests.sessions
+from requests.cookies import RequestsCookieJar
 import requests_cache
 from contextlib import contextmanager
 
 from .cli_args import args
+
+requests.sessions.RequestsCookieJar = RequestsCookieJar
+requests.sessions.CookieJar = CookieJar
 
 @contextmanager
 def use_requests_caching(
