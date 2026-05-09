@@ -31,12 +31,12 @@ jobs:
     strategy:
       fail-fast: false
       # Cap concurrent jobs to the number of GPU runner nodes. Without this,
-      # GH dispatches all 4 matrix entries at once, ARC tries to spawn that
+      # GH dispatches all matrix entries at once, ARC tries to spawn that
       # many sibling workflow pods on cuda-3060-12gb nodes, and K8s leaves
       # the extras in 'Pending' until ARC's 10-min container-init timeout
       # fires (= job failure). max-parallel forces GH to queue the rest at
       # the runner-dispatch layer, where queueing actually works.
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         target:
           - labels: [self-hosted, linux, X64, cuda-3060-12gb]
