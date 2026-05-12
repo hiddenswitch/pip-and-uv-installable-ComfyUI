@@ -18,6 +18,7 @@ from os import PathLike
 from typing import List, Optional, Literal
 
 import comfy_aimdo
+import comfy_aimdo.model_vbar
 import torch
 from opentelemetry.trace import get_current_span, StatusCode, Status
 from typing_extensions import NotRequired, TypedDict, NamedTuple
@@ -51,6 +52,7 @@ from comfy_execution.validation import validate_node_input
 from .. import interruption
 from .. import memory_management
 from .. import model_management
+from .. import model_prefetch
 from ..cli_args_types import LatentPreviewMethod
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue
 from ..component_model.executor_types import ExecutorToClientProgress, ValidationTuple, ValidateInputsTuple, \
@@ -646,6 +648,7 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                     if logger.isEnabledFor(logging.DEBUG) and hasattr(comfy_aimdo, "control"):
                         comfy_aimdo.control.analyze()
                     model_management.reset_cast_buffers()
+                    model_prefetch.cleanup_prefetch_queues()
                     comfy_aimdo.model_vbar.vbars_reset_watermark_limits()
 
             if has_pending_tasks:
@@ -1218,15 +1221,20 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                         val = canonicalize_path(val)
                     if all(isinstance(item, (str, PathLike)) for item in combo_options):
                         combo_options = [canonicalize_path(item) for item in combo_options]
-                    if val not in combo_options:
+                    is_multiselect = extra_info.get("multiselect", False)
+                    if is_multiselect and isinstance(val, list):
+                        invalid_vals = [v for v in val if v not in combo_options]
+                    else:
+                        invalid_vals = [val] if val not in combo_options else []
+                    if invalid_vals:
                         # Fallback: when a workflow value includes a subfolder prefix
                         # (e.g. "flux/flux1-dev-Q8_0.gguf") but the node's combo list
                         # only contains the basename (e.g. "flux1-dev-Q8_0.gguf"),
                         # accept the value if basename matches. This handles nodes that
                         # convert DownloadableFileList to plain list via comprehension.
-                        if isinstance(val, str) and "/" in val:
+                        if len(invalid_vals) == 1 and isinstance(invalid_vals[0], str) and "/" in invalid_vals[0]:
                             from os.path import basename as _basename
-                            if _basename(val) in combo_options:
+                            if _basename(invalid_vals[0]) in combo_options:
                                 continue
 
                         # Fallback: model-combo inputs (lora_name, ckpt_name,
@@ -1235,11 +1243,10 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                         # https://..., s3://..., civitai.com/models/...
                         # Let those through rather than forcing users to
                         # pre-download.
-                        if isinstance(val, str):
+                        if len(invalid_vals) == 1 and isinstance(invalid_vals[0], str):
                             from ..component_model.uris import is_uri as _is_uri
-                            if _is_uri(val) or val.startswith(("https://civitai.com/", "http://civitai.com/")):
+                            if _is_uri(invalid_vals[0]) or invalid_vals[0].startswith(("https://civitai.com/", "http://civitai.com/")):
                                 continue
-
                         input_config = info
                         list_info = ""
 
@@ -1254,7 +1261,7 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                         error = {
                             "type": "value_not_in_list",
                             "message": "Value not in list",
-                            "details": f"{x}: '{val}' not in {list_info}",
+                            "details": f"{x}: {', '.join(repr(v) for v in invalid_vals)} not in {list_info}",
                             "extra_info": {
                                 "input_name": x,
                                 "input_config": input_config,

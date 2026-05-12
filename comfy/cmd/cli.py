@@ -102,7 +102,6 @@ _DEVICE_OPTS: list[tuple] = [
     ("disable_cuda_malloc", bool, typer.Option(True, "--disable-cuda-malloc", help="Disable cudaMallocAsync.")),
     ("directml", Optional[int], typer.Option(None, "--directml", help="Use torch-directml. -1 for auto-selection.")),
     ("oneapi_device_selector", Optional[str], typer.Option(None, "--oneapi-device-selector", help="Sets the oneAPI device(s) this instance will use.")),
-    ("disable_ipex_optimize", bool, typer.Option(False, "--disable-ipex-optimize", help="Disable IPEX optimization for Intel GPUs.")),
     ("supports_fp8_compute", bool, typer.Option(False, "--supports-fp8-compute/--no-supports-fp8-compute", help="ComfyUI will act like if the device supports fp8 compute.")),
     ("enable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--enable-comfy-kitchen-backends", help="Re-enable comfy_kitchen quantization backends previously disabled by guess-settings or another flag. Comma-separated. Valid: eager, cuda, triton.")),
     ("disable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--disable-comfy-kitchen-backends", help="Disable comfy_kitchen quantization backends. Use this to skip an op backend that crashes on your hardware (e.g. triton fp8e4nv on Ampere). Comma-separated. Valid: eager, cuda, triton.")),

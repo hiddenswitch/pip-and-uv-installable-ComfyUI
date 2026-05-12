@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
@@ -348,7 +349,7 @@ class VAEDecodeTiled:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "decode"
 
-    CATEGORY = "_for_testing"
+    CATEGORY = "experimental"
 
     def decode(self, vae, samples, tile_size, overlap=64, temporal_size=64, temporal_overlap=8):
         if samples is None:
@@ -401,7 +402,7 @@ class VAEEncodeTiled:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "encode"
 
-    CATEGORY = "_for_testing"
+    CATEGORY = "experimental"
 
     def encode(self, vae, pixels, tile_size, overlap, temporal_size=64, temporal_overlap=8) -> tuple[Optional[Latent]]:
         if pixels is None:
@@ -524,7 +525,7 @@ class SaveLatent:
 
     OUTPUT_NODE = True
 
-    CATEGORY = "_for_testing"
+    CATEGORY = "experimental"
 
     def save(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir)
@@ -569,7 +570,7 @@ class LoadLatent:
         files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f)) and f.endswith(".latent")]
         return {"required": {"latent": [sorted(files), ]}, }
 
-    CATEGORY = "_for_testing"
+    CATEGORY = "experimental"
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "load"
@@ -770,50 +771,27 @@ class LoraLoaderModelOnly(LoraLoader):
 
 class VAELoader:
     video_taes = ["taehv", "lighttaew2_2", "lighttaew2_1", "lighttaehy1_5", "taeltx_2"]
-    image_taes = ["taesd", "taesdxl", "taesd3", "taef1"]
+    image_taes = ["taesd", "taesdxl", "taesd3", "taef1", "taef2"]
+
     @staticmethod
     def vae_list(s=None):
         vaes = get_filename_list_with_downloadable("vae", KNOWN_VAES)
         approx_vaes = get_filename_list_with_downloadable("vae_approx", KNOWN_APPROX_VAES)
-        sdxl_taesd_enc = False
-        sdxl_taesd_dec = False
-        sd1_taesd_enc = False
-        sd1_taesd_dec = False
-        sd3_taesd_enc = False
-        sd3_taesd_dec = False
-        f1_taesd_enc = False
-        f1_taesd_dec = False
+        have_img_encoder, have_img_decoder = set(), set()
 
         for v in approx_vaes:
-            if v.startswith("taesd_decoder."):
-                sd1_taesd_dec = True
-            elif v.startswith("taesd_encoder."):
-                sd1_taesd_enc = True
-            elif v.startswith("taesdxl_decoder."):
-                sdxl_taesd_dec = True
-            elif v.startswith("taesdxl_encoder."):
-                sdxl_taesd_enc = True
-            elif v.startswith("taesd3_decoder."):
-                sd3_taesd_dec = True
-            elif v.startswith("taesd3_encoder."):
-                sd3_taesd_enc = True
-            elif v.startswith("taef1_encoder."):
-                f1_taesd_dec = True
-            elif v.startswith("taef1_decoder."):
-                f1_taesd_enc = True
-            else:
+            parts = v.split("_", 1)
+            if len(parts) != 2 or parts[0] not in VAELoader.image_taes:
                 for tae in VAELoader.video_taes:
                     if v.startswith(tae):
                         vaes.append(v)
-
-        if sd1_taesd_dec and sd1_taesd_enc:
-            vaes.append("taesd")
-        if sdxl_taesd_dec and sdxl_taesd_enc:
-            vaes.append("taesdxl")
-        if sd3_taesd_dec and sd3_taesd_enc:
-            vaes.append("taesd3")
-        if f1_taesd_dec and f1_taesd_enc:
-            vaes.append("taef1")
+                        break
+                continue
+            if parts[1].startswith("encoder."):
+                have_img_encoder.add(parts[0])
+            elif parts[1].startswith("decoder."):
+                have_img_decoder.add(parts[0])
+        vaes += [k for k in have_img_decoder if k in have_img_encoder]
         vaes.append("pixel_space")
         return vaes
 
@@ -869,6 +847,11 @@ class VAELoader:
             else:
                 vae_path = get_full_path_or_raise("vae", vae_name, KNOWN_VAES)
             sd_, metadata = utils.load_torch_file(vae_path, return_metadata=True)
+        if vae_name == "taef2":
+            if metadata is None:
+                metadata = {"tae_latent_channels": 128}
+            else:
+                metadata["tae_latent_channels"] = 128
         vae = sd.VAE(sd=sd_, metadata=metadata, ckpt_name=vae_name)
         vae.throw_exception_if_invalid()
         return (vae,)
@@ -1051,7 +1034,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip_name": (get_filename_list_with_downloadable("text_encoders", KNOWN_CLIP_MODELS),),
-                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image"],),
+                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1062,7 +1045,7 @@ class CLIPLoader:
 
     CATEGORY = "advanced/loaders"
 
-    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B"
+    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B"
 
     def load_clip(self, clip_name, type="stable_diffusion", device="default"):
         clip_type = getattr(sd.CLIPType, type.upper(), sd.CLIPType.STABLE_DIFFUSION)
@@ -1581,7 +1564,7 @@ class LatentBlend:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "blend"
 
-    CATEGORY = "_for_testing"
+    CATEGORY = "experimental"
 
     def blend(self, samples1, samples2, blend_factor: float, blend_mode: str = "normal"):
 
@@ -1856,9 +1839,12 @@ class LoadImage:
     def load_image(self, image: str) -> ImageMaskTuple:
         image_path = folder_paths.get_annotated_filepath(image)
 
+        dtype = comfy.model_management.intermediate_dtype()
+        device = comfy.model_management.intermediate_device()
+
         components = InputImpl.VideoFromFile(image_path).get_components()
         if components.images.shape[0] > 0:
-            return (components.images, 1.0 - components.alpha[..., -1] if components.alpha is not None else torch.zeros((components.images.shape[0], 64, 64), dtype=torch.float32, device="cpu"))
+            return (components.images.to(device=device, dtype=dtype), (1.0 - components.alpha[..., -1]).to(device=device, dtype=dtype) if components.alpha is not None else torch.zeros((components.images.shape[0], 64, 64), dtype=dtype, device=device))
 
         output_images = []
         output_masks = []
@@ -1916,6 +1902,14 @@ class LoadImage:
         return ImageMaskTuple(output_image, output_mask)
 
     @classmethod
+    def IS_CHANGED(s, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+        m = hashlib.sha256()
+        with open(image_path, 'rb') as f:
+            m.update(f.read())
+        return m.digest().hex()
+
+    @classmethod
     def VALIDATE_INPUTS(s, image):
         if not folder_paths.exists_annotated_filepath(image):
             return "Invalid image file: {}".format(image)
@@ -1923,7 +1917,7 @@ class LoadImage:
         return True
 
 
-class LoadImageMask:
+class LoadImageMask(LoadImage):
     ESSENTIALS_CATEGORY = "Image Tools"
     SEARCH_ALIASES = ["import mask", "alpha mask", "channel mask"]
 
@@ -1931,43 +1925,40 @@ class LoadImageMask:
 
     @classmethod
     def INPUT_TYPES(s):
-        input_dir = folder_paths.get_input_directory()
-        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-        return {"required":
-                    {"image": (natsorted(files), {"image_upload": True}),
-                     "channel": (s._color_channels,), }
-                }
+        types = super().INPUT_TYPES()
+        return {
+            "required": {
+                **types["required"],
+                "channel": (s._color_channels,),
+            }
+        }
 
     CATEGORY = "mask"
-
     RETURN_TYPES = ("MASK",)
-    FUNCTION = "load_image"
+    FUNCTION = "load_image_mask"
 
-    def load_image(self, image, channel):
-        image_path = folder_paths.get_annotated_filepath(image)
-        i = node_helpers.pillow(Image.open, image_path)
-        i = node_helpers.pillow(ImageOps.exif_transpose, i)
-        if i.getbands() != ("R", "G", "B", "A"):
-            if i.mode == 'I':
-                i = i.point(lambda i: i * (1 / 255))
-            i = i.convert("RGBA")
-        mask = None
+    def load_image_mask(self, image, channel):
+        image_tensor, mask_tensor = super().load_image(image)
         c = channel[0].upper()
-        if c in i.getbands():
-            mask = np.array(i.getchannel(c)).astype(np.float32) / 255.0
-            mask = torch.from_numpy(mask)
-            if c == 'A':
-                mask = 1. - mask
-        else:
-            mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
-        return (mask.unsqueeze(0),)
+
+        if c == 'A':
+            return (mask_tensor,)
+
+        channel_idx = {'R': 0, 'G': 1, 'B': 2}.get(c, 0)
+
+        if channel_idx < image_tensor.shape[-1]:
+            return (image_tensor[..., channel_idx].clone(),)
+
+        empty_mask = torch.zeros(
+            image_tensor.shape[:-1],
+            dtype=image_tensor.dtype,
+            device=image_tensor.device,
+        )
+        return (empty_mask,)
 
     @classmethod
-    def VALIDATE_INPUTS(s, image):
-        if not folder_paths.exists_annotated_filepath(image):
-            return "Invalid image file: {}".format(image)
-
-        return True
+    def IS_CHANGED(s, image, channel):
+        return super().IS_CHANGED(image)
 
 
 class LoadImageOutput(LoadImage):
@@ -2062,7 +2053,7 @@ class ImageInvert:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "invert"
 
-    CATEGORY = "image"
+    CATEGORY = "image/color"
 
     def invert(self, image):
         s = 1.0 - image
@@ -2079,7 +2070,7 @@ class ImageBatch:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "batch"
 
-    CATEGORY = "image"
+    CATEGORY = "image/batch"
     DEPRECATED = True
 
     def batch(self, image1, image2):
@@ -2139,7 +2130,7 @@ class ImagePadForOutpaint:
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "expand_image"
 
-    CATEGORY = "image"
+    CATEGORY = "image/transform"
 
     def expand_image(self, image: RGBImageBatch | RGBAImageBatch, left, top, right, bottom, feathering) -> tuple[RGBImageBatch | RGBAImageBatch, MaskBatch]:
         batch, height, width, channels = image.size()
@@ -2274,6 +2265,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "StyleModelLoader": "Load Style Model",
     "CLIPVisionLoader": "Load CLIP Vision",
     "UNETLoader": "Load Diffusion Model",
+    "unCLIPCheckpointLoader": "Load unCLIP Checkpoint",
+    "GLIGENLoader": "Load GLIGEN Model",
     # Conditioning
     "CLIPVisionEncode": "CLIP Vision Encode",
     "StyleModelApply": "Apply Style Model",
@@ -2285,7 +2278,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ConditioningSetArea": "Conditioning (Set Area)",
     "ConditioningSetAreaPercentage": "Conditioning (Set Area with Percentage)",
     "ConditioningSetMask": "Conditioning (Set Mask)",
-    "ControlNetApply": "Apply ControlNet (OLD)",
+    "ControlNetApply": "Apply ControlNet (DEPRECATED)",
     "ControlNetApplyAdvanced": "Apply ControlNet",
     # Latent
     "VAEEncodeForInpaint": "VAE Encode (for Inpainting)",
@@ -2303,6 +2296,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LatentFromBatch": "Latent From Batch",
     "RepeatLatentBatch": "Repeat Latent Batch",
     # Image
+    "EmptyImage": "Empty Image",
     "SaveImage": "Save Image",
     "PreviewImage": "Preview Image",
     "LoadImage": "Load Image",
@@ -2310,18 +2304,18 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageOutput": "Load Image (from Outputs)",
     "ImageScale": "Upscale Image",
     "ImageScaleBy": "Upscale Image By",
-    "ImageInvert": "Invert Image",
+    "ImageInvert": "Invert Image Colors",
     "ImagePadForOutpaint": "Pad Image for Outpainting",
-    "ImageBatch": "Batch Images",
-    "ImageCrop": "Image Crop",
-    "ImageStitch": "Image Stitch",
-    "ImageBlend": "Image Blend",
-    "ImageBlur": "Image Blur",
-    "ImageQuantize": "Image Quantize",
-    "ImageSharpen": "Image Sharpen",
+    "ImageBatch": "Batch Images (DEPRECATED)",
+    "ImageCrop": "Crop Image",
+    "ImageStitch": "Stitch Images",
+    "ImageBlend": "Blend Images",
+    "ImageBlur": "Blur Image",
+    "ImageQuantize": "Quantize Image",
+    "ImageSharpen": "Sharpen Image",
     "ImageScaleToTotalPixels": "Scale Image to Total Pixels",
     "GetImageSize": "Get Image Size",
-    # _for_testing
+    # experimental
     "VAEDecodeTiled": "VAE Decode (Tiled)",
     "VAEEncodeTiled": "VAE Encode (Tiled)",
 }

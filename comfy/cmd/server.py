@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+
 import asyncio
 import glob
 import io
@@ -1550,7 +1552,13 @@ class PromptServer(ExecutorToClientProgress):
         addresses = sorted(addresses, key=lambda tuple: is_ipv4(*tuple))
         for (address, port) in addresses:
             site = web.TCPSite(runner, address, port, backlog=PromptServer.get_too_busy_queue_size())
-            await site.start()
+            try:
+                await site.start()
+            except OSError as e:
+                if e.errno == errno.EADDRINUSE:
+                    logger.error(f"Port {port} is already in use on address {address}. Please close the other application or use a different port with --port.")
+                    raise SystemExit(1)
+                raise
 
             # preference for the ipv4 address achieved by sorting
             self.address = "localhost" if address == "0.0.0.0" else address

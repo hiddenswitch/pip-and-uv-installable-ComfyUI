@@ -106,9 +106,9 @@ parser.add_argument("--fp16-intermediates", action="store_true", help="Experimen
 
 parser.add_argument("--directml", type=int, nargs="?", metavar="DIRECTML_DEVICE", const=-1, help="Use torch-directml.")
 parser.add_argument("--oneapi-device-selector", type=str, default=None, metavar="SELECTOR_STRING", help="Sets the oneAPI device(s).")
-parser.add_argument("--disable-ipex-optimize", action="store_true", help="Disables ipex.optimize.")
 parser.add_argument("--supports-fp8-compute", action="store_true", help="Act as if device supports fp8 compute.")
 
+parser.add_argument("--enable-triton-backend", action="store_true", help="Enable the Triton backend in comfy-kitchen.")
 parser.add_argument("--preview-method", type=LatentPreviewMethod, default=LatentPreviewMethod.Auto, help="Default preview method.")
 parser.add_argument("--preview-size", type=int, default=512, help="Sets the maximum preview size for sampler nodes.")
 
@@ -215,8 +215,6 @@ parser.add_argument("--user-directory", type=str, default=None, help="User direc
 parser.add_argument("--enable-compress-response-body", action="store_true", help="Compress response body.")
 parser.add_argument("--comfy-api-base", type=str, default="https://api.comfy.org", help="ComfyUI API base URL.")
 parser.add_argument("--block-runtime-package-installation", action="store_true", help="Block runtime installs.")
-parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning.")
-parser.add_argument("--database-url", type=str, default=None, help="Database URL.")
 parser.add_argument("--workflows", type=str, nargs='+', default=[], help="Execute workflows and exit.")
 parser.add_argument("--prompt", type=str, default=None, help="Override positive prompt.")
 parser.add_argument("--negative-prompt", type=str, default=None, help="Override negative prompt.")
@@ -261,6 +259,8 @@ database_default_path = os.path.abspath(
 )
 parser.add_argument("--database-url", type=str, default=f"sqlite:///{database_default_path}", help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
 parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning on startup for database synchronization.")
+parser.add_argument("--feature-flag", type=str, action="append", default=[], metavar="KEY[=VALUE]", help="Set a server feature flag.")
+parser.add_argument("--list-feature-flags", action="store_true", help="Print known CLI-settable feature flags as JSON and exit.")
 
 def default_configuration() -> Configuration:
     """Return a Configuration with all defaults (no CLI parsing)."""

@@ -39,7 +39,6 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "force_bf16",
     "reserve_vram",
     "disable_smart_memory",
-    "disable_ipex_optimize",
     "disable_pinned_memory",
     "async_offload",
     "disable_async_offload",

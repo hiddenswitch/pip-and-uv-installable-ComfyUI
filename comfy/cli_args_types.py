@@ -121,7 +121,6 @@ class Configuration(dict):
         fp16_intermediates (bool): Experimental: Use fp16 for intermediate tensors between nodes instead of fp32.
         oneapi_device_selector (Optional[str]): Sets the oneAPI device(s) this instance will use.
         directml (Optional[int]): Use DirectML. -1 for auto-selection.
-        disable_ipex_optimize (bool): Disable IPEX optimization for Intel GPUs.
         preview_method (LatentPreviewMethod): Method for generating previews. Defaults to "auto".
         cache_lru (int): Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.
         cache_ram (float): Use RAM pressure caching with the specified headroom threshold.
@@ -264,7 +263,6 @@ class Configuration(dict):
         self.fp32_text_enc: bool = False
         self.fp16_intermediates: bool = False
         self.directml: Optional[int] = None
-        self.disable_ipex_optimize: bool = False
         self.preview_method: LatentPreviewMethod = LatentPreviewMethod.Auto
         self.use_split_cross_attention: bool = False
         self.use_quad_cross_attention: bool = False

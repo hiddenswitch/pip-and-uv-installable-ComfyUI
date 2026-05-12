@@ -315,6 +315,29 @@ class RescaleCFG:
         return (m,)
 
 
+class ModelNoiseScale:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "model": ("MODEL",),
+                              "noise_scale": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 64.0, "step": 0.01,
+                                                       "tooltip": "Absolute training noise scale. For example HiDream-O1 base: 8.0, dev: 7.5."}),
+                              }}
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "patch"
+
+    CATEGORY = "advanced/model"
+
+    def patch(self, model, noise_scale):
+        m = model.clone()
+        original = m.model.model_sampling
+        ms = type(original)(m.model.model_config)
+        ms.set_parameters(shift=original.shift, multiplier=original.multiplier)
+        ms.set_noise_scale(noise_scale)
+        m.add_object_patch("model_sampling", ms)
+        return (m, )
+
+
 class ModelComputeDtype:
     SEARCH_ALIASES = ["model precision", "change dtype"]
     @classmethod
@@ -342,6 +365,7 @@ NODE_CLASS_MAPPINGS = {
     "ModelSamplingSD3": ModelSamplingSD3,
     "ModelSamplingAuraFlow": ModelSamplingAuraFlow,
     "ModelSamplingFlux": ModelSamplingFlux,
+    "ModelNoiseScale": ModelNoiseScale,
     "RescaleCFG": RescaleCFG,
     "ModelComputeDtype": ModelComputeDtype,
 }

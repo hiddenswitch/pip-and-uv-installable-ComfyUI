@@ -46,6 +46,8 @@ from .ldm.cosmos.predict2 import MiniTrainDIT
 from .ldm.ernie.model import ErnieImageModel
 from .ldm.flux import model as flux_model
 from .ldm.genmo.joint_model.asymm_models_joint import AsymmDiTJoint
+from .ldm.hidream_o1.conditioning import build_extra_conds
+from .ldm.hidream_o1.model import HiDreamO1Transformer
 from .ldm.hidream.model import HiDreamImageTransformer2DModel
 from .ldm.hunyuan3d.model import Hunyuan3Dv2 as Hunyuan3Dv2Model
 from .ldm.hunyuan3dv2_1.hunyuandit import HunYuanDiTPlain
@@ -67,6 +69,7 @@ from .ldm.rt_detr.rtdetr_v4 import RTv4
 from .ldm.sam3.detector import SAM3Model
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
 from .ldm.wan.model_animate import AnimateWanModel
+from .ldm.wan.model_wandancer import WanDancerModel
 from .ldm.cogvideo.model import CogVideoXTransformer3DModel
 from .model_management_types import ModelManageable
 from .model_sampling import CONST, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG, IMG_TO_IMG_FLOW, V_PREDICTION_DDPM
@@ -249,6 +252,11 @@ class BaseModel(torch.nn.Module):
         t = self.process_timestep(t, x=x, **extra_conds)
         if "latent_shapes" in extra_conds:
             xc = utils.unpack_latents(xc, extra_conds.pop("latent_shapes"))
+
+        transformer_options = transformer_options.copy()
+        transformer_options["prefetch_dynamic_vbars"] = (
+            self.current_patcher is not None and self.current_patcher.is_dynamic()
+        )
 
         model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
         if len(model_output) > 1 and not torch.is_tensor(model_output):
@@ -1424,6 +1432,13 @@ class WAN21(BaseModel):
         return out
 
 
+class WAN21_CausalAR(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device,
+                                    unet_model=comfy.ldm.wan.ar_model.CausalWanModel)
+        self.image_to_video = False
+
+
 class WAN21_Vace(WAN21):
     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=VaceWanModel)
@@ -1657,6 +1672,29 @@ class WAN21_SCAIL(WAN21):
 
         return out
 
+class WAN22_WanDancer(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=True, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=WanDancerModel)
+        self.image_to_video = image_to_video
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        audio_embed = kwargs.get("audio_embed", None)
+        if audio_embed is not None:
+            out['audio_embed'] = conds.CONDRegular(audio_embed)
+
+        clip_vision_output_ref = kwargs.get("clip_vision_output_ref", None)
+        if clip_vision_output_ref is not None:
+            out['clip_fea_ref'] = conds.CONDRegular(clip_vision_output_ref.penultimate_hidden_states)
+
+        fps = kwargs.get("fps", None)
+        if fps is not None:
+            out['fps'] = conds.CONDRegular(torch.FloatTensor([fps]))
+
+        audio_inject_scale = kwargs.get("audio_inject_scale", None)
+        if audio_inject_scale is not None:
+            out['audio_inject_scale'] = conds.CONDRegular(torch.FloatTensor([audio_inject_scale]))
+        return out
 
 class Hunyuan3Dv2(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -1710,6 +1748,31 @@ class HiDream(BaseModel):
             out['image_cond'] = conds.CONDNoiseShape(self.process_latent_in(image_cond))
         return out
 
+class HiDreamO1(BaseModel):
+    """HiDream-O1-Image: pixel-space DiT (no VAE). Refs from HiDreamO1ReferenceImages and tokens from the stub TE flow through
+    extra_conds; the heavy preprocessing lives in comfy.ldm.hidream_o1.conditioning."""
+    PATCH_SIZE = 32
+
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=HiDreamO1Transformer)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        text_input_ids = kwargs.get("text_input_ids", None)
+        noise = kwargs.get("noise", None)
+        if text_input_ids is None or noise is None:
+            return out
+
+        conds = build_extra_conds(
+            text_input_ids, noise,
+            ref_images=kwargs.get("reference_latents", None),
+            target_patch_size=self.PATCH_SIZE,
+        )
+        for k, v in conds.items():
+            # ar_len is a Python int (precomputed to avoid a GPU sync in forward).
+            cls = conds.CONDConstant if k == "ar_len" else conds.CONDRegular
+            out[k] = cls(v)
+        return out
 
 class Chroma(Flux):
     def __init__(self, model_config, model_type=ModelType.FLUX, device=None, unet_model=chroma_model.Chroma):

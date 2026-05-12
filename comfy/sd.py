@@ -76,6 +76,8 @@ from .text_encoders import ace15
 from .text_encoders import longcat_image
 from .text_encoders import qwen35 as qwen_35
 from .text_encoders import ernie
+from .text_encoders import gemma4
+from .text_encoders import cogvideo
 
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
@@ -498,7 +500,10 @@ class VAE:
                                                             encoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Encoder", 'params': encoder_config},
                                                             decoder_config={'target': "comfy.ldm.modules.temporal_ae.VideoDecoder", 'params': decoder_config})
             elif "taesd_decoder.1.weight" in sd:
-                self.latent_channels = sd["taesd_decoder.1.weight"].shape[1]
+                if isinstance(metadata, dict) and "tae_latent_channels" in metadata:
+                    self.latent_channels = metadata["tae_latent_channels"]
+                else:
+                    self.latent_channels = sd["taesd_decoder.1.weight"].shape[1]
                 self.first_stage_model = taesd.TAESD(latent_channels=self.latent_channels)
             elif "vquantizer.codebook.weight" in sd:  # VQGan: stage a of stable cascade
                 self.first_stage_model = StageA()
@@ -1280,6 +1285,7 @@ class CLIPType(Enum):
     NEWBIE = 24
     FLUX2 = 25
     LONGCAT_IMAGE = 26
+    COGVIDEOX = 27
 
 
 @dataclasses.dataclass
@@ -1350,6 +1356,9 @@ class TEModel(Enum):
     QWEN35_9B = 26
     QWEN35_27B = 27
     MINISTRAL_3_3B = 28
+    GEMMA_4_E4B = 29
+    GEMMA_4_E2B = 30
+    GEMMA_4_31B = 31
 
 
 def detect_te_model(sd):
@@ -1375,6 +1384,12 @@ def detect_te_model(sd):
             return TEModel.BYT5_SMALL_GLYPH
         return TEModel.T5_BASE
     if 'model.layers.0.post_feedforward_layernorm.weight' in sd:
+        if 'model.layers.59.self_attn.q_norm.weight' in sd:
+            return TEModel.GEMMA_4_31B
+        if 'model.layers.41.self_attn.q_norm.weight' in sd and 'model.layers.47.self_attn.q_norm.weight' not in sd:
+            return TEModel.GEMMA_4_E4B
+        if 'model.layers.34.self_attn.q_norm.weight' in sd and 'model.layers.41.self_attn.q_norm.weight' not in sd:
+            return TEModel.GEMMA_4_E2B
         if 'model.layers.47.self_attn.q_norm.weight' in sd:
             return TEModel.GEMMA_3_12B
         if 'model.layers.0.self_attn.q_norm.weight' in sd:
@@ -1500,6 +1515,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 clip_target.clip = hidream.hidream_clip(**t5xxl_detect(clip_data),
                                                         clip_l=False, clip_g=False, t5=True, llama=False, dtype_llama=None)
                 clip_target.tokenizer = hidream.HiDreamTokenizer
+            elif clip_type == CLIPType.COGVIDEOX:
+                clip_target.clip = cogvideo.cogvideo_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = cogvideo.CogVideoXTokenizer
             else:  # CLIPType.MOCHI
                 clip_target.clip = genmo.mochi_te(**t5xxl_detect(clip_data))
                 clip_target.tokenizer = genmo.MochiT5Tokenizer
@@ -1517,6 +1535,13 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             else:
                 clip_target.clip = sa_t5.SAT5Model
                 clip_target.tokenizer = sa_t5.SAT5Tokenizer
+        elif te_model in (TEModel.GEMMA_4_E4B, TEModel.GEMMA_4_E2B, TEModel.GEMMA_4_31B):
+            variant = {TEModel.GEMMA_4_E4B: gemma4.Gemma4_E4B,
+                       TEModel.GEMMA_4_E2B: gemma4.Gemma4_E2B,
+                       TEModel.GEMMA_4_31B: gemma4.Gemma4_31B}[te_model]
+            clip_target.clip = gemma4.gemma4_te(**llama_detect(clip_data), model_class=variant)
+            clip_target.tokenizer = variant.tokenizer
+            tokenizer_data["tokenizer_json"] = clip_data[0].get("tokenizer_json", None)
         elif te_model == TEModel.GEMMA_2_2B:
             clip_target.clip = lumina2.te(**llama_detect(clip_data))
             clip_target.tokenizer = lumina2.LuminaTokenizer

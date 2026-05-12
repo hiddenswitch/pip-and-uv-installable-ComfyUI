@@ -182,7 +182,9 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         ModelPaths(["model_patches"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["audio_encoders"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["latent_upscale_models"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(["background_removal"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["frame_interpolation"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(["optical_flow"], supported_extensions=set(supported_pt_extensions)),
         hf_cache_paths,
         hf_xet,
     ]
@@ -496,7 +498,9 @@ def get_save_image_path(filename_prefix, output_dir, image_width=0, image_height
         prefix_len = len(os.path.basename(filename_prefix))
         prefix = filename[:prefix_len + 1]
         try:
-            digits = int(filename[prefix_len + 1:].split('_')[0])
+            remainder = filename[prefix_len + 1:]
+            base_remainder = remainder.split('.')[0]
+            digits = int(base_remainder.split('_')[0])
         except:
             digits = 0
         return digits, prefix

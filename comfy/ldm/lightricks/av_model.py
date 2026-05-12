@@ -16,6 +16,7 @@ from .model import (
 from .symmetric_patchifier import AudioPatchifier
 from ..common_dit import rms_norm
 from .embeddings_connector import Embeddings1DConnector
+from ... import model_prefetch
 
 class CompressedTimestep:
     """Store video timestep embeddings in compressed form using per-frame indexing."""
@@ -907,9 +908,11 @@ class LTXAVModel(LTXVModel):
         """Process transformer blocks for LTXAV."""
         patches_replace = transformer_options.get("patches_replace", {})
         blocks_replace = patches_replace.get("dit", {})
+        prefetch_queue = model_prefetch.make_prefetch_queue(list(self.transformer_blocks), vx.device, transformer_options)
 
         # Process transformer blocks
         for i, block in enumerate(self.transformer_blocks):
+            model_prefetch.prefetch_queue_pop(prefetch_queue, vx.device, block)
             if ("double_block", i) in blocks_replace:
 
                 def block_wrap(args):
@@ -981,6 +984,8 @@ class LTXAVModel(LTXVModel):
                     v_prompt_timestep=v_prompt_timestep,
                     a_prompt_timestep=a_prompt_timestep,
                 )
+
+        model_prefetch.prefetch_queue_pop(prefetch_queue, vx.device, None)
 
         return [vx, ax]
 

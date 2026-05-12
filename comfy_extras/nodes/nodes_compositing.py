@@ -147,15 +147,15 @@ class PorterDuffImageCompositeV2:
 
             if dst_alpha.shape[:2] != dst_image.shape[:2]:
                 upscale_input = dst_alpha.unsqueeze(0).permute(0, 3, 1, 2)
-                upscale_output = comfy.utils.common_upscale(upscale_input, dst_image.shape[1], dst_image.shape[0], upscale_method='bicubic', crop='center')
+                upscale_output = utils.common_upscale(upscale_input, dst_image.shape[1], dst_image.shape[0], upscale_method='bicubic', crop='center')
                 dst_alpha = upscale_output.permute(0, 2, 3, 1).squeeze(0)
             if src_image.shape != dst_image.shape:
                 upscale_input = src_image.unsqueeze(0).permute(0, 3, 1, 2)
-                upscale_output = comfy.utils.common_upscale(upscale_input, dst_image.shape[1], dst_image.shape[0], upscale_method='bicubic', crop='center')
+                upscale_output = utils.common_upscale(upscale_input, dst_image.shape[1], dst_image.shape[0], upscale_method='bicubic', crop='center')
                 src_image = upscale_output.permute(0, 2, 3, 1).squeeze(0)
             if src_alpha.shape != dst_alpha.shape:
                 upscale_input = src_alpha.unsqueeze(0).permute(0, 3, 1, 2)
-                upscale_output = comfy.utils.common_upscale(upscale_input, dst_alpha.shape[1], dst_alpha.shape[0], upscale_method='bicubic', crop='center')
+                upscale_output = utils.common_upscale(upscale_input, dst_alpha.shape[1], dst_alpha.shape[0], upscale_method='bicubic', crop='center')
                 src_alpha = upscale_output.permute(0, 2, 3, 1).squeeze(0)
 
             out_image, out_alpha = _porter_duff_composite(src_image, src_alpha, dst_image, dst_alpha, PorterDuffMode[mode])
@@ -227,14 +227,11 @@ class JoinImageWithAlpha(io.ComfyNode):
 
     @classmethod
     def execute(cls, image: torch.Tensor, alpha: torch.Tensor) -> io.NodeOutput:
-        batch_size = min(len(image), len(alpha))
-        out_images = []
-
-        alpha = 1.0 - resize_mask(alpha, image.shape[1:])
-        for i in range(batch_size):
-            out_images.append(torch.cat((image[i][:, :, :3], alpha[i].unsqueeze(2)), dim=2))
-
-        return io.NodeOutput(torch.stack(out_images))
+        batch_size = max(len(image), len(alpha))
+        alpha = 1.0 - resize_mask(alpha.to(image), image.shape[1:])
+        alpha = utils.repeat_to_batch_size(alpha, batch_size)
+        image = utils.repeat_to_batch_size(image, batch_size)
+        return io.NodeOutput(torch.cat((image[..., :3], alpha.unsqueeze(-1)), dim=-1))
 
 
 class Flatten(CustomNode):
