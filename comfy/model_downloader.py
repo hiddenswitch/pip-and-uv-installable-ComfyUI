@@ -849,6 +849,9 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
     'llava-hf/llava-onevision-qwen2-7b-si-hf',
     'llava-hf/llama3-llava-next-8b-hf',
     'PromptEnhancer/PromptEnhancer-32B',
+    # HiDream-O1 publishes complete sharded Transformers repos.
+    'HiDream-ai/HiDream-O1-Image',
+    'HiDream-ai/HiDream-O1-Image-Dev',
     # Florence-2 (ComfyUI-Florence2)
     'microsoft/Florence-2-base',
     'microsoft/Florence-2-base-ft',

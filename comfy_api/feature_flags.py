@@ -74,7 +74,7 @@ def _parse_cli_feature_flags() -> dict[str, Any]:
     silently take effect as the wrong value.
     """
     result: dict[str, Any] = {}
-    for item in getattr(args, "feature_flag", []):
+    for item in getattr(args, "feature_flag", None) or []:
         key, sep, raw_value = item.partition("=")
         key = key.strip()
         if not key:

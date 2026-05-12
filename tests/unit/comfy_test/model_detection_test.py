@@ -1,7 +1,19 @@
 import torch
 
 from comfy.model_detection import detect_unet_config, model_config_from_unet_config
+from comfy.model_downloader import KNOWN_HUGGINGFACE_MODEL_REPOS
 import comfy.supported_models
+
+
+def _make_hidream_o1_comfyui_sd():
+    """Minimal HiDream-O1 state dict with the upstream detection keys."""
+    return {
+        "t_embedder1.mlp.0.weight": torch.empty(32, 32),
+        "t_embedder1.mlp.2.weight": torch.empty(32, 32),
+        "x_embedder.proj1.weight": torch.empty(32, 32),
+        "blocks.0.attn1.k_norm.weight": torch.empty(32),
+        "visual.deepstack_merger_list.0.weight": torch.empty(1),
+    }
 
 
 def _make_longcat_comfyui_sd():
@@ -110,3 +122,20 @@ class TestModelDetection:
         model_config = model_config_from_unet_config(unet_config, sd)
         assert model_config is not None
         assert type(model_config).__name__ == "FluxSchnell"
+
+    def test_hidream_o1_comfyui_detected_as_hidream_o1(self):
+        sd = _make_hidream_o1_comfyui_sd()
+        unet_config = detect_unet_config(sd, "")
+        assert unet_config == {"image_model": "hidream_o1"}
+
+        model_config = model_config_from_unet_config(unet_config, sd)
+        assert model_config is not None
+        assert type(model_config).__name__ == "HiDreamO1"
+
+        processed = model_config.process_unet_state_dict(dict(sd))
+        assert "visual.deepstack_merger_list.0.weight" not in processed
+        assert "t_embedder1.mlp.0.weight" in processed
+
+    def test_hidream_o1_repos_are_known_models(self):
+        assert "HiDream-ai/HiDream-O1-Image" in KNOWN_HUGGINGFACE_MODEL_REPOS
+        assert "HiDream-ai/HiDream-O1-Image-Dev" in KNOWN_HUGGINGFACE_MODEL_REPOS

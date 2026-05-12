@@ -226,6 +226,8 @@ _PIP_FACADE_SNAPSHOT_OPTS: list[tuple] = [
 _MISC_OPTS: list[tuple] = [
     ("guess_settings", bool, typer.Option(True, "-g", "--guess-settings/--no-guess-settings", envvar="COMFYUI_GUESS_SETTINGS", help="Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Enabled by default; pass --no-guess-settings or COMFYUI_GUESS_SETTINGS=0 to disable.")),
     ("database_url", Optional[str], typer.Option(None, "--database-url", help="Specify the database URL, e.g. 'sqlite:///:memory:'.")),
+    ("feature_flag", Optional[list[str]], typer.Option(None, "--feature-flag", help="Set a server feature flag in KEY[=VALUE] form.")),
+    ("list_feature_flags", bool, typer.Option(False, "--list-feature-flags", help="Print known CLI-settable feature flags as JSON and exit.")),
     ("panic_when", Optional[list[str]], typer.Option(None, "--panic-when", help="List of fully qualified exception class names to panic (sys.exit(1)) when a workflow raises it.")),
     ("executor_factory", str, typer.Option("ThreadPoolExecutor", "--executor-factory", help="Either ThreadPoolExecutor or ProcessPoolExecutor.")),
 ]

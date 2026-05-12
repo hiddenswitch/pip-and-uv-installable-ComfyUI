@@ -206,6 +206,8 @@ class Configuration(dict):
         database_url (str): Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.
         enable_assets (bool): Enable the assets API and database-backed asset management features.
         disable_assets_autoscan (bool): Disable asset scanning on startup for database synchronization.
+        feature_flag (list[str]): Server feature flags in KEY[=VALUE] form.
+        list_feature_flags (bool): Print known CLI-settable feature flags as JSON and exit.
         blacklist_custom_nodes (list[str]): Specify custom node folders to never load. Accepts shell-style globs.
         whitelist_custom_nodes (list[str]): Specify custom node folders to load even when --disable-all-custom-nodes is enabled.
         default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
@@ -362,6 +364,8 @@ class Configuration(dict):
         self._database_url_explicit: bool = False
         self.enable_assets: bool = False
         self.disable_assets_autoscan: bool = False
+        self.feature_flag: list[str] = []
+        self.list_feature_flags: bool = False
         self.default_device: Optional[int] = None
         self.block_runtime_package_installation: bool = True
         self.enable_eval: Optional[bool] = False
