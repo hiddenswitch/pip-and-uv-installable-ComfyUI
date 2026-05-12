@@ -150,28 +150,72 @@ What these do:
 - `rerere.enabled=true` and `rerere.autoUpdate=true` record your conflict resolutions and replay them on later merges.
 - `merge.conflictStyle=zdiff3` makes the remaining real conflicts much easier to inspect.
 
-If a merge was already started with the wrong settings, abort and retry so Git recomputes the merge:
+If a merge was already started with the wrong settings, abort and retry so Git recomputes the merge. Do not continue a merge that was started without directory rename detection:
 
 ```bash
 git merge --abort
-git pull comfyui master
+git pull --no-commit --no-ff comfyui master
 ```
 
 If upstream both moved and heavily edited files, you can retry with a lower rename similarity threshold:
 
 ```bash
-git pull -s ort -Xfind-renames=30% comfyui master
+git pull --no-commit --no-ff -s ort -Xfind-renames=30% comfyui master
 ```
 
 Use the lower threshold only when needed; it can create false rename matches.
 
+## Merge Workflow
+
+Start from the local fork branch that should receive upstream, then recreate `develop` from it:
+
+```bash
+git branch -D develop
+git checkout -b develop
+git fetch comfyui master
+```
+
+Use a no-commit merge so conflict resolution and validation happen before the merge commit is created:
+
+```bash
+git pull --no-commit --no-ff -s ort -Xfind-renames=30% comfyui master
+```
+
+Resolve conflicts in the merge first. Keep directory rename detection enabled and let Git place files under renamed directories where it can. For delete/modify conflicts where this fork intentionally deleted upstream files, confirm the deletion is still intentional and use `git rm`.
+
+Before committing the merge, run all of these checks:
+
+```bash
+git diff --name-only --diff-filter=U
+git ls-files -u
+rg -n '^(<<<<<<<|=======|>>>>>>>)' --glob '!**/tokenizer.json' --glob '!**/merges.txt' --glob '!**/*.model'
+git diff --check
+python3 -m py_compile <conflict-touched-python-files>
+```
+
+Also run focused semantic checks for common merge mistakes:
+
+```bash
+rg -n 'comfy\.' <files converted from upstream absolute imports>
+rg -n 'intel_extension_for_pytorch|ipex|disable_ipex' comfy pyproject.toml
+rg -n 'database-url|disable-assets-autoscan' comfy/cli_args.py comfy/cmd/cli.py
+```
+
+Then commit in this order:
+
+1. Commit the upstream merge and conflict resolutions only.
+2. In a second commit, move files that Git could not relocate automatically with `git mv`.
+3. In later commits, make import fixes, tests, docs, or fork-specific cleanup.
+
+Do not combine the merge and file moves into one commit. Keeping the move commit separate preserves useful history and makes later upstream merges less painful.
+
 ## Version String
 
-Upstream uses `comfyui_version.py` at the repository root. We deleted this file and moved the version string to `comfy/__init__.py`.
+Upstream uses `comfyui_version.py` at the repository root. We deleted this file and moved the version string to `pyproject.toml`.
 
-When merging, accept our deletion of `comfyui_version.py` and update the `__version__` in `comfy/__init__.py` instead.
+When merging, accept our deletion of `comfyui_version.py` and update the project version in `pyproject.toml` to the upstream ComfyUI version.
 
-**Never bump the version in `comfy/__init__.py` or `pyproject.toml`.** The version field tracks **upstream** ComfyUI (currently `0.20.1`); leaving it pinned to upstream lets users reason about feature parity at a glance. Fork releases use a four-part **`v<UPSTREAM>.<FORK_PATCH>`** tag scheme — e.g. `v0.20.1.1`, `v0.20.1.2`, … — with the fork-patch counter bumped per fork-only release. Never invent a 0.20.2 / 0.20.3 / 0.20.4 etc. — those numbers belong to upstream and writing them locally creates a fake fork-of-the-future. The Docker tag-match patterns already accept four-part versions (`type=match,pattern=v?(\d+\.\d+\.\d+\.\d+)` in `.github/workflows/docker-build*.yml`).
+The version field tracks **upstream** ComfyUI; keeping it aligned lets users reason about feature parity at a glance. Fork releases use a four-part **`v<UPSTREAM>.<FORK_PATCH>`** tag scheme — e.g. `v0.21.0.1`, `v0.21.0.2`, … — with the fork-patch counter bumped per fork-only release. Never invent upstream patch versions locally; those numbers belong to upstream. The Docker tag-match patterns already accept four-part versions (`type=match,pattern=v?(\d+\.\d+\.\d+\.\d+)` in `.github/workflows/docker-build*.yml`).
 
 ## Requirements
 
@@ -201,7 +245,7 @@ Example: `app/assets` → `comfy/app/assets`
 
 Also keep track of top-level modules we have relocated into `comfy/`. In particular, upstream `node_helpers.py` maps to `comfy/node_helpers.py` in this fork. Preserve that mapping explicitly during merges so upstream edits to `node_helpers.py` are surfaced and re-applied instead of showing up only as `Deleted by us`.
 
-You will also have to move upstream root-level `comfy_extras/nodes_*.py` files into `comfy_extras/nodes/`, where they are scanned automatically. Use `git mv` and do not leave these files at the `comfy_extras/` package root.
+You will also have to move upstream root-level `comfy_extras/nodes_*.py` files into `comfy_extras/nodes/`, where they are scanned automatically. Use `git mv` in the separate move commit and do not leave these files at the `comfy_extras/` package root.
 
 Example:
 
