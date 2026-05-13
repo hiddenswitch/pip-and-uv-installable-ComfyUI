@@ -1764,12 +1764,12 @@ class HiDreamO1(BaseModel):
         if text_input_ids is None or noise is None:
             return out
 
-        conds = build_extra_conds(
+        extra_cond_values = build_extra_conds(
             text_input_ids, noise,
             ref_images=kwargs.get("reference_latents", None),
             target_patch_size=self.PATCH_SIZE,
         )
-        for k, v in conds.items():
+        for k, v in extra_cond_values.items():
             # ar_len is a Python int (precomputed to avoid a GPU sync in forward).
             cls = conds.CONDConstant if k == "ar_len" else conds.CONDRegular
             out[k] = cls(v)
