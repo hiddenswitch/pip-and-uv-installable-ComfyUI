@@ -10,7 +10,7 @@ import pytest
 def NodeReplaceManager(monkeypatch):
     """Provide NodeReplaceManager with `nodes` stubbed.
 
-    `app.node_replace_manager` does `import nodes` at module level, which pulls in
+    `comfy.app.node_replace_manager` does `import nodes` at module level, which pulls in
     torch + the full ComfyUI graph. register() doesn't actually need it, so we
     stub `nodes` per-test (via monkeypatch so it's torn down) and reload the
     module so it picks up the stub instead of any cached real import.
@@ -18,12 +18,12 @@ def NodeReplaceManager(monkeypatch):
     fake_nodes = types.ModuleType("nodes")
     fake_nodes.NODE_CLASS_MAPPINGS = {}
     monkeypatch.setitem(sys.modules, "nodes", fake_nodes)
-    monkeypatch.delitem(sys.modules, "app.node_replace_manager", raising=False)
-    module = importlib.import_module("app.node_replace_manager")
+    monkeypatch.delitem(sys.modules, "comfy.app.node_replace_manager", raising=False)
+    module = importlib.import_module("comfy.app.node_replace_manager")
     yield module.NodeReplaceManager
     # Drop the freshly-imported module so the next test (or a later real import
     # of `nodes`) starts from a clean slate.
-    sys.modules.pop("app.node_replace_manager", None)
+    sys.modules.pop("comfy.app.node_replace_manager", None)
 
 
 class FakeNodeReplace:

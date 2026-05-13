@@ -41,7 +41,6 @@ from .component_model.deprecation import _deprecate_method
 from .float import stochastic_rounding
 from .gguf import move_patch_to_device, is_torch_compatible, is_quantized, GGMLOps
 from .hooks import EnumHookMode, _HookRef, HookGroup, EnumHookType, WeightHook, create_transformer_options_from_hooks
-from .lora import calculate_weight
 from .lora_types import PatchDict, PatchDictKey, PatchTuple, PatchWeightTuple, ModelPatchesDictValue, PatchSupport
 from .model_base import BaseModel
 from .model_management import lora_compute_dtype

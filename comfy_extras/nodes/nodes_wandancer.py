@@ -1,12 +1,12 @@
 import math
-import nodes
-import node_helpers
 import torch
 import torchaudio
 import comfy.model_management
 import comfy.utils
 import numpy as np
 import logging
+from comfy import node_helpers
+from comfy.nodes import base_nodes as nodes
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 

@@ -11,7 +11,7 @@ import os
 import torch
 from transformers import Qwen2Tokenizer
 
-from comfy import sd1_clip
+from .. import sd1_clip
 
 
 # Qwen3-VL special tokens

@@ -2,7 +2,6 @@ from .llama import Gemma2_2B, Gemma3_4B, Gemma3_4B_Vision
 from .spiece_tokenizer import SPieceTokenizer
 from .. import sd1_clip
 from .lt import Gemma3_Tokenizer
-from .. import utils
 
 class Gemma2BTokenizer(sd1_clip.SDTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data=None):

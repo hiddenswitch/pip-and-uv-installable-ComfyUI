@@ -10,7 +10,7 @@ from .. import sd1_clip
 from ..component_model import files
 from ..model_management import should_use_bf16
 from ..transformers_compat import T5TokenizerFast
-from ..utils import state_dict_prefix_replace, normalize_image_embeddings, common_upscale
+from ..utils import state_dict_prefix_replace, common_upscale
 
 
 class T5XXLTokenizer(sd1_clip.SDTokenizer):

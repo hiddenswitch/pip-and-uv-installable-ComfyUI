@@ -27,10 +27,10 @@ class Block(nn.Module):
             return
         n_gn = n_in * 4
         self.pool = nn.Sequential(
-            comfy.ops.disable_weight_init.Conv2d(n_in, n_gn, 1, bias=False),
-            comfy.ops.disable_weight_init.GroupNorm(4, n_gn),
+            ops.disable_weight_init.Conv2d(n_in, n_gn, 1, bias=False),
+            ops.disable_weight_init.GroupNorm(4, n_gn),
             nn.ReLU(inplace=True),
-            comfy.ops.disable_weight_init.Conv2d(n_gn, n_in, 1, bias=False),
+            ops.disable_weight_init.Conv2d(n_gn, n_in, 1, bias=False),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

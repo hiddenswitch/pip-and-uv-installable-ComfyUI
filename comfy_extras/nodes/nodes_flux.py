@@ -3,7 +3,6 @@ import comfy.utils
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 
-from ..constants.resolutions import KONTEXT_RESOLUTIONS
 from comfy.nodes.common import MAX_RESOLUTION
 
 import comfy.model_management

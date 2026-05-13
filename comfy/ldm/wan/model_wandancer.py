@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-import comfy
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.flux.layers import EmbedND
+from .. import common_dit
+from ..modules.attention import optimized_attention
+from ..flux.math import apply_rope1
+from ..flux.layers import EmbedND
 
 from .model import AudioInjector_WAN, WanModel, MLPProj, Head, sinusoidal_embedding_1d
 
@@ -195,11 +195,11 @@ class WanDancerModel(WanModel):
 
     def _forward(self, x, timestep, context, clip_fea=None, time_dim_concat=None, transformer_options={}, clip_fea_ref=None, fps=30, audio_inject_scale=1.0, **kwargs):
         bs, c, t, h, w = x.shape
-        x = comfy.ldm.common_dit.pad_to_patch_size(x, self.patch_size)
+        x = common_dit.pad_to_patch_size(x, self.patch_size)
 
         t_len = t
         if time_dim_concat is not None:
-            time_dim_concat = comfy.ldm.common_dit.pad_to_patch_size(time_dim_concat, self.patch_size)
+            time_dim_concat = common_dit.pad_to_patch_size(time_dim_concat, self.patch_size)
             x = torch.cat([x, time_dim_concat], dim=2)
             t_len = x.shape[2]
 

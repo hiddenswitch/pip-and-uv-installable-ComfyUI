@@ -1,6 +1,5 @@
 import comfy_aimdo.model_vbar
-import comfy.model_management
-import comfy.ops
+from . import model_management, ops
 
 PREFETCH_QUEUES = []
 
@@ -38,7 +37,7 @@ def prefetch_queue_pop(queue, device, module):
     if consumed is not None:
         offload_stream, prefetch_state = consumed
         if offload_stream is not None:
-            offload_stream.wait_stream(comfy.model_management.current_stream(device))
+            offload_stream.wait_stream(model_management.current_stream(device))
         _, comfy_modules = prefetch_state
         if comfy_modules is not None:
             cleanup_prefetched_modules(comfy_modules)
@@ -50,15 +49,15 @@ def prefetch_queue_pop(queue, device, module):
             if hasattr(s, "_v"):
                 comfy_modules.append(s)
 
-        offload_stream = comfy.ops.cast_modules_with_vbar(comfy_modules, None, device, None, True)
-        comfy.model_management.sync_stream(device, offload_stream)
+        offload_stream = ops.cast_modules_with_vbar(comfy_modules, None, device, None, True)
+        model_management.sync_stream(device, offload_stream)
         queue[0] = (offload_stream, (prefetch, comfy_modules))
 
 def make_prefetch_queue(queue, device, transformer_options):
     if (not transformer_options.get("prefetch_dynamic_vbars", False)
-        or comfy.model_management.NUM_STREAMS == 0
-        or comfy.model_management.is_device_cpu(device)
-        or not comfy.model_management.device_supports_non_blocking(device)):
+        or model_management.NUM_STREAMS == 0
+        or model_management.is_device_cpu(device)
+        or not model_management.device_supports_non_blocking(device)):
         return None
 
     queue = [None] + queue + [None]

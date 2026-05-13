@@ -4,14 +4,12 @@ import json
 import torch
 import logging
 
-import comfy.ops
-import comfy.model_patcher
-import comfy.model_management
-import comfy.clip_model
-import comfy.background_removal.birefnet
+from . import clip_model, model_management, ops
+from .background_removal import birefnet
+from .model_patcher import CoreModelPatcher
 
 BG_REMOVAL_MODELS = {
-    "birefnet": comfy.background_removal.birefnet.BiRefNet
+    "birefnet": birefnet.BiRefNet
 }
 
 class BackgroundRemovalModel():
@@ -26,13 +24,13 @@ class BackgroundRemovalModel():
         self.config = config.copy()
         model_class = BG_REMOVAL_MODELS.get(self.model_type)
 
-        self.load_device = comfy.model_management.text_encoder_device()
-        offload_device = comfy.model_management.text_encoder_offload_device()
-        self.dtype = comfy.model_management.text_encoder_dtype(self.load_device)
-        self.model = model_class(config, self.dtype, offload_device, comfy.ops.manual_cast)
+        self.load_device = model_management.text_encoder_device()
+        offload_device = model_management.text_encoder_offload_device()
+        self.dtype = model_management.text_encoder_dtype(self.load_device)
+        self.model = model_class(config, self.dtype, offload_device, ops.manual_cast)
         self.model.eval()
 
-        self.patcher = comfy.model_patcher.CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
@@ -41,13 +39,13 @@ class BackgroundRemovalModel():
         return self.model.state_dict()
 
     def encode_image(self, image):
-        comfy.model_management.load_model_gpu(self.patcher)
+        model_management.load_model_gpu(self.patcher)
         H, W = image.shape[1], image.shape[2]
-        pixel_values = comfy.clip_model.clip_preprocess(image.to(self.load_device), size=self.image_size, mean=self.image_mean, std=self.image_std, crop=False)
+        pixel_values = clip_model.clip_preprocess(image.to(self.load_device), size=self.image_size, mean=self.image_mean, std=self.image_std, crop=False)
         out = self.model(pixel_values=pixel_values)
         out = torch.nn.functional.interpolate(out, size=(H, W), mode="bicubic", antialias=False)
 
-        mask = out.sigmoid().to(device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype())
+        mask = out.sigmoid().to(device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype())
         if mask.ndim == 3:
             mask = mask.unsqueeze(0)
         if mask.shape[1] != 1:

@@ -159,18 +159,22 @@ class TestParseCliFeatureFlags:
         result = _parse_cli_feature_flags()
         assert result == {"valid": "1"}
 
-    def test_invalid_bool_value_dropped(self, monkeypatch, caplog):
+    def test_invalid_bool_value_dropped(self, monkeypatch):
         """A typo'd bool value must be dropped entirely, not silently set to False
         and not stored as a raw string. A warning must be logged."""
         monkeypatch.setattr(
             "comfy_api.feature_flags.args",
             type("Args", (), {"feature_flag": ["show_signin_button=ture", "valid=1"]})(),
         )
-        with caplog.at_level("WARNING"):
-            result = _parse_cli_feature_flags()
+        warnings = []
+        monkeypatch.setattr(
+            "comfy_api.feature_flags.logging.warning",
+            lambda msg, *args: warnings.append(msg % args),
+        )
+        result = _parse_cli_feature_flags()
         assert result == {"valid": "1"}
         assert "show_signin_button" not in result
-        assert any("show_signin_button" in r.message and "drop" in r.message.lower() for r in caplog.records)
+        assert any("show_signin_button" in message and "drop" in message.lower() for message in warnings)
 
 
 class TestCliFeatureFlagRegistry:

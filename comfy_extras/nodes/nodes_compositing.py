@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from skimage import exposure
 
-import comfy.utils
+from comfy import utils
 from comfy.component_model.tensor_types import RGBImageBatch, ImageBatch, MaskBatch
 from comfy.nodes.package_typing import CustomNode
 from comfy_api.latest import io

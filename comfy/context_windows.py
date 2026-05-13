@@ -348,7 +348,7 @@ class IndexListContextHandler(ContextHandlerABC):
                     window.causal_anchor_index = anchor_idx
                     anchor_applied = True
 
-            for callback in comfy.patcher_extension.get_all_callbacks(IndexListCallbacks.EVALUATE_CONTEXT_WINDOWS, self.callbacks):
+            for callback in patcher_extension.get_all_callbacks(IndexListCallbacks.EVALUATE_CONTEXT_WINDOWS, self.callbacks):
                 callback(self, model, x_in, conds, timestep, model_options, window_idx, window, model_options, device, first_device)
 
             # update exposed params

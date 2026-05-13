@@ -15,7 +15,7 @@ except ImportError:
     from scipy import ndimage
     _HAS_CV2 = False
 
-from ... import model_management
+from ... import model_management, utils
 from ..modules.attention import optimized_attention
 from .sam import rope_2d, PositionEmbeddingSine, MLP, PositionEmbeddingRandom, TwoWayTransformer as SAMTwoWayTransformer
 from ...ops import cast_to_input
@@ -206,7 +206,7 @@ def unpack_masks(packed):
 
 def _prep_frame(images, idx, device, dt, size):
     """Slice CPU full-res frames, transfer to GPU in target dtype, and resize to (size, size)."""
-    return comfy.utils.common_upscale(images[idx].to(device=device, dtype=dt), size, size, "bicubic", crop="disabled")
+    return utils.common_upscale(images[idx].to(device=device, dtype=dt), size, size, "bicubic", crop="disabled")
 
 
 def _compute_backbone(backbone_fn, frame, frame_idx=None):

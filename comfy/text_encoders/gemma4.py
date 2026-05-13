@@ -4,11 +4,10 @@ import numpy as np
 from dataclasses import dataclass
 import math
 
-from comfy import sd1_clip
-import comfy.model_management
-from comfy.ldm.modules.attention import optimized_attention_for_device
-from comfy.rmsnorm import rms_norm
-from comfy.text_encoders.llama import RMSNorm, MLP, BaseLlama, BaseGenerate, _make_scaled_embedding
+from .. import model_management, sd1_clip
+from ..ldm.modules.attention import optimized_attention_for_device
+from ..rmsnorm import rms_norm
+from .llama import RMSNorm, MLP, BaseLlama, BaseGenerate, _make_scaled_embedding
 
 
 # Intentional minor divergences from transformers -reference implementation:
@@ -607,7 +606,7 @@ class Gemma4PatchEmbedder(nn.Module):
         hidden_states = self.input_proj((2.0 * (patches - 0.5)).to(self.input_proj.weight.dtype))
 
         clamped_positions = pixel_position_ids.clamp(min=0)
-        pos_table = comfy.model_management.cast_to_device(self.position_embedding_table, hidden_states.device, hidden_states.dtype)
+        pos_table = model_management.cast_to_device(self.position_embedding_table, hidden_states.device, hidden_states.dtype)
         position_embeddings = pos_table[0][clamped_positions[..., 0]] + pos_table[1][clamped_positions[..., 1]]
 
         # Zero out position embeddings for padding patches (matching HF)
@@ -1227,10 +1226,12 @@ class Gemma4Tokenizer(sd1_clip.SD1Tokenizer):
 # Model wrappers
 class Gemma4Model(sd1_clip.SDClipModel):
     model_class = None
-    def __init__(self, device="cpu", layer="all", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", textmodel_json_config=None, layer="all", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         self.dtypes = set()
         self.dtypes.add(dtype)
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=self.model_class, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"start": 2, "pad": 0}, layer_norm_hidden_state=False, model_class=self.model_class, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
     def process_tokens(self, tokens, device):
         embeds, _, _, _ = super().process_tokens(tokens, device)

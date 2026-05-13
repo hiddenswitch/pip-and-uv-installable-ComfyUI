@@ -22,6 +22,7 @@ from typing import Union
 import torch
 
 from . import model_base
+from . import memory_management
 from . import model_management
 from . import utils
 from . import weight_adapter
@@ -364,7 +365,7 @@ def model_lora_keys_unet(model, key_map=None):
                 key_map["base_model.model.{}".format(key_lora)] = k  # Official base model loras
                 key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = k  # LyCORIS/LoKR format
 
-    if isinstance(model, comfy.model_base.ErnieImage):
+    if isinstance(model, model_base.ErnieImage):
         for k in sdk:
             if k.startswith("diffusion_model.") and k.endswith(".weight"):
                 key_lora = k[len("diffusion_model."):-len(".weight")]
@@ -500,9 +501,9 @@ def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_d
 
 def prefetch_prepared_value(value, allocate_buffer, stream):
     if isinstance(value, torch.Tensor):
-        dest = allocate_buffer(comfy.memory_management.vram_aligned_size(value))
-        comfy.model_management.cast_to_gathered([value], dest, non_blocking=True, stream=stream)
-        return comfy.memory_management.interpret_gathered_like([value], dest)[0]
+        dest = allocate_buffer(memory_management.vram_aligned_size(value))
+        model_management.cast_to_gathered([value], dest, non_blocking=True, stream=stream)
+        return memory_management.interpret_gathered_like([value], dest)[0]
     elif isinstance(value, weight_adapter.WeightAdapterBase):
         return type(value)(value.loaded_keys, prefetch_prepared_value(value.weights, allocate_buffer, stream))
     elif isinstance(value, tuple):

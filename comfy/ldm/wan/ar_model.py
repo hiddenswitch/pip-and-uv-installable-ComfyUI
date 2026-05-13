@@ -12,16 +12,16 @@ Reference: https://github.com/thu-ml/Causal-Forcing
 import torch
 import torch.nn as nn
 
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.wan.model import (
+from ..modules.attention import optimized_attention
+from ..flux.math import apply_rope1
+from .model import (
     sinusoidal_embedding_1d,
     repeat_e,
     WanModel,
     WanAttentionBlock,
 )
-import comfy.ldm.common_dit
-import comfy.model_management
+from .. import common_dit
+from ... import model_management
 
 
 class CausalWanSelfAttention(nn.Module):
@@ -100,9 +100,9 @@ class CausalWanAttentionBlock(WanAttentionBlock):
     def forward(self, x, e, freqs, context, context_img_len=257,
                 kv_cache=None, crossattn_cache=None, transformer_options={}):
         if e.ndim < 4:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
+            e = (model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
         else:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
+            e = (model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
 
         # Self-attention with optional KV cache
         x = x.contiguous()
@@ -186,7 +186,7 @@ class CausalWanModel(WanModel):
         Returns:
             flow_pred: [B, C_out, block_frames, H, W] flow prediction
         """
-        x = comfy.ldm.common_dit.pad_to_patch_size(x, self.patch_size)
+        x = common_dit.pad_to_patch_size(x, self.patch_size)
         bs, c, t, h, w = x.shape
 
         x = self.patch_embedding(x.float()).to(x.dtype)

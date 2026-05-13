@@ -557,7 +557,7 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
     sdpa_extra = {k: v for k, v in kwargs.items() if k in sdpa_keys}
 
     if SDP_BATCH_LIMIT >= b:
-        out = comfy.ops.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, **sdpa_extra)
+        out = scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, **sdpa_extra)
         if not skip_output_reshape:
             out = (
                 out.transpose(1, 2).reshape(b, -1, heads * dim_head)

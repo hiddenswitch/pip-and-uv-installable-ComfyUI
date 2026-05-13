@@ -1839,8 +1839,8 @@ class LoadImage:
     def load_image(self, image: str) -> ImageMaskTuple:
         image_path = folder_paths.get_annotated_filepath(image)
 
-        dtype = comfy.model_management.intermediate_dtype()
-        device = comfy.model_management.intermediate_device()
+        dtype = model_management.intermediate_dtype()
+        device = model_management.intermediate_device()
 
         components = InputImpl.VideoFromFile(image_path).get_components()
         if components.images.shape[0] > 0:

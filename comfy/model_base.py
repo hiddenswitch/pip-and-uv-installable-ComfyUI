@@ -68,6 +68,7 @@ from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
 from .ldm.sam3.detector import SAM3Model
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
+from .ldm.wan.ar_model import CausalWanModel
 from .ldm.wan.model_animate import AnimateWanModel
 from .ldm.wan.model_wandancer import WanDancerModel
 from .ldm.cogvideo.model import CogVideoXTransformer3DModel
@@ -1435,7 +1436,7 @@ class WAN21(BaseModel):
 class WAN21_CausalAR(WAN21):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super(WAN21, self).__init__(model_config, model_type, device=device,
-                                    unet_model=comfy.ldm.wan.ar_model.CausalWanModel)
+                                    unet_model=CausalWanModel)
         self.image_to_video = False
 
 

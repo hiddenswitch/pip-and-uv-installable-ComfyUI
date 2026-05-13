@@ -4,7 +4,7 @@ import torch
 
 import comfy.model_management
 import comfy.patcher_extension
-import node_helpers
+from comfy import node_helpers
 from comfy_api.latest import ComfyExtension, io
 
 

@@ -7,8 +7,6 @@ from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_rou
 
 logger = logging.getLogger(__name__)
 
-from comfy.cli_args import args
-
 try:
     import comfy_kitchen as ck
     from comfy_kitchen.tensor import (
