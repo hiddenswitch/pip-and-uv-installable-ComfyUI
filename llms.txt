@@ -1552,6 +1552,44 @@ Python in §Task 7).
    Don't loop infinitely — after 3 tries, ask the user.
 10. For bulk jobs: daemon + submit. For exotic graph edits: Python.
 
+## Measuring performance with OpenTelemetry
+
+ComfyUI emits OpenTelemetry spans for the server lifecycle, prompt
+submission, model loading, prompt execution, and individual node
+execution. Use this instead of shell wall-clock timing when you need
+precise durations for a workflow run or a specific node.
+
+For local measurement, use a `file://` endpoint. ComfyUI writes one
+JSON object per span to that path:
+
+```bash
+comfyui serve --daemon \
+  --otel-service-name comfyui-bench \
+  --otel-service-version "$(git rev-parse --short HEAD)" \
+  --otel-exporter-otlp-endpoint file:///tmp/comfyui-traces.jsonl
+```
+
+For clean benchmark numbers, start the daemon once, submit a warmup job,
+then submit the measured job with a different seed. Inspect the file
+exporter output after the measured job completes. The spans to look for
+are:
+
+| Span | What it measures |
+|---|---|
+| `Execute Prompt` | End-to-end backend prompt execution. |
+| `Execute Node` | One node execution; attributes include `class_type` and scalar/list inputs such as seed, steps, sampler, scheduler, and model names when available. |
+| `Load Models GPU` | Model load/move time onto the target GPU. |
+| `Free Memory` | Time spent freeing/offloading memory. |
+| HTTP client/server spans | Submit/poll API overhead. |
+
+To extract node timings from the JSONL output, read each line as a span
+object and use `duration_ms` or compute
+`end_time_unix_nano - start_time_unix_nano`. Group `Execute Node` spans
+by `attributes["class_type"]`, and filter to the trace containing the
+measured submit. Use unique `--otel-service-name` or
+`--otel-service-version` values for each benchmark variant so traces
+from different runs do not mix.
+
 ## Troubleshooting quick table
 
 | Symptom | Fix |

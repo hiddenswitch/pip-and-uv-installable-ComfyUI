@@ -212,9 +212,12 @@ def _create_tracer():
     # This ensures instrumentors can access the provider
     trace.set_tracer_provider(provider)
 
-    has_endpoint = args.otel_exporter_otlp_endpoint is not None
+    endpoint = args.otel_exporter_otlp_endpoint
 
-    if has_endpoint:
+    if endpoint and endpoint.startswith("file://"):
+        from ..component_model.otel_file_exporter import FileSpanExporter
+        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
+    elif endpoint is not None:
         exporter = OTLPSpanExporter()
     else:
         exporter = SpanExporter()

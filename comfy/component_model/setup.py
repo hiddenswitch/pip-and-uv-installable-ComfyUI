@@ -162,7 +162,11 @@ def _setup_tracing_impl(config: Configuration):
 
     trace.set_tracer_provider(provider)
 
-    if config.otel_exporter_otlp_endpoint is not None:
+    endpoint = config.otel_exporter_otlp_endpoint
+    if endpoint and endpoint.startswith("file://"):
+        from .otel_file_exporter import FileSpanExporter
+        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
+    elif endpoint is not None:
         exporter = OTLPSpanExporter()
     else:
         exporter = SpanExporter()
