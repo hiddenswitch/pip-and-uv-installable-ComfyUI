@@ -10,7 +10,7 @@ import numpy
 import scipy.stats
 import torch
 
-from . import model_patcher
+from . import model_patcher as model_patcher_module
 from . import patcher_extension
 from . import sampler_helpers
 from .nested_tensor import NestedTensor
@@ -1017,7 +1017,7 @@ class CFGGuider:
 
         self.conds = process_conds(self.inner_model, noise, self.conds, device, latent_image, denoise_mask, seed, latent_shapes=latent_shapes)
 
-        extra_model_options = model_patcher.create_model_options_clone(self.model_options)
+        extra_model_options = model_patcher_module.create_model_options_clone(self.model_options)
         extra_model_options.setdefault("transformer_options", {})["sample_sigmas"] = sigmas
         extra_args = {"model_options": extra_model_options, "seed": seed}
 
@@ -1086,7 +1086,7 @@ class CFGGuider:
         orig_model_options = self.model_options
         orig_hook_mode = self.model_patcher.hook_mode
         try:
-            self.model_options = model_patcher.create_model_options_clone(self.model_options)
+            self.model_options = model_patcher_module.create_model_options_clone(self.model_options)
             # if one hook type (or just None), then don't bother caching weights for hooks (will never change after first step)
             if get_total_hook_groups_in_conds(self.conds) <= 1:
                 self.model_patcher.hook_mode = EnumHookMode.MinVram

@@ -12,7 +12,7 @@ from typing import Any, Optional
 import torch
 import yaml
 
-from . import clip_vision
+from . import clip_vision as clip_vision_module
 from . import diffusers_convert
 from . import gligen
 from . import model_detection
@@ -1830,7 +1830,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
 
     if model_config.clip_vision_prefix is not None:
         if output_clipvision:
-            clipvision = clip_vision.load_clipvision_from_sd(sd, model_config.clip_vision_prefix, True)
+            clipvision = clip_vision_module.load_clipvision_from_sd(sd, model_config.clip_vision_prefix, True)
 
     if output_model:
         inital_load_device = model_management.unet_initial_load_device(parameters, unet_dtype)

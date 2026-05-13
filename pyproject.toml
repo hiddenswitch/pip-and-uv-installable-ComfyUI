@@ -211,6 +211,8 @@ lint.select = [
     "W",     # pycodestyle warnings
     "F",     # Pyflakes (covers undefined-name, used-before-assignment-style bugs)
     "B",     # flake8-bugbear (mutable default args, broad except, etc.)
+    "A",     # flake8-builtins (builtin shadowing)
+    "PLR1704",  # redefined-argument-from-local
 ]
 
 # Match the same suppressions pylint's [tool.pylint.messages_control] had —
@@ -263,6 +265,12 @@ exclude = [
     "comfy/vendor/**",
     "comfy_extras/controlnet_aux/**",  # vendored 3rd-party, has `# pylint: skip-file`
 ]
+
+[tool.ruff.lint.flake8-builtins]
+# These names are part of public CLI, route, schema, node-input, and model
+# call signatures. Keep detecting other builtin shadowing without forcing API
+# churn for established interface terms.
+ignorelist = ["all", "format", "id", "input", "max", "min", "round", "type"]
 
 # CLI / script files legitimately use ``print()`` — silence T201 there.
 # nodes_eval.py is the EvalNode whose entire purpose is exec(); silence S102.

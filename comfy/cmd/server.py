@@ -417,9 +417,9 @@ class PromptServer(ExecutorToClientProgress):
             files = glob.glob(os.path.join(glob.escape(self.web_root), 'extensions/**/*.js'), recursive=True)
             extensions = list(map(lambda f: "/" + os.path.relpath(str(f), self.web_root).replace("\\", "/"), files))
 
-            for name, dir in self.nodes.EXTENSION_WEB_DIRS.items():
-                files = glob.glob(os.path.join(glob.escape(dir), '**/*.js'), recursive=True)
-                extensions.extend(list(map(lambda f: "/extensions/" + quote(name) + "/" + os.path.relpath(str(f), dir).replace("\\", "/"), files)))
+            for name, extension_dir in self.nodes.EXTENSION_WEB_DIRS.items():
+                files = glob.glob(os.path.join(glob.escape(extension_dir), '**/*.js'), recursive=True)
+                extensions.extend(list(map(lambda f: "/extensions/" + quote(name) + "/" + os.path.relpath(str(f), extension_dir).replace("\\", "/"), files)))
 
             return web.json_response(extensions)
 
@@ -1365,8 +1365,8 @@ class PromptServer(ExecutorToClientProgress):
         self.app.router.add_get("/ws/lsp", self._lsp_manager.handle_websocket)
 
         # Add routes from web extensions.
-        for name, dir in self.nodes.EXTENSION_WEB_DIRS.items():
-            self.app.add_routes([web.static('/extensions/' + name, dir, follow_symlinks=True)])
+        for name, extension_dir in self.nodes.EXTENSION_WEB_DIRS.items():
+            self.app.add_routes([web.static('/extensions/' + name, extension_dir, follow_symlinks=True)])
 
         installed_templates_version = FrontendManager.get_installed_templates_version()
         use_legacy_templates = True
@@ -1549,7 +1549,7 @@ class PromptServer(ExecutorToClientProgress):
             except:
                 return False
 
-        addresses = sorted(addresses, key=lambda tuple: is_ipv4(*tuple))
+        addresses = sorted(addresses, key=lambda address_tuple: is_ipv4(*address_tuple))
         for (address, port) in addresses:
             site = web.TCPSite(runner, address, port, backlog=PromptServer.get_too_busy_queue_size())
             try:

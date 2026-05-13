@@ -23,7 +23,7 @@ import re
 import gguf
 import torch
 from safetensors.torch import load_file, save_file
-from sentencepiece import sentencepiece_model_pb2 as model
+from sentencepiece import sentencepiece_model_pb2 as sentencepiece_model
 from tqdm import tqdm
 
 from .lora import calculate_weight
@@ -962,7 +962,7 @@ def gemma3_norm_corrections(sd):
 def gguf_tokenizer_loader(path, temb_shape):
     # convert gguf tokenizer to spiece
     logger.info("Attempting to recreate sentencepiece tokenizer from GGUF file metadata...")
-    spm = model.ModelProto()
+    spm = sentencepiece_model.ModelProto()
 
     reader = gguf.GGUFReader(path)
 
@@ -1132,7 +1132,7 @@ def gguf_tekken_tokenizer_loader(path, temb_shape):
 def gguf_gemma3_tokenizer_loader(path):
     # TODO: merge into gguf_tokenizer_loader
     logger.info("Attempting to recreate sentencepiece tokenizer from GGUF file metadata...")
-    spm = model.ModelProto()
+    spm = sentencepiece_model.ModelProto()
     reader = gguf.GGUFReader(path)
 
     spm.normalizer_spec.name = "identity"

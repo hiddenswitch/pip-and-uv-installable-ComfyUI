@@ -1,5 +1,5 @@
 from functools import reduce
-from operator import add, mul, pow
+from operator import add, mul, pow as operator_pow
 
 from comfy.node_helpers import export_custom_nodes
 from comfy.nodes.package_typing import CustomNode, InputTypes
@@ -94,7 +94,7 @@ class FloatPower(CustomNode):
     FUNCTION = "execute"
 
     def execute(self, base, exponent):
-        return (pow(base, exponent),)
+        return (operator_pow(base, exponent),)
 
 
 class IntAdd(CustomNode):
@@ -204,7 +204,7 @@ class IntPower(CustomNode):
     FUNCTION = "execute"
 
     def execute(self, base, exponent):
-        return (pow(base, exponent),)
+        return (operator_pow(base, exponent),)
 
 
 class FloatMin(CustomNode):

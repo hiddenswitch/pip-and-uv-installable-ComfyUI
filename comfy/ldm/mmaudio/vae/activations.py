@@ -3,7 +3,7 @@
 
 import torch
 from torch import nn
-from torch import sin, pow
+from torch import sin, pow as torch_pow
 from torch.nn import Parameter
 from ....model_management import cast_to
 
@@ -57,7 +57,7 @@ class Snake(nn.Module):
         alpha = cast_to(self.alpha, dtype=x.dtype, device=x.device).unsqueeze(0).unsqueeze(-1)  # line up with x to [B, C, T]
         if self.alpha_logscale:
             alpha = torch.exp(alpha)
-        x = x + (1.0 / (alpha + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+        x = x + (1.0 / (alpha + self.no_div_by_zero)) * torch_pow(sin(x * alpha), 2)
 
         return x
 
@@ -119,6 +119,6 @@ class SnakeBeta(nn.Module):
         if self.alpha_logscale:
             alpha = torch.exp(alpha)
             beta = torch.exp(beta)
-        x = x + (1.0 / (beta + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+        x = x + (1.0 / (beta + self.no_div_by_zero)) * torch_pow(sin(x * alpha), 2)
 
         return x

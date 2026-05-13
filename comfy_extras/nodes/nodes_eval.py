@@ -71,7 +71,7 @@ return {", ".join([f"value{i}" for i in range(inputs)])}
                 **kwargs,
             }
 
-            def print(*args):
+            def print_to_progress(*args):
                 ctx.server.send_progress_text(" ".join(map(str, args)), ctx.node_id)
 
             if not ctx.configuration.enable_eval:
@@ -87,7 +87,7 @@ return {", ".join([f"value{i}" for i in range(inputs)])}
             globals_for_eval = {
                 **kwargs,
                 "logger": logger,
-                "print": print,
+                "print": print_to_progress,
             }
 
             exec(wrapped_code, globals_for_eval)

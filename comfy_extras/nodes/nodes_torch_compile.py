@@ -198,13 +198,13 @@ class QuantizeModel(CustomNode):
             self.warn_in_place(model)
             model_management.load_models_gpu([model])
 
-            def filter(module: torch.nn.Module, fqn: str) -> bool:
+            def should_quantize(module: torch.nn.Module, fqn: str) -> bool:
                 return isinstance(module, torch.nn.Linear) and not any(prefix in fqn for prefix in always_exclude_these)
 
             if "autoquant" in strategy:
                 _in_place_fixme = autoquant(unet, error_on_unseen=False)
             else:
-                quantize_(unet, int8_dynamic_activation_int8_weight(), device=model_management.get_torch_device(), filter_fn=filter)
+                quantize_(unet, int8_dynamic_activation_int8_weight(), device=model_management.get_torch_device(), filter_fn=should_quantize)
                 _in_place_fixme = unet
             unwrap_tensor_subclass(_in_place_fixme)
         else:

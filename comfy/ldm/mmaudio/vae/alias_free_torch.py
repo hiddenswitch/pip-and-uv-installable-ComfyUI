@@ -50,9 +50,9 @@ def kaiser_sinc_filter1d(cutoff, half_width, kernel_size):  # return filter [1,1
         # Normalize filter to have sum = 1, otherwise we will have a small leakage
         # of the constant component in the input signal.
         filter_ /= filter_.sum()
-        filter = filter_.view(1, 1, kernel_size)
+    filter_kernel = filter_.view(1, 1, kernel_size)
 
-    return filter
+    return filter_kernel
 
 
 class LowPassFilter1d(nn.Module):
@@ -77,8 +77,8 @@ class LowPassFilter1d(nn.Module):
         self.stride = stride
         self.padding = padding
         self.padding_mode = padding_mode
-        filter = kaiser_sinc_filter1d(cutoff, half_width, kernel_size)
-        self.register_buffer("filter", filter)
+        filter_kernel = kaiser_sinc_filter1d(cutoff, half_width, kernel_size)
+        self.register_buffer("filter", filter_kernel)
 
     # input [B, C, T]
     def forward(self, x):
@@ -102,10 +102,10 @@ class UpSample1d(nn.Module):
         self.pad = self.kernel_size // ratio - 1
         self.pad_left = self.pad * self.stride + (self.kernel_size - self.stride) // 2
         self.pad_right = self.pad * self.stride + (self.kernel_size - self.stride + 1) // 2
-        filter = kaiser_sinc_filter1d(cutoff=0.5 / ratio,
-                                      half_width=0.6 / ratio,
-                                      kernel_size=self.kernel_size)
-        self.register_buffer("filter", filter)
+        filter_kernel = kaiser_sinc_filter1d(cutoff=0.5 / ratio,
+                                             half_width=0.6 / ratio,
+                                             kernel_size=self.kernel_size)
+        self.register_buffer("filter", filter_kernel)
 
     # x: [B, C, T]
     def forward(self, x):

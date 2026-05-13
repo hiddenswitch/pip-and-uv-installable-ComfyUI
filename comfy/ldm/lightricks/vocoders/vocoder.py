@@ -48,8 +48,8 @@ def kaiser_sinc_filter1d(cutoff, half_width, kernel_size):
     else:
         filter_ = 2 * cutoff * window * _sinc(2 * cutoff * time)
         filter_ /= filter_.sum()
-        filter = filter_.view(1, 1, kernel_size)
-    return filter
+    filter_kernel = filter_.view(1, 1, kernel_size)
+    return filter_kernel
 
 
 class LowPassFilter1d(nn.Module):
@@ -74,8 +74,8 @@ class LowPassFilter1d(nn.Module):
         self.stride = stride
         self.padding = padding
         self.padding_mode = padding_mode
-        filter = kaiser_sinc_filter1d(cutoff, half_width, kernel_size)
-        self.register_buffer("filter", filter)
+        filter_kernel = kaiser_sinc_filter1d(cutoff, half_width, kernel_size)
+        self.register_buffer("filter", filter_kernel)
 
     def forward(self, x):
         _, C, _ = x.shape
@@ -104,7 +104,7 @@ class UpSample1d(nn.Module):
             t = (torch.arange(self.kernel_size) / ratio - width) * rolloff
             t_clamped = t.clamp(-lowpass_filter_width, lowpass_filter_width)
             window = torch.cos(t_clamped * math.pi / lowpass_filter_width / 2) ** 2
-            filter = (torch.sinc(t) * window * rolloff / ratio).view(1, 1, -1)
+            filter_kernel = (torch.sinc(t) * window * rolloff / ratio).view(1, 1, -1)
         else:
             # Kaiser-windowed sinc filter (BigVGAN default).
             self.kernel_size = (
@@ -115,11 +115,11 @@ class UpSample1d(nn.Module):
             self.pad_right = (
                     self.pad * self.stride + (self.kernel_size - self.stride + 1) // 2
             )
-            filter = kaiser_sinc_filter1d(
+            filter_kernel = kaiser_sinc_filter1d(
                 cutoff=0.5 / ratio, half_width=0.6 / ratio, kernel_size=self.kernel_size
             )
 
-        self.register_buffer("filter", filter, persistent=persistent)
+        self.register_buffer("filter", filter_kernel, persistent=persistent)
 
     def forward(self, x):
         _, C, _ = x.shape

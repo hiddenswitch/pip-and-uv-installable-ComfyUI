@@ -11,7 +11,7 @@ from . import deis
 from . import sa_solver
 from . import utils
 from .. import model_patcher
-from .. import model_sampling
+from .. import model_sampling as model_sampling_module
 from ..model_sampling import CONST
 from ..utils import model_trange as trange
 
@@ -213,7 +213,7 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 @torch.no_grad()
 def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
-    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling.CONST):
+    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling_module.CONST):
         return sample_euler_ancestral_RF(model, x, sigmas, extra_args, callback, disable, eta, s_noise, noise_sampler)
     """Ancestral sampling with Euler method steps."""
     extra_args = {} if extra_args is None else extra_args
@@ -339,7 +339,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 @torch.no_grad()
 def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
-    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling.CONST):
+    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling_module.CONST):
         return sample_dpm_2_ancestral_RF(model, x, sigmas, extra_args, callback, disable, eta, s_noise, noise_sampler)
 
     """Ancestral sampling with DPM-Solver second-order steps."""
@@ -652,7 +652,7 @@ def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callbac
 
 @torch.no_grad()
 def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
-    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling.CONST):
+    if isinstance(model.inner_model.inner_model.model_sampling, model_sampling_module.CONST):
         return sample_dpmpp_2s_ancestral_RF(model, x, sigmas, extra_args, callback, disable, eta, s_noise, noise_sampler)
 
     """Ancestral sampling with DPM-Solver++(2S) second-order steps."""

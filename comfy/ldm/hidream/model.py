@@ -8,7 +8,7 @@ from einops import repeat
 from ..lightricks.model import TimestepEmbedding, Timesteps
 import torch.nn.functional as F
 
-from ..flux.math import apply_rope, rope
+from ..flux.math import apply_rope, rope as rope_fn
 from ..flux.layers import LastLayer
 
 from ..modules.attention import optimized_attention
@@ -27,7 +27,7 @@ class EmbedND(nn.Module):
     def forward(self, ids: torch.Tensor) -> torch.Tensor:
         n_axes = ids.shape[-1]
         emb = torch.cat(
-            [rope(ids[..., i], self.axes_dim[i], self.theta) for i in range(n_axes)],
+            [rope_fn(ids[..., i], self.axes_dim[i], self.theta) for i in range(n_axes)],
             dim=-3,
         )
         return emb.unsqueeze(2)

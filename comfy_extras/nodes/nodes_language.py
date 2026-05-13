@@ -515,13 +515,13 @@ class OmitThink(CustomNode):
             values = value
 
         result = []
-        for value in values:
-            if "<think>" in value:
-                cleaned_text = re.sub(pattern_explicit, "", value, flags=re.DOTALL)
-            elif "</think>" in value:
-                cleaned_text = re.sub(pattern_missing_start, "", value, flags=re.DOTALL)
+        for text_value in values:
+            if "<think>" in text_value:
+                cleaned_text = re.sub(pattern_explicit, "", text_value, flags=re.DOTALL)
+            elif "</think>" in text_value:
+                cleaned_text = re.sub(pattern_missing_start, "", text_value, flags=re.DOTALL)
             else:
-                cleaned_text = value
+                cleaned_text = text_value
             result.append(cleaned_text.strip())
 
         return result,
