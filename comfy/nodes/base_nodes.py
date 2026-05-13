@@ -671,6 +671,16 @@ class DiffusersLoader:
                 model_path = snapshot_download(model_path)
 
         model_options = get_model_options_for_dtype(weight_dtype)
+        sharded_checkpoint = os.path.join(model_path, "model.safetensors.index.json")
+        if os.path.exists(sharded_checkpoint):
+            return sd.load_checkpoint_guess_config(
+                sharded_checkpoint,
+                output_vae=output_vae,
+                output_clip=output_clip,
+                embedding_directory=folder_paths.get_folder_paths("embeddings"),
+                model_options=model_options,
+            )[:3]
+
         return diffusers_load.load_diffusers(model_path, output_vae=output_vae, output_clip=output_clip, embedding_directory=folder_paths.get_folder_paths("embeddings"), model_options=model_options)
 
 

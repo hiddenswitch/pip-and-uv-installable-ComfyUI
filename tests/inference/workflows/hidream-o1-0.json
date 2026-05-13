@@ -1,0 +1,120 @@
+{
+  "10": {
+    "inputs": {
+      "model_path": "HiDream-ai/HiDream-O1-Image-Dev",
+      "weight_dtype": "default"
+    },
+    "class_type": "DiffusersLoader",
+    "_meta": {
+      "title": "Load HiDream-O1 Dev"
+    }
+  },
+  "11": {
+    "inputs": {
+      "shift": 7.5,
+      "model": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "HiDream-O1 Dev Sampling"
+    }
+  },
+  "12": {
+    "inputs": {
+      "width": 2048,
+      "height": 2048,
+      "batch_size": 1
+    },
+    "class_type": "EmptyHiDreamO1LatentImage",
+    "_meta": {
+      "title": "Empty HiDream-O1 Latent Image"
+    }
+  },
+  "13": {
+    "inputs": {
+      "text": "a clean product photo of a red ceramic teapot on a white table",
+      "clip": [
+        "10",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "14": {
+    "inputs": {
+      "conditioning": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "15": {
+    "inputs": {
+      "seed": 123456789,
+      "steps": 1,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "11",
+        0
+      ],
+      "positive": [
+        "13",
+        0
+      ],
+      "negative": [
+        "14",
+        0
+      ],
+      "latent_image": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "16": {
+    "inputs": {
+      "samples": [
+        "15",
+        0
+      ],
+      "vae": [
+        "10",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Pixel-Space Decode"
+    }
+  },
+  "17": {
+    "inputs": {
+      "filename_prefix": "hidream-o1",
+      "images": [
+        "16",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}
