@@ -81,6 +81,21 @@ def test_build_returns_none_if_no_repo_url(monkeypatch):
     assert local_build.build_local_facade_wheel("definitely-does-not-exist") is None
 
 
+def test_build_returns_none_for_excluded_facade_project(monkeypatch):
+    called = False
+
+    def fail_if_called(_):
+        nonlocal called
+        called = True
+        return "https://github.com/Comfy-Org/ComfyUI-Manager"
+
+    monkeypatch.setattr(local_build, "resolve_package_repo_url", fail_if_called)
+
+    assert local_build.build_local_facade_wheel("comfyui_manager") is None
+    assert local_build.build_local_facade_wheel("gguf") is None
+    assert called is False
+
+
 def test_build_returns_none_for_unknown_host(monkeypatch):
     monkeypatch.setattr(
         local_build, "resolve_package_repo_url",

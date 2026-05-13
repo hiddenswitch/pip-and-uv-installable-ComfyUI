@@ -10,10 +10,11 @@ from comfy.custom_node_facade.registry import (
     FacadeProject,
     FacadeVersion,
     SnapshotFacadeRegistry,
+    is_excluded_facade_project,
     _filter_pep440_versions,
     _sort_versions,
 )
-from comfy.custom_node_facade.snapshot import write_facade_registry_snapshot
+from comfy.custom_node_facade.snapshot import _build_class_type_rows, write_facade_registry_snapshot
 
 
 def _sample_project() -> FacadeProject:
@@ -209,3 +210,85 @@ async def test_snapshot_registry_omits_non_pep440_versions(tmp_path: Path):
     versions = await registry.list_versions(project.canonical_name)
 
     assert versions == [valid]
+
+
+async def test_snapshot_registry_hides_excluded_facade_projects(tmp_path: Path):
+    output = tmp_path / "registry.sqlite"
+    excluded_projects = [
+        FacadeProject(
+            canonical_name="comfyui-manager",
+            display_name="ComfyUI-Manager",
+            node_id="comfyui-manager",
+            repo_url="https://github.com/Comfy-Org/ComfyUI-Manager",
+            repo_name="ComfyUI-Manager",
+            description="",
+            aliases=("comfyui-manager", "comfyui-manager"),
+            extra_requirements=(),
+            skip_requirements=frozenset(),
+            depends_on=(),
+            latest_version="3.0.1",
+        ),
+        FacadeProject(
+            canonical_name="gguf",
+            display_name="gguf",
+            node_id="gguf",
+            repo_url="https://github.com/calcuis/gguf",
+            repo_name="gguf",
+            description="",
+            aliases=("gguf",),
+            extra_requirements=(),
+            skip_requirements=frozenset(),
+            depends_on=(),
+            latest_version="0.0.1",
+        ),
+    ]
+    normal_project = _sample_project()
+    normal_version = _sample_version()
+    write_facade_registry_snapshot(
+        output,
+        projects=[*excluded_projects, normal_project],
+        versions_by_node_id={
+            project.node_id: [
+                FacadeVersion(
+                    version=project.latest_version or "0.0.1",
+                    download_url=f"https://example.invalid/{project.canonical_name}.zip",
+                    dependencies=(),
+                    deprecated=False,
+                )
+            ]
+            for project in excluded_projects
+        } | {
+            normal_project.node_id: [normal_version],
+        },
+        base_url="https://registry.example.invalid",
+        only_known_nodes=True,
+    )
+
+    registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
+
+    assert await registry.get_project("comfyui-manager") is None
+    assert await registry.get_project("comfyui_manager") is None
+    assert await registry.get_project("gguf") is None
+    assert await registry.list_versions("comfyui-manager") == []
+    assert await registry.list_versions("gguf") == []
+    projects = await registry.list_projects()
+    assert "comfyui-manager" not in [item.canonical_name for item in projects]
+    assert "gguf" not in [item.canonical_name for item in projects]
+    assert normal_project.canonical_name in [item.canonical_name for item in projects]
+
+
+def test_snapshot_class_type_rows_exclude_facade_shadow_packages():
+    projects = [_sample_project()]
+    rows = _build_class_type_rows(
+        projects,
+        {
+            "ManagerNode": "https://github.com/Comfy-Org/ComfyUI-Manager",
+            "GGUFNode": "https://github.com/calcuis/gguf",
+            "CustomScriptsNode": "https://github.com/pythongosssss/ComfyUI-Custom-Scripts",
+        },
+    )
+
+    assert ("ManagerNode", "comfyui-manager") not in rows
+    assert ("GGUFNode", "gguf") not in rows
+    assert all(not is_excluded_facade_project(pkg) for _, pkg in rows)
+    assert ("CustomScriptsNode", "comfyui-custom-scripts") in rows

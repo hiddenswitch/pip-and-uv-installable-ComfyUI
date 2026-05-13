@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
+from comfy.custom_node_facade.snapshot import write_facade_registry_snapshot
 from comfy.component_model.workflow_dependencies import (
     VIRTUAL_NODE_TYPES,
     extract_class_types_from_workflow,
@@ -71,6 +73,73 @@ def test_resolve_with_custom_nodes():
     packages = _package_names(workflow, builtin=frozenset({"KSampler"}))
     assert "comfyui-videohelpersuite" in packages
     assert len(packages) >= 1
+
+
+def test_resolve_ignores_excluded_facade_projects_from_snapshot(tmp_path):
+    snapshot = tmp_path / "registry.sqlite"
+    projects = [
+        FacadeProject(
+            canonical_name="comfyui-manager",
+            display_name="ComfyUI-Manager",
+            node_id="comfyui-manager",
+            repo_url="https://github.com/Comfy-Org/ComfyUI-Manager",
+            repo_name="ComfyUI-Manager",
+            description="",
+            aliases=("comfyui-manager",),
+            extra_requirements=(),
+            skip_requirements=frozenset(),
+            depends_on=(),
+            latest_version="3.0.1",
+        ),
+        FacadeProject(
+            canonical_name="gguf",
+            display_name="gguf",
+            node_id="gguf",
+            repo_url="https://github.com/calcuis/gguf",
+            repo_name="gguf",
+            description="",
+            aliases=("gguf",),
+            extra_requirements=(),
+            skip_requirements=frozenset(),
+            depends_on=(),
+            latest_version="0.0.1",
+        ),
+    ]
+    write_facade_registry_snapshot(
+        snapshot,
+        projects=projects,
+        versions_by_node_id={
+            project.node_id: [
+                FacadeVersion(
+                    version=project.latest_version or "0.0.1",
+                    download_url=f"https://example.invalid/{project.canonical_name}.zip",
+                    dependencies=(),
+                    deprecated=False,
+                )
+            ]
+            for project in projects
+        },
+        class_type_rows=[
+            ("ManagerOnlyNode", "comfyui-manager"),
+            ("GGUFOnlyNode", "gguf"),
+        ],
+        base_url="https://registry.example.invalid",
+        only_known_nodes=True,
+    )
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "ManagerOnlyNode"},
+            {"id": 2, "type": "GGUFOnlyNode"},
+        ]
+    }
+
+    packages = resolve_workflow_packages_versioned(
+        workflow,
+        snapshot_uri=str(snapshot),
+        builtin_class_types=frozenset(),
+    )
+
+    assert packages == []
 
 
 def _res4lyf_installed() -> bool:

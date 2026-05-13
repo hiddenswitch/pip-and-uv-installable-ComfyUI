@@ -15,7 +15,14 @@ from pathlib import Path
 import aiohttp
 
 from ..component_model.configuration import Configuration
-from .registry import FacadeProject, FacadeRegistry, FacadeVersion, normalize_repo_url
+from .registry import (
+    FacadeProject,
+    FacadeRegistry,
+    FacadeVersion,
+    canonicalize_project_name,
+    is_excluded_facade_project,
+    normalize_repo_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +84,8 @@ def _build_class_type_rows(
         canonical = repo_to_canonical.get(norm)
         if canonical is None:
             canonical = canonicalize_project_name(repo_basename(repo_url))
+        if is_excluded_facade_project(canonical):
+            continue
         rows.append((class_type, canonical))
     return rows
 
