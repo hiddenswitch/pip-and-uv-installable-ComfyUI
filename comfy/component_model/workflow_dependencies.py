@@ -21,6 +21,8 @@ from typing import Any
 
 import fsspec
 
+from ..custom_node_facade.registry import is_excluded_facade_project
+
 logger = logging.getLogger(__name__)
 
 VIRTUAL_NODE_TYPES: frozenset[str] = frozenset({
@@ -152,6 +154,8 @@ def resolve_workflow_packages_versioned(
             continue
         pkg = ct_to_pkg.get(ct)
         if pkg and pkg not in CORE_PACKAGES:
+            if is_excluded_facade_project(pkg):
+                continue
             packages.add(pkg)
         elif not pkg:
             unresolved.append(ct)

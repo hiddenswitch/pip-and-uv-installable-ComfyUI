@@ -27,10 +27,24 @@ from ..nodes.custom_node_dependencies import CUSTOM_NODE_RUNTIME_DEPS
 logger = logging.getLogger(__name__)
 
 _SIMPLE_NAME_RE = re.compile(r"[-_.]+")
+EXCLUDED_FACADE_PROJECT_NAMES: frozenset[str] = frozenset({
+    # ComfyUI-Manager is a first-class dependency of this fork, not a facade
+    # package. Publishing a facade with the same normalized name shadows the
+    # real comfyui_manager distribution when uv resolves extra indexes.
+    "comfyui-manager",
+    # gguf is a PyPI runtime dependency imported by core ComfyUI code. The
+    # custom-node facade entry with this name vendors an unrelated node repo
+    # and breaks `import gguf` when it wins dependency resolution.
+    "gguf",
+})
 
 
 def canonicalize_project_name(name: str) -> str:
     return _SIMPLE_NAME_RE.sub("-", name).strip("-").lower()
+
+
+def is_excluded_facade_project(name: str) -> bool:
+    return canonicalize_project_name(name) in EXCLUDED_FACADE_PROJECT_NAMES
 
 
 def normalize_repo_url(url: str) -> str:
@@ -198,6 +212,8 @@ class SnapshotFacadeRegistry:
     async def get_project(self, name: str) -> FacadeProject | None:
         await self._ensure_loaded()
         canonical = canonicalize_project_name(name)
+        if canonical in EXCLUDED_FACADE_PROJECT_NAMES:
+            return None
         target = self._alias_cache.get(canonical, canonical)
         for project in self._projects:
             if project.canonical_name == target:
@@ -254,9 +270,12 @@ class SnapshotFacadeRegistry:
                         latest_version=row["latest_version"],
                     )
                     for row in conn.execute("SELECT * FROM projects ORDER BY canonical_name")
+                    if row["canonical_name"] not in EXCLUDED_FACADE_PROJECT_NAMES
                 ]
                 raw_versions: dict[str, list[FacadeVersion]] = {}
                 for row in conn.execute("SELECT * FROM versions ORDER BY node_id, version"):
+                    if row["node_id"] in EXCLUDED_FACADE_PROJECT_NAMES:
+                        continue
                     raw_versions.setdefault(row["node_id"], []).append(
                         FacadeVersion(
                             version=row["version"],
@@ -398,6 +417,8 @@ class FacadeRegistry:
 
     async def get_project(self, name: str) -> FacadeProject | None:
         canonical = canonicalize_project_name(name)
+        if canonical in EXCLUDED_FACADE_PROJECT_NAMES:
+            return None
         projects = await self.list_projects()
         target = self._alias_cache.get(canonical, canonical)
         for project in projects:
@@ -478,6 +499,8 @@ class FacadeRegistry:
         for item in manager_nodes:
             repo_url = self._extract_repo_url(item)
             if repo_url is None:
+                continue
+            if is_excluded_facade_project(repo_basename(repo_url)):
                 continue
             cnr = repo_to_cnr.get(normalize_repo_url(repo_url))
             if cnr is not None:

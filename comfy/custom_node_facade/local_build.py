@@ -26,6 +26,7 @@ from .registry import (
     FacadeRegistry,
     FacadeVersion,
     canonicalize_project_name,
+    is_excluded_facade_project,
 )
 from .repo_lookup import resolve_package_repo_url
 
@@ -48,6 +49,9 @@ async def _build_local_facade_wheel_async(canonical_name: str) -> Optional[str]:
     from .builder import FacadeWheelBuilder
 
     canonical = canonicalize_project_name(canonical_name)
+    if is_excluded_facade_project(canonical):
+        logger.debug("local facade: %s is excluded from facade builds", canonical)
+        return None
     repo_url = resolve_package_repo_url(canonical)
     if not repo_url:
         logger.debug("local facade: no repo URL for %s", canonical)
