@@ -11,7 +11,7 @@ from comfy.language.language_types import LanguageModel, ProcessorResult
 from comfy.language.remote_model import RemoteLanguageModel
 from comfy_extras.nodes.nodes_language import SaveString
 from comfy_extras.nodes.nodes_language import TransformersLoader, OneShotInstructTokenize, TransformersGenerate, \
-    PreviewString
+    PreviewString, OmitThink
 from comfy_extras.nodes.nodes_openai import OpenAILanguageModelLoader, DallEGenerate
 
 
@@ -111,6 +111,18 @@ def test_preview_string():
     preview = PreviewString()
     result = preview.execute("Test output")
     assert result == {"ui": {"string": ["Test output"]}}
+
+
+def test_omit_think_removes_explicit_and_partial_think_blocks():
+    node = OmitThink()
+
+    result, = node.execute([
+        "before <think>hidden</think> after",
+        "missing start</think> visible",
+        "plain text",
+    ])
+
+    assert result == ["before  after", "visible", "plain text"]
 
 
 def test_openai_language_model_loader():
