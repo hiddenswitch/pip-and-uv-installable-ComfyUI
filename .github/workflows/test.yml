@@ -30,13 +30,11 @@ jobs:
       options: --shm-size=8g
     strategy:
       fail-fast: false
-      # Cap concurrent jobs to the number of GPU runner nodes. Without this,
-      # GH dispatches all matrix entries at once, ARC tries to spawn that
-      # many sibling workflow pods on cuda-3060-12gb nodes, and K8s leaves
-      # the extras in 'Pending' until ARC's 10-min container-init timeout
-      # fires (= job failure). max-parallel forces GH to queue the rest at
-      # the runner-dispatch layer, where queueing actually works.
-      max-parallel: 2
+      # Run one CUDA workflow pod at a time on the self-hosted 3060 runner
+      # pool. ARC can accept multiple jobs for this label, then leave one
+      # workflow pod Pending until the container-init timeout fires. GitHub's
+      # matrix queue is the reliable backpressure point for this runner class.
+      max-parallel: 1
       matrix:
         target:
           # TEMP-DISABLED: ARC workflow pod stays Pending until the custom
