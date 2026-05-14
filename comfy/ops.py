@@ -1112,16 +1112,6 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                     qconfig = QUANT_ALGOS[self.quant_format]
                     if self.quant_format in MixedPrecisionOps._disabled:
                         self._full_precision_mm = True
-                        for param_name in qconfig["parameters"]:
-                            param_key = f"{prefix}{param_name}"
-                            if state_dict.pop(param_key, None) is not None:
-                                manually_loaded_keys.append(param_key)
-                        self.weight = torch.nn.Parameter(weight.to(device=device, dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
-                        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-                        for key in manually_loaded_keys:
-                            if key in missing_keys:
-                                missing_keys.remove(key)
-                        return
 
                     self.layout_type = qconfig["comfy_tensor_layout"]
                     layout_cls = get_layout_class(self.layout_type)

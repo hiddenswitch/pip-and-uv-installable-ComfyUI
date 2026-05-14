@@ -959,6 +959,11 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/flux2-dev", "split_files/diffusion_models/flux2_dev_fp8mixed.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4B", "flux-2-klein-base-4b.safetensors"),
     HuggingFile("Comfy-Org/flux2-klein", "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-9b-fp8", "flux-2-klein-9b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-9b-kv-fp8", "flux-2-klein-9b-kv-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-base-4b-fp8", "flux-2-klein-base-4b-fp8.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-klein-base-9b-fp8", "flux-2-klein-base-9b-fp8.safetensors"),
     # ERNIE Image (Comfy-Org)
     HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image-turbo.safetensors"),
     # Z Image Turbo
@@ -1244,13 +1249,6 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-d-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-1-fp16.safetensors"),
-    # --- Models referenced by comfyui-workflow-templates (diffusion_models) ---
-    # Flux.2 klein (Black Forest Labs) variants
-    HuggingFile("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.2-klein-9b-fp8", "flux-2-klein-9b-fp8.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.2-klein-9b-kv-fp8", "flux-2-klein-9b-kv-fp8.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.2-klein-base-4b-fp8", "flux-2-klein-base-4b-fp8.safetensors"),
-    HuggingFile("black-forest-labs/FLUX.2-klein-base-9b-fp8", "flux-2-klein-base-9b-fp8.safetensors"),
     # Kandinsky 5 (kandinskylab)
     HuggingFile("kandinskylab/Kandinsky-5.0-T2I-Lite", "model/kandinsky5lite_t2i.safetensors", save_with_filename="kandinsky5lite_t2i.safetensors"),
     HuggingFile("kandinskylab/Kandinsky-5.0-T2V-Lite-sft-5s", "model/kandinsky5lite_t2v_sft_5s.safetensors", save_with_filename="kandinsky5lite_t2v_sft_5s.safetensors"),
