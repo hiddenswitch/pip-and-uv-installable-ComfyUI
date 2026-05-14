@@ -1,0 +1,198 @@
+{
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Flux2_template_test",
+      "images": [
+        "98:8",
+        0
+      ]
+    }
+  },
+  "98:6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "{\"subject\":\"a red-haired woman holding a sign\",\"sign_text\":\"Hello @djbfilmz\",\"composition\":\"front-facing portrait, the sign is centered and fully readable, hands visible holding the sign\",\"style\":\"realistic editorial photograph, natural skin texture, detailed auburn hair, soft studio lighting\",\"quality\":\"sharp focus, high detail, clean background\"}",
+      "clip": [
+        "98:38",
+        0
+      ]
+    }
+  },
+  "98:8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "98:13",
+        0
+      ],
+      "vae": [
+        "98:10",
+        0
+      ]
+    }
+  },
+  "98:10": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "full_encoder_small_decoder.safetensors"
+    }
+  },
+  "98:12": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux2_dev_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "98:13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "98:25",
+        0
+      ],
+      "guider": [
+        "98:22",
+        0
+      ],
+      "sampler": [
+        "98:16",
+        0
+      ],
+      "sigmas": [
+        "98:48",
+        0
+      ],
+      "latent_image": [
+        "98:47",
+        0
+      ]
+    }
+  },
+  "98:16": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "98:22": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "98:102",
+        0
+      ],
+      "conditioning": [
+        "98:26",
+        0
+      ]
+    }
+  },
+  "98:25": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 542934147
+    }
+  },
+  "98:26": {
+    "class_type": "FluxGuidance",
+    "inputs": {
+      "guidance": 4.0,
+      "conditioning": [
+        "98:6",
+        0
+      ]
+    }
+  },
+  "98:38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "mistral_3_small_flux2_bf16.safetensors",
+      "type": "flux2",
+      "device": "default"
+    }
+  },
+  "98:47": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    }
+  },
+  "98:48": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": [
+        "98:103",
+        0
+      ],
+      "width": 512,
+      "height": 512
+    }
+  },
+  "98:99": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 8
+    }
+  },
+  "98:100": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 20
+    }
+  },
+  "98:101": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "Flux_2-Turbo-LoRA_comfyui.safetensors",
+      "strength_model": 1.0,
+      "model": [
+        "98:12",
+        0
+      ]
+    }
+  },
+  "98:102": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "switch": [
+        "98:104",
+        0
+      ],
+      "on_false": [
+        "98:12",
+        0
+      ],
+      "on_true": [
+        "98:101",
+        0
+      ]
+    }
+  },
+  "98:103": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "switch": [
+        "98:104",
+        0
+      ],
+      "on_false": [
+        "98:100",
+        0
+      ],
+      "on_true": [
+        "98:99",
+        0
+      ]
+    }
+  },
+  "98:104": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "value": false
+    }
+  }
+}

@@ -127,6 +127,48 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertEqual(output.shape, (5, 40))
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_disabled_fp8_compute_preserves_scaled_quantized_weight(self):
+        """Disabled fp8 kernels must still dequantize with the stored scale."""
+        for quant_format, weight_dtype in (
+            ("float8_e4m3fn", torch.float8_e4m3fn),
+            ("float8_e5m2", torch.float8_e5m2),
+        ):
+            with self.subTest(quant_format=quant_format):
+                layer_quant_config = {
+                    "layer1": {
+                        "format": quant_format,
+                        "params": {}
+                    }
+                }
+                fp8_weight = torch.randn(20, 10, dtype=torch.float32).to(weight_dtype)
+                state_dict = {
+                    "layer1.weight": fp8_weight,
+                    "layer1.bias": torch.randn(20, dtype=torch.bfloat16),
+                    "layer1.weight_scale": torch.tensor(2.0, dtype=torch.float32),
+                    "layer2.weight": torch.randn(30, 20, dtype=torch.bfloat16),
+                    "layer2.bias": torch.randn(30, dtype=torch.bfloat16),
+                    "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
+                    "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
+                }
+                state_dict, _ = comfy.utils.convert_old_quants(
+                    state_dict,
+                    metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
+                )
+
+                model = SimpleModel(operations=ops.mixed_precision_ops({}, disabled={quant_format}))
+                model.load_state_dict(state_dict, strict=False)
+
+                self.assertTrue(model.layer1._full_precision_mm)
+                self.assertIsInstance(model.layer1.weight, QuantizedTensor)
+                self.assertEqual(model.layer1.weight._params.scale.item(), 2.0)
+
+                input_tensor = torch.randn(5, 10, dtype=torch.bfloat16)
+                with torch.inference_mode():
+                    output = model(input_tensor)
+
+                self.assertEqual(output.shape, (5, 40))
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_state_dict_quantized_preserved(self):
         """Test that quantized weights are preserved in state_dict()"""
         # Configure mixed precision
