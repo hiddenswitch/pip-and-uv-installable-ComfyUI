@@ -71,7 +71,7 @@ def _build_class_type_rows(
     class_type_to_repo: dict[str, str],
 ) -> list[tuple[str, str]]:
     """Build ``(class_type, canonical_name)`` rows by joining extension-node-map against projects."""
-    from .registry import repo_basename, canonicalize_project_name
+    from .registry import repo_basename
 
     repo_to_canonical: dict[str, str] = {}
     for project in projects:
