@@ -116,8 +116,8 @@ def test_version_constraints_stripped_from_pinned_dependencies(tmp_path: Path):
         assert "Requires-Dist: jax\n" in metadata
         assert "jax>" not in metadata
         assert "Requires-Dist: jaxlib\n" in metadata
-        assert "Requires-Dist: opencv-python-headless\n" in metadata
-        assert "opencv-python-headless==" not in metadata
+        assert "Requires-Dist: opencv-contrib-python-headless\n" in metadata
+        assert "opencv-python-headless" not in metadata
         assert "Requires-Dist: scipy>=1.0" in metadata
 
 
@@ -317,7 +317,7 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
         assert "Requires-Dist: numpy<2" not in metadata
         assert "Requires-Dist: numpy\n" in metadata
         assert "Requires-Dist: opencv-python-headless==4.7.0.72" not in metadata
-        assert "Requires-Dist: opencv-python-headless\n" in metadata
+        assert "Requires-Dist: opencv-contrib-python-headless\n" in metadata
 
         entry_points = wheel.read(entry_points_name).decode("utf-8")
         assert "[comfyui.custom_nodes]" in entry_points

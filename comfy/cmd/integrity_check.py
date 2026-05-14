@@ -21,6 +21,21 @@ def _pkg_version(name: str) -> str:
         return "(not installed)"
 
 
+def _runtime_pkg_version(name: str) -> str:
+    """Return import-time package version when it carries build metadata."""
+    metadata_version = _pkg_version(name)
+    if metadata_version == "(not installed)":
+        return metadata_version
+    try:
+        module = __import__(name)
+    except Exception:
+        return metadata_version
+    runtime_version = getattr(module, "__version__", None)
+    if isinstance(runtime_version, str) and runtime_version:
+        return runtime_version
+    return metadata_version
+
+
 def _section_config_files(console: Console):
     from .cli import _find_default_config_file, _load_config_file
 
@@ -153,7 +168,7 @@ def _run_compatibility_checks() -> list[_CheckResult]:
     torch_ver = torch.__version__
     torch_suffix = _build_suffix(torch_ver)
     for companion in ("torchvision", "torchaudio"):
-        ver = _pkg_version(companion)
+        ver = _runtime_pkg_version(companion)
         if ver == "(not installed)":
             continue
         suffix = _build_suffix(ver)
@@ -273,6 +288,8 @@ def _section_package_versions(console: Console):
         "comfyui-workflow-templates",
         "comfy-aimdo",
         "torch",
+        "torchvision",
+        "torchaudio",
         "opencv-contrib-python",
         "opencv-contrib-python-headless",
         "opencv-python",
@@ -293,7 +310,8 @@ def _section_package_versions(console: Console):
 
     table.add_row("Python", sys.version.split()[0])
     for pkg in packages:
-        table.add_row(pkg, _pkg_version(pkg))
+        version = _runtime_pkg_version(pkg) if pkg in {"torch", "torchvision", "torchaudio"} else _pkg_version(pkg)
+        table.add_row(pkg, version)
 
     console.print(table)
 
@@ -387,7 +405,7 @@ def _section_torch_alignment(console: Console):
     table.add_row("torch", torch_ver, torch_suffix or "(cpu/default)")
 
     for companion in ("torchvision", "torchaudio"):
-        ver = _pkg_version(companion)
+        ver = _runtime_pkg_version(companion)
         if ver == "(not installed)":
             table.add_row(companion, ver, "")
             continue

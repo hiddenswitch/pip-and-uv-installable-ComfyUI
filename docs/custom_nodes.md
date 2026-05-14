@@ -566,7 +566,7 @@ comfyui serve-pip --pip-facade-cache-revision=3
 The facade rewrites certain dependencies in generated wheel metadata:
 
 - **Stripped versions**: `numpy`, `jax`, `jaxlib`, `image-reward`, `timm` are emitted without version constraints so the resolver picks the latest compatible version.
-- **opencv homogenization**: All opencv variants (`opencv-python`, `opencv-python-headless`, `opencv-contrib-python`, `opencv-contrib-python-headless`) are rewritten to bare `opencv-python-headless`.
+- **opencv homogenization**: All opencv variants (`opencv-python`, `opencv-python-headless`, `opencv-contrib-python`, `opencv-contrib-python-headless`) are rewritten to bare `opencv-contrib-python-headless`.
 - **onnxruntime platform expansion**: `onnxruntime` (and all variants) is expanded to platform-conditional dependencies: `onnxruntime` on macOS/ARM Linux, `onnxruntime-gpu` on x86 Linux and Windows.
 - **URL dependency stripping**: URL dependencies like `sam2 @ git+https://...` are rewritten to plain package names.
 

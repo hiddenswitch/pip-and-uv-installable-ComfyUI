@@ -1300,7 +1300,7 @@ When the user needs a custom node that isn't bundled (ComfyUI-Crystools,
 ComfyUI-Inspire-Pack, ComfyUI_IPAdapter_plus, etc.), don't clone into
 `custom_nodes/`. Install via the facade — it builds the wheel on demand,
 resolves declared requirements (including rewrites like
-`pynvml→nvidia-ml-py` and `opencv-python→opencv-python-headless`), and
+`pynvml→nvidia-ml-py` and `opencv-python→opencv-contrib-python-headless`), and
 drops the node where ComfyUI expects it:
 
 ```bash

@@ -107,7 +107,7 @@ _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
     "timm",
 })
 
-_OPENCV_HEADLESS = ["opencv-python-headless"]
+_OPENCV_HEADLESS = ["opencv-contrib-python-headless"]
 
 # Dependencies that should be expanded to platform-specific variants.
 # Each entry maps a canonical name to the list of requirements that replace it.
