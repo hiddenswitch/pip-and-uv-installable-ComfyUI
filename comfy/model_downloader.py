@@ -1063,9 +1063,15 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/lotus-comfyui", "lotus-depth-g-v1-0-fp16.safetensors"),
     HuggingFile("Kijai/lotus-comfyui", "lotus-normal-g-v1-0-fp16.safetensors"),
     # Anima (circlestone-labs) -- 2B anime text-to-image
-    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview.safetensors"),
-    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview2.safetensors"),
-    HuggingFile("circlestone-labs/Anima", "split_files/diffusion_models/anima-preview3-base.safetensors"),
+    HuggingFile(
+        "circlestone-labs/Anima",
+        "split_files/diffusion_models/anima-base-v1.0.safetensors",
+        alternate_filenames=(
+            "anima-preview.safetensors",
+            "anima-preview2.safetensors",
+            "anima-preview3-base.safetensors",
+        ),
+    ),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
