@@ -39,10 +39,14 @@ jobs:
       max-parallel: 2
       matrix:
         target:
-          - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-            friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
-            container: "nvcr.io/nvidia/pytorch:25.12-py3"
-            stable_abi_cuda: "cu130"
+          # TEMP-DISABLED: ARC workflow pod stays Pending until the custom
+          # container implementation times out before any repository code
+          # runs. Re-enable once the cuda-3060-12gb runner can schedule this
+          # container image reliably.
+          # - labels: [self-hosted, linux, X64, cuda-3060-12gb]
+          #   friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
+          #   container: "nvcr.io/nvidia/pytorch:25.12-py3"
+          #   stable_abi_cuda: "cu130"
           - labels: [self-hosted, linux, X64, cuda-3060-12gb]
             friendly_name: "Python 3.12 CUDA 12.9.1 PyTorch 2.8.0"
             container: "nvcr.io/nvidia/pytorch:25.06-py3"
