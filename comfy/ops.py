@@ -406,10 +406,11 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
         cast_dest = None
         needs_cast = False
         direct_materialize = cast_geometry != source_geometry
+        has_patch_functions = len(getattr(s, "weight_function", [])) > 0 or len(getattr(s, "bias_function", [])) > 0
 
         xfer_source = [s.weight, s.bias]
 
-        use_pin = not direct_materialize or direct_materialize_pinning_enabled()
+        use_pin = not direct_materialize or (direct_materialize_pinning_enabled() and not has_patch_functions)
         pin_geometry = cast_geometry if direct_materialize else None
         pin = pinned_memory.get_pin(s, pin_geometry) if use_pin else None
         raw_pin_transfer = False
@@ -474,13 +475,16 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
                 pin,
                 target_geometries=cast_geometry if direct_materialize else None,
             )
-            xfer_source = [ pin ]
-            raw_pin_transfer = direct_materialize
+            if direct_materialize:
+                xfer_source = memory_management.interpret_gathered_like(cast_geometry, pin)
+                raw_pin_transfer = True
+            else:
+                xfer_source = [ pin ]
         #send it over
         model_management.cast_to_gathered(
             xfer_source,
             xfer_dest,
-            non_blocking=non_blocking,
+            non_blocking=non_blocking and not raw_pin_transfer,
             stream=offload_stream,
             target_geometries=cast_geometry if direct_materialize and not raw_pin_transfer else None,
         )
@@ -703,6 +707,17 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
     non_blocking = device is not None and model_management.device_supports_non_blocking(device)
     if device is None or module._v is None or model_management.is_device_cpu(device):
         return None
+    if direct_materialize_pinning_enabled():
+        source_geometry = [
+            model_management.tensor_materialization_geometry(module.weight),
+            model_management.tensor_materialization_geometry(module.bias),
+        ]
+        target_geometry = [
+            model_management.tensor_materialization_geometry(module.weight, dtype=dtype),
+            model_management.tensor_materialization_geometry(module.bias, dtype=bias_dtype),
+        ]
+        if target_geometry != source_geometry:
+            return None
     offload_stream = cast_modules_with_vbar([module], dtype, device, bias_dtype, non_blocking, want_requant=want_requant, dedicated_buffer=True)
     ready_event = None
     if offload_stream is not None and device is not None and device.type == "cuda":

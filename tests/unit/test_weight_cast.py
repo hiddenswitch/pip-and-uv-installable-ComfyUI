@@ -632,3 +632,27 @@ def test_fp8_dequant_custom_op_is_present_in_fx_graph():
 
     assert out.dtype is torch.bfloat16
     assert "comfy_quant.dequantize_per_tensor_fp8" in graphs[0].code
+
+
+def test_direct_materialize_prefetch_declines_dtype_changing_weight(monkeypatch):
+    from comfy import ops
+
+    class Module:
+        pass
+
+    module = Module()
+    module._v = object()
+    module.weight = torch.empty((2, 2), dtype=torch.float8_e4m3fn)
+    module.bias = None
+
+    monkeypatch.setenv("COMFY_DIRECT_MATERIALIZE_PINNING", "1")
+    monkeypatch.setattr(ops.model_management, "device_supports_non_blocking", lambda device: True)
+
+    assert ops._legacy_weight_cast_prefetch(
+        module,
+        torch.device("cuda", 0),
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.bfloat16,
+        False,
+    ) is None
