@@ -649,7 +649,6 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                         comfy_aimdo.control.analyze()
                     model_management.reset_cast_buffers()
                     model_prefetch.cleanup_prefetch_queues()
-                    comfy_aimdo.model_vbar.vbars_reset_watermark_limits()
 
             if has_pending_tasks:
                 pending_async_nodes[unique_id] = output_data

@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest import mock
 
 import torch
 
@@ -127,6 +128,92 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertEqual(output.shape, (5, 40))
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_cast_bias_weight_preserves_quantized_weight_when_requant_requested(self):
+        """Quantized matmul must not expand the full weight just because fp8 storage dtype differs from compute dtype."""
+        layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
+        layer.weight = QuantizedTensor.from_float(
+            torch.randn(20, 10, dtype=torch.bfloat16),
+            "TensorCoreFP8E4M3Layout",
+            scale="recalculate",
+        )
+        layer.bias = torch.nn.Parameter(torch.randn(20, dtype=torch.bfloat16), requires_grad=False)
+        layer.weight_function = []
+        layer.bias_function = []
+        input_tensor = QuantizedTensor.from_float(
+            torch.randn(5, 10, dtype=torch.bfloat16),
+            "TensorCoreFP8E4M3Layout",
+            scale="recalculate",
+        )
+
+        weight, bias = ops.cast_bias_weight(layer, input_tensor, want_requant=True)
+
+        self.assertIsInstance(weight, QuantizedTensor)
+        self.assertEqual(weight._layout_cls, "TensorCoreFP8E4M3Layout")
+        self.assertEqual(bias.dtype, torch.bfloat16)
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_force_cast_does_not_disable_quantized_inference(self):
+        """Manual cast flags should not turn fp8 mixed-precision inference into full-weight dequantization."""
+        layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
+        layer.quant_format = "float8_e4m3fn"
+        layer.layout_type = "TensorCoreFP8E4M3Layout"
+        layer.weight = torch.nn.Parameter(
+            QuantizedTensor.from_float(
+                torch.randn(20, 10, dtype=torch.bfloat16),
+                "TensorCoreFP8E4M3Layout",
+                scale="recalculate",
+            ),
+            requires_grad=False,
+        )
+        layer.bias = torch.nn.Parameter(torch.randn(20, dtype=torch.bfloat16), requires_grad=False)
+        layer.comfy_force_cast_weights = True
+        layer.weight_function = []
+        layer.bias_function = []
+
+        calls = []
+        def wrapped_forward(input, compute_dtype=None, want_requant=False):
+            calls.append((type(input), want_requant))
+            return torch.empty(5, 20, dtype=torch.bfloat16)
+
+        layer.forward_comfy_cast_weights = wrapped_forward
+        with mock.patch("comfy.ops._quantized_layout_supports_fast_matmul", return_value=True):
+            layer(torch.randn(5, 10, dtype=torch.bfloat16))
+
+        self.assertTrue(calls)
+        self.assertIs(calls[0][0], QuantizedTensor)
+        self.assertTrue(calls[0][1])
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_quantized_lora_patch_bakes_back_into_weight(self):
+        """LoRA-style patches on quantized layers should bake and requantize, not become runtime adapters."""
+        from comfy.model_patcher import ModelPatcher
+
+        class TinyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
+                self.layer.quant_format = "float8_e4m3fn"
+                self.layer.layout_type = "TensorCoreFP8E4M3Layout"
+                self.layer.weight = torch.nn.Parameter(
+                    QuantizedTensor.from_float(
+                        torch.randn(20, 10, dtype=torch.bfloat16),
+                        "TensorCoreFP8E4M3Layout",
+                        scale="recalculate",
+                    ),
+                    requires_grad=False,
+                )
+
+        model = TinyModel()
+        patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+        patcher.add_patches({"layer.weight": ("diff", (torch.randn(20, 10, dtype=torch.bfloat16) * 0.01,))})
+
+        patcher.patch_weight_to_device("layer.weight", device_to=torch.device("cpu"))
+
+        self.assertIsInstance(model.layer.weight, QuantizedTensor)
+        self.assertEqual(model.layer.weight._layout_cls, "TensorCoreFP8E4M3Layout")
+        self.assertEqual(model.layer.weight_function, [])
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_disabled_fp8_compute_preserves_scaled_quantized_weight(self):
         """Disabled fp8 kernels must still dequantize with the stored scale."""
         for quant_format, weight_dtype in (
@@ -236,6 +323,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
 
         # Add a weight function (simulating LoRA)
         # This should trigger dequantization during forward pass
+        model.layer1.weight_function = []
         def apply_lora(weight):
             lora_delta = torch.randn_like(weight) * 0.01
             return weight + lora_delta

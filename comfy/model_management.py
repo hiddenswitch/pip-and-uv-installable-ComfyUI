@@ -772,7 +772,14 @@ def free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins
     span = get_current_span()
     span.set_attribute("memory_required", memory_required)
     with model_management_lock:
-        unloaded_models = _free_memory(memory_required, device, keep_loaded)
+        unloaded_models = _free_memory(
+            memory_required,
+            device,
+            keep_loaded,
+            for_dynamic=for_dynamic,
+            pins_required=pins_required,
+            ram_required=ram_required,
+        )
         span.set_attribute("unloaded_models", list(map(str, unloaded_models)))
         return unloaded_models
 
@@ -800,9 +807,8 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
             memory_to_free = 0 if device is None else memory_required - get_free_memory(device)
             pins_to_free = pins_required - get_free_ram()
             if current_loaded_models[i].model.is_dynamic() and for_dynamic:
-                # don't actually unload dynamic models for the sake of other dynamic models
-                # as that works on-demand.
-                memory_required -= current_loaded_models[i].model.loaded_size()
+                freed = current_loaded_models[i].model.partially_unload(current_loaded_models[i].model.offload_device, memory_to_free)
+                memory_required -= freed
                 memory_to_free = 0
         if memory_to_free > 0 and current_loaded_models[i].model_unload(memory_to_free):
             logger.debug(f"Unloading {current_loaded_models[i].model.model.__class__.__name__}")
@@ -1438,11 +1444,14 @@ def get_offload_stream(device):
 
     if device in STREAMS:
         ss = STREAMS[device]
-        # Sync the oldest stream in the queue with the current
-        ss[stream_counter].wait_stream(current_stream(device))
+        # Reusing this stream can also reuse its cast buffer. Make the stream
+        # wait for current compute before returning it, so previous users of
+        # that buffer have finished before the next copy overwrites it.
+        s = ss[stream_counter]
+        s.wait_stream(current_stream(device))
         stream_counter = (stream_counter + 1) % len(ss)
         stream_counters[device] = stream_counter
-        return ss[stream_counter]
+        return s
     elif is_device_cuda(device):
         ss = []
         for k in range(NUM_STREAMS):
@@ -1451,7 +1460,7 @@ def get_offload_stream(device):
             ss.append(s1)
         STREAMS[device] = ss
         s = ss[stream_counter]
-        stream_counters[device] = stream_counter
+        stream_counters[device] = (stream_counter + 1) % len(ss)
         return s
     elif is_device_xpu(device):
         ss = []
@@ -1461,7 +1470,7 @@ def get_offload_stream(device):
             ss.append(s1)
         STREAMS[device] = ss
         s = ss[stream_counter]
-        stream_counters[device] = stream_counter
+        stream_counters[device] = (stream_counter + 1) % len(ss)
         return s
     return None
 
@@ -1472,25 +1481,49 @@ def sync_stream(device, stream):
     current_stream(device).wait_stream(stream)
 
 
-def cast_to_gathered(tensors, r, non_blocking=False, stream=None):
+def cast_to_gathered(tensors, r, non_blocking=False, stream=None, target_geometries=None):
     wf_context = nullcontext()
     if stream is not None:
         wf_context = stream
         if hasattr(wf_context, "as_context"):
             wf_context = wf_context.as_context(stream)
 
-    dest_views = memory_management.interpret_gathered_like(tensors, r)
+    dest_views = memory_management.interpret_gathered_like(target_geometries if target_geometries is not None else tensors, r)
     with wf_context:
         for tensor in tensors:
             dest_view = dest_views.pop(0)
             if tensor is None:
                 continue
-            if memory_management.read_tensor_file_slice_into(tensor, dest_view):
+            can_raw_read = True
+            if isinstance(tensor, quant_ops.QuantizedTensor):
+                can_raw_read = isinstance(dest_view, quant_ops.QuantizedTensor)
+            else:
+                can_raw_read = tensor.shape == dest_view.shape and tensor.dtype == dest_view.dtype
+            if can_raw_read and memory_management.read_tensor_file_slice_into(tensor, dest_view):
                 continue
             storage = tensor._qdata.untyped_storage() if isinstance(tensor, quant_ops.QuantizedTensor) else tensor.untyped_storage()
             if hasattr(storage, "_comfy_tensor_mmap_touched"):
                 storage._comfy_tensor_mmap_touched = True
+            if isinstance(tensor, quant_ops.QuantizedTensor) and not isinstance(dest_view, quant_ops.QuantizedTensor):
+                tensor = tensor.dequantize().to(dtype=dest_view.dtype)
             dest_view.copy_(tensor, non_blocking=non_blocking)
+
+
+def tensor_materialization_geometry(tensor, dtype=None):
+    if tensor is None:
+        return None
+    if isinstance(tensor, quant_ops.QuantizedTensor):
+        if dtype is not None:
+            return memory_management.TensorGeometry(shape=tensor.shape, dtype=dtype)
+        return tensor
+    return memory_management.TensorGeometry(shape=tensor.shape, dtype=dtype or tensor.dtype)
+
+
+def tensor_materialization_size(tensor, dtype=None) -> int:
+    geometry = tensor_materialization_geometry(tensor, dtype=dtype)
+    if geometry is None:
+        return 0
+    return memory_management.vram_aligned_size(geometry)
 
 
 def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
