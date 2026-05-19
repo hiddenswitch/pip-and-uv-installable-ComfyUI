@@ -122,6 +122,8 @@ def schedule_weight_prefetches(
     """
     lookahead = max(1, int(lookahead))
     graph = gm.graph
+    original_nodes = list(graph.nodes)
+    original_index = {node: index for index, node in enumerate(original_nodes)}
     resolve_nodes = [node for node in graph.nodes if _is_resolve_weight(node) or _is_resolve_weight_bias(node)]
     if not resolve_nodes:
         return gm
@@ -134,8 +136,14 @@ def schedule_weight_prefetches(
             lookahead=lookahead,
             budget_bytes=budget_bytes,
         )
-        anchor = resolve_nodes[anchor_index]
         args = tuple(node.args)
+        dependency_index = max(
+            (original_index[arg] for arg in args if isinstance(arg, torch.fx.Node)),
+            default=-1,
+        )
+        node_index = original_index[node]
+        insertion_index = max(original_index[resolve_nodes[anchor_index]], dependency_index + 1)
+        anchor = node if insertion_index >= node_index else original_nodes[insertion_index]
 
         with graph.inserting_before(anchor):
             if _is_resolve_weight_bias(node):

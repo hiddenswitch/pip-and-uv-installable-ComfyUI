@@ -260,6 +260,51 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     assert second_prefetch > first_resolve
 
 
+def test_weight_prefetch_scheduler_does_not_cross_exemplar_dependency():
+    from comfy import ops
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    first = ops.manual_cast.Linear(2, 2)
+    second = ops.manual_cast.Linear(2, 2)
+    first_args = (
+        module_weight_shape_tensor(first),
+        module_bias_shape_tensor(first),
+        register_module(first),
+        1,
+    )
+    second_args = (
+        module_weight_shape_tensor(second),
+        module_bias_shape_tensor(second),
+        register_module(second),
+        2,
+    )
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=2))
+        return graphs[-1].forward
+
+    def fn(x):
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False)
+        y1 = torch.nn.functional.linear(x, w1, b1)
+        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        exemplar = y1 + 1
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(exemplar, *second_args, 0, 0, 0, False)
+        y2 = torch.nn.functional.linear(exemplar, w2, b2)
+        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        return y2
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2))
+
+    nodes = list(graphs[0].graph.nodes)
+    second_prefetch = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)][1]
+    exemplar = next(i for i, node in enumerate(nodes) if node.name == "exemplar")
+
+    assert second_prefetch > exemplar
+
+
 def test_comfy_weight_custom_ops_track_overlapping_invocations():
     from comfy import ops
     from comfy import weight_cast_ops
