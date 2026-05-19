@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from comfy.patcher_extension import WrapperExecutor
 
 COMPILE_KEY = "torch.compile"
+logger = logging.getLogger(__name__)
 TORCH_COMPILE_KWARGS = "torch_compile_kwargs"
 TORCH_COMPILE_STRATEGY = "torch_compile_strategy"
 _MODEL_TRANSFORMER_OPTION_KEYS = frozenset((
@@ -157,16 +159,28 @@ class _CompiledModel(torch.nn.Module):
 
     def forward(self, *args, **kwargs):
         transformer_options = kwargs.get("transformer_options")
+        dynamic_reasons = []
+        if kwargs.get("control") is not None:
+            dynamic_reasons.append("control")
+        if kwargs.get("ref_latents") is not None:
+            dynamic_reasons.append("ref_latents")
+        if kwargs.get("attention_mask") is not None:
+            dynamic_reasons.append("attention_mask")
+        if _transformer_options_affect_model(transformer_options):
+            dynamic_reasons.append("transformer_options")
         has_dynamic_model_options = (
-            kwargs.get("control") is not None
-            or kwargs.get("ref_latents") is not None
-            or kwargs.get("attention_mask") is not None
-            or _transformer_options_affect_model(transformer_options)
+            len(dynamic_reasons) > 0
         )
         if (
             self._compile_disabled_reason is not None
             or has_dynamic_model_options
         ):
+            logger.debug(
+                "Bypassing torch.compile wrapper: disabled=%s dynamic_reasons=%s transformer_option_keys=%s",
+                self._compile_disabled_reason is not None,
+                dynamic_reasons,
+                sorted(transformer_options.keys()) if isinstance(transformer_options, dict) else None,
+            )
             return self._original(*args, **kwargs)
         _mark_cudagraph_step_begin()
         reset_invocation_ids()
@@ -188,6 +202,7 @@ def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Option
     When keys is None, it will default to using ["diffusion_model"], compiling the whole diffusion_model.
     When a list of keys is provided, it will perform torch.compile on only the selected modules.
     '''
+    logger.debug("set_torch_compile_wrapper called for %s backend=%s keys=%s", type(model).__name__, backend, keys)
     # clear out any other torch.compile wrappers
     model.remove_wrappers_with_key(WrappersMP.APPLY_MODEL, COMPILE_KEY)
     # if no keys, default to 'diffusion_model'

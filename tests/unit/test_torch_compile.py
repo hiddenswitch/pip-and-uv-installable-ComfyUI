@@ -7,7 +7,7 @@ import torch
 from comfy.component_model.torch_cache import setup_torch_compile_cache_dirs
 from comfy.model_management_types import HooksSupportStub
 from comfy.model_patcher import ModelPatcherDynamic
-from comfy.patcher_extension import CallbacksMP, WrappersMP
+from comfy.patcher_extension import WrappersMP
 from comfy_api.torch_helpers.torch_compile import (
     TORCH_COMPILE_KWARGS,
     TORCH_COMPILE_STRATEGY,
@@ -37,10 +37,15 @@ class _FakePatcher(HooksSupportStub):
 
     def remove_wrappers_with_key(self, wrapper_type: str, key: str) -> list:
         self.removed.append((wrapper_type, key))
-        return []
+        removed = [entry for entry in self.added if entry[0] == wrapper_type and entry[1] == key]
+        self.added = [entry for entry in self.added if entry[0] != wrapper_type or entry[1] != key]
+        return removed
 
     def add_wrapper_with_key(self, wrapper_type: str, key: str, wrapper):
         self.added.append((wrapper_type, key, wrapper))
+
+    def get_wrappers(self, wrapper_type: str, key: str):
+        return [wrapper for wt, k, wrapper in self.added if wt == wrapper_type and k == key]
 
     def remove_callbacks_with_key(self, call_type: str, key: str):
         callbacks = self.callbacks.get(call_type, {})
@@ -317,33 +322,45 @@ def test_compiled_model_falls_back_after_unsupported_fp8e4nv(monkeypatch):
 
 def test_torch_compile_model_clones_dynamic_patchers_as_static(monkeypatch):
     compile_calls = []
+    def fake_set_torch_compile_wrapper(patcher, **kwargs):
+        compile_calls.append((patcher, kwargs))
+        patcher.remove_wrappers_with_key(WrappersMP.APPLY_MODEL, "torch.compile")
+        patcher.add_wrapper_with_key(WrappersMP.APPLY_MODEL, "torch.compile", lambda executor, *args, **kwargs: "compiled")
+
     monkeypatch.setattr(
         "comfy_extras.nodes.nodes_torch_compile.set_torch_compile_wrapper",
-        lambda patcher, **kwargs: compile_calls.append((patcher, kwargs)),
+        fake_set_torch_compile_wrapper,
     )
 
     compiled, = TorchCompileModel().patch(_FakePatcher())
 
     assert compiled.clone_disable_dynamic is True
-    callback = compiled.callbacks[CallbacksMP.ON_LOAD]["torch.compile"][0]
-    callback(compiled, torch.device("cuda"), 0, False, False)
+    wrapper = compiled.get_wrappers(WrappersMP.APPLY_MODEL, "torch.compile")[0]
+    executor = lambda *args, **kwargs: None
+    wrapper(executor)
     assert compile_calls[0][0] is compiled
     assert compile_calls[0][1]["keys"] == ["diffusion_model"]
 
 
 def test_torch_compile_model_preserves_real_dynamic_patchers(monkeypatch):
     compile_calls = []
+    def fake_set_torch_compile_wrapper(patcher, **kwargs):
+        compile_calls.append((patcher, kwargs))
+        patcher.remove_wrappers_with_key(WrappersMP.APPLY_MODEL, "torch.compile")
+        patcher.add_wrapper_with_key(WrappersMP.APPLY_MODEL, "torch.compile", lambda executor, *args, **kwargs: "compiled")
+
     monkeypatch.setattr(
         "comfy_extras.nodes.nodes_torch_compile.set_torch_compile_wrapper",
-        lambda patcher, **kwargs: compile_calls.append((patcher, kwargs)),
+        fake_set_torch_compile_wrapper,
     )
     patcher = ModelPatcherDynamic(torch.nn.Linear(1, 1), torch.device("cuda:0"), torch.device("cpu"))
 
     compiled, = TorchCompileModel().patch(patcher)
 
     assert compiled.is_dynamic() is True
-    callback = compiled.callbacks[CallbacksMP.ON_LOAD]["torch.compile"][0]
-    callback(compiled, torch.device("cuda:0"), 0, False, False)
+    wrapper = compiled.get_wrappers(WrappersMP.APPLY_MODEL, "torch.compile")[0]
+    executor = lambda *args, **kwargs: None
+    wrapper(executor)
     assert compile_calls[0][0] is compiled
 
 
