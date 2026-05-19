@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -155,6 +156,74 @@ def _apply_overrides(obj: dict, configuration: Configuration) -> dict:
     return obj
 
 
+_MAX_SEED = 0xffffffffffffffff
+
+
+def _random_seed() -> int:
+    import random
+    return random.SystemRandom().randint(0, _MAX_SEED)
+
+
+def _config_without_seed(configuration: Configuration) -> Configuration:
+    cloned = Configuration(**dict(configuration))
+    cloned.seed = None
+    return cloned
+
+
+def _quantity(configuration: Configuration) -> int:
+    quantity = int(getattr(configuration, "quantity", 1) or 1)
+    if quantity < 1:
+        raise ValueError("--quantity must be at least 1")
+    return quantity
+
+
+def _apply_api_quantity(api: dict, index: int, bases: dict[tuple[str, str], int]) -> dict:
+    if not bases:
+        return api
+    api = copy.deepcopy(api)
+    for (node_id, field), base_seed in bases.items():
+        try:
+            api[node_id]["inputs"][field] = (int(base_seed) + index) % (_MAX_SEED + 1)
+        except KeyError:
+            continue
+    return api
+
+
+def expand_workflow_quantity(obj: dict, configuration: Configuration) -> list[dict]:
+    """Convert/apply overrides and expand a workflow object for ``--quantity``."""
+    from ..component_model.prompt_utils import find_seed_nodes
+    from ..component_model.workflow_convert import apply_ui_seed_quantity
+
+    count = _quantity(configuration)
+    if is_ui_workflow(obj):
+        obj = _apply_ui_pre_overrides(obj, configuration)
+        expanded: list[dict] = []
+        no_seed_config = _config_without_seed(configuration)
+        for index in range(count):
+            ui = apply_ui_seed_quantity(
+                obj,
+                index,
+                seed=configuration.seed,
+                random_seed=_random_seed,
+            )
+            api = _ensure_api_format(ui)
+            expanded.append(_apply_overrides(api, no_seed_config))
+        return expanded
+
+    api = _apply_overrides(obj, configuration)
+    seed_pairs = find_seed_nodes(api)
+    seed_bases: dict[tuple[str, str], int] = {}
+    if seed_pairs and (count > 1 or configuration.seed is not None):
+        random_base = _random_seed() if configuration.seed is None and count > 1 else None
+        for node_id, field in seed_pairs:
+            seed_bases[(node_id, field)] = (
+                random_base if random_base is not None else int(api[node_id]["inputs"][field])
+            )
+    if not seed_bases:
+        return [copy.deepcopy(api) for _ in range(count)]
+    return [_apply_api_quantity(api, index, seed_bases) for index in range(count)]
+
+
 def _resolve_workflow(workflow: str) -> str:
     if workflow == "-" or workflow.lstrip().startswith("{"):
         return workflow
@@ -182,18 +251,17 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
             obj: dict
             async for obj in stream_json_objects(workflow):
                 if is_ui_workflow(obj):
-                    obj = _apply_ui_pre_overrides(obj, configuration)
-                obj = _ensure_api_format(obj)
-                obj = _apply_overrides(obj, configuration)
-                try:
-                    if show_progress:
-                        res = await _run_with_progress(comfy, obj)
-                    else:
-                        res = await comfy.queue_prompt_api(obj)
-                    typer.echo(json.dumps(res.outputs))
-                except asyncio.CancelledError:
-                    logger.info("Exiting gracefully.")
-                    break
+                    logger.info("Converting UI workflow to API format")
+                for prompt in expand_workflow_quantity(obj, configuration):
+                    try:
+                        if show_progress:
+                            res = await _run_with_progress(comfy, prompt)
+                        else:
+                            res = await comfy.queue_prompt_api(prompt)
+                        typer.echo(json.dumps(res.outputs))
+                    except asyncio.CancelledError:
+                        logger.info("Exiting gracefully.")
+                        break
 
 
 async def _run_with_progress(comfy: Comfy, prompt: dict):

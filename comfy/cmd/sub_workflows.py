@@ -127,19 +127,16 @@ def workflows_submit(
 async def _submit_workflows(workflows: list[str], server: Optional[str], config):
     from rich.console import Console
     from .server_connection import post_json
-    from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
     from ..component_model.asyncio_files import load_workflow_json
-    from ..entrypoints.workflow import _apply_overrides, _resolve_workflow
+    from ..entrypoints.workflow import _resolve_workflow, expand_workflow_quantity
 
     console = Console()
     for wf_path in workflows:
         resolved = _resolve_workflow(wf_path)
         obj = load_workflow_json(resolved)
-        if is_ui_workflow(obj):
-            obj = convert_ui_to_api(obj)
-        obj = _apply_overrides(obj, config)
-        result = await post_json(server, "/api/v1/prompts", body=obj)
-        console.print_json(json.dumps(result))
+        for prompt in expand_workflow_quantity(obj, config):
+            result = await post_json(server, "/api/v1/prompts", body=prompt)
+            console.print_json(json.dumps(result))
 
 
 @workflows_app.command(name="convert")
@@ -158,15 +155,13 @@ def workflows_convert(
     """
     from pathlib import Path
     from ..component_model.asyncio_files import load_workflow_json
-    from ..component_model.workflow_convert import convert_ui_to_api, is_ui_workflow
-    from ..entrypoints.workflow import _apply_overrides, _resolve_workflow
+    from ..entrypoints.workflow import _resolve_workflow, expand_workflow_quantity
 
     workflow = load_workflow_json(_resolve_workflow(file))
-    if is_ui_workflow(workflow):
-        workflow = convert_ui_to_api(workflow)
     config = _build_config(kwargs)
-    workflow = _apply_overrides(workflow, config)
-    result = json.dumps(workflow, indent=2)
+    workflows = expand_workflow_quantity(workflow, config)
+    output_obj = workflows[0] if len(workflows) == 1 else workflows
+    result = json.dumps(output_obj, indent=2)
     if output:
         Path(output).write_text(result)
         typer.echo(f"Written to {output}")

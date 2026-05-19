@@ -133,6 +133,8 @@ def _input_type_and_opts(entry) -> tuple:
 
 
 _SEED_CONTROL_NAMES = frozenset({"seed", "noise_seed"})
+_SEED_CONTROL_MODES = frozenset({"fixed", "randomize", "increment", "decrement"})
+_MAX_SEED = 0xffffffffffffffff
 
 
 def _extra_widgets_after(opts: dict, name: str = "", type_spec=None) -> list[str | None]:
@@ -153,6 +155,102 @@ def _extra_widgets_after(opts: dict, name: str = "", type_spec=None) -> list[str
     if opts.get("image_upload") or opts.get("video_upload") or opts.get("audio_upload"):
         extras.append(None)
     return extras
+
+
+def _iter_graph_nodes(workflow: dict):
+    nodes = workflow.get("nodes")
+    if isinstance(nodes, list):
+        yield from nodes
+
+    subgraphs = workflow.get("subgraphs")
+    if isinstance(subgraphs, list):
+        for subgraph in subgraphs:
+            if isinstance(subgraph, dict):
+                yield from _iter_graph_nodes(subgraph)
+
+    definitions = workflow.get("definitions")
+    if isinstance(definitions, dict):
+        yield from _iter_graph_nodes(definitions)
+
+    extra = workflow.get("extra")
+    if isinstance(extra, dict):
+        group_nodes = extra.get("groupNodes")
+        if isinstance(group_nodes, dict):
+            for group_node in group_nodes.values():
+                if isinstance(group_node, dict):
+                    yield from _iter_graph_nodes(group_node)
+
+
+def _next_seed_value(base_seed: int, control: str, index: int, random_seed) -> int:
+    if control == "randomize":
+        return int(random_seed())
+    if control == "increment":
+        return (base_seed + index) % (_MAX_SEED + 1)
+    if control == "decrement":
+        return (base_seed - index) % (_MAX_SEED + 1)
+    return base_seed
+
+
+def apply_ui_seed_quantity(
+    workflow: dict,
+    index: int,
+    *,
+    seed: int | None = None,
+    random_seed=None,
+    node_mappings=None,
+) -> dict:
+    """Return a UI workflow copy with seed widgets advanced for a quantity run.
+
+    This mirrors frontend queueing semantics by reading the hidden
+    ``control_after_generate`` widget saved after ``seed`` / ``noise_seed``.
+    """
+    if random_seed is None:
+        import random as _random
+        random_seed = lambda: _random.SystemRandom().randint(0, _MAX_SEED)
+    if node_mappings is None:
+        from ..nodes_context import get_nodes
+        node_mappings = get_nodes()
+
+    workflow = deepcopy(workflow)
+    for node in _iter_graph_nodes(workflow):
+        if not isinstance(node, dict):
+            continue
+        widgets_values = node.get("widgets_values")
+        if not isinstance(widgets_values, list):
+            continue
+        class_def = _get_node_class(node_mappings, node.get("type", ""))
+        input_types = _get_input_types(class_def) if class_def is not None else None
+        if not input_types:
+            continue
+
+        idx = 0
+        for name, entry in list(input_types.get("required", {}).items()) + list(input_types.get("optional", {}).items()):
+            type_spec, opts = _input_type_and_opts(entry)
+            if not _is_widget_type(type_spec, opts):
+                continue
+            if opts.get("forceInput"):
+                continue
+
+            value_idx = idx
+            idx += 1
+            extras = _extra_widgets_after(opts, name=name, type_spec=type_spec)
+            control_idx = idx if extras and idx < len(widgets_values) else None
+            idx += len(extras)
+
+            if name not in _SEED_CONTROL_NAMES or type_spec != "INT" or value_idx >= len(widgets_values):
+                continue
+
+            control = "fixed"
+            if control_idx is not None and widgets_values[control_idx] in _SEED_CONTROL_MODES:
+                control = widgets_values[control_idx]
+            base_seed = seed if seed is not None else widgets_values[value_idx]
+            try:
+                base_seed = int(base_seed)
+            except (TypeError, ValueError):
+                base_seed = 0
+            widgets_values[value_idx] = _next_seed_value(base_seed, control, index, random_seed)
+
+    return workflow
 
 
 def _wrap_value(val):

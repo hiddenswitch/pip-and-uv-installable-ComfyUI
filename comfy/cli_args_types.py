@@ -181,6 +181,7 @@ class Configuration(dict):
         negative_prompt (Optional[str]): Override the negative prompt text in workflows executed via --workflows.
         steps (Optional[int]): Override the number of sampling steps in workflows run via --workflows.
         seed (Optional[int]): Override the seed in sampler and noise nodes in workflows run via --workflows.
+        quantity (int): Number of workflow jobs to run/submit/convert. Defaults to 1.
         image (Optional[list[str]]): Override image inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
         video (Optional[list[str]]): Override video inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
         audio (Optional[list[str]]): Override audio inputs in workflows run via --workflows. Accepts file paths or URIs (space-separated or comma-separated).
@@ -334,6 +335,7 @@ class Configuration(dict):
         self.negative_prompt: Optional[str] = None
         self.steps: Optional[int] = None
         self.seed: Optional[int] = None
+        self.quantity: int = 1
         self.image: Optional[list[str]] = None
         self.video: Optional[list[str]] = None
         self.audio: Optional[list[str]] = None

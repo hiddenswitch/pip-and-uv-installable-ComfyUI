@@ -237,6 +237,7 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
     ("negative_prompt", Optional[str], typer.Option(None, "--negative-prompt", help="Override the negative prompt text in workflows.")),
     ("steps", Optional[int], typer.Option(None, "--steps", help="Override the number of sampling steps in workflows.")),
     ("seed", Optional[int], typer.Option(None, "--seed", help="Override the seed in sampler and noise nodes in workflows.")),
+    ("quantity", int, typer.Option(1, "--quantity", min=1, help="Run, submit, or convert this many jobs. API workflows use a random base seed unless --seed is set, then increment seed values by 1 per job; UI workflows honor each seed widget's control_after_generate mode.")),
     ("cfg", Optional[float], typer.Option(None, "--cfg", help="Override the CFG scale in sampler nodes.")),
     ("sampler", Optional[str], typer.Option(None, "--sampler", help="Override the sampler name in sampler nodes.")),
     ("scheduler", Optional[str], typer.Option(None, "--scheduler", help="Override the scheduler in sampler/scheduler nodes.")),
@@ -375,6 +376,9 @@ def _build_config(params: dict) -> Configuration:
 
     if "preview_method" in filtered and isinstance(filtered["preview_method"], str):
         filtered["preview_method"] = LatentPreviewMethod(filtered["preview_method"])
+
+    if filtered.get("quantity", 1) < 1:
+        raise typer.BadParameter("--quantity must be at least 1")
 
     for list_field in ("base_paths", "extra_model_paths_config", "panic_when",
                        "whitelist_custom_nodes", "blacklist_custom_nodes",

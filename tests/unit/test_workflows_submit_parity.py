@@ -143,6 +143,38 @@ class TestSubmitParity:
         ref = captured["body"][ref_id]
         assert ref["class_type"] == "LoraLoader"
 
+    def test_compile_wraps_model_before_guider(self):
+        from comfy.component_model.prompt_utils import enable_compile
+
+        prompt = {
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": "model.safetensors"},
+            },
+            "2": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"text": "prompt"},
+            },
+            "3": {
+                "class_type": "CFGGuider",
+                "inputs": {"cfg": 5, "model": ["1", 0], "positive": ["2", 0]},
+            },
+            "4": {
+                "class_type": "SamplerCustomAdvanced",
+                "inputs": {"guider": ["3", 0]},
+            },
+        }
+
+        compiled = enable_compile(prompt)
+        compile_id = next(
+            nid for nid, node in compiled.items()
+            if node["class_type"] == "TorchCompileModel"
+        )
+
+        assert compiled[compile_id]["inputs"]["model"] == ["1", 0]
+        assert compiled["3"]["inputs"]["model"] == [compile_id, 0]
+        assert compiled["4"]["inputs"]["guider"] == ["3", 0]
+
     def test_set_override(self, wf_path):
         captured = _run_submit(
             workflows=[str(wf_path)],
@@ -173,3 +205,20 @@ class TestSubmitParity:
         assert len(posts) == 2
         for body in posts:
             assert body["5"]["inputs"]["seed"] == 1
+
+    def test_quantity_posts_multiple_seeded_jobs(self, wf_path):
+        posts: list[dict] = []
+
+        async def fake_post_json(server, path, body=None):
+            posts.append(body)
+            return {"prompt_id": f"id_{len(posts)}"}
+
+        def _thread_target():
+            with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
+                config = Configuration(quantity=3, seed=50)
+                asyncio.run(_submit_workflows([str(wf_path)], None, config))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(_thread_target).result()
+
+        assert [body["5"]["inputs"]["seed"] for body in posts] == [50, 51, 52]
