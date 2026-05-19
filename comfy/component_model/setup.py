@@ -25,6 +25,8 @@ def setup_environment():
     os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
     os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
     os.environ['DO_NOT_TRACK'] = '1'
+    from .torch_cache import setup_torch_compile_cache_dirs
+    setup_torch_compile_cache_dirs()
     if os.name == "nt":
         os.environ['MIMALLOC_PURGE_DELAY'] = '0'
 
@@ -248,4 +250,5 @@ def setup_post_torch(config: Configuration):
     setup_fsspec()
     fix_pytorch_240()
     from .. import torchvision_compat  # noqa: F401
+    from .. import aimdo_integration  # noqa: F401
     setup_tracing(config)

@@ -437,7 +437,6 @@ _MODEL_PASSTHROUGH_CLASS_TYPES = frozenset({
     "ModelSamplingAuraFlow",
     "ModelSamplingStableCascade",
     "ModelSamplingLTXV",
-    "CFGGuider",  # lives between model and sampler; not a passthrough but worth noting
 })
 
 _CLIP_PRODUCER_CLASS_TYPES = frozenset({

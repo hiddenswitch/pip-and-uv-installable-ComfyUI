@@ -11,8 +11,10 @@ from comfy import model_management
 from comfy.model_management_types import HooksSupport
 from comfy.model_patcher import ModelPatcher
 from comfy.nodes.package_typing import CustomNode, InputTypes
+from comfy.patcher_extension import CallbacksMP
 from comfy.sd import VAE
 from comfy_api.torch_helpers import set_torch_compile_wrapper
+from comfy_api.torch_helpers.torch_compile import COMPILE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +106,8 @@ class TorchCompileModel(CustomNode):
                 del compile_kwargs["mode"]
 
             if isinstance(model, HooksSupport):
-                to_return = model.clone()
+                preserve_dynamic = isinstance(model, ModelPatcher) and model.is_dynamic()
+                to_return = model.clone(disable_dynamic=not preserve_dynamic)
                 object_patches = [p.strip() for p in object_patch.split(",")]
                 patcher: ModelPatcher
                 if isinstance(to_return, VAE):
@@ -114,7 +117,17 @@ class TorchCompileModel(CustomNode):
                     patcher = to_return
                 if object_patch is None or len(object_patches) == 0 or len(object_patches) == 1 and object_patches[0].strip() == "":
                     object_patches = [DIFFUSION_MODEL]
-                set_torch_compile_wrapper(patcher, keys=object_patches, options={"guard_filter_fn": skip_torch_compile_dict}, **compile_kwargs)
+                patcher.remove_callbacks_with_key(CallbacksMP.ON_LOAD, COMPILE_KEY)
+
+                def compile_on_load(loaded_patcher, device_to, lowvram_model_memory, force_patch_weights, full_load):
+                    set_torch_compile_wrapper(
+                        loaded_patcher,
+                        keys=object_patches,
+                        options={"guard_filter_fn": skip_torch_compile_dict},
+                        **compile_kwargs,
+                    )
+
+                patcher.add_callback_with_key(CallbacksMP.ON_LOAD, COMPILE_KEY, compile_on_load)
                 return to_return,
             elif isinstance(model, torch.nn.Module):
                 model_management.unload_all_models()
@@ -136,8 +149,8 @@ class TorchCompileModel(CustomNode):
                 torch._inductor.utils.clear_inductor_caches()
             except Exception:
                 pass
-            logger.error(f"An exception occurred while trying to compile {str(model)}, gracefully skipping compilation", exc_info=exc_info)
-            return model,
+            logger.error(f"An exception occurred while trying to compile {str(model)}", exc_info=exc_info)
+            raise
 
 
 _QUANTIZATION_STRATEGIES = [
