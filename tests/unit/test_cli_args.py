@@ -322,6 +322,19 @@ def test_cli_args_enables_dynamic_vram_respects_disable_flag():
         assert enables_dynamic_vram() is False
 
 
+def test_cli_args_disable_dynamic_vram_overrides_explicit_enable():
+    from comfy.cli_args import enables_dynamic_vram
+    from comfy.execution_context import context_configuration
+
+    with context_configuration(
+        Configuration(
+            enable_dynamic_vram=True,
+            disable_dynamic_vram=True,
+        ),
+    ):
+        assert enables_dynamic_vram() is False
+
+
 def test_cli_args_imports():
     from comfy.cli_args import DEFAULT_VERSION_STRING
     assert "comfyanonymous" in DEFAULT_VERSION_STRING

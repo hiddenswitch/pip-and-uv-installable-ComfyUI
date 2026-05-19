@@ -294,6 +294,8 @@ def dynamic_vram_supported() -> bool:
 
 
 def enables_dynamic_vram():
+    if _args().disable_dynamic_vram:
+        return False
     if _args().enable_dynamic_vram:
         return True
     return dynamic_vram_requested() and dynamic_vram_supported()
