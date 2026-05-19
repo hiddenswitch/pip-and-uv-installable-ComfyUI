@@ -381,9 +381,11 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     previous_resolve = weight_cast_ops._RESOLVE
     previous_release = weight_cast_ops._RELEASE
     weight_cast_ops.set_callbacks(fake_resolve, fake_release, fake_prefetch)
+    graphs = []
     try:
         def capture_backend(gm, example_inputs):
             schedule_weight_prefetches(gm, lookahead=2)
+            graphs.append(gm)
             return gm.forward
 
         def fn(x):
@@ -400,11 +402,14 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     assert events == [
         ("prefetch", "prefetch-1"),
         ("resolve", "prefetch-1"),
-        ("release", "prefetch-1"),
         ("prefetch", "prefetch-2"),
+        ("release", "prefetch-1"),
         ("resolve", "prefetch-2"),
         ("release", "prefetch-2"),
     ]
+    assert len(graphs) == 1
+    assert "comfy_weight.resolve_prefetched_weight_bias" in graphs[0].code
+    assert "torch._C._nn.linear" in graphs[0].code
 
 
 def test_manual_cast_compile_uses_graph_visible_weight_resolution(monkeypatch):

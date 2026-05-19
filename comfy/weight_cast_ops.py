@@ -116,6 +116,7 @@ def module_bias_shape_tensor(module: torch.nn.Module) -> torch.Tensor | None:
     return shape_tensor
 
 
+@torch.compiler.assume_constant_result
 def next_invocation_id() -> int:
     return next(_INVOCATION_IDS)
 

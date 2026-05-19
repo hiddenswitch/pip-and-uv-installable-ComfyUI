@@ -267,6 +267,7 @@ def _materialization_shape_tensor(module: torch.nn.Module, param_key: str) -> to
     return shape_tensor
 
 
+@torch.compiler.assume_constant_result
 def _dynamic_vram_disabled() -> bool:
     return bool(getattr(_args(), "disable_dynamic_vram", False))
 
