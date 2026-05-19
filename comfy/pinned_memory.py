@@ -1,5 +1,6 @@
 import comfy_aimdo.host_buffer
 import comfy_aimdo.torch
+import torch
 
 from . import memory_management
 from . import model_management
@@ -24,6 +25,32 @@ def get_pin(module, geometry=None):
     if key is None:
         return getattr(module, "_pin", None)
     return getattr(module, "_direct_pins", {}).get(key)
+
+
+def _event_key(geometry=None):
+    key = _geometry_key(geometry)
+    return "__default__" if key is None else key
+
+
+def wait_pin_ready(module, geometry=None):
+    events = getattr(module, "_pin_ready_events", None)
+    if events is None:
+        return
+    event = events.get(_event_key(geometry))
+    if event is not None:
+        event.synchronize()
+
+
+def record_pin_use(module, geometry=None, stream=None, device=None):
+    if stream is None or device is None or getattr(device, "type", None) != "cuda":
+        return
+    event = torch.cuda.Event()
+    event.record(stream)
+    events = getattr(module, "_pin_ready_events", None)
+    if events is None:
+        events = {}
+        module._pin_ready_events = events
+    events[_event_key(geometry)] = event
 
 
 def pin_memory(module, geometry=None):
@@ -79,7 +106,7 @@ def unpin_memory(module):
     if model_management.TOTAL_PINNED_MEMORY < 0:
         model_management.TOTAL_PINNED_MEMORY = 0
 
-    for attr in ("_pin", "_pin_hostbuf", "_direct_pins", "_direct_pin_hostbufs"):
+    for attr in ("_pin", "_pin_hostbuf", "_direct_pins", "_direct_pin_hostbufs", "_pin_ready_events"):
         if hasattr(module, attr):
             delattr(module, attr)
     return size

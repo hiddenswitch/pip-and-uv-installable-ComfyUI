@@ -240,7 +240,7 @@ def materialize_meta_param(s, param_keys):
 
 
 # FIXME: add n=1 cache hit fast path
-def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blocking, want_requant=False):
+def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blocking, want_requant=False, dedicated_buffer=False):
     offload_stream = None
     cast_buffer = None
     cast_buffer_offset = 0
@@ -268,6 +268,9 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
 
         if buffer_size == 0:
             return None
+
+        if dedicated_buffer:
+            return torch.empty((buffer_size,), dtype=torch.uint8, device=device)
 
         if offload_stream is None:
             return torch.empty((buffer_size,), dtype=torch.uint8, device=device)
@@ -465,6 +468,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             pin = pinned_memory.get_pin(s, pin_geometry)
 
         if pin is not None:
+            pinned_memory.wait_pin_ready(s, pin_geometry)
             model_management.cast_to_gathered(
                 xfer_source,
                 pin,
@@ -480,6 +484,8 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             stream=offload_stream,
             target_geometries=cast_geometry if direct_materialize and not raw_pin_transfer else None,
         )
+        if pin is not None:
+            pinned_memory.record_pin_use(s, pin_geometry, offload_stream, device)
 
         for param_key in ("weight", "bias"):
             lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
@@ -697,7 +703,7 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
     non_blocking = device is not None and model_management.device_supports_non_blocking(device)
     if device is None or module._v is None or model_management.is_device_cpu(device):
         return None
-    offload_stream = cast_modules_with_vbar([module], dtype, device, bias_dtype, non_blocking, want_requant=want_requant)
+    offload_stream = cast_modules_with_vbar([module], dtype, device, bias_dtype, non_blocking, want_requant=want_requant, dedicated_buffer=True)
     ready_event = None
     if offload_stream is not None and device is not None and device.type == "cuda":
         ready_event = torch.cuda.Event()
