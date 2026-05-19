@@ -391,6 +391,17 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     assert events == [("prefetch", layer), ("resolve", "prefetched-state"), ("release", "active-state")]
 
 
+def test_weight_invocation_ids_can_be_reset_between_compiled_calls():
+    from comfy import weight_cast_ops
+
+    weight_cast_ops.reset_invocation_ids()
+    assert [weight_cast_ops.next_invocation_id(), weight_cast_ops.next_invocation_id()] == [1, 2]
+
+    weight_cast_ops.reset_invocation_ids()
+
+    assert weight_cast_ops.next_invocation_id() == 1
+
+
 def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(monkeypatch):
     from comfy import ops, weight_cast, weight_cast_ops
     from comfy.weight_cast_schedule import schedule_weight_prefetches

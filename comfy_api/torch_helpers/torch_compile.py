@@ -11,6 +11,7 @@ from comfy.weight_cast_ops import (
     module_bias_shape_tensor,
     module_weight_shape_tensor,
     register_module,
+    reset_invocation_ids,
 )
 from comfy.patcher_extension import WrappersMP
 
@@ -168,6 +169,7 @@ class _CompiledModel(torch.nn.Module):
         ):
             return self._original(*args, **kwargs)
         _mark_cudagraph_step_begin()
+        reset_invocation_ids()
         try:
             return self.compiled(*args, **kwargs)
         except Exception as exc:

@@ -121,6 +121,11 @@ def next_invocation_id() -> int:
     return next(_INVOCATION_IDS)
 
 
+def reset_invocation_ids() -> None:
+    global _INVOCATION_IDS
+    _INVOCATION_IDS = itertools.count(1)
+
+
 def set_callbacks(
     resolve: Callable[..., tuple[torch.Tensor, torch.Tensor | None, object]],
     release: Callable[[torch.nn.Module, torch.Tensor, torch.Tensor | None, object], None],
