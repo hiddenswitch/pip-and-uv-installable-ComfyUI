@@ -457,8 +457,8 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     assert out.item() == 6.0
     assert events == [
         ("prefetch", "prefetch-1"),
-        ("resolve", "prefetch-1"),
         ("prefetch", "prefetch-2"),
+        ("resolve", "prefetch-1"),
         ("release", "prefetch-1"),
         ("resolve", "prefetch-2"),
         ("release", "prefetch-2"),

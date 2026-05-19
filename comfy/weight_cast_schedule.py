@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections import defaultdict
 import logging
 import os
 from typing import Any
@@ -75,6 +76,13 @@ def _resolve_nbytes(node: torch.fx.Node) -> int:
         spec_bytes = get_materialization_spec(module).vram_bytes
         if spec_bytes > 0:
             return spec_bytes
+        weight = getattr(module, "weight", None)
+        bias = getattr(module, "bias", None)
+        module_bytes = _tensor_nbytes(weight)
+        if _is_resolve_weight_bias(node):
+            module_bytes += _tensor_nbytes(bias)
+        if module_bytes > 0:
+            return module_bytes
     if _is_resolve_weight_bias(node):
         return _tensor_nbytes(args[1]) + _tensor_nbytes(args[2])
     return _tensor_nbytes(args[1])
@@ -129,6 +137,7 @@ def schedule_weight_prefetches(
         return gm
 
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
+    replacements: dict[torch.fx.Node, torch.fx.Node] = {}
     for index, node in enumerate(resolve_nodes):
         anchor_index = _anchor_index_for_prefetch(
             resolve_sizes,
@@ -143,7 +152,7 @@ def schedule_weight_prefetches(
         )
         node_index = original_index[node]
         insertion_index = max(original_index[resolve_nodes[anchor_index]], dependency_index + 1)
-        anchor = node if insertion_index >= node_index else original_nodes[insertion_index]
+        anchor = node if insertion_index >= node_index else _live_anchor(original_nodes, insertion_index, replacements, graph)
 
         with graph.inserting_before(anchor):
             if _is_resolve_weight_bias(node):
@@ -163,10 +172,25 @@ def schedule_weight_prefetches(
 
         node.replace_all_uses_with(resolved)
         graph.erase_node(node)
+        replacements[node] = resolved
 
     graph.lint()
     gm.recompile()
     return gm
+
+
+def _live_anchor(
+    original_nodes: list[torch.fx.Node],
+    insertion_index: int,
+    replacements: dict[torch.fx.Node, torch.fx.Node],
+    graph: torch.fx.Graph,
+) -> torch.fx.Node:
+    live_nodes = set(graph.nodes)
+    for candidate in original_nodes[insertion_index:]:
+        candidate = replacements.get(candidate, candidate)
+        if candidate in live_nodes:
+            return candidate
+    return next(node for node in reversed(original_nodes) if node in live_nodes)
 
 
 def wrap_backend_with_weight_prefetch_scheduler(
@@ -193,6 +217,40 @@ def wrap_backend_with_weight_prefetch_scheduler(
         scheduled = schedule_weight_prefetches(gm, lookahead=lookahead, budget_bytes=budget_bytes)
         kwargs.pop("options", None)
         kwargs.pop("mode", None)
-        return compile_backend(scheduled, example_inputs, **kwargs)
+        try:
+            return compile_backend(scheduled, example_inputs, **kwargs)
+        except AssertionError:
+            _log_topological_sort_blockers(scheduled.graph)
+            raise
 
     return scheduled_backend
+
+
+def _log_topological_sort_blockers(graph: torch.fx.Graph) -> None:
+    pending = list(reversed(graph.nodes))
+    ready = set()
+    waiting: dict[torch.fx.Node, list[torch.fx.Node]] = defaultdict(list)
+    while pending:
+        node = pending.pop()
+        waiting_for = [arg for arg in _node_args(node) if arg not in ready]
+        if waiting_for:
+            waiting[waiting_for[-1]].append(node)
+        else:
+            ready.add(node)
+            pending.extend(reversed(waiting.pop(node, ())))
+    if not waiting and len(ready) == len(graph.nodes):
+        return
+    graph_nodes = set(graph.nodes)
+    for dependency, blocked in list(waiting.items())[:10]:
+        logger.error(
+            "Inductor topological sort blocker: dependency=%s in_graph=%s blocked=%s",
+            dependency,
+            dependency in graph_nodes,
+            [str(node) for node in blocked[:5]],
+        )
+
+
+def _node_args(node: torch.fx.Node) -> list[torch.fx.node.Argument]:
+    args: list[torch.fx.node.Argument] = []
+    torch.fx.map_arg((node.args, node.kwargs), args.append)
+    return args
