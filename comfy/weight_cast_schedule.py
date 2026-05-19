@@ -192,7 +192,7 @@ def _live_anchor(
 def wrap_backend_with_weight_prefetch_scheduler(
     backend: str | Callable[..., Any],
     *,
-    lookahead: int = 2,
+    lookahead: int = 16,
     budget_bytes: int | None = None,
 ) -> Callable[[torch.fx.GraphModule, list[torch.Tensor]], Any]:
     if isinstance(backend, str):
