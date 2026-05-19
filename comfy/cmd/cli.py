@@ -1083,6 +1083,78 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             return None
         return f"comfyui run-workflow {ref} --set {target.node_id}.inputs.{target.widget_name}=<value>"
 
+    def _known_option_names(self) -> set[str]:
+        names: set[str] = set()
+        for param in self.params:
+            names.update(getattr(param, "opts", ()) or ())
+            names.update(getattr(param, "secondary_opts", ()) or ())
+        return names
+
+    def _translate_workflow_param_args(self, args: list[str]) -> list[str]:
+        ref = self._extract_workflow_ref(args)
+        if not ref:
+            return args
+        try:
+            params = _discover_from_ref(ref)
+        except Exception:  # noqa: BLE001
+            return args
+
+        known_options = self._known_option_names()
+        workflow_flags = {
+            f"--{p.flag_name}": p
+            for p in params
+            if p.flag_name and f"--{p.flag_name}" not in known_options
+        }
+        workflow_no_flags = {
+            f"--no-{p.flag_name}": p
+            for p in params
+            if p.flag_name and p.type == "BOOLEAN" and f"--no-{p.flag_name}" not in known_options
+        }
+        if not workflow_flags and not workflow_no_flags:
+            return args
+
+        def set_arg(p, value) -> list[str]:
+            return ["--set", f"{p.node_id}.inputs.{p.widget_name}={value}"]
+
+        out: list[str] = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg == "--":
+                out.extend(args[i:])
+                break
+
+            flag, eq, inline_value = arg.partition("=")
+            if eq and flag in workflow_flags:
+                out.extend(set_arg(workflow_flags[flag], inline_value))
+                i += 1
+                continue
+
+            if arg in workflow_no_flags:
+                out.extend(set_arg(workflow_no_flags[arg], "false"))
+                i += 1
+                continue
+
+            p = workflow_flags.get(arg)
+            if p is not None:
+                if p.type == "BOOLEAN":
+                    if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                        out.extend(set_arg(p, args[i + 1]))
+                        i += 2
+                    else:
+                        out.extend(set_arg(p, "true"))
+                        i += 1
+                    continue
+                if i + 1 >= len(args):
+                    raise click.UsageError(f"Option {arg} requires an argument.")
+                out.extend(set_arg(p, args[i + 1]))
+                i += 2
+                continue
+
+            out.append(arg)
+            i += 1
+        return out
+
     def parse_args(self, ctx, args):
         if "--help" in args or "-h" in args:
             ref = self._extract_workflow_ref(args)
@@ -1107,7 +1179,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                     return
                 self._render_workflow_help(ctx, ref, params, raw_workflow)
                 ctx.exit()
-        return super().parse_args(ctx, args)
+        return super().parse_args(ctx, self._translate_workflow_param_args(args))
 
     def _render_workflow_help(self, ctx, ref: str, params, raw_workflow: dict | None = None) -> None:
         from rich import box

@@ -56,6 +56,59 @@ def test_run_workflow_help():
     assert "--seed" in out
 
 
+def test_run_workflow_translates_workflow_specific_flags(monkeypatch):
+    from comfy.entrypoints.workflow_params import Param
+
+    command = cli_module._RunWorkflowCommand(
+        name="run-workflow",
+        callback=lambda workflows, **kwargs: None,
+        params=[],
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_discover_from_ref",
+        lambda ref: [
+            Param(
+                node_id="98:104",
+                class_type="PrimitiveBoolean",
+                widget_name="value",
+                value=False,
+                type="BOOLEAN",
+                flag_name="node-98-104",
+            ),
+            Param(
+                node_id="98:99",
+                class_type="PrimitiveInt",
+                widget_name="value",
+                value=8,
+                type="INT",
+                flag_name="node-98-99",
+            ),
+        ],
+    )
+
+    assert command._translate_workflow_param_args([
+        "workflow.json",
+        "--node-98-104",
+        "--node-98-99",
+        "12",
+    ]) == [
+        "workflow.json",
+        "--set",
+        "98:104.inputs.value=true",
+        "--set",
+        "98:99.inputs.value=12",
+    ]
+    assert command._translate_workflow_param_args([
+        "workflow.json",
+        "--no-node-98-104",
+    ]) == [
+        "workflow.json",
+        "--set",
+        "98:104.inputs.value=false",
+    ]
+
+
 def test_create_directories_help():
     result = runner.invoke(app, ["create-directories", "--help"])
     assert result.exit_code == 0
