@@ -70,14 +70,14 @@ def test_manual_cast_embedding_preserves_float_weight_dtype():
 
 def test_comfy_weight_custom_ops_compile_with_eager_backend():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape_tensor, module_invocation_tensor, module_key_tensor, module_weight_shape_tensor
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
 
     layer = ops.manual_cast.Linear(3, 2)
     with torch.no_grad():
         layer.weight.copy_(torch.tensor([[1.0, 2.0, 3.0], [0.5, -1.0, 4.0]]))
         layer.bias.copy_(torch.tensor([0.25, -0.5]))
-    key = module_key_tensor(layer)
-    invocation_id = module_invocation_tensor(layer)
+    key = register_module(layer)
+    invocation_id = 1
     weight_shape = module_weight_shape_tensor(layer)
     bias_shape = module_bias_shape_tensor(layer)
 
@@ -97,14 +97,14 @@ def test_comfy_weight_custom_ops_compile_with_eager_backend():
 
 def test_comfy_weight_custom_ops_are_present_in_fx_graph():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape_tensor, module_invocation_tensor, module_key_tensor, module_weight_shape_tensor
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
 
     layer = ops.manual_cast.Linear(3, 2)
     with torch.no_grad():
         layer.weight.copy_(torch.tensor([[1.0, 2.0, 3.0], [0.5, -1.0, 4.0]]))
         layer.bias.copy_(torch.tensor([0.25, -0.5]))
-    key = module_key_tensor(layer)
-    invocation_id = module_invocation_tensor(layer)
+    key = register_module(layer)
+    invocation_id = 1
     weight_shape = module_weight_shape_tensor(layer)
     bias_shape = module_bias_shape_tensor(layer)
     graphs = []
@@ -132,12 +132,12 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
 
 def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape_tensor, module_invocation_tensor, module_key_tensor, module_weight_shape_tensor
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     layer = ops.manual_cast.Linear(3, 2)
-    key = module_key_tensor(layer)
-    invocation_id = module_invocation_tensor(layer)
+    key = register_module(layer)
+    invocation_id = 1
     weight_shape = module_weight_shape_tensor(layer)
     bias_shape = module_bias_shape_tensor(layer)
     graphs = []
@@ -165,7 +165,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
 
 def test_weight_prefetch_scheduler_respects_byte_budget():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape_tensor, module_invocation_tensor, module_key_tensor, module_weight_shape_tensor
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -173,14 +173,14 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
     first_args = (
         module_weight_shape_tensor(first),
         module_bias_shape_tensor(first),
-        module_key_tensor(first),
-        module_invocation_tensor(first),
+        register_module(first),
+        1,
     )
     second_args = (
         module_weight_shape_tensor(second),
         module_bias_shape_tensor(second),
-        module_key_tensor(second),
-        module_invocation_tensor(second),
+        register_module(second),
+        2,
     )
     graphs = []
 
@@ -211,7 +211,7 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
 
 def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     from comfy import ops, weight_cast
-    from comfy.weight_cast_ops import module_bias_shape_tensor, module_invocation_tensor, module_key_tensor, module_weight_shape_tensor
+    from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -227,14 +227,14 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     first_args = (
         module_weight_shape_tensor(first),
         module_bias_shape_tensor(first),
-        module_key_tensor(first),
-        module_invocation_tensor(first),
+        register_module(first),
+        1,
     )
     second_args = (
         module_weight_shape_tensor(second),
         module_bias_shape_tensor(second),
-        module_key_tensor(second),
-        module_invocation_tensor(second),
+        register_module(second),
+        2,
     )
     graphs = []
 
@@ -268,17 +268,17 @@ def test_comfy_weight_custom_ops_track_overlapping_invocations():
     with torch.no_grad():
         layer.weight.fill_(1.0)
         layer.bias.zero_()
-    key = weight_cast_ops.module_key_tensor(layer)
+    key = weight_cast_ops.register_module(layer)
     weight_shape = weight_cast_ops.module_weight_shape_tensor(layer)
     bias_shape = weight_cast_ops.module_bias_shape_tensor(layer)
-    first_invocation = torch.tensor(1, dtype=torch.int64)
-    second_invocation = torch.tensor(2, dtype=torch.int64)
+    first_invocation = 1
+    second_invocation = 2
     released: list[tuple[float, str]] = []
 
     def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant):
         value = float(len(released) + len(weight_cast_ops._ACTIVE) + 1)
-        weight = torch.full_like(module.weight, value)
-        bias = torch.zeros_like(module.bias)
+        weight = torch.full_like(module.weight, value, dtype=exemplar.dtype)
+        bias = torch.zeros_like(module.bias, dtype=exemplar.dtype)
         return weight, bias, f"state-{value}"
 
     def fake_release(module, weight, bias, state):
@@ -308,10 +308,10 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     from comfy import weight_cast_ops
 
     layer = ops.manual_cast.Linear(2, 2)
-    key = weight_cast_ops.module_key_tensor(layer)
+    key = weight_cast_ops.register_module(layer)
     weight_shape = weight_cast_ops.module_weight_shape_tensor(layer)
     bias_shape = weight_cast_ops.module_bias_shape_tensor(layer)
-    invocation = torch.tensor(7, dtype=torch.int64)
+    invocation = 7
     events: list[tuple[str, object]] = []
 
     def fake_prefetch(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant):
@@ -344,6 +344,67 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
         weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
 
     assert events == [("prefetch", layer), ("resolve", "prefetched-state"), ("release", "active-state")]
+
+
+def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(monkeypatch):
+    from comfy import ops, weight_cast, weight_cast_ops
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    monkeypatch.setattr(weight_cast, "_is_device_cpu", lambda device: False)
+    layer = ops.manual_cast.Linear(2, 1, dtype=torch.float16)
+    weight_cast_ops.register_module(layer)
+    layer._comfy_weight_cast_weight_shape_tensor = weight_cast_ops.module_weight_shape_tensor(layer)
+    layer._comfy_weight_cast_bias_shape_tensor = weight_cast_ops.module_bias_shape_tensor(layer)
+    with torch.no_grad():
+        layer.weight.fill_(1.0)
+        layer.bias.zero_()
+    events: list[tuple[str, object]] = []
+
+    def fake_prefetch(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant):
+        state = f"prefetch-{len([event for event in events if event[0] == 'prefetch']) + 1}"
+        events.append(("prefetch", state))
+        return state
+
+    def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
+        events.append(("resolve", prefetch_state))
+        value = 1.0 if prefetch_state == "prefetch-1" else 2.0
+        if prefetch_state is None:
+            value = -100.0
+        weight = torch.full_like(module.weight, value, dtype=exemplar.dtype)
+        bias = torch.zeros_like(module.bias, dtype=exemplar.dtype)
+        return weight, bias, prefetch_state
+
+    def fake_release(module, weight, bias, state):
+        events.append(("release", state))
+
+    previous_prefetch = weight_cast_ops._PREFETCH
+    previous_resolve = weight_cast_ops._RESOLVE
+    previous_release = weight_cast_ops._RELEASE
+    weight_cast_ops.set_callbacks(fake_resolve, fake_release, fake_prefetch)
+    try:
+        def capture_backend(gm, example_inputs):
+            schedule_weight_prefetches(gm, lookahead=2)
+            return gm.forward
+
+        def fn(x):
+            return layer(x) + layer(x)
+
+        compiled = torch.compile(fn, backend=capture_backend)
+        out = compiled(torch.ones(1, 2))
+    finally:
+        weight_cast_ops._ACTIVE.clear()
+        weight_cast_ops._PREFETCHED.clear()
+        weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
+
+    assert out.item() == 6.0
+    assert events == [
+        ("prefetch", "prefetch-1"),
+        ("resolve", "prefetch-1"),
+        ("release", "prefetch-1"),
+        ("prefetch", "prefetch-2"),
+        ("resolve", "prefetch-2"),
+        ("release", "prefetch-2"),
+    ]
 
 
 def test_manual_cast_compile_uses_graph_visible_weight_resolution(monkeypatch):

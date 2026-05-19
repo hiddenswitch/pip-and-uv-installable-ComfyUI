@@ -728,6 +728,10 @@ def _cast_weight_bias(module, input=None, *, dtype=None, device=None, bias_dtype
 
 
 def _release_weight_bias(module, output, state):
+    if isinstance(state, tuple):
+        module_key, invocation_id = state
+        torch.ops.comfy_weight.release_(output, module_key, invocation_id)
+        return output
     runtime = weight_cast.get_weight_cast_runtime_by_name(state.backend)
     return runtime.release(module, uncast_bias_weight, output, state)
 

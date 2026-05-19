@@ -9,8 +9,6 @@ from comfy.weight_cast_schedule import wrap_backend_with_weight_prefetch_schedul
 from comfy.weight_cast import get_materialization_spec
 from comfy.weight_cast_ops import (
     module_bias_shape_tensor,
-    module_invocation_tensor,
-    module_key_tensor,
     module_weight_shape_tensor,
     register_module,
 )
@@ -114,8 +112,6 @@ def _stabilize_comfy_weight_cast_attrs(module: torch.nn.Module) -> None:
         if hasattr(child, "comfy_cast_weights"):
             get_materialization_spec(child)
             child._comfy_weight_cast_key = register_module(child)
-            child._comfy_weight_cast_key_tensor = module_key_tensor(child)
-            child._comfy_weight_cast_invocation_tensor = module_invocation_tensor(child)
             if hasattr(child, "weight") and child.weight is not None:
                 child._comfy_weight_cast_weight_shape_tensor = module_weight_shape_tensor(child)
             child._comfy_weight_cast_bias_shape_tensor = module_bias_shape_tensor(child)

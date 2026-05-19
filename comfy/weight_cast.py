@@ -11,9 +11,8 @@ from .cli_args import _args
 from .weight_cast_ops import (
     dtype_to_code,
     module_bias_shape_tensor,
-    module_invocation_tensor,
-    module_key_tensor,
     module_weight_shape_tensor,
+    next_invocation_id,
     register_module,
 )
 
@@ -137,7 +136,7 @@ class WeightCastRuntime:
         bias_dtype: torch.dtype | None = None,
         compute_dtype: torch.dtype | None = None,
         want_requant: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, WeightCastState]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, Any]:
         raise NotImplementedError
 
     def release(
@@ -205,8 +204,10 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
     ) -> tuple[torch.Tensor, torch.Tensor | None, WeightCastState]:
         if input is None:
             raise RuntimeError("Graph-visible weight casting requires an input/exemplar tensor")
-        module_key = module_key_tensor(module)
-        invocation_id = module_invocation_tensor(module)
+        module_key = getattr(module, "_comfy_weight_cast_key", None)
+        if module_key is None:
+            module_key = register_module(module)
+        invocation_id = next_invocation_id()
         weight_shape = _materialization_shape_tensor(module, "weight")
         if weight_shape is None:
             weight_shape = module_weight_shape_tensor(module)
@@ -230,16 +231,16 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
         else:
             weight = torch.ops.comfy_weight.resolve_weight(*op_args)
             bias = None
-        return weight, bias, WeightCastState(self.name, weight, bias, (module_key, invocation_id))
+        return weight, bias, (module_key, invocation_id)
 
     def release(
         self,
         module: torch.nn.Module,
         legacy_uncast: LegacyUncast,
         output: torch.Tensor,
-        state: WeightCastState,
+        state: Any,
     ) -> torch.Tensor:
-        module_key, invocation_id = state.token
+        module_key, invocation_id = state
         torch.ops.comfy_weight.release_(output, module_key, invocation_id)
         return output
 

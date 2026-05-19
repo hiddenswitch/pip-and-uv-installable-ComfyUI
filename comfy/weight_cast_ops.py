@@ -173,8 +173,8 @@ def _prefetch_token(module_key: int, invocation_id: int) -> torch.Tensor:
 
 def _prefetch(
     exemplar: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -199,13 +199,13 @@ def _prefetch(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def prefetch_weight(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -218,27 +218,27 @@ def prefetch_weight(
 def _prefetch_weight_fake(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
 ) -> torch.Tensor:
-    return invocation_id.new_empty(())
+    return torch.empty((), dtype=torch.int64)
 
 
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def prefetch_weight_bias(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -252,14 +252,14 @@ def _prefetch_weight_bias_fake(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
 ) -> torch.Tensor:
-    return invocation_id.new_empty(())
+    return torch.empty((), dtype=torch.int64)
 
 
 def _consume_prefetch(module_key: int, invocation_id: int) -> object:
@@ -269,13 +269,13 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 @torch.library.custom_op(
     "comfy_weight::resolve_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def resolve_weight(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -302,14 +302,14 @@ def resolve_weight(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     prefetch_token: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -341,8 +341,8 @@ def _resolve_prefetched_weight_fake(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     prefetch_token: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -355,8 +355,8 @@ def _resolve_prefetched_weight_fake(
 def _resolve_weight_fake(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -368,14 +368,14 @@ def _resolve_weight_fake(
 @torch.library.custom_op(
     "comfy_weight::resolve_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -405,15 +405,15 @@ def resolve_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=(torch.Tag.cudagraph_unsafe,),
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
     prefetch_token: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -451,8 +451,8 @@ def _resolve_prefetched_weight_bias_fake(
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
     prefetch_token: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -469,8 +469,8 @@ def _resolve_weight_bias_fake(
     exemplar: torch.Tensor,
     weight_shape: torch.Tensor,
     bias_shape: torch.Tensor,
-    module_key: torch.Tensor,
-    invocation_id: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
@@ -484,12 +484,12 @@ def _resolve_weight_bias_fake(
 
 _LIB = torch.library.Library("comfy_weight", "FRAGMENT")
 _LIB.define(
-    "release_(Tensor(a!) output, Tensor module_key, Tensor invocation_id) -> ()",
+    "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
     tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 
 
-def release_(output: torch.Tensor, module_key: torch.Tensor, invocation_id: torch.Tensor) -> None:
+def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     if _RELEASE is None:
         raise RuntimeError("comfy_weight release callback is not installed")
     module_key = _tensor_key(module_key)
@@ -501,7 +501,7 @@ def release_(output: torch.Tensor, module_key: torch.Tensor, invocation_id: torc
     return None
 
 
-def _release_fake(output: torch.Tensor, module_key: torch.Tensor, invocation_id: torch.Tensor) -> None:
+def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     return None
 
 

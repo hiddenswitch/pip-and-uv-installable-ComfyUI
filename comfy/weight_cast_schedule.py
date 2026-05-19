@@ -59,7 +59,7 @@ def _tensor_nbytes(value: Any) -> int:
 
 def _module_from_arg(value: Any) -> torch.nn.Module | None:
     value = _tensor_meta(value)
-    if not isinstance(value, torch.Tensor):
+    if not isinstance(value, (torch.Tensor, int)):
         return None
     try:
         return get_registered_module(value)
