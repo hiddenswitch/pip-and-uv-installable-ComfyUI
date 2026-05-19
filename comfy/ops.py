@@ -694,14 +694,6 @@ def _legacy_weight_cast_resolve(module, input, dtype, bias_dtype, compute_dtype,
     if prefetch_state is not None:
         offload_stream, device = prefetch_state
         model_management.sync_stream(device, offload_stream)
-        weight, bias = resolve_cast_module_with_vbar(module, dtype, device, bias_dtype, compute_dtype, want_requant)
-        offload_device = device if module._prefetch["signature"] is not None else None
-        for param_key in ("weight", "bias"):
-            lowvram_fn = getattr(module, param_key + "_lowvram_function", None)
-            if lowvram_fn is not None:
-                lowvram_fn.clear_prepared()
-        module._prefetch = None
-        return weight, bias, (offload_stream, offload_device, None)
     return cast_bias_weight(
         module,
         input,
