@@ -109,6 +109,68 @@ def _infer_type(value: Any) -> str:
     return "ANY"
 
 
+def _literal_value_source(api: dict, value: Any, seen: set[tuple[str, str]] | None = None):
+    if not _is_link(value):
+        return value
+    source = _resolve_linked_input_source(api, str(value[0]), "value", seen)
+    if source is None:
+        return None
+    source_node_id, source_widget = source
+    source_node = api.get(source_node_id)
+    if not isinstance(source_node, dict):
+        return None
+    source_inputs = source_node.get("inputs") or {}
+    result = source_inputs.get(source_widget)
+    return None if _is_link(result) else result
+
+
+def _resolve_linked_input_source(
+    api: dict,
+    node_id: str,
+    widget_name: str,
+    seen: set[tuple[str, str]] | None = None,
+) -> tuple[str, str] | None:
+    """Return the concrete API widget that currently feeds a linked input."""
+    if seen is None:
+        seen = set()
+    key = (str(node_id), widget_name)
+    if key in seen:
+        return None
+    seen.add(key)
+
+    node = api.get(str(node_id))
+    if not isinstance(node, dict):
+        return None
+    inputs = node.get("inputs") or {}
+    value = inputs.get(widget_name)
+    if value is None:
+        return None
+
+    if not _is_link(value):
+        return key
+
+    source_node_id = str(value[0])
+    source_node = api.get(source_node_id)
+    if not isinstance(source_node, dict):
+        return None
+
+    source_type = source_node.get("class_type") or ""
+    source_inputs = source_node.get("inputs") or {}
+    if source_type in _TYPED_PRIMITIVE_CLASSES and "value" in source_inputs:
+        primitive_value = source_inputs.get("value")
+        if _is_link(primitive_value):
+            return _resolve_linked_input_source(api, source_node_id, "value", seen)
+        return (source_node_id, "value")
+
+    if source_type in {"ComfySwitchNode", "SwitchNode"}:
+        switch_value = _literal_value_source(api, source_inputs.get("switch"), seen)
+        branch = "on_true" if bool(switch_value) else "on_false"
+        if branch in source_inputs:
+            return _resolve_linked_input_source(api, source_node_id, branch, seen)
+
+    return None
+
+
 def frontend_widget_pool(api: dict, ui: dict | None) -> list[Param]:
     out: list[Param] = []
     for node_id, node in api.items():
@@ -140,10 +202,33 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
             continue
         class_type = node.get("class_type") or ""
         for widget_name, value in (node.get("inputs") or {}).items():
-            if _is_link(value):
-                continue
             role = _DIRECT_ROLES.get((class_type, widget_name))
             if role is None:
+                continue
+            if _is_link(value):
+                source = _resolve_linked_input_source(api, str(node_id), widget_name)
+                if source is None:
+                    continue
+                source_node_id, source_widget = source
+                source_node = api.get(source_node_id)
+                if not isinstance(source_node, dict):
+                    continue
+                source_value = (source_node.get("inputs") or {}).get(source_widget)
+                if source_value is None or _is_link(source_value):
+                    continue
+                out.append(
+                    Param(
+                        node_id=source_node_id,
+                        class_type=source_node.get("class_type") or "",
+                        widget_name=source_widget,
+                        value=source_value,
+                        type=_infer_type(source_value),
+                        roles={role},
+                        tier=TIER_COMMON,
+                        flag_name=role.replace("_", "-"),
+                        source_predicates=["class_type_roles:linked_source"],
+                    )
+                )
                 continue
             out.append(
                 Param(

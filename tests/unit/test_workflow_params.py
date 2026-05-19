@@ -471,6 +471,33 @@ def test_apply_role_matches_replace_steps_behavior():
     assert apply_role(api, "steps", 50) == replace_steps(api, 50)
 
 
+def test_apply_role_steps_updates_active_linked_primitive_through_switch():
+    api = {
+        "sched": {
+            "class_type": "Flux2Scheduler",
+            "inputs": {"steps": ["switch", 0], "width": 512, "height": 512},
+        },
+        "switch": {
+            "class_type": "ComfySwitchNode",
+            "inputs": {
+                "switch": ["use_fast", 0],
+                "on_false": ["full_steps", 0],
+                "on_true": ["fast_steps", 0],
+            },
+        },
+        "use_fast": {"class_type": "PrimitiveBoolean", "inputs": {"value": False}},
+        "full_steps": {"class_type": "PrimitiveInt", "inputs": {"value": 20}},
+        "fast_steps": {"class_type": "PrimitiveInt", "inputs": {"value": 8}},
+    }
+
+    out = apply_role(api, "steps", 2)
+
+    assert out["sched"]["inputs"]["steps"] == ["switch", 0]
+    assert out["full_steps"]["inputs"]["value"] == 2
+    assert out["fast_steps"]["inputs"]["value"] == 8
+    assert api["full_steps"]["inputs"]["value"] == 20
+
+
 def test_apply_role_prompt_matches_replace_prompt_text_when_text_encoder_present():
     from comfy.component_model.prompt_utils import replace_prompt_text
     api = {
