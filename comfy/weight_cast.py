@@ -9,6 +9,7 @@ import torch
 from . import memory_management
 from .cli_args import _args
 from .weight_cast_ops import (
+    device_type_to_code,
     dtype_to_code,
     module_bias_shape_tensor,
     module_weight_shape_tensor,
@@ -216,6 +217,7 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
             bias_shape = module_bias_shape_tensor(module)
         effective_dtype = dtype or input.dtype
         effective_bias_dtype = bias_dtype or effective_dtype
+        device_index = -1 if input.device.index is None else input.device.index
         op_args = (
             input,
             weight_shape,
@@ -225,6 +227,8 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
             dtype_to_code(effective_bias_dtype),
             dtype_to_code(compute_dtype),
             want_requant,
+            device_type_to_code(input.device.type),
+            device_index,
         )
         if bias_shape is not None:
             weight, bias = torch.ops.comfy_weight.resolve_weight_bias(input, weight_shape, bias_shape, *op_args[2:])

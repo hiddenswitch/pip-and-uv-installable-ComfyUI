@@ -83,7 +83,7 @@ def test_comfy_weight_custom_ops_compile_with_eager_backend():
 
     def fn(x):
         weight, bias = torch.ops.comfy_weight.resolve_weight_bias(
-            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False
+            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
         torch.ops.comfy_weight.release_(out, key, invocation_id)
@@ -115,7 +115,7 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
 
     def fn(x):
         weight, bias = torch.ops.comfy_weight.resolve_weight_bias(
-            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False
+            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
         torch.ops.comfy_weight.release_(out, key, invocation_id)
@@ -148,7 +148,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
 
     def fn(x):
         weight, bias = torch.ops.comfy_weight.resolve_weight_bias(
-            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False
+            x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
         torch.ops.comfy_weight.release_(out, key, invocation_id)
@@ -189,10 +189,10 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
         return graphs[-1].forward
 
     def fn(x_small, x_large):
-        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x_small, *first_args, 0, 0, 0, False)
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x_small, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x_small, w1, b1)
         torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
-        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x_large, *second_args, 0, 0, 0, False)
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x_large, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x_large, w2, b2)
         torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
         return y1, y2
@@ -243,10 +243,10 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
         return graphs[-1].forward
 
     def fn(x):
-        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False)
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
         torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
-        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False)
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x, w2, b2)
         torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
         return y1 + y2
@@ -260,7 +260,7 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     assert second_prefetch > first_resolve
 
 
-def test_weight_prefetch_scheduler_does_not_cross_exemplar_dependency():
+def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape_tensor, module_weight_shape_tensor, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
@@ -286,11 +286,11 @@ def test_weight_prefetch_scheduler_does_not_cross_exemplar_dependency():
         return graphs[-1].forward
 
     def fn(x):
-        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False)
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
         torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
         exemplar = y1 + 1
-        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(exemplar, *second_args, 0, 0, 0, False)
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(exemplar, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(exemplar, w2, b2)
         torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
         return y2
@@ -302,7 +302,7 @@ def test_weight_prefetch_scheduler_does_not_cross_exemplar_dependency():
     second_prefetch = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)][1]
     exemplar = next(i for i, node in enumerate(nodes) if node.name == "exemplar")
 
-    assert second_prefetch > exemplar
+    assert second_prefetch < exemplar
 
 
 def test_comfy_weight_custom_ops_track_overlapping_invocations():
@@ -335,8 +335,8 @@ def test_comfy_weight_custom_ops_track_overlapping_invocations():
     weight_cast_ops.set_callbacks(fake_resolve, fake_release)
     try:
         x = torch.ones(1, 2)
-        torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, first_invocation, 0, 0, 0, False)
-        torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, second_invocation, 0, 0, 0, False)
+        torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, first_invocation, 0, 0, 0, False, 0, -1)
+        torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, second_invocation, 0, 0, 0, False, 0, -1)
 
         torch.ops.comfy_weight.release_(x, key, first_invocation)
         torch.ops.comfy_weight.release_(x, key, second_invocation)
@@ -359,8 +359,8 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     invocation = 7
     events: list[tuple[str, object]] = []
 
-    def fake_prefetch(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant):
-        events.append(("prefetch", module))
+    def fake_prefetch(module, device, dtype, bias_dtype, compute_dtype, want_requant):
+        events.append(("prefetch", (module, device)))
         return "prefetched-state"
 
     def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
@@ -377,10 +377,10 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     try:
         x = torch.ones(1, 2)
         token = torch.ops.comfy_weight.prefetch_weight_bias(
-            x, weight_shape, bias_shape, key, invocation, 0, 0, 0, False
+            key, invocation, 0, 0, 0, False, 0, -1
         )
         weight, bias = torch.ops.comfy_weight.resolve_prefetched_weight_bias(
-            x, weight_shape, bias_shape, token, key, invocation, 0, 0, 0, False
+            x, weight_shape, bias_shape, token, key, invocation, 0, 0, 0, False, 0, -1
         )
         torch.ops.comfy_weight.release_(torch.nn.functional.linear(x, weight, bias), key, invocation)
     finally:
@@ -388,7 +388,7 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
         weight_cast_ops._PREFETCHED.clear()
         weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
 
-    assert events == [("prefetch", layer), ("resolve", "prefetched-state"), ("release", "active-state")]
+    assert events == [("prefetch", (layer, torch.device("cpu"))), ("resolve", "prefetched-state"), ("release", "active-state")]
 
 
 def test_weight_invocation_ids_can_be_reset_between_compiled_calls():
@@ -416,7 +416,7 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
         layer.bias.zero_()
     events: list[tuple[str, object]] = []
 
-    def fake_prefetch(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant):
+    def fake_prefetch(module, device, dtype, bias_dtype, compute_dtype, want_requant):
         state = f"prefetch-{len([event for event in events if event[0] == 'prefetch']) + 1}"
         events.append(("prefetch", state))
         return state

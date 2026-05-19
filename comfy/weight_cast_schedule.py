@@ -146,19 +146,15 @@ def schedule_weight_prefetches(
             budget_bytes=budget_bytes,
         )
         args = tuple(node.args)
-        dependency_index = max(
-            (original_index[arg] for arg in args if isinstance(arg, torch.fx.Node)),
-            default=-1,
-        )
         node_index = original_index[node]
-        insertion_index = max(original_index[resolve_nodes[anchor_index]], dependency_index + 1)
+        insertion_index = original_index[resolve_nodes[anchor_index]]
         anchor = node if insertion_index >= node_index else _live_anchor(original_nodes, insertion_index, replacements, graph)
 
         with graph.inserting_before(anchor):
             if _is_resolve_weight_bias(node):
-                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight_bias, args=args)
+                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight_bias, args=args[3:])
             else:
-                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight, args=args)
+                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight, args=args[2:])
             prefetch.meta.update(node.meta)
 
         with graph.inserting_before(node):

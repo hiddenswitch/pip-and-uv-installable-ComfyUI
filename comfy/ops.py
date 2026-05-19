@@ -681,8 +681,7 @@ def uncast_bias_weight(s, weight, bias, offload_stream):
     os.wait_stream(model_management.current_stream(device))
 
 
-def _legacy_weight_cast_prefetch(module, input, dtype, bias_dtype, compute_dtype, want_requant):
-    device = input.device if input is not None else None
+def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtype, want_requant):
     non_blocking = device is not None and model_management.device_supports_non_blocking(device)
     if device is None or module._v is None or model_management.is_device_cpu(device):
         return None

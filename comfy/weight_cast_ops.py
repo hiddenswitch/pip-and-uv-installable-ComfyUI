@@ -26,6 +26,13 @@ _DTYPES = {
     5: getattr(torch, "float8_e5m2", None),
 }
 
+_DEVICE_TYPES = {
+    0: "cpu",
+    1: "cuda",
+    2: "mps",
+    3: "xpu",
+}
+
 
 def dtype_to_code(dtype: torch.dtype | None) -> int:
     for code, candidate in _DTYPES.items():
@@ -36,6 +43,21 @@ def dtype_to_code(dtype: torch.dtype | None) -> int:
 
 def code_to_dtype(code: int) -> torch.dtype | None:
     return _DTYPES.get(_concrete_int(code))
+
+
+def device_type_to_code(device_type: str) -> int:
+    for code, candidate in _DEVICE_TYPES.items():
+        if candidate == device_type:
+            return code
+    return 0
+
+
+def code_to_device(type_code: int, device_index: int) -> torch.device:
+    device_type = _DEVICE_TYPES.get(_concrete_int(type_code), "cpu")
+    device_index = _concrete_int(device_index)
+    if device_index >= 0 and device_type not in {"cpu", "mps"}:
+        return torch.device(device_type, device_index)
+    return torch.device(device_type)
 
 
 def _concrete_int(value: int) -> int:
@@ -178,13 +200,14 @@ def _prefetch_token(module_key: int, invocation_id: int) -> torch.Tensor:
 
 
 def _prefetch(
-    exemplar: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     if _PREFETCH is None:
         raise RuntimeError("comfy_weight prefetch callback is not installed")
@@ -193,7 +216,7 @@ def _prefetch(
     module = _module(module_key)
     _PREFETCHED[(module_key, invocation_id)] = _PREFETCH(
         module,
-        exemplar,
+        code_to_device(device_type_code, device_index),
         code_to_dtype(dtype_code),
         code_to_dtype(bias_dtype_code),
         code_to_dtype(compute_dtype_code),
@@ -208,28 +231,28 @@ def _prefetch(
     tags=(torch.Tag.cudagraph_unsafe,),
 )
 def prefetch_weight(
-    exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
-    return _prefetch(exemplar, module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant)
+    return _prefetch(module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant, device_type_code, device_index)
 
 
 @prefetch_weight.register_fake
 def _prefetch_weight_fake(
-    exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     return torch.empty((), dtype=torch.int64)
 
@@ -240,30 +263,28 @@ def _prefetch_weight_fake(
     tags=(torch.Tag.cudagraph_unsafe,),
 )
 def prefetch_weight_bias(
-    exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
-    return _prefetch(exemplar, module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant)
+    return _prefetch(module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant, device_type_code, device_index)
 
 
 @prefetch_weight_bias.register_fake
 def _prefetch_weight_bias_fake(
-    exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     return torch.empty((), dtype=torch.int64)
 
@@ -286,6 +307,8 @@ def resolve_weight(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
@@ -320,6 +343,8 @@ def resolve_prefetched_weight(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
@@ -353,6 +378,8 @@ def _resolve_prefetched_weight_fake(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     return _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code))
 
@@ -367,6 +394,8 @@ def _resolve_weight_fake(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> torch.Tensor:
     return _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code))
 
@@ -386,6 +415,8 @@ def resolve_weight_bias(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
@@ -424,6 +455,8 @@ def resolve_prefetched_weight_bias(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
@@ -463,6 +496,8 @@ def _resolve_prefetched_weight_bias_fake(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return (
         _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code)),
@@ -481,6 +516,8 @@ def _resolve_weight_bias_fake(
     bias_dtype_code: int,
     compute_dtype_code: int,
     want_requant: bool,
+    device_type_code: int,
+    device_index: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return (
         _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code)),
