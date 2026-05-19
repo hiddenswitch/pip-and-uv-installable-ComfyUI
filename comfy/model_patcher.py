@@ -1983,9 +1983,7 @@ class ModelPatcherDynamic(ModelPatcher):
         loading = self._load_list(for_dynamic=True)
         for x in loading:
             _, _, _, _, m, _ = x
-            pin = pinned_memory.get_pin(m)
-            if pin is not None:
-                total += pin.numel() * pin.element_size()
+            total += pinned_memory.pin_size(m)
         return total
 
     def partially_unload_ram(self, ram_to_unload):

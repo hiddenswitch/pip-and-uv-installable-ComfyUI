@@ -55,6 +55,10 @@ def dynamic_vram_diag_enabled():
     return os.environ.get("COMFY_DYNAMIC_VRAM_DIAG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def direct_materialize_pinning_enabled():
+    return os.environ.get("COMFY_DIRECT_MATERIALIZE_PINNING", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _tensor_diag(tensor):
     if tensor is None:
         return "None"
@@ -402,7 +406,10 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
 
         xfer_source = [s.weight, s.bias]
 
-        pin = pinned_memory.get_pin(s)
+        use_pin = not direct_materialize or direct_materialize_pinning_enabled()
+        pin_geometry = cast_geometry if direct_materialize else None
+        pin = pinned_memory.get_pin(s, pin_geometry) if use_pin else None
+        raw_pin_transfer = False
         if pin is not None and not direct_materialize:
             xfer_source = [pin]
 
@@ -451,22 +458,27 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             reclaim_vbar = s._v[0] if signature is None else None
             xfer_dest = get_cast_buffer(dest_size, reclaim_vbar=reclaim_vbar)
 
-        if signature is None and pin is None and not direct_materialize:
-            pinned_memory.pin_memory(s)
-            pin = pinned_memory.get_pin(s)
-        else:
+        if signature is not None or not use_pin:
             pin = None
+        elif pin is None:
+            pinned_memory.pin_memory(s, pin_geometry)
+            pin = pinned_memory.get_pin(s, pin_geometry)
 
         if pin is not None:
-            model_management.cast_to_gathered(xfer_source, pin)
+            model_management.cast_to_gathered(
+                xfer_source,
+                pin,
+                target_geometries=cast_geometry if direct_materialize else None,
+            )
             xfer_source = [ pin ]
+            raw_pin_transfer = direct_materialize
         #send it over
         model_management.cast_to_gathered(
             xfer_source,
             xfer_dest,
             non_blocking=non_blocking,
             stream=offload_stream,
-            target_geometries=cast_geometry if direct_materialize else None,
+            target_geometries=cast_geometry if direct_materialize and not raw_pin_transfer else None,
         )
 
         for param_key in ("weight", "bias"):

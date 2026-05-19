@@ -14,6 +14,7 @@ from .weight_cast_ops import get_registered_module
 
 logger = logging.getLogger(__name__)
 DEFAULT_PREFETCH_BUDGET_BYTES = 2 * 1024 ** 3
+DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
 
 
 def _target_name(node: torch.fx.Node) -> str:
@@ -156,6 +157,8 @@ def schedule_weight_prefetches(
             else:
                 prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight, args=args[2:])
             prefetch.meta.update(node.meta)
+            if anchor is not node:
+                _attach_prefetch_to_anchor(graph, anchor, prefetch)
 
         with graph.inserting_before(node):
             if _is_resolve_weight_bias(node):
@@ -173,6 +176,35 @@ def schedule_weight_prefetches(
     graph.lint()
     gm.recompile()
     return gm
+
+
+def _attach_prefetch_to_anchor(graph: torch.fx.Graph, anchor: torch.fx.Node, prefetch: torch.fx.Node) -> None:
+    """Thread a no-op dependency from a prefetch token into its scheduling anchor.
+
+    Inductor may legally sink an otherwise-functional prefetch custom op to its
+    resolve consumer. The anchor op preserves the async-copy launch order in
+    dataflow without waiting on the copy itself.
+    """
+    tensor_arg = _first_tensor_node_arg(anchor)
+    if tensor_arg is None:
+        return
+    with graph.inserting_before(anchor):
+        anchored = graph.call_function(torch.ops.comfy_weight.prefetch_anchor, args=(tensor_arg, prefetch))
+        anchored.meta.update(tensor_arg.meta)
+    anchor.replace_input_with(tensor_arg, anchored)
+
+
+def _first_tensor_node_arg(node: torch.fx.Node) -> torch.fx.Node | None:
+    result: torch.fx.Node | None = None
+
+    def visit(value: torch.fx.node.Argument) -> torch.fx.node.Argument:
+        nonlocal result
+        if result is None and isinstance(value, torch.fx.Node):
+            result = value
+        return value
+
+    torch.fx.map_arg((node.args, node.kwargs), visit)
+    return result
 
 
 def _live_anchor(
@@ -211,6 +243,7 @@ def wrap_backend_with_weight_prefetch_scheduler(
 
     def scheduled_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor], **kwargs):
         scheduled = schedule_weight_prefetches(gm, lookahead=lookahead, budget_bytes=budget_bytes)
+        _dump_scheduled_graph_if_requested(scheduled)
         kwargs.pop("options", None)
         kwargs.pop("mode", None)
         try:
@@ -220,6 +253,18 @@ def wrap_backend_with_weight_prefetch_scheduler(
             raise
 
     return scheduled_backend
+
+
+def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
+    dump_path = os.environ.get(DEBUG_DUMP_ENV)
+    if not dump_path:
+        return
+    try:
+        with open(dump_path, "w", encoding="utf-8") as handle:
+            for index, node in enumerate(gm.graph.nodes):
+                handle.write(f"{index:05d} {node.op} {_target_name(node)} {node.name}\n")
+    except Exception:
+        logger.exception("Failed to dump scheduled weight prefetch graph to %s", dump_path)
 
 
 def _log_topological_sort_blockers(graph: torch.fx.Graph) -> None:

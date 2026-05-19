@@ -228,7 +228,7 @@ def _prefetch(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def prefetch_weight(
     module_key: int,
@@ -260,7 +260,7 @@ def _prefetch_weight_fake(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def prefetch_weight_bias(
     module_key: int,
@@ -296,7 +296,7 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 @torch.library.custom_op(
     "comfy_weight::resolve_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def resolve_weight(
     exemplar: torch.Tensor,
@@ -331,7 +331,7 @@ def resolve_weight(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
@@ -403,7 +403,7 @@ def _resolve_weight_fake(
 @torch.library.custom_op(
     "comfy_weight::resolve_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
@@ -442,7 +442,7 @@ def resolve_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
@@ -527,9 +527,21 @@ def _resolve_weight_bias_fake(
 
 _LIB = torch.library.Library("comfy_weight", "FRAGMENT")
 _LIB.define(
+    "prefetch_anchor(Tensor input, Tensor token) -> Tensor",
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+_LIB.define(
     "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
     tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
+
+
+def prefetch_anchor(input: torch.Tensor, token: torch.Tensor) -> torch.Tensor:
+    return input
+
+
+def _prefetch_anchor_fake(input: torch.Tensor, token: torch.Tensor) -> torch.Tensor:
+    return input
 
 
 def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
@@ -548,5 +560,7 @@ def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> 
     return None
 
 
+_LIB.impl("prefetch_anchor", prefetch_anchor, "CompositeExplicitAutograd")
+_LIB.impl("prefetch_anchor", _prefetch_anchor_fake, "Meta")
 _LIB.impl("release_", release_, "CompositeExplicitAutograd")
 _LIB.impl("release_", _release_fake, "Meta")

@@ -5,14 +5,32 @@ from . import memory_management
 from . import model_management
 from .cli_args import args
 
-def get_pin(module):
-    return getattr(module, "_pin", None)
+def _geometry_key(geometry):
+    if geometry is None:
+        return None
+    key = []
+    for item in geometry:
+        if item is None:
+            key.append(None)
+        elif hasattr(item, "shape") and hasattr(item, "dtype"):
+            key.append((tuple(item.shape), item.dtype))
+        else:
+            key.append((tuple(item.shape), item.dtype))
+    return tuple(key)
 
-def pin_memory(module):
-    if module.pin_failed or args.disable_pinned_memory or get_pin(module) is not None:
+
+def get_pin(module, geometry=None):
+    key = _geometry_key(geometry)
+    if key is None:
+        return getattr(module, "_pin", None)
+    return getattr(module, "_direct_pins", {}).get(key)
+
+
+def pin_memory(module, geometry=None):
+    if module.pin_failed or args.disable_pinned_memory or get_pin(module, geometry) is not None:
         return
 
-    size = memory_management.vram_aligned_size([ module.weight, module.bias ])
+    size = memory_management.vram_aligned_size(geometry if geometry is not None else [ module.weight, module.bias ])
 
     if model_management.MAX_PINNED_MEMORY <= 0 or (model_management.TOTAL_PINNED_MEMORY + size) > model_management.MAX_PINNED_MEMORY:
         module.pin_failed = True
@@ -24,21 +42,44 @@ def pin_memory(module):
         module.pin_failed = True
         return False
 
-    module._pin = comfy_aimdo.torch.hostbuf_to_tensor(hostbuf)
-    module._pin_hostbuf = hostbuf
+    pin = comfy_aimdo.torch.hostbuf_to_tensor(hostbuf)
+    key = _geometry_key(geometry)
+    if key is None:
+        module._pin = pin
+        module._pin_hostbuf = hostbuf
+    else:
+        direct_pins = getattr(module, "_direct_pins", None)
+        direct_pin_hostbufs = getattr(module, "_direct_pin_hostbufs", None)
+        if direct_pins is None:
+            direct_pins = {}
+            direct_pin_hostbufs = {}
+            module._direct_pins = direct_pins
+            module._direct_pin_hostbufs = direct_pin_hostbufs
+        direct_pins[key] = pin
+        direct_pin_hostbufs[key] = hostbuf
     model_management.TOTAL_PINNED_MEMORY += size
     return True
 
+def pin_size(module):
+    total = 0
+    pin = get_pin(module)
+    if pin is not None:
+        total += pin.numel() * pin.element_size()
+    for pin in getattr(module, "_direct_pins", {}).values():
+        total += pin.numel() * pin.element_size()
+    return total
+
 def unpin_memory(module):
-    if get_pin(module) is None:
+    size = pin_size(module)
+    if size == 0:
         return 0
-    size = module._pin.numel() * module._pin.element_size()
 
     # todo: needs merge, this is per process or per machine or...? should this be migrated to the execution context?
     model_management.TOTAL_PINNED_MEMORY -= size
     if model_management.TOTAL_PINNED_MEMORY < 0:
         model_management.TOTAL_PINNED_MEMORY = 0
 
-    del module._pin
-    del module._pin_hostbuf
+    for attr in ("_pin", "_pin_hostbuf", "_direct_pins", "_direct_pin_hostbufs"):
+        if hasattr(module, attr):
+            delattr(module, attr)
     return size

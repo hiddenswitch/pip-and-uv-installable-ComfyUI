@@ -300,9 +300,12 @@ def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
 
     nodes = list(graphs[0].graph.nodes)
     second_prefetch = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)][1]
+    anchors = [i for i, node in enumerate(nodes) if "prefetch_anchor" in str(node.target)]
     exemplar = next(i for i, node in enumerate(nodes) if node.name == "exemplar")
 
     assert second_prefetch < exemplar
+    assert anchors
+    assert second_prefetch < anchors[0] < exemplar
 
 
 def test_comfy_weight_custom_ops_track_overlapping_invocations():
