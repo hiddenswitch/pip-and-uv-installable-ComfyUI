@@ -686,13 +686,20 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
     if device is None or module._v is None or model_management.is_device_cpu(device):
         return None
     offload_stream = cast_modules_with_vbar([module], dtype, device, bias_dtype, non_blocking, want_requant=want_requant)
-    return offload_stream, device
+    ready_event = None
+    if offload_stream is not None and device is not None and device.type == "cuda":
+        ready_event = torch.cuda.Event()
+        ready_event.record(offload_stream)
+    return offload_stream, device, ready_event
 
 
 def _legacy_weight_cast_resolve(module, input, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
     if prefetch_state is not None:
-        offload_stream, device = prefetch_state
-        model_management.sync_stream(device, offload_stream)
+        offload_stream, device, ready_event = prefetch_state
+        if ready_event is not None:
+            model_management.current_stream(device).wait_event(ready_event)
+        else:
+            model_management.sync_stream(device, offload_stream)
         weight, bias = resolve_cast_module_with_vbar(module, dtype, device, bias_dtype, compute_dtype, want_requant)
         offload_device = device if module._prefetch["signature"] is not None else None
         for param_key in ("weight", "bias"):
