@@ -1810,23 +1810,6 @@ class ModelPatcherDynamic(ModelPatcher):
 
         assert device_to == self.load_device
 
-        if (
-            not dirty
-            and getattr(self.model, "current_weight_patches_uuid", None) == self.patches_uuid
-            and getattr(self.model, "device", None) == device_to
-        ):
-            vbar = self._vbar_get()
-            if vbar is not None:
-                vbar.set_watermark_limit(0)
-                vbar.prioritize()
-            self.apply_hooks(self.forced_hooks, force_apply=True)
-            logger.debug(
-                "Model %s dynamic VRAM loading plan reused for patches %s.",
-                self.model.__class__.__name__,
-                self.patches_uuid,
-            )
-            return
-
         num_patches = 0
         allocated_size = 0
         self.model.model_loaded_weight_memory = 0
