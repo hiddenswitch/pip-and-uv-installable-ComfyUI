@@ -1444,14 +1444,12 @@ def get_offload_stream(device):
 
     if device in STREAMS:
         ss = STREAMS[device]
-        # Reusing this stream can also reuse its cast buffer. Make the stream
-        # wait for current compute before returning it, so previous users of
-        # that buffer have finished before the next copy overwrites it.
-        s = ss[stream_counter]
-        s.wait_stream(current_stream(device))
+        # Sync the oldest stream in the queue with the current stream, then
+        # return the next stream so offload copies can run ahead of compute.
+        ss[stream_counter].wait_stream(current_stream(device))
         stream_counter = (stream_counter + 1) % len(ss)
         stream_counters[device] = stream_counter
-        return s
+        return ss[stream_counter]
     elif is_device_cuda(device):
         ss = []
         for k in range(NUM_STREAMS):
@@ -1460,7 +1458,7 @@ def get_offload_stream(device):
             ss.append(s1)
         STREAMS[device] = ss
         s = ss[stream_counter]
-        stream_counters[device] = (stream_counter + 1) % len(ss)
+        stream_counters[device] = stream_counter
         return s
     elif is_device_xpu(device):
         ss = []
@@ -1470,7 +1468,7 @@ def get_offload_stream(device):
             ss.append(s1)
         STREAMS[device] = ss
         s = ss[stream_counter]
-        stream_counters[device] = (stream_counter + 1) % len(ss)
+        stream_counters[device] = stream_counter
         return s
     return None
 
