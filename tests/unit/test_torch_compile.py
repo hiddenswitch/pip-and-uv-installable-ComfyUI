@@ -266,6 +266,52 @@ def test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile(m
     assert seen_keys == [weight_cast_ops.register_module_with_stable_key(layer, _compile_module_identity("", layer))]
 
 
+def test_compiled_model_reuses_jit_graph_for_value_only_sampling_changes():
+    compile_calls = []
+
+    class SamplingInputsModel(torch.nn.Module):
+        def forward(self, x, timestep, context, *, noise, transformer_options=None, **kwargs):
+            sigmas = transformer_options["sigmas"]
+            return (
+                x
+                + noise * 0.01
+                + context.mean(dim=-1, keepdim=True)
+                + timestep.reshape(1, 1).to(dtype=x.dtype)
+                + sigmas.mean().to(dtype=x.dtype)
+            )
+
+    def counting_backend(gm, example_inputs):
+        compile_calls.append((gm, example_inputs))
+        return gm.forward
+
+    torch._dynamo.reset()
+    try:
+        compiled = _CompiledModel(SamplingInputsModel(), {"backend": counting_backend, "dynamic": False})
+
+        first_seed = torch.Generator().manual_seed(101)
+        first = compiled(
+            torch.zeros(2, 4),
+            torch.tensor([999.0]),
+            torch.full((2, 4), 0.25),
+            noise=torch.randn(2, 4, generator=first_seed),
+            transformer_options={"sigmas": torch.linspace(1.0, 0.0, 4)},
+        )
+
+        second_seed = torch.Generator().manual_seed(202)
+        second = compiled(
+            torch.zeros(2, 4),
+            torch.tensor([333.0]),
+            torch.full((2, 4), 0.75),
+            noise=torch.randn(2, 4, generator=second_seed),
+            transformer_options={"sigmas": torch.linspace(0.8, 0.2, 4)},
+        )
+    finally:
+        torch._dynamo.reset()
+
+    assert len(compile_calls) == 1
+    assert not torch.allclose(first, second)
+
+
 def test_compiled_model_uses_eager_path_for_transformer_features(monkeypatch):
     class RecordingModel(torch.nn.Module):
         def __init__(self, label):

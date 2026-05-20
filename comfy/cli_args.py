@@ -280,7 +280,7 @@ def dynamic_vram_requested() -> bool:
     """Return whether the current configuration requests dynamic VRAM."""
     configuration = _args()
     return (
-        PerformanceFeature.DynamicVRAM in configuration.fast
+        (configuration.enable_dynamic_vram or dynamic_vram_supported() or PerformanceFeature.DynamicVRAM in configuration.fast)
         and not configuration.highvram
         and not configuration.gpu_only
         and not configuration.disable_dynamic_vram

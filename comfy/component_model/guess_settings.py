@@ -60,28 +60,54 @@ def _has_amd_gpu() -> bool:
     return False
 
 
-_BENIGN_PROCESS_RE = re.compile(r"^(python|nv)", re.IGNORECASE)
+_BENIGN_PROCESS_RE = re.compile(
+    r"^(python|uv|comfyui|nv|nvidia-smi|gnome-remote-desktop-daemon|xorg|xwayland|kwin|mutter)",
+    re.IGNORECASE,
+)
+
+
+def _current_process_family() -> set[int]:
+    pids = {os.getpid()}
+    try:
+        import psutil
+
+        current = psutil.Process()
+        pids.update(parent.pid for parent in current.parents())
+        pids.update(child.pid for child in current.children(recursive=True))
+    except Exception:
+        pass
+    return pids
 
 
 def _competing_gpu_processes() -> list[str]:
-    """Return names of non-Python, non-nv* processes using the NVIDIA GPU.
+    """Return names of unrelated processes using the NVIDIA GPU.
 
     Returns an empty list when ``nvidia-smi`` is unavailable or fails.
     """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=process_name", "--format=csv,noheader"],
+            ["nvidia-smi", "--query-compute-apps=pid,process_name", "--format=csv,noheader"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if result.returncode != 0:
             return []
+        current_family = _current_process_family()
         names: list[str] = []
         for line in result.stdout.strip().splitlines():
             # Handle both Unix and Windows paths (nvidia-smi may return
             # full paths like C:\Program Files\Discord\Discord.exe)
-            raw = line.strip().replace("\\", "/")
+            fields = [field.strip() for field in line.split(",", maxsplit=1)]
+            if len(fields) == 2:
+                try:
+                    if int(fields[0]) in current_family:
+                        continue
+                except ValueError:
+                    pass
+                raw = fields[1].replace("\\", "/")
+            else:
+                raw = line.strip().replace("\\", "/")
             proc = os.path.basename(raw)
             if proc and not _BENIGN_PROCESS_RE.match(proc):
                 names.append(proc)

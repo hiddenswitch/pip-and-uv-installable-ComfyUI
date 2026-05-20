@@ -79,25 +79,36 @@ class TestCompetingGpuProcesses:
             assert _competing_gpu_processes() == []
 
     def test_only_python(self):
-        result = MagicMock(returncode=0, stdout="python3\n")
+        result = MagicMock(returncode=0, stdout="123, python3\n")
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_only_nvidia(self):
-        result = MagicMock(returncode=0, stdout="nvtop\nnvidia-smi\n")
+        result = MagicMock(returncode=0, stdout="123, nvtop\n124, nvidia-smi\n")
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_competing_processes(self):
-        result = MagicMock(returncode=0, stdout="python3\nDiscord\nfirefox\n")
+        result = MagicMock(returncode=0, stdout="123, python3\n124, Discord\n125, firefox\n")
         with patch("subprocess.run", return_value=result):
             procs = _competing_gpu_processes()
             assert "Discord" in procs
             assert "firefox" in procs
             assert "python3" not in procs
 
+    def test_current_process_family_is_not_competing(self):
+        result = MagicMock(returncode=0, stdout="123, /usr/bin/comfyui\n124, /usr/bin/Discord\n")
+        with patch("subprocess.run", return_value=result), \
+             patch("comfy.component_model.guess_settings._current_process_family", return_value={123}):
+            assert _competing_gpu_processes() == ["Discord"]
+
+    def test_remote_desktop_process_is_not_competing(self):
+        result = MagicMock(returncode=0, stdout="123, /usr/libexec/gnome-remote-desktop-daemon\n")
+        with patch("subprocess.run", return_value=result):
+            assert _competing_gpu_processes() == []
+
     def test_windows_paths(self):
-        result = MagicMock(returncode=0, stdout="C:\\Program Files\\Discord\\Discord.exe\nC:\\Python312\\python.exe\n")
+        result = MagicMock(returncode=0, stdout="123, C:\\Program Files\\Discord\\Discord.exe\n124, C:\\Python312\\python.exe\n")
         with patch("subprocess.run", return_value=result):
             procs = _competing_gpu_processes()
             assert "Discord.exe" in procs
