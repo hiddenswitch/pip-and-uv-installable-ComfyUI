@@ -238,6 +238,28 @@ def test_compiled_model_preserves_inert_transformer_options(monkeypatch):
     assert model.seen == [options]
 
 
+def test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile(monkeypatch):
+    from comfy import ops
+
+    layer = ops.manual_cast.Linear(2, 1)
+    seen_devices = []
+
+    def fake_compile(*, model, **kwargs):
+        class Compiled(torch.nn.Module):
+            def forward(self, x):
+                seen_devices.append(model.weight.device)
+                return model(x)
+
+        return Compiled()
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    compiled = _CompiledModel(layer, {"backend": "inductor"})
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    compiled(torch.ones(1, 2, device=device))
+
+    assert seen_devices == [device]
+
+
 def test_compiled_model_uses_eager_path_for_transformer_features(monkeypatch):
     class RecordingModel(torch.nn.Module):
         def __init__(self, label):

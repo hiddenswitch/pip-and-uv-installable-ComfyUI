@@ -130,6 +130,52 @@ def _module_has_dynamic_vbar(module: torch.nn.Module) -> bool:
     return any(getattr(child, "_v", None) is not None for child in module.modules())
 
 
+def _first_tensor_device(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.device | None:
+    values = list(args) + list(kwargs.values())
+    for value in values:
+        if isinstance(value, torch.Tensor):
+            return value.device
+        if isinstance(value, dict):
+            device = _first_tensor_device((), value)
+            if device is not None:
+                return device
+        if isinstance(value, (list, tuple)):
+            device = _first_tensor_device(tuple(value), {})
+            if device is not None:
+                return device
+    return None
+
+
+def _stabilize_compile_parameter_residency(
+    module: torch.nn.Module,
+    device: torch.device | None,
+    *,
+    max_resident_bytes: int = 64 * 1024 * 1024,
+) -> None:
+    if device is None or device.type == "cpu":
+        return
+    with torch.no_grad():
+        for child in module.modules():
+            if not (
+                hasattr(child, "comfy_cast_weights")
+                or hasattr(child, "weight_function")
+                or hasattr(child, "bias_function")
+            ):
+                continue
+            if getattr(child, "_v", None) is not None:
+                continue
+            for name in ("weight", "bias"):
+                param = getattr(child, name, None)
+                if param is None or not isinstance(param, torch.nn.Parameter):
+                    continue
+                if param.numel() * param.element_size() > max_resident_bytes:
+                    continue
+                if param.device == device:
+                    continue
+                moved = torch.nn.Parameter(param.detach().to(device=device), requires_grad=param.requires_grad)
+                setattr(child, name, moved)
+
+
 def _transformer_options_affect_model(transformer_options: Any) -> bool:
     if not transformer_options:
         return False
@@ -182,6 +228,7 @@ class _CompiledModel(torch.nn.Module):
                 sorted(transformer_options.keys()) if isinstance(transformer_options, dict) else None,
             )
             return self._original(*args, **kwargs)
+        _stabilize_compile_parameter_residency(self._original, _first_tensor_device(args, kwargs))
         _mark_cudagraph_step_begin()
         reset_invocation_ids()
         try:
