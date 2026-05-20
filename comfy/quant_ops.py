@@ -218,9 +218,10 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
 
     @classmethod
     def dequantize(cls, qdata, params):
+        if not torch.compiler.is_compiling():
+            return super(_TensorCoreFP8LayoutBase, cls).dequantize(qdata, params)
         if (
-            torch.compiler.is_compiling()
-            and qdata.dtype == torch.float8_e4m3fn
+            qdata.dtype == torch.float8_e4m3fn
             and _fp8e4m3fn_triton_unsupported(qdata.device)
         ):
             return _dequantize_per_tensor_fp8_eager(qdata, params.scale, params.orig_dtype)

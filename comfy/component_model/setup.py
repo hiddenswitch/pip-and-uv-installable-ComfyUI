@@ -250,5 +250,4 @@ def setup_post_torch(config: Configuration):
     setup_fsspec()
     fix_pytorch_240()
     from .. import torchvision_compat  # noqa: F401
-    from .. import aimdo_integration  # noqa: F401
     setup_tracing(config)
