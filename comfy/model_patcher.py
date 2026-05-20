@@ -208,7 +208,7 @@ def key_param_name_to_key(key, param):
 
 def should_bake_lowvram_patch(module, weight, set_func=None) -> bool:
     if isinstance(weight, QuantizedTensor):
-        return True
+        return False
     if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
         return False
     return set_func is not None
@@ -1819,7 +1819,6 @@ class ModelPatcherDynamic(ModelPatcher):
 
             vbar = self._vbar_get(create=True)
             if vbar is not None:
-                vbar.set_watermark_limit(0)
                 vbar.prioritize()
 
             # Prioritize smaller dynamic loads first, then larger modules by offload cost.
@@ -1941,8 +1940,6 @@ class ModelPatcherDynamic(ModelPatcher):
                 self.model.model_loaded_weight_memory += casted_buf.numel() * casted_buf.element_size()
 
             force_load_stat = f" Force pre-loaded {len(self.backup)} weights: {self.model.model_loaded_weight_memory // 1024} KB." if len(self.backup) > 0 else ""
-            if vbar is not None:
-                vbar.set_watermark_limit(0)
             log_key = (self.patches_uuid, allocated_size, num_patches, len(self.backup), self.model.model_loaded_weight_memory)
             in_loop = bool(getattr(tqdm.tqdm, "_instances", None))
             level = logging.DEBUG if in_loop and getattr(self, "_last_prepare_log_key", None) == log_key else logging.INFO
