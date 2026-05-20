@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import itertools
+import os
 import weakref
 from typing import Callable
 
@@ -188,11 +189,38 @@ def _fake_bias(bias_shape: torch.Tensor, exemplar: torch.Tensor, dtype_code: int
     return exemplar.new_empty(tuple(bias_shape.shape), dtype=dtype)
 
 
-def _custom_op_return(output: torch.Tensor, *inputs: torch.Tensor) -> torch.Tensor:
+def _aliases_tensor_storage(output: torch.Tensor, candidate: torch.Tensor | None) -> bool:
+    if candidate is None:
+        return False
+    try:
+        return output.untyped_storage().data_ptr() == candidate.untyped_storage().data_ptr()
+    except Exception:
+        try:
+            return output.data_ptr() == candidate.data_ptr()
+        except Exception:
+            return output is candidate
+
+
+def _force_custom_op_clone() -> bool:
+    return os.environ.get("COMFY_WEIGHT_CUSTOM_OP_FORCE_CLONE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _custom_op_return(output: torch.Tensor, module: torch.nn.Module, *inputs: torch.Tensor) -> tuple[torch.Tensor, bool]:
     # torch.library custom ops are functional by default and runtime alias
-    # checking also sees AOT-wrapped tensors. Return an owned tensor so materialized
-    # module parameters never alias lifted graph inputs.
-    return output.clone()
+    # checking also sees AOT-wrapped tensors. Clone only when returning module
+    # parameter storage. VBAR/cast-buffer materializations may be backed by the
+    # dynamic allocator, where cloning can fail under AOTAutograd. For those,
+    # return the invocation-owned tensor and avoid storing an extra Python
+    # reference in _ACTIVE; release only needs the state token.
+    if _force_custom_op_clone():
+        return output.clone(), True
+    if _aliases_tensor_storage(output, getattr(module, "weight", None)):
+        return output.clone(), True
+    if _aliases_tensor_storage(output, getattr(module, "bias", None)):
+        return output.clone(), True
+    if output.device.type != "cuda":
+        return output, True
+    return output, False
 
 
 def _prefetch_token(module_key: int, invocation_id: int) -> torch.Tensor:
@@ -323,8 +351,8 @@ def resolve_weight(
         code_to_dtype(compute_dtype_code),
         want_requant,
     )
-    weight = _custom_op_return(weight, exemplar, weight_shape, module_key, invocation_id)
-    _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
+    weight, keep_weight = _custom_op_return(weight, module, exemplar, weight_shape, module_key, invocation_id)
+    _ACTIVE[(module_key, invocation_id)] = (weight if keep_weight else None, bias, state)
     return weight
 
 
@@ -360,10 +388,10 @@ def resolve_prefetched_weight(
         want_requant,
         prefetch_state=_consume_prefetch(module_key, invocation_id),
     )
-    weight = _custom_op_return(
-        weight, exemplar, weight_shape, prefetch_token, module_key, invocation_id
+    weight, keep_weight = _custom_op_return(
+        weight, module, exemplar, weight_shape, prefetch_token, module_key, invocation_id
     )
-    _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
+    _ACTIVE[(module_key, invocation_id)] = (weight if keep_weight else None, bias, state)
     return weight
 
 
@@ -433,9 +461,9 @@ def resolve_weight_bias(
     )
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
-    weight = _custom_op_return(weight, exemplar, weight_shape, bias_shape, module_key, invocation_id)
-    bias = _custom_op_return(bias, exemplar, weight_shape, bias_shape, module_key, invocation_id)
-    _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
+    weight, keep_weight = _custom_op_return(weight, module, exemplar, weight_shape, bias_shape, module_key, invocation_id)
+    bias, keep_bias = _custom_op_return(bias, module, exemplar, weight_shape, bias_shape, module_key, invocation_id)
+    _ACTIVE[(module_key, invocation_id)] = (weight if keep_weight else None, bias if keep_bias else None, state)
     return weight, bias
 
 
@@ -474,13 +502,13 @@ def resolve_prefetched_weight_bias(
     )
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
-    weight = _custom_op_return(
-        weight, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
+    weight, keep_weight = _custom_op_return(
+        weight, module, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
     )
-    bias = _custom_op_return(
-        bias, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
+    bias, keep_bias = _custom_op_return(
+        bias, module, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
     )
-    _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
+    _ACTIVE[(module_key, invocation_id)] = (weight if keep_weight else None, bias if keep_bias else None, state)
     return weight, bias
 
 
@@ -551,7 +579,7 @@ def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     invocation_id = _tensor_key(invocation_id)
     module = _module(module_key)
     weight, bias, state = _ACTIVE.pop((module_key, invocation_id), (None, None, None))
-    if weight is not None:
+    if state is not None:
         _RELEASE(module, weight, bias, state)
     return None
 

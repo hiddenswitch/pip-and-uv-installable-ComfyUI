@@ -394,6 +394,102 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     assert events == [("prefetch", (layer, torch.device("cpu"))), ("resolve", "prefetched-state"), ("release", "active-state")]
 
 
+def test_comfy_weight_resolve_does_not_clone_invocation_owned_weight_by_default():
+    from comfy import weight_cast_ops
+
+    layer = torch.nn.Linear(2, 1)
+    key = weight_cast_ops.register_module(layer)
+    weight_shape = weight_cast_ops.module_weight_shape_tensor(layer)
+    invocation = 11
+    owned_weight = torch.full_like(layer.weight, 3.0)
+
+    def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
+        return owned_weight, None, "active-state"
+
+    def fake_release(module, weight, bias, state):
+        pass
+
+    previous_prefetch = weight_cast_ops._PREFETCH
+    previous_resolve = weight_cast_ops._RESOLVE
+    previous_release = weight_cast_ops._RELEASE
+    weight_cast_ops.set_callbacks(fake_resolve, fake_release, previous_prefetch)
+    try:
+        x = torch.ones(1, 2)
+        weight = torch.ops.comfy_weight.resolve_weight(
+            x, weight_shape, key, invocation, 0, 0, 0, False, 0, -1
+        )
+    finally:
+        weight_cast_ops._ACTIVE.clear()
+        weight_cast_ops._PREFETCHED.clear()
+        weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
+
+    assert weight.data_ptr() == owned_weight.data_ptr()
+
+
+def test_comfy_weight_resolve_can_force_clone_for_invocation_owned_weight(monkeypatch):
+    from comfy import weight_cast_ops
+
+    layer = torch.nn.Linear(2, 1)
+    key = weight_cast_ops.register_module(layer)
+    weight_shape = weight_cast_ops.module_weight_shape_tensor(layer)
+    invocation = 13
+    owned_weight = torch.full_like(layer.weight, 3.0)
+
+    def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
+        return owned_weight, None, "active-state"
+
+    def fake_release(module, weight, bias, state):
+        pass
+
+    monkeypatch.setenv("COMFY_WEIGHT_CUSTOM_OP_FORCE_CLONE", "1")
+    previous_prefetch = weight_cast_ops._PREFETCH
+    previous_resolve = weight_cast_ops._RESOLVE
+    previous_release = weight_cast_ops._RELEASE
+    weight_cast_ops.set_callbacks(fake_resolve, fake_release, previous_prefetch)
+    try:
+        x = torch.ones(1, 2)
+        weight = torch.ops.comfy_weight.resolve_weight(
+            x, weight_shape, key, invocation, 0, 0, 0, False, 0, -1
+        )
+    finally:
+        weight_cast_ops._ACTIVE.clear()
+        weight_cast_ops._PREFETCHED.clear()
+        weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
+
+    assert weight.data_ptr() != owned_weight.data_ptr()
+
+
+def test_comfy_weight_resolve_clones_module_parameter_storage():
+    from comfy import weight_cast_ops
+
+    layer = torch.nn.Linear(2, 1)
+    key = weight_cast_ops.register_module(layer)
+    weight_shape = weight_cast_ops.module_weight_shape_tensor(layer)
+    invocation = 12
+
+    def fake_resolve(module, exemplar, dtype, bias_dtype, compute_dtype, want_requant, prefetch_state=None):
+        return module.weight, None, "active-state"
+
+    def fake_release(module, weight, bias, state):
+        pass
+
+    previous_prefetch = weight_cast_ops._PREFETCH
+    previous_resolve = weight_cast_ops._RESOLVE
+    previous_release = weight_cast_ops._RELEASE
+    weight_cast_ops.set_callbacks(fake_resolve, fake_release, previous_prefetch)
+    try:
+        x = torch.ones(1, 2)
+        weight = torch.ops.comfy_weight.resolve_weight(
+            x, weight_shape, key, invocation, 0, 0, 0, False, 0, -1
+        )
+    finally:
+        weight_cast_ops._ACTIVE.clear()
+        weight_cast_ops._PREFETCHED.clear()
+        weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
+
+    assert weight.data_ptr() != layer.weight.data_ptr()
+
+
 def test_weight_invocation_ids_can_be_reset_between_compiled_calls():
     from comfy import weight_cast_ops
 
