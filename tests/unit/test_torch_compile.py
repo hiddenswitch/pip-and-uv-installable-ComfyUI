@@ -240,14 +240,17 @@ def test_compiled_model_preserves_inert_transformer_options(monkeypatch):
 
 def test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile(monkeypatch):
     from comfy import ops
+    from comfy import weight_cast_ops
 
     layer = ops.manual_cast.Linear(2, 1)
     seen_devices = []
+    seen_keys = []
 
     def fake_compile(*, model, **kwargs):
         class Compiled(torch.nn.Module):
             def forward(self, x):
                 seen_devices.append(model.weight.device)
+                seen_keys.append(model._comfy_weight_cast_key)
                 return model(x)
 
         return Compiled()
@@ -258,6 +261,9 @@ def test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile(m
     compiled(torch.ones(1, 2, device=device))
 
     assert seen_devices == [device]
+    from comfy_api.torch_helpers.torch_compile import _compile_module_identity
+
+    assert seen_keys == [weight_cast_ops.register_module_with_stable_key(layer, _compile_module_identity("", layer))]
 
 
 def test_compiled_model_uses_eager_path_for_transformer_features(monkeypatch):

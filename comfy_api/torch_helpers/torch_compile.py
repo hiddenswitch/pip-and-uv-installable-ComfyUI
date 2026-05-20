@@ -12,6 +12,7 @@ from comfy.weight_cast_ops import (
     module_bias_shape,
     module_weight_shape,
     register_module,
+    register_module_with_stable_key,
     reset_invocation_ids,
 )
 from comfy.patcher_extension import WrappersMP
@@ -155,7 +156,7 @@ def _stabilize_compile_parameter_residency(
     if device is None or device.type == "cpu":
         return
     with torch.no_grad():
-        for child in module.modules():
+        for module_name, child in module.named_modules():
             if not (
                 hasattr(child, "comfy_cast_weights")
                 or hasattr(child, "weight_function")
@@ -164,6 +165,10 @@ def _stabilize_compile_parameter_residency(
                 continue
             if getattr(child, "_v", None) is not None:
                 continue
+            register_module_with_stable_key(
+                child,
+                _compile_module_identity(module_name, child),
+            )
             for name in ("weight", "bias"):
                 param = getattr(child, name, None)
                 if param is None or not isinstance(param, torch.nn.Parameter):
@@ -174,6 +179,15 @@ def _stabilize_compile_parameter_residency(
                     continue
                 moved = torch.nn.Parameter(param.detach().to(device=device), requires_grad=param.requires_grad)
                 setattr(child, name, moved)
+
+
+def _compile_module_identity(module_name: str, module: torch.nn.Module) -> str:
+    parts: list[str] = [module_name, type(module).__module__, type(module).__qualname__]
+    for name in ("weight", "bias"):
+        param = getattr(module, name, None)
+        if isinstance(param, torch.Tensor):
+            parts.extend((name, str(tuple(param.shape)), str(param.dtype)))
+    return "|".join(parts)
 
 
 def _transformer_options_affect_model(transformer_options: Any) -> bool:
