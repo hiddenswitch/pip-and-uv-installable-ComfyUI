@@ -11,10 +11,11 @@ from .cli_args import _args
 from .weight_cast_ops import (
     device_type_to_code,
     dtype_to_code,
-    module_bias_shape_tensor,
-    module_weight_shape_tensor,
+    module_bias_shape,
+    module_weight_shape,
     next_invocation_id,
     register_module,
+    register_module_with_stable_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,11 +107,16 @@ def set_materialization_param(
         f"{param_key}_function_count": int(function_count),
     }
     spec = replace(spec, **updates)
+    identity = _stable_materialization_identity(spec)
+    if identity is not None:
+        module_key = register_module_with_stable_key(module, identity)
+        spec = replace(spec, module_key=module_key)
+    else:
+        register_module(module)
     try:
         module._comfy_weight_materialization_spec = spec
     except Exception:
         pass
-    register_module(module)
     return spec
 
 
@@ -121,6 +127,24 @@ def set_materialization_force_loaded(module: torch.nn.Module, force_loaded: bool
     except Exception:
         pass
     return spec
+
+
+def _stable_materialization_identity(spec: WeightMaterializationSpec) -> str | None:
+    if spec.weight_key is None and spec.bias_key is None:
+        return None
+    return "|".join(
+        str(part)
+        for part in (
+            spec.weight_key,
+            spec.bias_key,
+            spec.weight_shape,
+            spec.bias_shape,
+            spec.weight_storage_dtype,
+            spec.bias_storage_dtype,
+            spec.weight_model_dtype,
+            spec.bias_model_dtype,
+        )
+    )
 
 
 class WeightCastRuntime:
@@ -209,12 +233,12 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
         if module_key is None:
             module_key = register_module(module)
         invocation_id = next_invocation_id()
-        weight_shape = _materialization_shape_tensor(module, "weight")
+        weight_shape = _materialization_shape(module, "weight")
         if weight_shape is None:
-            weight_shape = module_weight_shape_tensor(module)
-        bias_shape = _materialization_shape_tensor(module, "bias")
+            weight_shape = module_weight_shape(module)
+        bias_shape = _materialization_shape(module, "bias")
         if bias_shape is None:
-            bias_shape = module_bias_shape_tensor(module)
+            bias_shape = module_bias_shape(module)
         effective_dtype = dtype or input.dtype
         effective_bias_dtype = bias_dtype or effective_dtype
         device_index = -1 if input.device.index is None else input.device.index
@@ -253,22 +277,12 @@ _EAGER_RUNTIME = EagerWeightCastRuntime()
 _GRAPH_VISIBLE_RUNTIME = GraphVisibleWeightCastRuntime()
 
 
-def _materialization_shape_tensor(module: torch.nn.Module, param_key: str) -> torch.Tensor | None:
-    attr_name = f"_comfy_weight_cast_{param_key}_shape_tensor"
-    existing = getattr(module, attr_name, None)
-    if existing is not None:
-        return existing
+def _materialization_shape(module: torch.nn.Module, param_key: str) -> list[int] | None:
     spec = get_materialization_spec(module)
     shape = getattr(spec, f"{param_key}_shape")
-    dtype = getattr(spec, f"{param_key}_storage_dtype")
     if shape is None:
         return None
-    shape_tensor = torch.empty(shape, dtype=torch.uint8)
-    try:
-        setattr(module, attr_name, shape_tensor)
-    except Exception:
-        pass
-    return shape_tensor
+    return [int(dim) for dim in shape]
 
 
 @torch.compiler.assume_constant_result

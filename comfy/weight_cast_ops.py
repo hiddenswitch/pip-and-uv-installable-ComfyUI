@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import itertools
+import hashlib
 import weakref
 from typing import Callable
 
@@ -75,12 +76,30 @@ def register_module(module: torch.nn.Module) -> int:
     key = getattr(module, "_comfy_weight_cast_key", None)
     if key is None:
         key = id(module)
-        try:
-            module._comfy_weight_cast_key = key
-        except Exception:
-            pass
+        _set_module_key(module, key)
     _MODULES[key] = module
     return key
+
+
+def register_module_with_stable_key(module: torch.nn.Module, identity: str) -> int:
+    key = _stable_module_key(identity)
+    _set_module_key(module, key)
+    _MODULES[key] = module
+    return key
+
+
+def _stable_module_key(identity: str) -> int:
+    digest = hashlib.blake2b(identity.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") & ((1 << 63) - 1)
+
+
+def _set_module_key(module: torch.nn.Module, key: int) -> None:
+    try:
+        module._comfy_weight_cast_key = int(key)
+        if hasattr(module, "_comfy_weight_cast_key_tensor"):
+            delattr(module, "_comfy_weight_cast_key_tensor")
+    except Exception:
+        pass
 
 
 def module_key_tensor(module: torch.nn.Module) -> torch.Tensor:
@@ -106,36 +125,18 @@ def module_invocation_tensor(module: torch.nn.Module) -> torch.Tensor:
     return invocation_tensor
 
 
-def module_weight_shape_tensor(module: torch.nn.Module) -> torch.Tensor:
-    shape_tensor = getattr(module, "_comfy_weight_cast_weight_shape_tensor", None)
-    if shape_tensor is not None:
-        return shape_tensor
+def module_weight_shape(module: torch.nn.Module) -> list[int]:
     weight = getattr(module, "weight", None)
     if weight is None:
         raise RuntimeError(f"Module {type(module).__name__} has no weight")
-    if shape_tensor is None or tuple(shape_tensor.shape) != tuple(weight.shape) or shape_tensor.dtype is not torch.uint8:
-        shape_tensor = torch.empty(tuple(weight.shape), dtype=torch.uint8)
-        try:
-            module._comfy_weight_cast_weight_shape_tensor = shape_tensor
-        except Exception:
-            pass
-    return shape_tensor
+    return [int(dim) for dim in weight.shape]
 
 
-def module_bias_shape_tensor(module: torch.nn.Module) -> torch.Tensor | None:
-    shape_tensor = getattr(module, "_comfy_weight_cast_bias_shape_tensor", None)
-    if shape_tensor is not None:
-        return shape_tensor
+def module_bias_shape(module: torch.nn.Module) -> list[int] | None:
     bias = getattr(module, "bias", None)
     if bias is None:
         return None
-    if shape_tensor is None or tuple(shape_tensor.shape) != tuple(bias.shape) or shape_tensor.dtype is not torch.uint8:
-        shape_tensor = torch.empty(tuple(bias.shape), dtype=torch.uint8)
-        try:
-            module._comfy_weight_cast_bias_shape_tensor = shape_tensor
-        except Exception:
-            pass
-    return shape_tensor
+    return [int(dim) for dim in bias.shape]
 
 
 @torch.compiler.assume_constant_result
@@ -178,21 +179,18 @@ def _tensor_key(value: torch.Tensor | int) -> int:
     return _concrete_int(value)
 
 
-def _fake_weight(weight_shape: torch.Tensor, exemplar: torch.Tensor, dtype_code: int) -> torch.Tensor:
+def _fake_weight(weight_shape: list[int], exemplar: torch.Tensor, dtype_code: int) -> torch.Tensor:
     dtype = code_to_dtype(dtype_code) or exemplar.dtype
-    return exemplar.new_empty(tuple(weight_shape.shape), dtype=dtype)
+    return exemplar.new_empty(tuple(int(dim) for dim in weight_shape), dtype=dtype)
 
 
-def _fake_bias(bias_shape: torch.Tensor, exemplar: torch.Tensor, dtype_code: int) -> torch.Tensor:
+def _fake_bias(bias_shape: list[int], exemplar: torch.Tensor, dtype_code: int) -> torch.Tensor:
     dtype = code_to_dtype(dtype_code) or exemplar.dtype
-    return exemplar.new_empty(tuple(bias_shape.shape), dtype=dtype)
+    return exemplar.new_empty(tuple(int(dim) for dim in bias_shape), dtype=dtype)
 
 
-def _custom_op_return(output: torch.Tensor, *inputs: torch.Tensor) -> torch.Tensor:
-    # torch.library custom ops are functional by default and runtime alias
-    # checking also sees AOT-wrapped tensors. Return an owned tensor so materialized
-    # module parameters never alias lifted graph inputs.
-    return output.clone()
+def _custom_op_return(output: torch.Tensor) -> torch.Tensor:
+    return output
 
 
 def _prefetch_token(module_key: int, invocation_id: int) -> torch.Tensor:
@@ -300,7 +298,7 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 )
 def resolve_weight(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
+    weight_shape: list[int],
     module_key: int,
     invocation_id: int,
     dtype_code: int,
@@ -323,7 +321,7 @@ def resolve_weight(
         code_to_dtype(compute_dtype_code),
         want_requant,
     )
-    weight = _custom_op_return(weight, exemplar, weight_shape, module_key, invocation_id)
+    weight = _custom_op_return(weight)
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight
 
@@ -335,7 +333,7 @@ def resolve_weight(
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
+    weight_shape: list[int],
     prefetch_token: torch.Tensor,
     module_key: int,
     invocation_id: int,
@@ -360,9 +358,7 @@ def resolve_prefetched_weight(
         want_requant,
         prefetch_state=_consume_prefetch(module_key, invocation_id),
     )
-    weight = _custom_op_return(
-        weight, exemplar, weight_shape, prefetch_token, module_key, invocation_id
-    )
+    weight = _custom_op_return(weight)
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight
 
@@ -370,7 +366,7 @@ def resolve_prefetched_weight(
 @resolve_prefetched_weight.register_fake
 def _resolve_prefetched_weight_fake(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
+    weight_shape: list[int],
     prefetch_token: torch.Tensor,
     module_key: int,
     invocation_id: int,
@@ -387,7 +383,7 @@ def _resolve_prefetched_weight_fake(
 @resolve_weight.register_fake
 def _resolve_weight_fake(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
+    weight_shape: list[int],
     module_key: int,
     invocation_id: int,
     dtype_code: int,
@@ -407,8 +403,8 @@ def _resolve_weight_fake(
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
+    weight_shape: list[int],
+    bias_shape: list[int],
     module_key: int,
     invocation_id: int,
     dtype_code: int,
@@ -433,8 +429,8 @@ def resolve_weight_bias(
     )
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
-    weight = _custom_op_return(weight, exemplar, weight_shape, bias_shape, module_key, invocation_id)
-    bias = _custom_op_return(bias, exemplar, weight_shape, bias_shape, module_key, invocation_id)
+    weight = _custom_op_return(weight)
+    bias = _custom_op_return(bias)
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 
@@ -446,8 +442,8 @@ def resolve_weight_bias(
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
+    weight_shape: list[int],
+    bias_shape: list[int],
     prefetch_token: torch.Tensor,
     module_key: int,
     invocation_id: int,
@@ -474,12 +470,8 @@ def resolve_prefetched_weight_bias(
     )
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
-    weight = _custom_op_return(
-        weight, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
-    )
-    bias = _custom_op_return(
-        bias, exemplar, weight_shape, bias_shape, prefetch_token, module_key, invocation_id
-    )
+    weight = _custom_op_return(weight)
+    bias = _custom_op_return(bias)
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 
@@ -487,8 +479,8 @@ def resolve_prefetched_weight_bias(
 @resolve_prefetched_weight_bias.register_fake
 def _resolve_prefetched_weight_bias_fake(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
+    weight_shape: list[int],
+    bias_shape: list[int],
     prefetch_token: torch.Tensor,
     module_key: int,
     invocation_id: int,
@@ -508,8 +500,8 @@ def _resolve_prefetched_weight_bias_fake(
 @resolve_weight_bias.register_fake
 def _resolve_weight_bias_fake(
     exemplar: torch.Tensor,
-    weight_shape: torch.Tensor,
-    bias_shape: torch.Tensor,
+    weight_shape: list[int],
+    bias_shape: list[int],
     module_key: int,
     invocation_id: int,
     dtype_code: int,
