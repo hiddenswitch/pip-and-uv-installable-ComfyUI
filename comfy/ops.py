@@ -664,9 +664,10 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
         if cast_buffer is None:
             offload_stream = model_management.get_offload_stream(device)
             cast_buffer = model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
-        params = memory_management.interpret_gathered_like([s.weight, s.bias], cast_buffer)
-        weight = params[0]
-        bias = params[1]
+        if cast_buffer is not None:
+            params = memory_management.interpret_gathered_like([s.weight, s.bias], cast_buffer)
+            weight = params[0]
+            bias = params[1]
 
     weight_has_function = len(s.weight_function) > 0
     bias_has_function = len(s.bias_function) > 0

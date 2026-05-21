@@ -390,6 +390,45 @@ def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypat
     assert calls[0][2]["offloadable"] is True
 
 
+def test_non_vbar_offload_falls_back_when_shared_cast_buffer_is_unavailable(monkeypatch):
+    from comfy import memory_management, model_management, ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = None
+    stream = object()
+    cast_calls = []
+
+    monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: True)
+    monkeypatch.setattr(model_management, "get_offload_stream", lambda device: stream)
+    monkeypatch.setattr(model_management, "get_cast_buffer", lambda *args, **kwargs: None)
+    monkeypatch.setattr(model_management, "sync_stream", lambda device, stream: None)
+    monkeypatch.setattr(
+        memory_management,
+        "interpret_gathered_like",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cast buffer is unavailable")),
+    )
+
+    def fake_cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
+        cast_calls.append((weight, dtype, device, non_blocking, copy, stream, r))
+        return torch.empty_like(weight, dtype=dtype)
+
+    monkeypatch.setattr(model_management, "cast_to", fake_cast_to)
+
+    weight, bias, token = ops.cast_bias_weight(
+        layer,
+        dtype=torch.float16,
+        device=torch.device("cuda:0"),
+        bias_dtype=torch.float16,
+        offloadable=True,
+    )
+
+    assert weight.dtype is torch.float16
+    assert bias.dtype is torch.float16
+    assert token[0] is stream
+    assert cast_calls[0][-1] is None
+    assert cast_calls[1][-1] is None
+
+
 def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
