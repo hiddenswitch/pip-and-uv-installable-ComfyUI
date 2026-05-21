@@ -13,7 +13,6 @@ from .weight_cast import get_materialization_spec
 from .weight_cast_ops import get_registered_module
 
 logger = logging.getLogger(__name__)
-DEFAULT_PREFETCH_BUDGET_BYTES = 256 * 1024 ** 2
 DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
 
 
@@ -233,13 +232,6 @@ def wrap_backend_with_weight_prefetch_scheduler(
         compile_backend = lookup_backend(backend)
     else:
         compile_backend = backend
-
-    if budget_bytes is None:
-        budget_mb = os.environ.get("COMFY_WEIGHT_PREFETCH_BUDGET_MB")
-        if budget_mb:
-            budget_bytes = int(float(budget_mb) * 1024 * 1024)
-        else:
-            budget_bytes = DEFAULT_PREFETCH_BUDGET_BYTES
 
     def scheduled_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor], **kwargs):
         scheduled = schedule_weight_prefetches(gm, lookahead=lookahead, budget_bytes=budget_bytes)

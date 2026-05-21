@@ -329,6 +329,67 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     assert second_prefetch > first_resolve
 
 
+def test_dynamic_vbar_prefetch_hint_defers_when_aimdo_has_no_room(monkeypatch):
+    from comfy import model_management, ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = (object(), 0, 4096)
+    layer._v_signature = None
+    layer._prefetch = "stale"
+    unpinned = []
+
+    monkeypatch.setattr(model_management, "is_device_cpu", lambda device: False)
+    monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: True)
+    monkeypatch.setattr(ops.comfy_aimdo.model_vbar, "vbar_fault", lambda alloc: None)
+    monkeypatch.setattr(ops.comfy_aimdo.model_vbar, "vbar_unpin", lambda alloc: unpinned.append(alloc))
+    def fail_get_offload_stream(device):
+        raise AssertionError("prefetch should not allocate streams")
+
+    monkeypatch.setattr(model_management, "get_offload_stream", fail_get_offload_stream)
+
+    state = ops._legacy_weight_cast_prefetch(
+        layer,
+        torch.device("cuda:0"),
+        torch.float16,
+        torch.float16,
+        torch.float16,
+        False,
+    )
+
+    assert state is None
+    assert layer._prefetch is None
+    assert unpinned == [layer._v]
+
+
+def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypatch):
+    from comfy import ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    x = torch.randn(1, 2)
+    calls = []
+
+    def fake_cast_bias_weight(module, input, **kwargs):
+        calls.append((module, input, kwargs))
+        return "weight", "bias", "token"
+
+    monkeypatch.setattr(ops, "cast_bias_weight", fake_cast_bias_weight)
+
+    result = ops._legacy_weight_cast_resolve(
+        layer,
+        x,
+        torch.float16,
+        torch.float16,
+        torch.float16,
+        False,
+        prefetch_state=None,
+    )
+
+    assert result == ("weight", "bias", "token")
+    assert calls[0][0] is layer
+    assert calls[0][1] is x
+    assert calls[0][2]["offloadable"] is True
+
+
 def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module

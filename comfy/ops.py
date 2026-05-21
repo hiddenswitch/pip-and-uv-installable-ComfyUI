@@ -240,7 +240,7 @@ def materialize_meta_param(s, param_keys):
 
 
 # FIXME: add n=1 cache hit fast path
-def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blocking, want_requant=False, dedicated_buffer=False):
+def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blocking, want_requant=False, dedicated_buffer=False, prefetch_hint=False):
     offload_stream = None
     cast_buffer = None
     cast_buffer_offset = 0
@@ -373,6 +373,18 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
                 _vbar_diag(s._v[0]),
                 _cuda_mem_diag(device),
             )
+        if signature is None and prefetch_hint:
+            logger.debug(
+                "Dynamic VBAR prefetch hint deferred for %s: allocated=%s dtype=%s bias_dtype=%s want_requant=%s policy=%s",
+                getattr(s, "seed_key", type(s).__name__),
+                s._v[2],
+                dtype,
+                bias_dtype,
+                want_requant,
+                dynamic_vram_fp8_policy(),
+            )
+            s._prefetch = None
+            continue
         resident = comfy_aimdo.model_vbar.vbar_signature_compare(signature, s._v_signature)
         prefetch = {
             "signature": signature,
@@ -457,6 +469,9 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             xfer_dest = None
             signature = None
             prefetch["signature"] = None
+            if prefetch_hint:
+                s._prefetch = None
+                continue
         ensure_offload_stream(s, dest_size if xfer_dest is None else 0, True)
         if xfer_dest is None:
             reclaim_vbar = s._v[0] if signature is None else None
@@ -718,7 +733,18 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
         ]
         if target_geometry != source_geometry:
             return None
-    offload_stream = cast_modules_with_vbar([module], dtype, device, bias_dtype, non_blocking, want_requant=want_requant, dedicated_buffer=True)
+    offload_stream = cast_modules_with_vbar(
+        [module],
+        dtype,
+        device,
+        bias_dtype,
+        non_blocking,
+        want_requant=want_requant,
+        dedicated_buffer=True,
+        prefetch_hint=True,
+    )
+    if module._prefetch is None:
+        return None
     ready_event = None
     if offload_stream is not None and device is not None and device.type == "cuda":
         ready_event = torch.cuda.Event()
