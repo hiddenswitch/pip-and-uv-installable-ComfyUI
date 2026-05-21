@@ -815,6 +815,7 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ace_step_1.5_ComfyUI_files", "split_files/vae/ace_1.5_vae.safetensors"),
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors"),
+    HuggingFile("black-forest-labs/FLUX.2-small-decoder", "full_encoder_small_decoder.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
     # Hunyuan Image
