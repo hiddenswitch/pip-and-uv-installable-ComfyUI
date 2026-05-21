@@ -455,23 +455,28 @@ def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     assert graph_text.count("comfy_weight.release_memory_") == 2
 
 
-def test_dynamic_vbar_prefetch_hint_defers_when_aimdo_has_no_room(monkeypatch):
+def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypatch):
     from comfy import model_management, ops
 
     layer = ops.manual_cast.Linear(2, 2)
     layer._v = (object(), 0, 4096)
-    layer._v_signature = None
-    layer._prefetch = "stale"
-    unpinned = []
+    stream = object()
+    calls = []
 
     monkeypatch.setattr(model_management, "is_device_cpu", lambda device: False)
     monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: True)
-    monkeypatch.setattr(ops.comfy_aimdo.model_vbar, "vbar_fault", lambda alloc: None)
-    monkeypatch.setattr(ops.comfy_aimdo.model_vbar, "vbar_unpin", lambda alloc: unpinned.append(alloc))
-    def fail_get_offload_stream(device):
-        raise AssertionError("prefetch should not allocate streams")
+    class FakeEvent:
+        def record(self, stream):
+            self.stream = stream
 
-    monkeypatch.setattr(model_management, "get_offload_stream", fail_get_offload_stream)
+    monkeypatch.setattr(torch.cuda, "Event", FakeEvent)
+
+    def fake_cast_modules_with_vbar(modules, dtype, device, bias_dtype, non_blocking, **kwargs):
+        calls.append((modules, dtype, device, bias_dtype, non_blocking, kwargs))
+        modules[0]._prefetch = {"signature": None, "resident": False}
+        return stream
+
+    monkeypatch.setattr(ops, "cast_modules_with_vbar", fake_cast_modules_with_vbar)
 
     state = ops._legacy_weight_cast_prefetch(
         layer,
@@ -482,9 +487,9 @@ def test_dynamic_vbar_prefetch_hint_defers_when_aimdo_has_no_room(monkeypatch):
         False,
     )
 
-    assert state is None
-    assert layer._prefetch is None
-    assert unpinned == [layer._v]
+    assert state[0] is stream
+    assert calls[0][5]["dedicated_buffer"] is True
+    assert calls[0][5]["prefetch_hint"] is False
 
 
 def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypatch):

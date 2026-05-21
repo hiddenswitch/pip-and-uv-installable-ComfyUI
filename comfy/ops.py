@@ -782,7 +782,7 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
         non_blocking,
         want_requant=want_requant,
         dedicated_buffer=True,
-        prefetch_hint=True,
+        prefetch_hint=False,
     )
     if module._prefetch is None:
         return None
