@@ -621,6 +621,35 @@ def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypat
     assert calls[0][2]["offloadable"] is True
 
 
+def test_dynamic_vbar_prefetch_fallback_release_tracks_materialized_tensors(monkeypatch):
+    from comfy import ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._prefetch = {"signature": None, "resident": False}
+    x = torch.randn(1, 2)
+    weight = torch.randn_like(layer.weight)
+    bias = torch.randn_like(layer.bias)
+    stream = object()
+
+    monkeypatch.setattr(ops, "resolve_cast_module_with_vbar", lambda *args, **kwargs: (weight, bias))
+    monkeypatch.setattr(ops.model_management, "sync_stream", lambda device, stream: None)
+
+    resolved_weight, resolved_bias, release_state = ops._legacy_weight_cast_resolve(
+        layer,
+        x,
+        torch.float16,
+        torch.float16,
+        torch.float16,
+        False,
+        prefetch_state=(stream, torch.device("cuda:0"), None),
+    )
+
+    assert resolved_weight is weight
+    assert resolved_bias is bias
+    assert release_state == (stream, weight, bias)
+    assert layer._prefetch is None
+
+
 def test_non_vbar_offload_falls_back_when_shared_cast_buffer_is_unavailable(monkeypatch):
     from comfy import memory_management, model_management, ops
 
