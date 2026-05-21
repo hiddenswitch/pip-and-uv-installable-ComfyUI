@@ -763,17 +763,6 @@ def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtyp
     non_blocking = device is not None and model_management.device_supports_non_blocking(device)
     if device is None or module._v is None or model_management.is_device_cpu(device):
         return None
-    if direct_materialize_pinning_enabled():
-        source_geometry = [
-            model_management.tensor_materialization_geometry(module.weight),
-            model_management.tensor_materialization_geometry(module.bias),
-        ]
-        target_geometry = [
-            model_management.tensor_materialization_geometry(module.weight, dtype=dtype),
-            model_management.tensor_materialization_geometry(module.bias, dtype=bias_dtype),
-        ]
-        if target_geometry != source_geometry:
-            return None
     offload_stream = cast_modules_with_vbar(
         [module],
         dtype,

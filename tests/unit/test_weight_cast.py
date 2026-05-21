@@ -1128,7 +1128,7 @@ def test_fp8_materialization_rejects_unknown_mode(monkeypatch):
         )
 
 
-def test_direct_materialize_prefetch_declines_dtype_changing_weight(monkeypatch):
+def test_direct_materialize_prefetch_allows_dtype_changing_weight(monkeypatch):
     from comfy import ops
 
     class Module:
@@ -1141,6 +1141,15 @@ def test_direct_materialize_prefetch_declines_dtype_changing_weight(monkeypatch)
 
     monkeypatch.setenv("COMFY_DIRECT_MATERIALIZE_PINNING", "1")
     monkeypatch.setattr(ops.model_management, "device_supports_non_blocking", lambda device: True)
+    monkeypatch.setattr(ops.model_management, "is_device_cpu", lambda device: False)
+    calls = []
+
+    def fake_cast_modules_with_vbar(modules, dtype, device, bias_dtype, non_blocking, **kwargs):
+        calls.append((modules, dtype, device, bias_dtype, non_blocking, kwargs))
+        modules[0]._prefetch = {"signature": None, "resident": False}
+        return None
+
+    monkeypatch.setattr(ops, "cast_modules_with_vbar", fake_cast_modules_with_vbar)
 
     assert ops._legacy_weight_cast_prefetch(
         module,
@@ -1149,4 +1158,6 @@ def test_direct_materialize_prefetch_declines_dtype_changing_weight(monkeypatch)
         torch.bfloat16,
         torch.bfloat16,
         False,
-    ) is None
+    ) is not None
+    assert calls[0][1] is torch.bfloat16
+    assert calls[0][5]["prefetch_hint"] is False
