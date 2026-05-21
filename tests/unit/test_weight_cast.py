@@ -318,7 +318,7 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
-    layers = [ops.manual_cast.Linear(2, 2) for _ in range(3)]
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(4)]
     args = [
         (
             module_weight_shape(layer),
@@ -349,10 +349,11 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
     prefetches = [i for i, node in enumerate(nodes) if "prefetch_weight_bias_after" in str(node.target)]
     first_release_memory = next(i for i, node in enumerate(nodes) if "release_memory" in str(node.target))
 
-    assert len(prefetches) == 3
+    assert len(prefetches) == 4
     assert prefetches[0] < first_release_memory
     assert prefetches[1] < first_release_memory
     assert first_release_memory < prefetches[2]
+    assert first_release_memory < prefetches[3]
 
 
 def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses(monkeypatch):
