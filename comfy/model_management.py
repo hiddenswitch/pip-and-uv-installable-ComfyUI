@@ -1479,6 +1479,22 @@ def sync_stream(device, stream):
     current_stream(device).wait_stream(stream)
 
 
+def record_stream_for_tensor(tensor, stream):
+    if tensor is None or stream is None:
+        return
+    if isinstance(tensor, quant_ops.QuantizedTensor):
+        record_stream_for_tensor(tensor._qdata, stream)
+        return
+    if not isinstance(tensor, torch.Tensor):
+        return
+    if tensor.device.type not in ("cuda", "xpu"):
+        return
+    record_stream = getattr(tensor, "record_stream", None)
+    if record_stream is None:
+        return
+    record_stream(stream)
+
+
 def cast_to_gathered(tensors, r, non_blocking=False, stream=None, target_geometries=None):
     wf_context = nullcontext()
     if stream is not None:
@@ -1498,6 +1514,7 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None, target_geometr
             else:
                 can_raw_read = tensor.shape == dest_view.shape and tensor.dtype == dest_view.dtype
             if can_raw_read and memory_management.read_tensor_file_slice_into(tensor, dest_view):
+                record_stream_for_tensor(dest_view, stream)
                 continue
             storage = tensor._qdata.untyped_storage() if isinstance(tensor, quant_ops.QuantizedTensor) else tensor.untyped_storage()
             if hasattr(storage, "_comfy_tensor_mmap_touched"):
@@ -1505,6 +1522,8 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None, target_geometr
             if isinstance(tensor, quant_ops.QuantizedTensor) and not isinstance(dest_view, quant_ops.QuantizedTensor):
                 tensor = tensor.dequantize().to(dtype=dest_view.dtype)
             dest_view.copy_(tensor, non_blocking=non_blocking)
+            record_stream_for_tensor(tensor, stream)
+            record_stream_for_tensor(dest_view, stream)
 
 
 def tensor_materialization_geometry(tensor, dtype=None):
@@ -1534,7 +1553,10 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
             if hasattr(wf_context, "as_context"):
                 wf_context = wf_context.as_context(stream)
             with wf_context:
-                return weight.to(dtype=dtype, copy=copy)
+                result = weight.to(dtype=dtype, copy=copy)
+            record_stream_for_tensor(weight, stream)
+            record_stream_for_tensor(result, stream)
+            return result
         return weight.to(dtype=dtype, copy=copy)
 
     if stream is not None:
@@ -1545,6 +1567,8 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
             if r is None:
                 r = torch.empty_like(weight, dtype=dtype, device=device)
             r.copy_(weight, non_blocking=non_blocking)
+        record_stream_for_tensor(weight, stream)
+        record_stream_for_tensor(r, stream)
     else:
         if r is None:
             r = torch.empty_like(weight, dtype=dtype, device=device)
