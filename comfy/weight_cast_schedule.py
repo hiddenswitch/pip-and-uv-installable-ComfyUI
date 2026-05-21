@@ -143,6 +143,28 @@ def _reserve_patch_materialization_scratch(module: torch.nn.Module, nbytes: int)
     return nbytes * PATCH_MATERIALIZATION_RESERVATION_FACTOR
 
 
+def _resolve_module(node: torch.fx.Node) -> torch.nn.Module | None:
+    args = tuple(node.args)
+    if _is_prefetched_resolve_weight_bias(node):
+        module_key_index = 4
+    elif _is_prefetched_resolve_weight(node):
+        module_key_index = 3
+    elif _is_resolve_weight_bias(node):
+        module_key_index = 3
+    else:
+        module_key_index = 2
+    if len(args) <= module_key_index:
+        return None
+    return _module_from_arg(args[module_key_index])
+
+
+def _can_prefetch_resolve(node: torch.fx.Node) -> bool:
+    module = _resolve_module(node)
+    if module is None:
+        return True
+    return not _module_has_patch_materialization(module)
+
+
 def _resolve_nbytes(node: torch.fx.Node) -> int:
     args = tuple(node.args)
     if _is_prefetched_resolve_weight_bias(node):
@@ -161,7 +183,7 @@ def _resolve_nbytes(node: torch.fx.Node) -> int:
         module_key_index = 2
         dtype_index = 4
         bias_dtype_index = None
-    module = _module_from_arg(args[module_key_index])
+    module = _resolve_module(node)
     if module is not None:
         spec = get_materialization_spec(module)
         spec_bytes = spec.vram_bytes
@@ -243,6 +265,11 @@ def _schedule_weight_resolves(
         size = max(1, resolve_sizes[index])
 
         if release is None:
+            continue
+        if not _can_prefetch_resolve(node):
+            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
+            in_flight = [(budget_bytes, release_token)]
+            resident_bytes = budget_bytes
             continue
 
         if size > budget_bytes:

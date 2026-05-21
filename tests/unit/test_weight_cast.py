@@ -410,7 +410,7 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     assert first_release_memory < second_resolve
 
 
-def test_weight_prefetch_scheduler_reserves_live_patch_function_scratch():
+def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
     from comfy.weight_cast_schedule import schedule_weight_prefetches
@@ -450,7 +450,9 @@ def test_weight_prefetch_scheduler_reserves_live_patch_function_scratch():
 
     graph_text = graphs[0].code
     assert graph_text.count("comfy_weight.prefetch_weight_bias_after") == 1
+    assert graph_text.count("comfy_weight.resolve_prefetched_weight_bias") == 1
     assert graph_text.count("comfy_weight.resolve_weight_bias") == 1
+    assert graph_text.count("comfy_weight.release_memory_") == 2
 
 
 def test_dynamic_vbar_prefetch_hint_defers_when_aimdo_has_no_room(monkeypatch):
