@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 import torch
 
 import comfy.utils
+import comfy.weight_cast as weight_cast
 from comfy.weight_cast_schedule import wrap_backend_with_weight_prefetch_scheduler
 from comfy.weight_cast import get_materialization_spec
 from comfy.weight_cast_ops import (
@@ -105,10 +106,12 @@ def _make_module_tensors_contiguous(module: torch.nn.Module) -> None:
                 buffer.data = buffer.detach().contiguous()
 
 
-def _stabilize_comfy_weight_cast_attrs(module: torch.nn.Module) -> None:
+def _stabilize_comfy_weight_cast_attrs(module: torch.nn.Module, *, force_graph_visible_cast: bool = False) -> None:
     for child in module.modules():
         if hasattr(child, "comfy_cast_weights") and "comfy_cast_weights" not in child.__dict__:
             child.comfy_cast_weights = bool(child.comfy_cast_weights)
+        if force_graph_visible_cast and hasattr(child, "comfy_cast_weights"):
+            child.comfy_cast_weights = True
         if hasattr(child, "weight_function") and "weight_function" not in child.__dict__:
             child.weight_function = list(child.weight_function)
         if hasattr(child, "bias_function") and "bias_function" not in child.__dict__:
@@ -129,6 +132,30 @@ def _mark_cudagraph_step_begin() -> None:
 
 def _module_has_dynamic_vbar(module: torch.nn.Module) -> bool:
     return any(getattr(child, "_v", None) is not None for child in module.modules())
+
+
+def _module_has_cast_capable_weights(module: torch.nn.Module) -> bool:
+    return any(hasattr(child, "comfy_cast_weights") for child in module.modules())
+
+
+def _model_uses_dynamic_vram(model: ModelPatcher, module: torch.nn.Module) -> bool:
+    is_dynamic = getattr(model, "is_dynamic", None)
+    if callable(is_dynamic):
+        try:
+            if is_dynamic():
+                return True
+        except Exception:
+            pass
+    return _module_has_dynamic_vbar(module)
+
+
+def _model_needs_graph_visible_weight_cast(model: ModelPatcher, module: torch.nn.Module) -> bool:
+    if _model_uses_dynamic_vram(model, module):
+        return True
+    return (
+        weight_cast.graph_visible_backend_unavailable_reason() is None
+        and _module_has_cast_capable_weights(module)
+    )
 
 
 def _first_tensor_device(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.device | None:
@@ -200,10 +227,10 @@ def _transformer_options_affect_model(transformer_options: Any) -> bool:
 
 
 class _CompiledModel(torch.nn.Module):
-    def __init__(self, module: torch.nn.Module, compile_kwargs: dict[str, Any]):
+    def __init__(self, module: torch.nn.Module, compile_kwargs: dict[str, Any], *, force_graph_visible_cast: bool = False):
         super().__init__()
         _make_module_tensors_contiguous(module)
-        _stabilize_comfy_weight_cast_attrs(module)
+        _stabilize_comfy_weight_cast_attrs(module, force_graph_visible_cast=force_graph_visible_cast)
         self.compiled = torch.compile(model=module, **compile_kwargs)
         object.__setattr__(self, "_original", module)
         self._compile_disabled_reason: str | None = None
@@ -286,10 +313,11 @@ def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Option
     for key in keys:
         module = model.get_model_object(key)
         _stabilize_comfy_weight_cast_attrs(module)
-        if _module_has_dynamic_vbar(module):
+        if _model_needs_graph_visible_weight_cast(model, module):
             compiled_modules[key] = _CompiledModel(
                 module,
                 _with_weight_prefetch_scheduler(_without_cudagraphs(compile_kwargs)),
+                force_graph_visible_cast=True,
             )
             compiled_strategies[key] = "module_weight_cast"
             continue

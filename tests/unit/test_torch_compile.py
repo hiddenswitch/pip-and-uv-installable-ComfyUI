@@ -211,6 +211,90 @@ def test_set_torch_compile_wrapper_uses_aimdo_strategy_for_dynamic_vbar_modules(
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
 
 
+def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_dynamic_patcher(monkeypatch):
+    calls = []
+
+    def fake_compile(*, model, **kwargs):
+        calls.append((model, kwargs))
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    root = torch.nn.Module()
+    root.diffusion_model = torch.nn.Linear(1, 1)
+    patcher = ModelPatcherDynamic(root, torch.device("cuda:0"), torch.device("cpu"))
+
+    set_torch_compile_wrapper(
+        patcher,
+        keys=["diffusion_model"],
+        backend="inductor",
+        mode="reduce-overhead",
+    )
+
+    assert len(calls) == 1
+    assert callable(calls[0][1]["backend"])
+    assert calls[0][1]["options"]["triton.cudagraphs"] is False
+    assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
+
+
+def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_cast_capable_model(monkeypatch):
+    from comfy import ops
+
+    calls = []
+
+    def fake_compile(*, model, **kwargs):
+        calls.append((model, kwargs))
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    patcher = _FakePatcher()
+    patcher.module = ops.disable_weight_init.Linear(1, 1)
+
+    set_torch_compile_wrapper(
+        patcher,
+        keys=["diffusion_model"],
+        backend="inductor",
+        mode="reduce-overhead",
+    )
+
+    assert len(calls) == 1
+    assert callable(calls[0][1]["backend"])
+    assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
+
+
+def test_dynamic_vbar_compile_forces_all_cast_capable_layers_graph_visible(monkeypatch):
+    from comfy import ops
+
+    calls = []
+
+    def fake_compile(*, model, **kwargs):
+        calls.append((model, kwargs))
+        return model
+
+    class MixedResidencyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.offloaded = ops.manual_cast.Linear(1, 1)
+            self.resident = ops.disable_weight_init.Linear(1, 1)
+            self.offloaded._v = object()
+            self.resident.comfy_cast_weights = False
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    patcher = _FakePatcher()
+    patcher.module = MixedResidencyModel()
+
+    set_torch_compile_wrapper(
+        patcher,
+        keys=["diffusion_model"],
+        backend="inductor",
+        mode="reduce-overhead",
+    )
+
+    assert calls[0][0] is patcher.module
+    assert patcher.module.offloaded.comfy_cast_weights is True
+    assert patcher.module.resident.comfy_cast_weights is True
+    assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
+
+
 def test_compiled_model_preserves_inert_transformer_options(monkeypatch):
     class RecordingModel(torch.nn.Module):
         def __init__(self):

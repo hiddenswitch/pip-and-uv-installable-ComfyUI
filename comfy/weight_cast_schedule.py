@@ -13,7 +13,7 @@ from .weight_cast import get_materialization_spec
 from .weight_cast_ops import get_registered_module
 
 logger = logging.getLogger(__name__)
-DEFAULT_PREFETCH_BUDGET_BYTES = 2 * 1024 ** 3
+DEFAULT_PREFETCH_BUDGET_BYTES = 256 * 1024 ** 2
 DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
 
 

@@ -29,6 +29,14 @@ BACKEND_GRAPH_VISIBLE = "graph_visible"
 BACKEND_CUDA = "cuda"
 
 
+def is_torch_compiling() -> bool:
+    compiler_is_compiling = getattr(torch.compiler, "is_compiling", None)
+    if compiler_is_compiling is not None and compiler_is_compiling():
+        return True
+    dynamo_is_compiling = getattr(torch._dynamo, "is_compiling", None)
+    return bool(dynamo_is_compiling is not None and dynamo_is_compiling())
+
+
 @dataclass
 class WeightCastState:
     backend: str
@@ -278,6 +286,9 @@ _GRAPH_VISIBLE_RUNTIME = GraphVisibleWeightCastRuntime()
 
 
 def _materialization_shape(module: torch.nn.Module, param_key: str) -> list[int] | None:
+    cached_shape = getattr(module, f"_comfy_weight_cast_{param_key}_shape", None)
+    if cached_shape is not None:
+        return [int(dim) for dim in cached_shape]
     spec = get_materialization_spec(module)
     shape = getattr(spec, f"{param_key}_shape")
     if shape is None:
@@ -309,6 +320,8 @@ def graph_visible_backend_unavailable_reason() -> str | None:
 
 
 def _module_needs_graph_visible_weight_cast(module: torch.nn.Module, input: torch.Tensor | None) -> bool:
+    if hasattr(module, "comfy_cast_weights"):
+        return True
     if getattr(module, "_v", None) is not None:
         return True
     if input is None:
@@ -331,7 +344,7 @@ def _is_device_cpu(device: torch.device) -> bool:
 def get_weight_cast_runtime(module: torch.nn.Module, input: torch.Tensor | None = None) -> WeightCastRuntime:
     if (
         input is not None
-        and torch.compiler.is_compiling()
+        and is_torch_compiling()
         and graph_visible_backend_unavailable_reason() is None
         and not _is_device_cpu(input.device)
         and _module_needs_graph_visible_weight_cast(module, input)

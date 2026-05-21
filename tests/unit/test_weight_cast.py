@@ -174,6 +174,64 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     assert "comfy_weight.resolve_weight_bias" not in graph_text
 
 
+def test_compiled_manual_cast_uses_graph_visible_op_even_when_resident(monkeypatch):
+    from comfy import ops
+    from comfy import weight_cast
+
+    layer = ops.manual_cast.Linear(2, 2)
+    x = torch.randn(1, 2)
+
+    assert layer.weight.device == x.device
+    assert layer.weight.dtype == x.dtype
+
+    monkeypatch.setattr(torch.compiler, "is_compiling", lambda: True)
+    monkeypatch.setattr(weight_cast, "_is_device_cpu", lambda device: False)
+
+    runtime = weight_cast.get_weight_cast_runtime(layer, x)
+
+    assert runtime.name == weight_cast.BACKEND_GRAPH_VISIBLE
+
+
+def test_compiled_cast_capable_module_uses_graph_visible_even_when_flag_false(monkeypatch):
+    from comfy import ops
+    from comfy import weight_cast
+
+    layer = ops.disable_weight_init.Linear(2, 2)
+    layer.comfy_cast_weights = False
+    x = torch.randn(1, 2)
+
+    monkeypatch.setattr(weight_cast, "is_torch_compiling", lambda: True)
+    monkeypatch.setattr(weight_cast, "_is_device_cpu", lambda device: False)
+
+    runtime = weight_cast.get_weight_cast_runtime(layer, x)
+
+    assert runtime.name == weight_cast.BACKEND_GRAPH_VISIBLE
+
+
+def test_mixed_precision_linear_compile_path_avoids_parameter_inspection(monkeypatch):
+    from comfy import model_management
+    from comfy import ops
+    from comfy import weight_cast
+
+    linear = ops.mixed_precision_ops({}, torch.bfloat16).Linear(2, 2)
+    calls = []
+
+    def fake_forward_comfy_cast_weights(input, compute_dtype=None, want_requant=False):
+        calls.append((compute_dtype, want_requant))
+        return input
+
+    monkeypatch.setattr(torch.compiler, "is_compiling", lambda: True)
+    monkeypatch.setattr(weight_cast, "graph_visible_backend_unavailable_reason", lambda: None)
+    monkeypatch.setattr(model_management, "is_device_cpu", lambda device: False)
+    monkeypatch.setattr(linear, "forward_comfy_cast_weights", fake_forward_comfy_cast_weights)
+
+    x = torch.randn(1, 2)
+    out = linear(x)
+
+    assert out is x
+    assert calls == [(x.dtype, False)]
+
+
 def test_weight_prefetch_scheduler_respects_byte_budget():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
@@ -471,9 +529,9 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     assert out.item() == 6.0
     assert events == [
         ("prefetch", "prefetch-1"),
+        ("prefetch", "prefetch-2"),
         ("resolve", "prefetch-1"),
         ("release", "prefetch-1"),
-        ("prefetch", "prefetch-2"),
         ("resolve", "prefetch-2"),
         ("release", "prefetch-2"),
     ]
@@ -613,6 +671,15 @@ def test_graph_visible_runtime_uses_recorded_materialization_shape(monkeypatch):
 
     assert shape is not None
     assert tuple(shape) == (2, 3)
+
+
+def test_graph_visible_runtime_uses_cached_module_shape_before_parameter_shape():
+    from comfy import ops, weight_cast
+
+    layer = ops.manual_cast.Linear(3, 4)
+    layer._comfy_weight_cast_weight_shape = (8, 7)
+
+    assert weight_cast._materialization_shape(layer, "weight") == [8, 7]
 
 
 def test_cast_to_gathered_can_materialize_target_dtype():

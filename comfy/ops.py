@@ -1688,6 +1688,13 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
             def forward(self, input, *args, **kwargs):
                 run_every_op()
 
+                if (
+                    weight_cast.is_torch_compiling()
+                    and weight_cast.graph_visible_backend_unavailable_reason() is None
+                    and not model_management.is_device_cpu(input.device)
+                ):
+                    return self.forward_comfy_cast_weights(input, input.dtype, want_requant=False)
+
                 input_shape = input.shape
                 reshaped_3d = False
                 # If cast needs to apply lora, it should be done in the compute dtype
