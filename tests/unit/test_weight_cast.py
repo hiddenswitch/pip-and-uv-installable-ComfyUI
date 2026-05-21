@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import pytest
 
 from comfy.cli_args_types import Configuration
 from comfy.execution_context import context_configuration
@@ -154,7 +155,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     graphs = []
 
     def capture_backend(gm, example_inputs):
-        graphs.append(schedule_weight_prefetches(gm, lookahead=1, budget_bytes=1024))
+        graphs.append(schedule_weight_prefetches(gm, lookahead=1, budget_bytes=40))
         return graphs[-1].forward
 
     def fn(x):
@@ -960,6 +961,103 @@ def test_fp8_dequant_custom_op_is_present_in_fx_graph():
 
     assert out.dtype is torch.bfloat16
     assert "comfy_quant.dequantize_per_tensor_fp8" in graphs[0].code
+
+
+def test_fp8_materialization_custom_op_is_present_in_fx_graph(monkeypatch):
+    from comfy import quant_ops
+
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(gm)
+        return gm.forward
+
+    def fn(qdata, scale):
+        return quant_ops.materialize_per_tensor_fp8(qdata, scale, torch.bfloat16)
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    qdata = torch.zeros(4, 4, dtype=torch.float8_e4m3fn)
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+
+    out = compiled(qdata, scale)
+
+    assert out.dtype is torch.bfloat16
+    assert "comfy_quant.materialize_per_tensor_fp8" in graphs[0].code
+
+
+def test_fp8_materialization_scheduler_threads_memory_credits(monkeypatch):
+    from comfy import quant_ops
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=1, budget_bytes=40))
+        return graphs[-1].forward
+
+    def fn(qdata_1, qdata_2, scale):
+        first = quant_ops.materialize_per_tensor_fp8(qdata_1, scale, torch.bfloat16)
+        y1 = first.float().sum()
+        second = quant_ops.materialize_per_tensor_fp8(qdata_2, scale, torch.bfloat16)
+        y2 = second.float().sum()
+        return y1 + y2
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    qdata_1 = torch.zeros(4, 4, dtype=torch.float8_e4m3fn)
+    qdata_2 = torch.zeros(4, 4, dtype=torch.float8_e4m3fn)
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+
+    compiled(qdata_1, qdata_2, scale)
+
+    graph_text = graphs[0].code
+    assert "comfy_quant.materialize_per_tensor_fp8_after" in graph_text
+    assert "comfy_quant.release_materialization_" in graph_text
+    assert "comfy_weight.memory_join" in graph_text
+
+
+def test_fp8_materialization_scheduler_respects_budget(monkeypatch):
+    from comfy import quant_ops
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=1, budget_bytes=16))
+        return graphs[-1].forward
+
+    def fn(qdata_1, qdata_2, scale):
+        first = quant_ops.materialize_per_tensor_fp8(qdata_1, scale, torch.bfloat16)
+        y1 = first.float().sum()
+        second = quant_ops.materialize_per_tensor_fp8(qdata_2, scale, torch.bfloat16)
+        y2 = second.float().sum()
+        return y1 + y2
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    qdata_1 = torch.zeros(2, 2, dtype=torch.float8_e4m3fn)
+    qdata_2 = torch.zeros(64, 64, dtype=torch.float8_e4m3fn)
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+
+    compiled(qdata_1, qdata_2, scale)
+
+    graph_text = graphs[0].code
+    assert graph_text.count("comfy_quant.materialize_per_tensor_fp8_after") == 1
+    assert graph_text.count("comfy_quant.materialize_per_tensor_fp8") >= 1
+
+
+def test_fp8_materialization_rejects_unknown_mode(monkeypatch):
+    from comfy import quant_ops
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "sideways")
+
+    with pytest.raises(ValueError, match="Unsupported FP8 materialization mode"):
+        quant_ops.materialize_per_tensor_fp8(
+            torch.zeros(1, dtype=torch.float8_e4m3fn),
+            torch.ones((), dtype=torch.float32),
+            torch.bfloat16,
+        )
 
 
 def test_direct_materialize_prefetch_declines_dtype_changing_weight(monkeypatch):

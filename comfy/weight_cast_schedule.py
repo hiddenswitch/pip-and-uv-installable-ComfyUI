@@ -58,9 +58,18 @@ def _is_prefetched_resolve_weight_bias(node: torch.fx.Node) -> bool:
     return node.op == "call_function" and "resolve_prefetched_weight_bias" in name
 
 
+def _is_materialize_fp8(node: torch.fx.Node) -> bool:
+    name = _target_name(node)
+    return (
+        node.op == "call_function"
+        and "materialize_per_tensor_fp8" in name
+        and "after" not in name
+    )
+
+
 def _tensor_meta(value: Any) -> Any:
     if isinstance(value, torch.fx.Node):
-        return value.meta.get("val")
+        return value.meta.get("val", value.meta.get("example_value"))
     return value
 
 
@@ -97,6 +106,13 @@ def _shape_nbytes(shape: Any, dtype_code: Any) -> int:
     except Exception:
         return 0
     return int(numel) * _dtype_element_size(dtype_code)
+
+
+def _materialization_nbytes(node: torch.fx.Node) -> int:
+    args = tuple(node.args)
+    if len(args) < 3:
+        return 0
+    return _tensor_nbytes(node) or _shape_nbytes(getattr(_tensor_meta(args[0]), "shape", None), args[2])
 
 
 def _module_from_arg(value: Any) -> torch.nn.Module | None:
@@ -172,17 +188,34 @@ def schedule_weight_prefetches(
         return gm
     graph = gm.graph
     resolve_nodes = [node for node in graph.nodes if _is_resolve_weight(node) or _is_resolve_weight_bias(node)]
-    if not resolve_nodes:
+    materialize_nodes = [node for node in graph.nodes if _is_materialize_fp8(node)]
+    if not resolve_nodes and not materialize_nodes:
         return gm
 
+    memory_seed = _insert_memory_seed(graph, (resolve_nodes or materialize_nodes)[0])
+    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes)
+    _schedule_fp8_materializations(graph, materialize_nodes, memory_seed, budget_bytes)
+
+    graph.lint()
+    gm.recompile()
+    return gm
+
+
+def _schedule_weight_resolves(
+    graph: torch.fx.Graph,
+    resolve_nodes: list[torch.fx.Node],
+    memory_seed: torch.fx.Node,
+    budget_bytes: int,
+) -> None:
     release_nodes = _release_nodes_by_invocation(graph)
-    memory_seed = _insert_memory_seed(graph, resolve_nodes[0])
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
     in_flight: list[tuple[int, torch.fx.Node]] = []
     insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
     resident_bytes = 0
 
     for index, node in enumerate(resolve_nodes):
+        if node.graph is None:
+            continue
         args = tuple(node.args)
         invocation = _resolve_invocation(node)
         release = release_nodes.get(invocation)
@@ -227,9 +260,48 @@ def schedule_weight_prefetches(
         in_flight.append((size, release_token))
         resident_bytes += size
 
-    graph.lint()
-    gm.recompile()
-    return gm
+
+def _schedule_fp8_materializations(
+    graph: torch.fx.Graph,
+    materialize_nodes: list[torch.fx.Node],
+    memory_seed: torch.fx.Node,
+    budget_bytes: int,
+) -> None:
+    in_flight: list[tuple[int, torch.fx.Node]] = []
+    insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
+    resident_bytes = 0
+
+    for node in materialize_nodes:
+        if node.graph is None:
+            continue
+        size = max(1, _materialization_nbytes(node))
+        release_anchor = _last_user_node(graph, node)
+        if release_anchor is None:
+            continue
+
+        if size > budget_bytes:
+            release_token = _insert_materialization_release(graph, release_anchor, node, memory_seed)
+            in_flight = [(budget_bytes, release_token)]
+            resident_bytes = budget_bytes
+            continue
+
+        freed_tokens: list[torch.fx.Node] = []
+        while resident_bytes + size > budget_bytes and in_flight:
+            freed_size, freed_token = in_flight.pop(0)
+            resident_bytes -= freed_size
+            freed_tokens.append(freed_token)
+
+        if resident_bytes + size > budget_bytes:
+            release_token = _insert_materialization_release(graph, release_anchor, node, memory_seed)
+            in_flight = [(budget_bytes, release_token)]
+            resident_bytes = budget_bytes
+            continue
+
+        memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
+        accounted = _replace_materialization_with_memory_token(graph, node, memory_token, insertion_anchors)
+        release_token = _insert_materialization_release(graph, release_anchor, accounted, memory_token)
+        in_flight.append((size, release_token))
+        resident_bytes += size
 
 
 def _resolve_invocation(node: torch.fx.Node) -> tuple[Any, Any]:
@@ -298,6 +370,49 @@ def _insert_prefetch_after_memory_token(
         prefetch.meta.update(resolve.meta)
     insertion_anchors[memory_token] = prefetch
     return prefetch
+
+
+def _replace_materialization_with_memory_token(
+    graph: torch.fx.Graph,
+    materialize: torch.fx.Node,
+    memory_token: torch.fx.Node,
+    insertion_anchors: dict[torch.fx.Node, torch.fx.Node],
+) -> torch.fx.Node:
+    args = tuple(materialize.args)
+    insertion_anchor = insertion_anchors.get(memory_token, memory_token)
+    with graph.inserting_after(insertion_anchor):
+        accounted = graph.call_function(
+            torch.ops.comfy_quant.materialize_per_tensor_fp8_after,
+            args=(memory_token, *args),
+        )
+        accounted.meta.update(materialize.meta)
+    insertion_anchors[memory_token] = accounted
+    materialize.replace_all_uses_with(accounted)
+    graph.erase_node(materialize)
+    return accounted
+
+
+def _last_user_node(graph: torch.fx.Graph, node: torch.fx.Node) -> torch.fx.Node | None:
+    order = {candidate: index for index, candidate in enumerate(graph.nodes)}
+    users = [user for user in node.users if user in order]
+    if not users:
+        return None
+    return max(users, key=lambda user: order[user])
+
+
+def _insert_materialization_release(
+    graph: torch.fx.Graph,
+    release_anchor: torch.fx.Node,
+    materialized: torch.fx.Node,
+    memory_token: torch.fx.Node,
+) -> torch.fx.Node:
+    with graph.inserting_after(release_anchor):
+        released = graph.call_function(
+            torch.ops.comfy_quant.release_materialization_,
+            args=(release_anchor, materialized, memory_token),
+        )
+        released.meta.update(memory_token.meta)
+    return released
 
 
 def _replace_release_with_memory_token(
