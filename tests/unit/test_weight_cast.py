@@ -313,6 +313,48 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
     assert first_release_memory < second_resolve
 
 
+def test_weight_prefetch_scheduler_respects_live_lookahead_window():
+    from comfy import ops
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(3)]
+    args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=2, budget_bytes=1024))
+        return graphs[-1].forward
+
+    def fn(x):
+        total = x
+        for layer_args in args:
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *layer_args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, layer_args[2], layer_args[3])
+        return total
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2))
+
+    nodes = list(graphs[0].graph.nodes)
+    prefetches = [i for i, node in enumerate(nodes) if "prefetch_weight_bias_after" in str(node.target)]
+    first_release_memory = next(i for i, node in enumerate(nodes) if "release_memory" in str(node.target))
+
+    assert len(prefetches) == 3
+    assert prefetches[0] < first_release_memory
+    assert prefetches[1] < first_release_memory
+    assert first_release_memory < prefetches[2]
+
+
 def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses(monkeypatch):
     from comfy import ops
     import comfy.weight_cast_schedule as schedule

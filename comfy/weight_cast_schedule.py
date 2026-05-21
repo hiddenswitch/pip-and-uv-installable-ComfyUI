@@ -208,6 +208,24 @@ def _resolve_nbytes(node: torch.fx.Node) -> int:
     return _tensor_nbytes(args[1]) + _shape_nbytes(args[1], args[dtype_index])
 
 
+def _prefetch_nbytes(node: torch.fx.Node) -> int:
+    args = tuple(node.args)
+    if len(args) < 2:
+        return 0
+    module = _module_from_arg(args[1])
+    if module is None:
+        return 0
+    spec = get_materialization_spec(module)
+    if spec.vram_bytes > 0:
+        if spec.has_python_materialization:
+            return spec.vram_bytes
+        return _reserve_patch_materialization_scratch(module, spec.vram_bytes)
+    module_bytes = _tensor_nbytes(getattr(module, "weight", None))
+    if "bias" in _target_name(node):
+        module_bytes += _tensor_nbytes(getattr(module, "bias", None))
+    return _reserve_patch_materialization_scratch(module, module_bytes)
+
+
 def schedule_weight_prefetches(
     gm: torch.fx.GraphModule,
     *,
@@ -236,8 +254,8 @@ def schedule_weight_prefetches(
         return gm
 
     memory_seed = _insert_memory_seed(graph, (resolve_nodes or materialize_nodes)[0])
-    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes)
-    _schedule_fp8_materializations(graph, materialize_nodes, memory_seed, budget_bytes)
+    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes, lookahead)
+    _schedule_fp8_materializations(graph, materialize_nodes, memory_seed, budget_bytes, lookahead)
 
     graph.lint()
     gm.recompile()
@@ -249,6 +267,7 @@ def _schedule_weight_resolves(
     resolve_nodes: list[torch.fx.Node],
     memory_seed: torch.fx.Node,
     budget_bytes: int,
+    lookahead: int,
 ) -> None:
     release_nodes = _release_nodes_by_invocation(graph)
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
@@ -279,7 +298,7 @@ def _schedule_weight_resolves(
             continue
 
         freed_tokens: list[torch.fx.Node] = []
-        while resident_bytes + size > budget_bytes and in_flight:
+        while (len(in_flight) >= lookahead or resident_bytes + size > budget_bytes) and in_flight:
             freed_size, freed_token = in_flight.pop(0)
             resident_bytes -= freed_size
             freed_tokens.append(freed_token)
@@ -314,6 +333,7 @@ def _schedule_fp8_materializations(
     materialize_nodes: list[torch.fx.Node],
     memory_seed: torch.fx.Node,
     budget_bytes: int,
+    lookahead: int,
 ) -> None:
     in_flight: list[tuple[int, torch.fx.Node]] = []
     insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
@@ -334,7 +354,7 @@ def _schedule_fp8_materializations(
             continue
 
         freed_tokens: list[torch.fx.Node] = []
-        while resident_bytes + size > budget_bytes and in_flight:
+        while (len(in_flight) >= lookahead or resident_bytes + size > budget_bytes) and in_flight:
             freed_size, freed_token = in_flight.pop(0)
             resident_bytes -= freed_size
             freed_tokens.append(freed_token)
@@ -500,7 +520,7 @@ def wrap_backend_with_weight_prefetch_scheduler(
         if os.environ.get(PREFETCH_BUDGET_MB_ENV):
             effective_budget = int(os.environ[PREFETCH_BUDGET_MB_ENV]) * 1024 * 1024
             if effective_lookahead == 0:
-                effective_lookahead = 1_000_000
+                effective_lookahead = 4
         scheduled = schedule_weight_prefetches(gm, lookahead=effective_lookahead, budget_bytes=effective_budget)
         _dump_scheduled_graph_if_requested(scheduled)
         kwargs.pop("options", None)
@@ -534,13 +554,15 @@ def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
                     elif "resolve_weight" in name and len(args) >= 5:
                         detail = f" module={args[2]} invocation={args[3]} nbytes={_resolve_nbytes(node)}"
                     elif "prefetch_weight_bias_after" in name and len(args) >= 3:
-                        detail = f" token={args[0]} module={args[1]} invocation={args[2]}"
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}"
                     elif "prefetch_weight_after" in name and len(args) >= 3:
-                        detail = f" token={args[0]} module={args[1]} invocation={args[2]}"
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}"
                     elif "prefetch_weight_bias" in name and len(args) >= 2:
                         detail = f" module={args[0]} invocation={args[1]}"
                     elif "prefetch_weight" in name and len(args) >= 2:
                         detail = f" module={args[0]} invocation={args[1]}"
+                    elif "release_memory_" in name and len(args) >= 4:
+                        detail = f" token={args[1]} module={args[2]} invocation={args[3]}"
                     elif "release_" in name and len(args) >= 3:
                         detail = f" module={args[1]} invocation={args[2]}"
                 handle.write(f"{index:05d} {node.op} {_target_name(node)} {node.name}{detail}\n")
