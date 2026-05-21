@@ -174,6 +174,40 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     assert "comfy_weight.resolve_weight_bias" not in graph_text
 
 
+def test_weight_prefetch_scheduler_lookahead_zero_leaves_demand_resolves():
+    from comfy import ops
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    layer = ops.manual_cast.Linear(2, 2)
+    args = (
+        module_weight_shape(layer),
+        module_bias_shape(layer),
+        register_module(layer),
+        1,
+    )
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=0))
+        return graphs[-1].forward
+
+    def fn(x):
+        weight, bias = torch.ops.comfy_weight.resolve_weight_bias(
+            x, *args, 0, 0, 0, False, 0, -1
+        )
+        out = torch.nn.functional.linear(x, weight, bias)
+        torch.ops.comfy_weight.release_(out, args[2], args[3])
+        return out
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2))
+
+    graph_text = graphs[0].code
+    assert "comfy_weight.resolve_weight_bias" in graph_text
+    assert "comfy_weight.prefetch_weight_bias" not in graph_text
+
+
 def test_compiled_manual_cast_uses_graph_visible_op_even_when_resident(monkeypatch):
     from comfy import ops
     from comfy import weight_cast
@@ -677,8 +711,8 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     assert out.item() == 6.0
     assert events == [
         ("prefetch", "prefetch-1"),
-        ("prefetch", "prefetch-2"),
         ("resolve", "prefetch-1"),
+        ("prefetch", "prefetch-2"),
         ("release", "prefetch-1"),
         ("resolve", "prefetch-2"),
         ("release", "prefetch-2"),

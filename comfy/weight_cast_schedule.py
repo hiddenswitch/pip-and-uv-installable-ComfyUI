@@ -128,7 +128,9 @@ def schedule_weight_prefetches(
     callbacks still enforce stream waits, but the graph now exposes a movable
     async transfer boundary.
     """
-    lookahead = max(1, int(lookahead))
+    lookahead = max(0, int(lookahead))
+    if lookahead == 0:
+        return gm
     graph = gm.graph
     original_nodes = list(graph.nodes)
     original_index = {node: index for index, node in enumerate(original_nodes)}
@@ -148,7 +150,8 @@ def schedule_weight_prefetches(
         args = tuple(node.args)
         node_index = original_index[node]
         insertion_index = original_index[resolve_nodes[anchor_index]]
-        anchor = node if insertion_index >= node_index else _live_anchor(original_nodes, insertion_index, replacements, graph)
+        is_self_prefetch = insertion_index >= node_index
+        anchor = node if is_self_prefetch else _prefetch_after_compute_anchor(replacements[resolve_nodes[anchor_index]], graph)
 
         with graph.inserting_before(anchor):
             if _is_resolve_weight_bias(node):
@@ -156,7 +159,7 @@ def schedule_weight_prefetches(
             else:
                 prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight, args=args[2:])
             prefetch.meta.update(node.meta)
-            if anchor is not node:
+            if not is_self_prefetch:
                 _attach_prefetch_to_anchor(graph, anchor, prefetch)
 
         with graph.inserting_before(node):
@@ -206,24 +209,34 @@ def _first_tensor_node_arg(node: torch.fx.Node) -> torch.fx.Node | None:
     return result
 
 
-def _live_anchor(
-    original_nodes: list[torch.fx.Node],
-    insertion_index: int,
-    replacements: dict[torch.fx.Node, torch.fx.Node],
-    graph: torch.fx.Graph,
-) -> torch.fx.Node:
-    live_nodes = set(graph.nodes)
-    for candidate in original_nodes[insertion_index:]:
-        candidate = replacements.get(candidate, candidate)
-        if candidate in live_nodes:
-            return candidate
-    return next(node for node in reversed(original_nodes) if node in live_nodes)
+def _prefetch_after_compute_anchor(resolved: torch.fx.Node, graph: torch.fx.Graph) -> torch.fx.Node:
+    """Return the release/next node after the resolved weight's compute use.
+
+    Future prefetches must not run before an earlier resolve has materialized
+    its VBAR view and queued the consuming kernel. Anchoring on the release
+    preserves overlap with subsequent queued compute without allowing a later
+    VBAR fault to remap the view before its consumer has launched.
+    """
+    live_nodes = list(graph.nodes)
+    live_set = set(live_nodes)
+    order = {node: index for index, node in enumerate(live_nodes)}
+    users = [user for user in resolved.users if user in live_set]
+    if not users:
+        return resolved
+    compute = min(users, key=lambda user: order[user])
+    compute_users = [user for user in compute.users if user in live_set]
+    release_users = [user for user in compute_users if "release_" in _target_name(user)]
+    if release_users:
+        return min(release_users, key=lambda user: order[user])
+    if compute_users:
+        return min(compute_users, key=lambda user: order[user])
+    return compute
 
 
 def wrap_backend_with_weight_prefetch_scheduler(
     backend: str | Callable[..., Any],
     *,
-    lookahead: int = 16,
+    lookahead: int = 0,
     budget_bytes: int | None = None,
 ) -> Callable[[torch.fx.GraphModule, list[torch.Tensor]], Any]:
     if isinstance(backend, str):
@@ -254,7 +267,25 @@ def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
     try:
         with open(dump_path, "w", encoding="utf-8") as handle:
             for index, node in enumerate(gm.graph.nodes):
-                handle.write(f"{index:05d} {node.op} {_target_name(node)} {node.name}\n")
+                detail = ""
+                if node.op == "call_function":
+                    name = _target_name(node)
+                    args = tuple(node.args)
+                    if "resolve_prefetched_weight_bias" in name and len(args) >= 7:
+                        detail = f" module={args[4]} invocation={args[5]}"
+                    elif "resolve_prefetched_weight" in name and len(args) >= 6:
+                        detail = f" module={args[3]} invocation={args[4]}"
+                    elif "resolve_weight_bias" in name and len(args) >= 6:
+                        detail = f" module={args[3]} invocation={args[4]}"
+                    elif "resolve_weight" in name and len(args) >= 5:
+                        detail = f" module={args[2]} invocation={args[3]}"
+                    elif "prefetch_weight_bias" in name and len(args) >= 2:
+                        detail = f" module={args[0]} invocation={args[1]}"
+                    elif "prefetch_weight" in name and len(args) >= 2:
+                        detail = f" module={args[0]} invocation={args[1]}"
+                    elif "release_" in name and len(args) >= 3:
+                        detail = f" module={args[1]} invocation={args[2]}"
+                handle.write(f"{index:05d} {node.op} {_target_name(node)} {node.name}{detail}\n")
     except Exception:
         logger.exception("Failed to dump scheduled weight prefetch graph to %s", dump_path)
 
