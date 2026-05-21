@@ -850,6 +850,24 @@ def test_model_patcher_dynamic_records_weight_materialization_spec(monkeypatch):
     assert spec.force_loaded is False
 
 
+def test_lowvram_materialization_vram_bytes_reserves_patch_scratch():
+    from comfy import memory_management
+    from comfy.model_patcher import LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR, lowvram_materialization_vram_bytes
+
+    geometry = memory_management.TensorGeometry(shape=(4, 4), dtype=torch.float32)
+    final_bytes = memory_management.vram_aligned_size(geometry)
+
+    assert lowvram_materialization_vram_bytes(geometry) == final_bytes
+    assert (
+        lowvram_materialization_vram_bytes(geometry, function_count=1)
+        == final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
+    )
+    assert (
+        lowvram_materialization_vram_bytes(geometry, has_lowvram_patch=True)
+        == final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
+    )
+
+
 def test_materialization_keys_are_stable_across_module_instances():
     from comfy import weight_cast
 

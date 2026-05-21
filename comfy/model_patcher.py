@@ -232,6 +232,15 @@ def lowvram_materialization_geometry(module, param_key, tensor, model_dtype, fun
     return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
 
 
+def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvram_patch=False):
+    final_bytes = memory_management.vram_aligned_size(geometry)
+    if final_bytes == 0:
+        return 0
+    if function_count <= 0 and not has_lowvram_patch:
+        return final_bytes
+    return final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
+
+
 class AutoPatcherEjector:
     def __init__(self, model: 'ModelPatcher', skip_and_inject_on_exit_only=False):
         self.model = model
@@ -1869,7 +1878,12 @@ class ModelPatcherDynamic(ModelPatcher):
                         model_dtype,
                         function_count=len(weight_function),
                     )
-                    vram_bytes = memory_management.vram_aligned_size(vram_geometry)
+                    has_lowvram_patch = key in self.patches
+                    vram_bytes = lowvram_materialization_vram_bytes(
+                        vram_geometry,
+                        function_count=len(weight_function),
+                        has_lowvram_patch=has_lowvram_patch,
+                    )
                     weight_cast.set_materialization_param(
                         m,
                         param_key,
@@ -1877,7 +1891,7 @@ class ModelPatcherDynamic(ModelPatcher):
                         tensor=weight,
                         model_dtype=model_dtype,
                         vram_bytes=vram_bytes,
-                        has_lowvram_patch=key in self.patches,
+                        has_lowvram_patch=has_lowvram_patch,
                         function_count=len(weight_function),
                     )
                     return (False, vram_bytes)
