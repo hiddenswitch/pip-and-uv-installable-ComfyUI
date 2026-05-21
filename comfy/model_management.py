@@ -1347,7 +1347,7 @@ if args.async_offload is not None:
 else:
     #  Enable by default on Nvidia and AMD
     if is_nvidia() or is_amd():
-        NUM_STREAMS = 2
+        NUM_STREAMS = 4
 
 if args.disable_async_offload:
     NUM_STREAMS = 0
