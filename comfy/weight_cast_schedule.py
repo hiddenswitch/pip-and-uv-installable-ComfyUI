@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
 PREFETCH_BUDGET_MB_ENV = "COMFY_WEIGHT_PREFETCH_BUDGET_MB"
 PREFETCH_LOOKAHEAD_ENV = "COMFY_WEIGHT_PREFETCH_LOOKAHEAD"
+PREFETCH_MAX_WEIGHT_MB_ENV = "COMFY_WEIGHT_PREFETCH_MAX_WEIGHT_MB"
+DEFAULT_PREFETCH_MAX_WEIGHT_BYTES = 256 * 1024 * 1024
 PATCH_MATERIALIZATION_RESERVATION_FACTOR = 3
 
 
@@ -226,11 +228,22 @@ def _prefetch_nbytes(node: torch.fx.Node) -> int:
     return _reserve_patch_materialization_scratch(module, module_bytes)
 
 
+def _module_debug_name(value: Any) -> str:
+    module = _module_from_arg(value)
+    if module is None:
+        return ""
+    seed_key = getattr(module, "seed_key", None)
+    if seed_key:
+        return f" name={seed_key}"
+    return f" name={type(module).__name__}"
+
+
 def schedule_weight_prefetches(
     gm: torch.fx.GraphModule,
     *,
     lookahead: int = 2,
     budget_bytes: int | None = None,
+    max_weight_bytes: int | None = DEFAULT_PREFETCH_MAX_WEIGHT_BYTES,
 ) -> torch.fx.GraphModule:
     """Split graph-visible weight resolves into budgeted prefetch + wait-resolve.
 
@@ -254,7 +267,7 @@ def schedule_weight_prefetches(
         return gm
 
     memory_seed = _insert_memory_seed(graph, (resolve_nodes or materialize_nodes)[0])
-    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes, lookahead)
+    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes, lookahead, max_weight_bytes)
     _schedule_fp8_materializations(graph, materialize_nodes, memory_seed, budget_bytes, lookahead)
 
     graph.lint()
@@ -268,6 +281,7 @@ def _schedule_weight_resolves(
     memory_seed: torch.fx.Node,
     budget_bytes: int,
     lookahead: int,
+    max_weight_bytes: int | None,
 ) -> None:
     release_nodes = _release_nodes_by_invocation(graph)
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
@@ -292,7 +306,7 @@ def _schedule_weight_resolves(
             resident_bytes += budget_bytes
             continue
 
-        if size > budget_bytes:
+        if size > budget_bytes or (max_weight_bytes is not None and size > max_weight_bytes):
             release_token = _replace_release_with_memory_token(graph, release, memory_seed)
             in_flight.append((budget_bytes, release_token))
             resident_bytes += budget_bytes
@@ -527,7 +541,16 @@ def wrap_backend_with_weight_prefetch_scheduler(
             effective_budget = int(os.environ[PREFETCH_BUDGET_MB_ENV]) * 1024 * 1024
             if effective_lookahead == 0:
                 effective_lookahead = 4
-        scheduled = schedule_weight_prefetches(gm, lookahead=effective_lookahead, budget_bytes=effective_budget)
+        effective_max_weight = DEFAULT_PREFETCH_MAX_WEIGHT_BYTES
+        if os.environ.get(PREFETCH_MAX_WEIGHT_MB_ENV):
+            max_weight_mb = int(os.environ[PREFETCH_MAX_WEIGHT_MB_ENV])
+            effective_max_weight = None if max_weight_mb <= 0 else max_weight_mb * 1024 * 1024
+        scheduled = schedule_weight_prefetches(
+            gm,
+            lookahead=effective_lookahead,
+            budget_bytes=effective_budget,
+            max_weight_bytes=effective_max_weight,
+        )
         _dump_scheduled_graph_if_requested(scheduled)
         kwargs.pop("options", None)
         kwargs.pop("mode", None)
@@ -552,17 +575,17 @@ def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
                     name = _target_name(node)
                     args = tuple(node.args)
                     if "resolve_prefetched_weight_bias" in name and len(args) >= 7:
-                        detail = f" module={args[4]} invocation={args[5]} nbytes={_resolve_nbytes(node)}"
+                        detail = f" module={args[4]} invocation={args[5]} nbytes={_resolve_nbytes(node)}{_module_debug_name(args[4])}"
                     elif "resolve_prefetched_weight" in name and len(args) >= 6:
-                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}"
+                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}{_module_debug_name(args[3])}"
                     elif "resolve_weight_bias" in name and len(args) >= 6:
-                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}"
+                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}{_module_debug_name(args[3])}"
                     elif "resolve_weight" in name and len(args) >= 5:
-                        detail = f" module={args[2]} invocation={args[3]} nbytes={_resolve_nbytes(node)}"
+                        detail = f" module={args[2]} invocation={args[3]} nbytes={_resolve_nbytes(node)}{_module_debug_name(args[2])}"
                     elif "prefetch_weight_bias_after" in name and len(args) >= 3:
-                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}"
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}{_module_debug_name(args[1])}"
                     elif "prefetch_weight_after" in name and len(args) >= 3:
-                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}"
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]} nbytes={_prefetch_nbytes(node)}{_module_debug_name(args[1])}"
                     elif "prefetch_weight_bias" in name and len(args) >= 2:
                         detail = f" module={args[0]} invocation={args[1]}"
                     elif "prefetch_weight" in name and len(args) >= 2:
