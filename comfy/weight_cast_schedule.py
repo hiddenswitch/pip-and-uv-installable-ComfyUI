@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
 PREFETCH_BUDGET_MB_ENV = "COMFY_WEIGHT_PREFETCH_BUDGET_MB"
 PREFETCH_LOOKAHEAD_ENV = "COMFY_WEIGHT_PREFETCH_LOOKAHEAD"
+PATCH_MATERIALIZATION_RESERVATION_FACTOR = 3
 
 
 def _target_name(node: torch.fx.Node) -> str:
@@ -125,6 +126,23 @@ def _module_from_arg(value: Any) -> torch.nn.Module | None:
         return None
 
 
+def _module_has_patch_materialization(module: torch.nn.Module) -> bool:
+    for attr in ("weight_function", "bias_function"):
+        functions = getattr(module, attr, ())
+        if functions:
+            return True
+    for attr in ("weight_lowvram_function", "bias_lowvram_function"):
+        if getattr(module, attr, None) is not None:
+            return True
+    return False
+
+
+def _reserve_patch_materialization_scratch(module: torch.nn.Module, nbytes: int) -> int:
+    if nbytes <= 0 or not _module_has_patch_materialization(module):
+        return nbytes
+    return nbytes * PATCH_MATERIALIZATION_RESERVATION_FACTOR
+
+
 def _resolve_nbytes(node: torch.fx.Node) -> int:
     args = tuple(node.args)
     if _is_prefetched_resolve_weight_bias(node):
@@ -145,16 +163,19 @@ def _resolve_nbytes(node: torch.fx.Node) -> int:
         bias_dtype_index = None
     module = _module_from_arg(args[module_key_index])
     if module is not None:
-        spec_bytes = get_materialization_spec(module).vram_bytes
+        spec = get_materialization_spec(module)
+        spec_bytes = spec.vram_bytes
         if spec_bytes > 0:
-            return spec_bytes
+            if spec.has_python_materialization:
+                return spec_bytes
+            return _reserve_patch_materialization_scratch(module, spec_bytes)
         weight = getattr(module, "weight", None)
         bias = getattr(module, "bias", None)
         module_bytes = _tensor_nbytes(weight)
         if _is_resolve_weight_bias(node):
             module_bytes += _tensor_nbytes(bias)
         if module_bytes > 0:
-            return module_bytes
+            return _reserve_patch_materialization_scratch(module, module_bytes)
     if _is_resolve_weight_bias(node) or _is_prefetched_resolve_weight_bias(node):
         return (
             _tensor_nbytes(args[1])
