@@ -227,6 +227,8 @@ except:
 
 cast_to = model_management.cast_to  # TODO: remove once no more references
 
+_DEFERRED_VBAR_UNPINS = []
+
 
 def cast_to_input(weight, input, non_blocking=False, copy=True):
     return model_management.cast_to(weight, input.dtype, input.device, non_blocking=non_blocking, copy=copy)
@@ -237,6 +239,30 @@ def materialize_meta_param(s, param_keys):
         param = getattr(s, param_key, None)
         if param is not None and getattr(param, "is_meta", False):
             setattr(s, param_key, torch.nn.Parameter(torch.zeros(param.shape, dtype=param.dtype), requires_grad=param.requires_grad))
+
+
+def _defer_vbar_unpin(alloc, device):
+    if device is None or device.type != "cuda":
+        comfy_aimdo.model_vbar.vbar_unpin(alloc)
+        return
+    event = torch.cuda.Event()
+    event.record(model_management.current_stream(device))
+    _DEFERRED_VBAR_UNPINS.append((event, alloc))
+
+
+def _drain_deferred_vbar_unpins(block=False):
+    if not _DEFERRED_VBAR_UNPINS:
+        return
+    pending = []
+    for event, alloc in _DEFERRED_VBAR_UNPINS:
+        if block:
+            event.synchronize()
+            comfy_aimdo.model_vbar.vbar_unpin(alloc)
+        elif event.query():
+            comfy_aimdo.model_vbar.vbar_unpin(alloc)
+        else:
+            pending.append((event, alloc))
+    _DEFERRED_VBAR_UNPINS[:] = pending
 
 
 # FIXME: add n=1 cache hit fast path
@@ -333,6 +359,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
         return model_management.tensor_materialization_geometry(tensor, dtype=target_dtype)
 
     for s in comfy_modules:
+        _drain_deferred_vbar_unpins(block=False)
         fault_failed = False
         if dynamic_vram_diag_enabled():
             logger.warning(
@@ -358,6 +385,19 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             )
             signature = None
             fault_failed = True
+        if signature is None and not prefetch_hint:
+            _drain_deferred_vbar_unpins(block=True)
+            try:
+                signature = comfy_aimdo.model_vbar.vbar_fault(s._v)
+                fault_failed = False
+            except RuntimeError as exc:
+                logger.debug(
+                    "Dynamic VBAR fault retry failed for %s; using temporary cast buffer: %s",
+                    getattr(s, "seed_key", type(s).__name__),
+                    exc,
+                )
+                signature = None
+                fault_failed = True
         if signature is None:
             try:
                 comfy_aimdo.model_vbar.vbar_unpin(s._v)
@@ -705,8 +745,8 @@ def uncast_bias_weight(s, weight, bias, offload_stream):
     device = None
     # FIXME: This is really bad RTTI
     if weight_a is not None and not isinstance(weight_a, torch.Tensor):
-        comfy_aimdo.model_vbar.vbar_unpin(s._v)
         device = weight_a
+        _defer_vbar_unpin(s._v, device)
     if os is None:
         return
     if device is None:

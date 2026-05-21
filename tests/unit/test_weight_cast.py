@@ -429,6 +429,54 @@ def test_non_vbar_offload_falls_back_when_shared_cast_buffer_is_unavailable(monk
     assert cast_calls[1][-1] is None
 
 
+def test_vbar_release_defers_unpin_until_cuda_event_completes(monkeypatch):
+    from comfy import model_management, ops
+
+    class FakeEvent:
+        complete = False
+
+        def record(self, stream):
+            self.stream = stream
+
+        def query(self):
+            return self.complete
+
+        def synchronize(self):
+            self.complete = True
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = ("vbar", 0, 4096)
+    unpinned = []
+    events = []
+
+    def fake_event_factory():
+        event = FakeEvent()
+        events.append(event)
+        return event
+
+    monkeypatch.setattr(torch.cuda, "Event", fake_event_factory)
+    monkeypatch.setattr(model_management, "current_stream", lambda device: "current-stream")
+    monkeypatch.setattr(ops.comfy_aimdo.model_vbar, "vbar_unpin", lambda alloc: unpinned.append(alloc))
+    ops._DEFERRED_VBAR_UNPINS.clear()
+
+    try:
+        ops._legacy_weight_cast_release(layer, torch.empty(1), None, (None, torch.device("cuda:0"), None))
+
+        assert unpinned == []
+        assert len(ops._DEFERRED_VBAR_UNPINS) == 1
+        assert events[0].stream == "current-stream"
+
+        ops._drain_deferred_vbar_unpins(block=False)
+        assert unpinned == []
+
+        events[0].complete = True
+        ops._drain_deferred_vbar_unpins(block=False)
+        assert unpinned == [layer._v]
+        assert ops._DEFERRED_VBAR_UNPINS == []
+    finally:
+        ops._DEFERRED_VBAR_UNPINS.clear()
+
+
 def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
