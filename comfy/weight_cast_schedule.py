@@ -14,6 +14,8 @@ from .weight_cast_ops import get_registered_module
 
 logger = logging.getLogger(__name__)
 DEBUG_DUMP_ENV = "COMFY_WEIGHT_PREFETCH_DUMP"
+PREFETCH_BUDGET_MB_ENV = "COMFY_WEIGHT_PREFETCH_BUDGET_MB"
+PREFETCH_LOOKAHEAD_ENV = "COMFY_WEIGHT_PREFETCH_LOOKAHEAD"
 
 
 def _target_name(node: torch.fx.Node) -> str:
@@ -42,6 +44,20 @@ def _is_resolve_weight_bias(node: torch.fx.Node) -> bool:
     )
 
 
+def _is_prefetched_resolve_weight(node: torch.fx.Node) -> bool:
+    name = _target_name(node)
+    return (
+        node.op == "call_function"
+        and "resolve_prefetched_weight" in name
+        and "bias" not in name
+    )
+
+
+def _is_prefetched_resolve_weight_bias(node: torch.fx.Node) -> bool:
+    name = _target_name(node)
+    return node.op == "call_function" and "resolve_prefetched_weight_bias" in name
+
+
 def _tensor_meta(value: Any) -> Any:
     if isinstance(value, torch.fx.Node):
         return value.meta.get("val")
@@ -58,6 +74,31 @@ def _tensor_nbytes(value: Any) -> int:
         return 0
 
 
+def _dtype_element_size(dtype_code: Any) -> int:
+    try:
+        code = int(dtype_code)
+    except Exception:
+        return 0
+    if code == 1:
+        return 4
+    if code in {2, 3, 4, 5}:
+        return 2 if code in {2, 3} else 1
+    return 0
+
+
+def _shape_nbytes(shape: Any, dtype_code: Any) -> int:
+    shape = _tensor_meta(shape)
+    if not isinstance(shape, (list, tuple)):
+        return 0
+    numel = 1
+    try:
+        for dim in shape:
+            numel *= int(dim)
+    except Exception:
+        return 0
+    return int(numel) * _dtype_element_size(dtype_code)
+
+
 def _module_from_arg(value: Any) -> torch.nn.Module | None:
     value = _tensor_meta(value)
     if not isinstance(value, (torch.Tensor, int)):
@@ -70,7 +111,22 @@ def _module_from_arg(value: Any) -> torch.nn.Module | None:
 
 def _resolve_nbytes(node: torch.fx.Node) -> int:
     args = tuple(node.args)
-    module_key_index = 3 if _is_resolve_weight_bias(node) else 2
+    if _is_prefetched_resolve_weight_bias(node):
+        module_key_index = 4
+        dtype_index = 6
+        bias_dtype_index = 7
+    elif _is_prefetched_resolve_weight(node):
+        module_key_index = 3
+        dtype_index = 5
+        bias_dtype_index = None
+    elif _is_resolve_weight_bias(node):
+        module_key_index = 3
+        dtype_index = 5
+        bias_dtype_index = 6
+    else:
+        module_key_index = 2
+        dtype_index = 4
+        bias_dtype_index = None
     module = _module_from_arg(args[module_key_index])
     if module is not None:
         spec_bytes = get_materialization_spec(module).vram_bytes
@@ -83,31 +139,14 @@ def _resolve_nbytes(node: torch.fx.Node) -> int:
             module_bytes += _tensor_nbytes(bias)
         if module_bytes > 0:
             return module_bytes
-    if _is_resolve_weight_bias(node):
-        return _tensor_nbytes(args[1]) + _tensor_nbytes(args[2])
-    return _tensor_nbytes(args[1])
-
-
-def _anchor_index_for_prefetch(
-    resolve_sizes: list[int],
-    index: int,
-    *,
-    lookahead: int,
-    budget_bytes: int | None,
-) -> int:
-    earliest = max(0, index - lookahead)
-    if budget_bytes is None or budget_bytes <= 0:
-        return earliest
-
-    total = 0
-    anchor = index
-    for candidate in range(index, earliest - 1, -1):
-        candidate_size = resolve_sizes[candidate]
-        if candidate != index and total + candidate_size > budget_bytes:
-            break
-        total += candidate_size
-        anchor = candidate
-    return anchor
+    if _is_resolve_weight_bias(node) or _is_prefetched_resolve_weight_bias(node):
+        return (
+            _tensor_nbytes(args[1])
+            + _tensor_nbytes(args[2])
+            + _shape_nbytes(args[1], args[dtype_index])
+            + _shape_nbytes(args[2], args[bias_dtype_index])
+        )
+    return _tensor_nbytes(args[1]) + _shape_nbytes(args[1], args[dtype_index])
 
 
 def schedule_weight_prefetches(
@@ -116,51 +155,62 @@ def schedule_weight_prefetches(
     lookahead: int = 2,
     budget_bytes: int | None = None,
 ) -> torch.fx.GraphModule:
-    """Split graph-visible weight resolves into prefetch + wait-resolve.
+    """Split graph-visible weight resolves into budgeted prefetch + wait-resolve.
 
     The manual-cast graph initially contains:
 
         resolve_weight[_bias] -> compute -> release
 
-    That makes the copy synchronous at the point of use. This pass derives
-    transfer intent from the FX graph, inserts a prefetch token earlier in
-    graph order, and rewrites the resolve node to consume that token. Runtime
-    callbacks still enforce stream waits, but the graph now exposes a movable
-    async transfer boundary.
+    That makes the copy synchronous at the point of use. This pass makes the
+    memory resource visible as graph dataflow: prefetches consume a memory
+    token, and releases return one. A future prefetch is schedulable as soon as
+    the graph has produced enough release tokens to satisfy the configured
+    budget.
     """
     lookahead = max(0, int(lookahead))
-    if lookahead == 0:
+    if lookahead == 0 or budget_bytes is None or budget_bytes <= 0:
         return gm
     graph = gm.graph
-    original_nodes = list(graph.nodes)
-    original_index = {node: index for index, node in enumerate(original_nodes)}
     resolve_nodes = [node for node in graph.nodes if _is_resolve_weight(node) or _is_resolve_weight_bias(node)]
     if not resolve_nodes:
         return gm
 
+    release_nodes = _release_nodes_by_invocation(graph)
+    memory_seed = _insert_memory_seed(graph, resolve_nodes[0])
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
-    replacements: dict[torch.fx.Node, torch.fx.Node] = {}
-    for index, node in enumerate(resolve_nodes):
-        anchor_index = _anchor_index_for_prefetch(
-            resolve_sizes,
-            index,
-            lookahead=lookahead,
-            budget_bytes=budget_bytes,
-        )
-        args = tuple(node.args)
-        node_index = original_index[node]
-        insertion_index = original_index[resolve_nodes[anchor_index]]
-        is_self_prefetch = insertion_index >= node_index
-        anchor = node if is_self_prefetch else _prefetch_after_compute_anchor(replacements[resolve_nodes[anchor_index]], graph)
+    in_flight: list[tuple[int, torch.fx.Node]] = []
+    insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
+    resident_bytes = 0
 
-        with graph.inserting_before(anchor):
-            if _is_resolve_weight_bias(node):
-                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight_bias, args=args[3:])
-            else:
-                prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight, args=args[2:])
-            prefetch.meta.update(node.meta)
-            if not is_self_prefetch:
-                _attach_prefetch_to_anchor(graph, anchor, prefetch)
+    for index, node in enumerate(resolve_nodes):
+        args = tuple(node.args)
+        invocation = _resolve_invocation(node)
+        release = release_nodes.get(invocation)
+        size = max(1, resolve_sizes[index])
+
+        if release is None:
+            continue
+
+        if size > budget_bytes:
+            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
+            in_flight = [(budget_bytes, release_token)]
+            resident_bytes = budget_bytes
+            continue
+
+        freed_tokens: list[torch.fx.Node] = []
+        while resident_bytes + size > budget_bytes and in_flight:
+            freed_size, freed_token = in_flight.pop(0)
+            resident_bytes -= freed_size
+            freed_tokens.append(freed_token)
+
+        if resident_bytes + size > budget_bytes:
+            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
+            in_flight = [(budget_bytes, release_token)]
+            resident_bytes = budget_bytes
+            continue
+
+        memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
+        prefetch = _insert_prefetch_after_memory_token(graph, node, memory_token, insertion_anchors)
 
         with graph.inserting_before(node):
             if _is_resolve_weight_bias(node):
@@ -173,64 +223,99 @@ def schedule_weight_prefetches(
 
         node.replace_all_uses_with(resolved)
         graph.erase_node(node)
-        replacements[node] = resolved
+        release_token = _replace_release_with_memory_token(graph, release, prefetch)
+        in_flight.append((size, release_token))
+        resident_bytes += size
 
     graph.lint()
     gm.recompile()
     return gm
 
 
-def _attach_prefetch_to_anchor(graph: torch.fx.Graph, anchor: torch.fx.Node, prefetch: torch.fx.Node) -> None:
-    """Thread a no-op dependency from a prefetch token into its scheduling anchor.
-
-    Inductor may legally sink an otherwise-functional prefetch custom op to its
-    resolve consumer. The anchor op preserves the async-copy launch order in
-    dataflow without waiting on the copy itself.
-    """
-    tensor_arg = _first_tensor_node_arg(anchor)
-    if tensor_arg is None:
-        return
-    with graph.inserting_before(anchor):
-        anchored = graph.call_function(torch.ops.comfy_weight.prefetch_anchor, args=(tensor_arg, prefetch))
-        anchored.meta.update(tensor_arg.meta)
-    anchor.replace_input_with(tensor_arg, anchored)
+def _resolve_invocation(node: torch.fx.Node) -> tuple[Any, Any]:
+    args = tuple(node.args)
+    module_key_index = 3 if _is_resolve_weight_bias(node) else 2
+    return args[module_key_index], args[module_key_index + 1]
 
 
-def _first_tensor_node_arg(node: torch.fx.Node) -> torch.fx.Node | None:
-    result: torch.fx.Node | None = None
-
-    def visit(value: torch.fx.node.Argument) -> torch.fx.node.Argument:
-        nonlocal result
-        if result is None and isinstance(value, torch.fx.Node):
-            result = value
-        return value
-
-    torch.fx.map_arg((node.args, node.kwargs), visit)
-    return result
+def _is_release(node: torch.fx.Node) -> bool:
+    return node.op == "call_function" and "release_" in _target_name(node)
 
 
-def _prefetch_after_compute_anchor(resolved: torch.fx.Node, graph: torch.fx.Graph) -> torch.fx.Node:
-    """Return the release/next node after the resolved weight's compute use.
+def _release_invocation(node: torch.fx.Node) -> tuple[Any, Any] | None:
+    args = tuple(node.args)
+    if len(args) < 3:
+        return None
+    return args[-2], args[-1]
 
-    Future prefetches must not run before an earlier resolve has materialized
-    its VBAR view and queued the consuming kernel. Anchoring on the release
-    preserves overlap with subsequent queued compute without allowing a later
-    VBAR fault to remap the view before its consumer has launched.
-    """
-    live_nodes = list(graph.nodes)
-    live_set = set(live_nodes)
-    order = {node: index for index, node in enumerate(live_nodes)}
-    users = [user for user in resolved.users if user in live_set]
-    if not users:
-        return resolved
-    compute = min(users, key=lambda user: order[user])
-    compute_users = [user for user in compute.users if user in live_set]
-    release_users = [user for user in compute_users if "release_" in _target_name(user)]
-    if release_users:
-        return min(release_users, key=lambda user: order[user])
-    if compute_users:
-        return min(compute_users, key=lambda user: order[user])
-    return compute
+
+def _release_nodes_by_invocation(graph: torch.fx.Graph) -> dict[tuple[Any, Any], torch.fx.Node]:
+    releases: dict[tuple[Any, Any], torch.fx.Node] = {}
+    for node in graph.nodes:
+        if not _is_release(node):
+            continue
+        invocation = _release_invocation(node)
+        if invocation is not None:
+            releases[invocation] = node
+    return releases
+
+
+def _insert_memory_seed(graph: torch.fx.Graph, first_resolve: torch.fx.Node) -> torch.fx.Node:
+    exemplar = tuple(first_resolve.args)[0]
+    with graph.inserting_before(first_resolve):
+        seed = graph.call_function(torch.ops.comfy_weight.memory_seed, args=(exemplar,))
+    seed.meta.update(getattr(exemplar, "meta", {}))
+    return seed
+
+
+def _join_memory_tokens(
+    graph: torch.fx.Graph,
+    freed_tokens: list[torch.fx.Node],
+    seed: torch.fx.Node,
+    anchor: torch.fx.Node,
+) -> torch.fx.Node:
+    token = seed
+    for freed in freed_tokens:
+        with graph.inserting_before(anchor):
+            token = graph.call_function(torch.ops.comfy_weight.memory_join, args=(token, freed))
+            token.meta.update(freed.meta)
+    return token
+
+
+def _insert_prefetch_after_memory_token(
+    graph: torch.fx.Graph,
+    resolve: torch.fx.Node,
+    memory_token: torch.fx.Node,
+    insertion_anchors: dict[torch.fx.Node, torch.fx.Node],
+) -> torch.fx.Node:
+    args = tuple(resolve.args)
+    insertion_anchor = insertion_anchors.get(memory_token, memory_token)
+    with graph.inserting_after(insertion_anchor):
+        if _is_resolve_weight_bias(resolve):
+            prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight_bias_after, args=(memory_token, *args[3:]))
+        else:
+            prefetch = graph.call_function(torch.ops.comfy_weight.prefetch_weight_after, args=(memory_token, *args[2:]))
+        prefetch.meta.update(resolve.meta)
+    insertion_anchors[memory_token] = prefetch
+    return prefetch
+
+
+def _replace_release_with_memory_token(
+    graph: torch.fx.Graph,
+    release: torch.fx.Node,
+    memory_token: torch.fx.Node,
+) -> torch.fx.Node:
+    if "release_memory_" in _target_name(release):
+        return release
+    args = tuple(release.args)
+    with graph.inserting_before(release):
+        released = graph.call_function(torch.ops.comfy_weight.release_memory_, args=(args[0], memory_token, args[1], args[2]))
+        released.meta.update(memory_token.meta)
+    release.replace_all_uses_with(released)
+    graph.erase_node(release)
+    return released
+
+
 
 
 def wrap_backend_with_weight_prefetch_scheduler(
@@ -247,7 +332,13 @@ def wrap_backend_with_weight_prefetch_scheduler(
         compile_backend = backend
 
     def scheduled_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor], **kwargs):
-        scheduled = schedule_weight_prefetches(gm, lookahead=lookahead, budget_bytes=budget_bytes)
+        effective_lookahead = int(os.environ.get(PREFETCH_LOOKAHEAD_ENV, lookahead))
+        effective_budget = budget_bytes
+        if os.environ.get(PREFETCH_BUDGET_MB_ENV):
+            effective_budget = int(os.environ[PREFETCH_BUDGET_MB_ENV]) * 1024 * 1024
+            if effective_lookahead == 0:
+                effective_lookahead = 1_000_000
+        scheduled = schedule_weight_prefetches(gm, lookahead=effective_lookahead, budget_bytes=effective_budget)
         _dump_scheduled_graph_if_requested(scheduled)
         kwargs.pop("options", None)
         kwargs.pop("mode", None)
@@ -272,13 +363,17 @@ def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
                     name = _target_name(node)
                     args = tuple(node.args)
                     if "resolve_prefetched_weight_bias" in name and len(args) >= 7:
-                        detail = f" module={args[4]} invocation={args[5]}"
+                        detail = f" module={args[4]} invocation={args[5]} nbytes={_resolve_nbytes(node)}"
                     elif "resolve_prefetched_weight" in name and len(args) >= 6:
-                        detail = f" module={args[3]} invocation={args[4]}"
+                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}"
                     elif "resolve_weight_bias" in name and len(args) >= 6:
-                        detail = f" module={args[3]} invocation={args[4]}"
+                        detail = f" module={args[3]} invocation={args[4]} nbytes={_resolve_nbytes(node)}"
                     elif "resolve_weight" in name and len(args) >= 5:
-                        detail = f" module={args[2]} invocation={args[3]}"
+                        detail = f" module={args[2]} invocation={args[3]} nbytes={_resolve_nbytes(node)}"
+                    elif "prefetch_weight_bias_after" in name and len(args) >= 3:
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]}"
+                    elif "prefetch_weight_after" in name and len(args) >= 3:
+                        detail = f" token={args[0]} module={args[1]} invocation={args[2]}"
                     elif "prefetch_weight_bias" in name and len(args) >= 2:
                         detail = f" module={args[0]} invocation={args[1]}"
                     elif "prefetch_weight" in name and len(args) >= 2:

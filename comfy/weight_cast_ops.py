@@ -241,6 +241,25 @@ def prefetch_weight(
     return _prefetch(module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant, device_type_code, device_index)
 
 
+@torch.library.custom_op(
+    "comfy_weight::prefetch_weight_after",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def prefetch_weight_after(
+    memory_token: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
+    dtype_code: int,
+    bias_dtype_code: int,
+    compute_dtype_code: int,
+    want_requant: bool,
+    device_type_code: int,
+    device_index: int,
+) -> torch.Tensor:
+    return _prefetch(module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant, device_type_code, device_index)
+
+
 @prefetch_weight.register_fake
 def _prefetch_weight_fake(
     module_key: int,
@@ -255,12 +274,46 @@ def _prefetch_weight_fake(
     return torch.empty((), dtype=torch.int64)
 
 
+@prefetch_weight_after.register_fake
+def _prefetch_weight_after_fake(
+    memory_token: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
+    dtype_code: int,
+    bias_dtype_code: int,
+    compute_dtype_code: int,
+    want_requant: bool,
+    device_type_code: int,
+    device_index: int,
+) -> torch.Tensor:
+    return memory_token.new_empty((), dtype=torch.int64)
+
+
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias",
     mutates_args=(),
     tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 def prefetch_weight_bias(
+    module_key: int,
+    invocation_id: int,
+    dtype_code: int,
+    bias_dtype_code: int,
+    compute_dtype_code: int,
+    want_requant: bool,
+    device_type_code: int,
+    device_index: int,
+) -> torch.Tensor:
+    return _prefetch(module_key, invocation_id, dtype_code, bias_dtype_code, compute_dtype_code, want_requant, device_type_code, device_index)
+
+
+@torch.library.custom_op(
+    "comfy_weight::prefetch_weight_bias_after",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def prefetch_weight_bias_after(
+    memory_token: torch.Tensor,
     module_key: int,
     invocation_id: int,
     dtype_code: int,
@@ -285,6 +338,21 @@ def _prefetch_weight_bias_fake(
     device_index: int,
 ) -> torch.Tensor:
     return torch.empty((), dtype=torch.int64)
+
+
+@prefetch_weight_bias_after.register_fake
+def _prefetch_weight_bias_after_fake(
+    memory_token: torch.Tensor,
+    module_key: int,
+    invocation_id: int,
+    dtype_code: int,
+    bias_dtype_code: int,
+    compute_dtype_code: int,
+    want_requant: bool,
+    device_type_code: int,
+    device_index: int,
+) -> torch.Tensor:
+    return memory_token.new_empty((), dtype=torch.int64)
 
 
 def _consume_prefetch(module_key: int, invocation_id: int) -> object:
@@ -523,7 +591,19 @@ _LIB.define(
     tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 _LIB.define(
+    "memory_seed(Tensor input) -> Tensor",
+    tags=(torch.Tag.cudagraph_unsafe,),
+)
+_LIB.define(
+    "memory_join(Tensor left, Tensor right) -> Tensor",
+    tags=(torch.Tag.cudagraph_unsafe,),
+)
+_LIB.define(
     "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+_LIB.define(
+    "release_memory_(Tensor output, Tensor memory_token, int module_key, int invocation_id) -> Tensor",
     tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
 )
 
@@ -534,6 +614,22 @@ def prefetch_anchor(input: torch.Tensor, token: torch.Tensor) -> torch.Tensor:
 
 def _prefetch_anchor_fake(input: torch.Tensor, token: torch.Tensor) -> torch.Tensor:
     return input
+
+
+def memory_seed(input: torch.Tensor) -> torch.Tensor:
+    return input.new_empty((), dtype=torch.int64)
+
+
+def _memory_seed_fake(input: torch.Tensor) -> torch.Tensor:
+    return input.new_empty((), dtype=torch.int64)
+
+
+def memory_join(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+    return right
+
+
+def _memory_join_fake(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+    return right
 
 
 def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
@@ -548,11 +644,26 @@ def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     return None
 
 
+def release_memory_(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
+    release_(output, module_key, invocation_id)
+    return memory_token
+
+
 def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     return None
 
 
+def _release_memory_fake(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
+    return memory_token
+
+
 _LIB.impl("prefetch_anchor", prefetch_anchor, "CompositeExplicitAutograd")
 _LIB.impl("prefetch_anchor", _prefetch_anchor_fake, "Meta")
+_LIB.impl("memory_seed", memory_seed, "CompositeExplicitAutograd")
+_LIB.impl("memory_seed", _memory_seed_fake, "Meta")
+_LIB.impl("memory_join", memory_join, "CompositeExplicitAutograd")
+_LIB.impl("memory_join", _memory_join_fake, "Meta")
 _LIB.impl("release_", release_, "CompositeExplicitAutograd")
 _LIB.impl("release_", _release_fake, "Meta")
+_LIB.impl("release_memory_", release_memory_, "CompositeExplicitAutograd")
+_LIB.impl("release_memory_", _release_memory_fake, "Meta")

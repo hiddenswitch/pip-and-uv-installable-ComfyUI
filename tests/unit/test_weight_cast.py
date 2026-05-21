@@ -154,7 +154,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     graphs = []
 
     def capture_backend(gm, example_inputs):
-        graphs.append(schedule_weight_prefetches(gm, lookahead=1))
+        graphs.append(schedule_weight_prefetches(gm, lookahead=1, budget_bytes=1024))
         return graphs[-1].forward
 
     def fn(x):
@@ -169,7 +169,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     compiled(torch.randn(4, 3))
 
     graph_text = graphs[0].code
-    assert "comfy_weight.prefetch_weight_bias" in graph_text
+    assert "comfy_weight.prefetch_weight_bias_after" in graph_text
     assert "comfy_weight.resolve_prefetched_weight_bias" in graph_text
     assert "comfy_weight.resolve_weight_bias" not in graph_text
 
@@ -305,11 +305,55 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
 
     nodes = list(graphs[0].graph.nodes)
     prefetches = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)]
-    assert len(prefetches) == 2
-    second_prefetch = prefetches[1]
-    first_resolve = next(i for i, node in enumerate(nodes) if "resolve_prefetched_weight_bias" in str(node.target))
+    assert len(prefetches) == 1
+    second_resolve = [i for i, node in enumerate(nodes) if "resolve_weight_bias" in str(node.target)][0]
+    first_release_memory = next(i for i, node in enumerate(nodes) if "release_memory" in str(node.target))
 
-    assert second_prefetch > first_resolve
+    assert first_release_memory < second_resolve
+
+
+def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses(monkeypatch):
+    from comfy import ops
+    import comfy.weight_cast_schedule as schedule
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+
+    first = ops.manual_cast.Linear(2, 2)
+    second = ops.manual_cast.Linear(256, 256)
+    first_args = (
+        module_weight_shape(first),
+        module_bias_shape(first),
+        register_module(first),
+        1,
+    )
+    second_args = (
+        module_weight_shape(second),
+        module_bias_shape(second),
+        register_module(second),
+        2,
+    )
+    graphs = []
+
+    monkeypatch.setattr(schedule, "get_registered_module", lambda value: (_ for _ in ()).throw(KeyError(value)))
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule.schedule_weight_prefetches(gm, lookahead=1, budget_bytes=128))
+        return graphs[-1].forward
+
+    def fn(x_small, x_large):
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x_small, *first_args, 1, 1, 1, False, 0, -1)
+        y1 = torch.nn.functional.linear(x_small, w1, b1)
+        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x_large, *second_args, 1, 1, 1, False, 0, -1)
+        y2 = torch.nn.functional.linear(x_large, w2, b2)
+        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        return y1, y2
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2), torch.randn(1, 256))
+
+    graph_text = graphs[0].code
+    assert graph_text.count("comfy_weight.prefetch_weight_bias_after") == 1
+    assert graph_text.count("comfy_weight.resolve_weight_bias") == 1
 
 
 def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
@@ -358,9 +402,11 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     compiled(torch.randn(1, 2))
 
     nodes = list(graphs[0].graph.nodes)
-    second_prefetch = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)][1]
-    first_resolve = next(i for i, node in enumerate(nodes) if "resolve_prefetched_weight_bias" in str(node.target))
-    assert second_prefetch > first_resolve
+    prefetches = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)]
+    assert len(prefetches) == 1
+    second_resolve = [i for i, node in enumerate(nodes) if "resolve_weight_bias" in str(node.target)][0]
+    first_release_memory = next(i for i, node in enumerate(nodes) if "release_memory" in str(node.target))
+    assert first_release_memory < second_resolve
 
 
 def test_dynamic_vbar_prefetch_hint_defers_when_aimdo_has_no_room(monkeypatch):
@@ -533,7 +579,7 @@ def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     graphs = []
 
     def capture_backend(gm, example_inputs):
-        graphs.append(schedule_weight_prefetches(gm, lookahead=2))
+        graphs.append(schedule_weight_prefetches(gm, lookahead=2, budget_bytes=1024))
         return graphs[-1].forward
 
     def fn(x):
@@ -551,12 +597,9 @@ def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
 
     nodes = list(graphs[0].graph.nodes)
     second_prefetch = [i for i, node in enumerate(nodes) if "prefetch_weight_bias" in str(node.target)][1]
-    anchors = [i for i, node in enumerate(nodes) if "prefetch_anchor" in str(node.target)]
     exemplar = next(i for i, node in enumerate(nodes) if node.name == "exemplar")
 
     assert second_prefetch < exemplar
-    assert anchors
-    assert second_prefetch < anchors[0] < exemplar
 
 
 def test_comfy_weight_custom_ops_track_overlapping_invocations():
@@ -694,7 +737,7 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
     graphs = []
     try:
         def capture_backend(gm, example_inputs):
-            schedule_weight_prefetches(gm, lookahead=2)
+            schedule_weight_prefetches(gm, lookahead=2, budget_bytes=1024)
             graphs.append(gm)
             return gm.forward
 
@@ -709,14 +752,13 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
         weight_cast_ops.set_callbacks(previous_resolve, previous_release, previous_prefetch)
 
     assert out.item() == 6.0
-    assert events == [
-        ("prefetch", "prefetch-1"),
-        ("resolve", "prefetch-1"),
-        ("prefetch", "prefetch-2"),
-        ("release", "prefetch-1"),
-        ("resolve", "prefetch-2"),
-        ("release", "prefetch-2"),
-    ]
+    assert [event[0] for event in events].count("prefetch") == 2
+    assert [event[0] for event in events].count("resolve") == 2
+    assert [event[0] for event in events].count("release") == 2
+    resolved_states = [state for event, state in events if event == "resolve"]
+    released_states = [state for event, state in events if event == "release"]
+    assert sorted(resolved_states) == ["prefetch-1", "prefetch-2"]
+    assert sorted(released_states) == ["prefetch-1", "prefetch-2"]
     assert any("comfy_weight.resolve_prefetched_weight_bias" in graph.code for graph in graphs)
     assert any("torch._C._nn.linear" in graph.code for graph in graphs)
 
