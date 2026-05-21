@@ -497,6 +497,63 @@ def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     assert graph_text.count("comfy_weight.release_memory_") == 2
 
 
+def test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve():
+    from comfy import ops
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    first = ops.manual_cast.Linear(2, 2)
+    second = ops.manual_cast.Linear(2, 2)
+    third = ops.manual_cast.Linear(2, 2)
+    second.weight_function = [lambda weight: weight]
+    first_args = (
+        module_weight_shape(first),
+        module_bias_shape(first),
+        register_module(first),
+        1,
+    )
+    second_args = (
+        module_weight_shape(second),
+        module_bias_shape(second),
+        register_module(second),
+        2,
+    )
+    third_args = (
+        module_weight_shape(third),
+        module_bias_shape(third),
+        register_module(third),
+        3,
+    )
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=4, budget_bytes=1024))
+        return graphs[-1].forward
+
+    def fn(x):
+        w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
+        y1 = torch.nn.functional.linear(x, w1, b1)
+        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
+        y2 = torch.nn.functional.linear(x, w2, b2)
+        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        w3, b3 = torch.ops.comfy_weight.resolve_weight_bias(x, *third_args, 0, 0, 0, False, 0, -1)
+        y3 = torch.nn.functional.linear(x, w3, b3)
+        torch.ops.comfy_weight.release_(y3, third_args[2], third_args[3])
+        return y1 + y2 + y3
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2))
+
+    nodes = list(graphs[0].graph.nodes)
+    prefetches = [i for i, node in enumerate(nodes) if "prefetch_weight_bias_after" in str(node.target)]
+    release_memory = [i for i, node in enumerate(nodes) if "release_memory" in str(node.target)]
+
+    assert len(prefetches) == 2
+    assert prefetches[0] < release_memory[0]
+    assert release_memory[1] < prefetches[1]
+
+
 def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypatch):
     from comfy import model_management, ops
 

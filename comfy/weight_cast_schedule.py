@@ -287,14 +287,14 @@ def _schedule_weight_resolves(
             continue
         if not _can_prefetch_resolve(node):
             release_token = _replace_release_with_memory_token(graph, release, memory_seed)
-            in_flight = [(budget_bytes, release_token)]
-            resident_bytes = budget_bytes
+            in_flight.append((budget_bytes, release_token))
+            resident_bytes += budget_bytes
             continue
 
         if size > budget_bytes:
             release_token = _replace_release_with_memory_token(graph, release, memory_seed)
-            in_flight = [(budget_bytes, release_token)]
-            resident_bytes = budget_bytes
+            in_flight.append((budget_bytes, release_token))
+            resident_bytes += budget_bytes
             continue
 
         freed_tokens: list[torch.fx.Node] = []
