@@ -561,6 +561,16 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
     return offload_stream
 
 
+def _dequantize_quantized_tensor_on_cpu(tensor, dtype, device):
+    tensor = tensor.to(device=torch.device("cpu")).to(dtype=dtype)
+    return tensor.dequantize().to(device=device, non_blocking=True)
+
+
+def _materialize_quantized_tensor_on_cpu(tensor, dtype):
+    tensor = tensor.to(device=torch.device("cpu")).to(dtype=dtype)
+    return tensor.dequantize()
+
+
 def resolve_cast_module_with_vbar(s, dtype, device, bias_dtype, compute_dtype, want_requant):
 
     prefetch = s._prefetch
@@ -596,10 +606,12 @@ def resolve_cast_module_with_vbar(s, dtype, device, bias_dtype, compute_dtype, w
         orig = x
 
         def to_dequant(tensor, dtype):
-            tensor = tensor.to(dtype=dtype)
             if isinstance(tensor, QuantizedTensor):
-                tensor = tensor.dequantize()
-            return tensor
+                qdata = getattr(tensor, "_qdata", None)
+                if isinstance(qdata, torch.Tensor) and qdata.device.type != "cpu":
+                    return _dequantize_quantized_tensor_on_cpu(tensor, dtype, device)
+                return tensor.to(dtype=dtype).dequantize()
+            return tensor.to(dtype=dtype)
 
         keep_quantized = want_requant and isinstance(x, QuantizedTensor) and len(fns) == 0
         if (not keep_quantized and orig.dtype != dtype) or len(fns) > 0 or (isinstance(x, QuantizedTensor) and not want_requant):
@@ -688,8 +700,19 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
         return format_return((weight, bias, (offload_stream, offload_device, None)), offloadable)
 
 
-    if offloadable and (device != s.weight.device or
-                        (s.bias is not None and device != s.bias.device)):
+    weight_has_function = len(s.weight_function) > 0
+    bias_has_function = len(s.bias_function) > 0
+    keep_quantized_weight = want_requant and isinstance(s.weight, QuantizedTensor) and not weight_has_function
+    materialize_weight_before_transfer = isinstance(s.weight, QuantizedTensor) and (
+        weight_has_function or not keep_quantized_weight
+    )
+    materialize_bias_before_transfer = isinstance(s.bias, QuantizedTensor) if s.bias is not None else False
+
+    source_weight = _materialize_quantized_tensor_on_cpu(s.weight, dtype) if materialize_weight_before_transfer else s.weight
+    source_bias = _materialize_quantized_tensor_on_cpu(s.bias, bias_dtype) if materialize_bias_before_transfer else s.bias
+
+    if offloadable and (device != source_weight.device or
+                        (source_bias is not None and device != source_bias.device)):
         offload_stream = model_management.get_offload_stream(device)
     else:
         offload_stream = None
@@ -698,40 +721,48 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
     weight = None
 
     if offload_stream is not None and not args.cuda_malloc:
-        cast_buffer_size = memory_management.vram_aligned_size([s.weight, s.bias])
+        cast_buffer_size = memory_management.vram_aligned_size([source_weight, source_bias])
         cast_buffer = model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
         # The streams can be uneven in buffer capability and reject us. Retry to get the other stream
         if cast_buffer is None:
             offload_stream = model_management.get_offload_stream(device)
             cast_buffer = model_management.get_cast_buffer(offload_stream, device, cast_buffer_size, s)
         if cast_buffer is not None:
-            params = memory_management.interpret_gathered_like([s.weight, s.bias], cast_buffer)
+            params = memory_management.interpret_gathered_like([source_weight, source_bias], cast_buffer)
             weight = params[0]
             bias = params[1]
 
-    weight_has_function = len(s.weight_function) > 0
-    bias_has_function = len(s.bias_function) > 0
+    weight = model_management.cast_to(source_weight, None, device, non_blocking=non_blocking, copy=weight_has_function, stream=offload_stream, r=weight)
 
-    weight = model_management.cast_to(s.weight, None, device, non_blocking=non_blocking, copy=weight_has_function, stream=offload_stream, r=weight)
-
-    if s.bias is not None:
-        bias = model_management.cast_to(s.bias, None, device, non_blocking=non_blocking, copy=bias_has_function, stream=offload_stream, r=bias)
+    if source_bias is not None:
+        bias = model_management.cast_to(source_bias, None, device, non_blocking=non_blocking, copy=bias_has_function, stream=offload_stream, r=bias)
 
     model_management.sync_stream(device, offload_stream)
 
     bias_a = bias
     weight_a = weight
 
-    if s.bias is not None:
-        bias = bias.to(dtype=bias_dtype)
+    if source_bias is not None:
+        if isinstance(bias, QuantizedTensor):
+            qdata = getattr(bias, "_qdata", None)
+            if isinstance(qdata, torch.Tensor) and qdata.device.type != "cpu":
+                bias = _dequantize_quantized_tensor_on_cpu(bias, bias_dtype, device)
+            else:
+                bias = bias.to(dtype=bias_dtype).dequantize()
+        else:
+            bias = bias.to(dtype=bias_dtype)
         for f in s.bias_function:
             bias = f(bias)
 
-    keep_quantized_weight = want_requant and isinstance(weight, QuantizedTensor) and not weight_has_function
     if weight_has_function or (not keep_quantized_weight and weight.dtype != dtype) or (isinstance(weight, QuantizedTensor) and not want_requant):
-        weight = weight.to(dtype=dtype)
         if isinstance(weight, QuantizedTensor):
-            weight = weight.dequantize()
+            qdata = getattr(weight, "_qdata", None)
+            if isinstance(qdata, torch.Tensor) and qdata.device.type != "cpu":
+                weight = _dequantize_quantized_tensor_on_cpu(weight, dtype, device)
+            else:
+                weight = weight.to(dtype=dtype).dequantize()
+        else:
+            weight = weight.to(dtype=dtype)
         for f in s.weight_function:
             weight = f(weight)
 

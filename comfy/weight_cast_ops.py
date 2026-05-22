@@ -625,11 +625,11 @@ def _memory_seed_fake(input: torch.Tensor) -> torch.Tensor:
 
 
 def memory_join(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
-    return right
+    return right.clone()
 
 
 def _memory_join_fake(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
-    return right
+    return right.clone()
 
 
 def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
@@ -646,7 +646,7 @@ def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
 
 def release_memory_(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
     release_(output, module_key, invocation_id)
-    return memory_token
+    return memory_token.clone()
 
 
 def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
@@ -654,7 +654,7 @@ def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> 
 
 
 def _release_memory_fake(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
-    return memory_token
+    return memory_token.clone()
 
 
 _LIB.impl("prefetch_anchor", prefetch_anchor, "CompositeExplicitAutograd")

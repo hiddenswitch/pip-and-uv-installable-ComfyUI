@@ -206,9 +206,9 @@ def key_param_name_to_key(key, param):
     return "{}.{}".format(key, param)
 
 
-def should_bake_lowvram_patch(module, weight, set_func=None) -> bool:
+def should_bake_lowvram_patch(module, weight, set_func=None, *, dynamic_lowvram=False) -> bool:
     if isinstance(weight, QuantizedTensor):
-        return True
+        return not dynamic_lowvram
     if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
         return False
     return set_func is not None
@@ -1012,7 +1012,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                             self.patch_weight_to_device(weight_key)
                         else:
                             weight, set_func, convert_func = get_key_weight(self.model, weight_key)
-                            if should_bake_lowvram_patch(m, weight, set_func):
+                            if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=lowvram_weight):
                                 self.patch_weight_to_device(weight_key)
                             else:
                                 m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
@@ -1022,7 +1022,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                             self.patch_weight_to_device(bias_key)
                         else:
                             weight, set_func, convert_func = get_key_weight(self.model, bias_key)
-                            if should_bake_lowvram_patch(m, weight, set_func):
+                            if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=lowvram_weight):
                                 self.patch_weight_to_device(bias_key)
                             else:
                                 m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
@@ -1253,7 +1253,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                                     self.patch_weight_to_device(weight_key)
                                 else:
                                     weight, set_func, convert_func = get_key_weight(self.model, weight_key)
-                                    if should_bake_lowvram_patch(m, weight, set_func):
+                                    if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=lowvram_possible):
                                         self.patch_weight_to_device(weight_key)
                                     else:
                                         m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
@@ -1263,7 +1263,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
                                     self.patch_weight_to_device(bias_key)
                                 else:
                                     weight, set_func, convert_func = get_key_weight(self.model, bias_key)
-                                    if should_bake_lowvram_patch(m, weight, set_func):
+                                    if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=lowvram_possible):
                                         self.patch_weight_to_device(bias_key)
                                     else:
                                         m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
@@ -1853,7 +1853,7 @@ class ModelPatcherDynamic(ModelPatcher):
                     if key in self.patches:
                         if lora.calculate_shape(self.patches[key], weight, key) != weight.shape:
                             return (True, 0)
-                        if should_bake_lowvram_patch(m, weight, set_func):
+                        if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=True):
                             self.patch_weight_to_device(key)
                             weight, _, _ = get_key_weight(self.model, key)
                             setattr(m, param_key + "_lowvram_function", None)

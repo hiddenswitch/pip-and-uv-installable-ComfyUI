@@ -78,6 +78,10 @@ def _without_cudagraphs(compile_kwargs: dict[str, Any]) -> dict[str, Any]:
     graph_kwargs = dict(compile_kwargs)
     options = dict(graph_kwargs.pop("options", {}) or {})
     graph_kwargs.pop("mode", None)
+    options["max_autotune"] = False
+    options["max_autotune_gemm"] = False
+    options["max_autotune_pointwise"] = False
+    options["triton.autotune_at_compile_time"] = False
     options["triton.cudagraphs"] = False
     options["triton.cudagraph_trees"] = False
     graph_kwargs["options"] = options

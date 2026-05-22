@@ -21,7 +21,10 @@ PREFETCH_LOOKAHEAD_ENV = "COMFY_WEIGHT_PREFETCH_LOOKAHEAD"
 PREFETCH_MAX_WEIGHT_MB_ENV = "COMFY_WEIGHT_PREFETCH_MAX_WEIGHT_MB"
 DEFAULT_PREFETCH_MAX_WEIGHT_BYTES = 256 * 1024 * 1024
 PATCH_MATERIALIZATION_RESERVATION_FACTOR = 3
-AUTO_BUDGET_HEADROOM_BYTES = 1024 * 1024 * 1024
+AUTO_BUDGET_HEADROOM_BYTES = 2 * 1024 * 1024 * 1024
+AUTO_BUDGET_LARGEST_ITEM_HEADROOM_FACTOR = 2
+AUTO_BUDGET_FREE_MEMORY_HEADROOM_FRACTION = 0.35
+AUTO_BUDGET_LARGEST_ITEM_CAP_FACTOR = 2
 
 
 @dataclass(frozen=True)
@@ -272,18 +275,25 @@ def _first_cuda_device(example_inputs: list[torch.Tensor]) -> torch.device | Non
     return None
 
 
-def _auto_prefetch_budget_bytes(example_inputs: list[torch.Tensor], required_bytes: int) -> int | None:
+def _auto_prefetch_budget_bytes(example_inputs: list[torch.Tensor], sizes: list[int], required_bytes: int) -> int | None:
     device = _first_cuda_device(example_inputs)
     if device is None or required_bytes <= 0:
         return None
     try:
         free_bytes = int(model_management.get_free_memory(device))
-        reserved_bytes = int(model_management.extra_reserved_memory()) + AUTO_BUDGET_HEADROOM_BYTES
+        largest_item = max((max(1, int(size)) for size in sizes), default=0)
+        compile_headroom = max(
+            min(AUTO_BUDGET_HEADROOM_BYTES, int(free_bytes * AUTO_BUDGET_FREE_MEMORY_HEADROOM_FRACTION)),
+            largest_item * AUTO_BUDGET_LARGEST_ITEM_HEADROOM_FACTOR,
+        )
+        reserved_bytes = int(model_management.extra_reserved_memory()) + compile_headroom
     except Exception:
         return None
     usable_bytes = max(0, free_bytes - reserved_bytes)
     if usable_bytes <= 0:
         return None
+    if largest_item > 0:
+        usable_bytes = min(usable_bytes, largest_item * AUTO_BUDGET_LARGEST_ITEM_CAP_FACTOR)
     return min(required_bytes, usable_bytes)
 
 
@@ -792,7 +802,7 @@ def wrap_backend_with_weight_prefetch_scheduler(
             if explicit_lookahead is None and effective_lookahead == 0:
                 effective_lookahead = _auto_prefetch_lookahead(schedule_sizes, effective_budget)
         elif effective_budget is None:
-            effective_budget = _auto_prefetch_budget_bytes(example_inputs, required_bytes)
+            effective_budget = _auto_prefetch_budget_bytes(example_inputs, schedule_sizes, required_bytes)
             if explicit_lookahead is None and effective_lookahead == 0:
                 effective_lookahead = _auto_prefetch_lookahead(schedule_sizes, effective_budget)
         effective_max_weight = DEFAULT_PREFETCH_MAX_WEIGHT_BYTES
@@ -807,6 +817,17 @@ def wrap_backend_with_weight_prefetch_scheduler(
             budget_bytes=effective_budget,
             max_weight_bytes=effective_max_weight,
         )
+        if resolve_nodes or materialize_nodes:
+            logger.info(
+                "Scheduled graph-visible weight prefetches: resolves=%d materializations=%d budget_mb=%s lookahead=%d max_weight_mb=%s required_mb=%.1f largest_mb=%.1f",
+                len(resolve_nodes),
+                len(materialize_nodes),
+                "auto-disabled" if effective_budget is None else f"{effective_budget / (1024 * 1024):.0f}",
+                effective_lookahead,
+                "none" if effective_max_weight is None else f"{effective_max_weight / (1024 * 1024):.0f}",
+                required_bytes / (1024 * 1024),
+                (max(schedule_sizes) if schedule_sizes else 0) / (1024 * 1024),
+            )
         _dump_scheduled_graph_if_requested(scheduled)
         kwargs.pop("options", None)
         kwargs.pop("mode", None)

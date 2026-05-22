@@ -96,6 +96,15 @@ def test_dynamic_quantized_lowvram_lora_patch_is_baked(monkeypatch):
     monkeypatch.setattr(model_patcher, "QuantizedTensor", DummyQuantizedTensor)
 
     assert model_patcher.should_bake_lowvram_patch(object(), DummyQuantizedTensor(), set_func=lambda _: None) is True
+    assert (
+        model_patcher.should_bake_lowvram_patch(
+            object(),
+            DummyQuantizedTensor(),
+            set_func=lambda _: None,
+            dynamic_lowvram=True,
+        )
+        is False
+    )
 
 
 def test_comfy_weight_custom_ops_compile_with_eager_backend():
@@ -485,7 +494,7 @@ def test_weight_prefetch_backend_auto_solves_large_weights_from_memory(monkeypat
     monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_LOOKAHEAD", raising=False)
     monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_MAX_WEIGHT_MB", raising=False)
     monkeypatch.setattr(schedule, "_first_cuda_device", lambda example_inputs: torch.device("cuda:0"))
-    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 3 * one_gib)
+    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 4 * one_gib)
     monkeypatch.setattr(schedule.model_management, "extra_reserved_memory", lambda: 0)
 
     layers = [ops.manual_cast.Linear(2, 2) for _ in range(6)]
@@ -531,6 +540,23 @@ def test_weight_prefetch_backend_auto_solves_large_weights_from_memory(monkeypat
     assert not _node_depends_on(prefetches[2], releases[1])
     assert _node_depends_on(prefetches[3], releases[1])
     assert not _node_depends_on(prefetches[3], releases[0])
+
+
+def test_weight_prefetch_backend_auto_keeps_compile_headroom(monkeypatch):
+    import comfy.weight_cast_schedule as schedule
+
+    one_gib = 1024 * 1024 * 1024
+    monkeypatch.setattr(schedule, "_first_cuda_device", lambda example_inputs: torch.device("cuda:0"))
+    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 6 * one_gib)
+    monkeypatch.setattr(schedule.model_management, "extra_reserved_memory", lambda: 512 * 1024 * 1024)
+
+    budget = schedule._auto_prefetch_budget_bytes(
+        [torch.randn(1)],
+        [256 * 1024 * 1024, one_gib],
+        required_bytes=6 * one_gib,
+    )
+
+    assert budget == 2 * one_gib
 
 
 def test_compiled_manual_cast_uses_graph_visible_op_even_when_resident(monkeypatch):
@@ -609,6 +635,56 @@ def test_mixed_precision_linear_compile_path_avoids_parameter_inspection(monkeyp
 
     assert out is x
     assert calls == [(x.dtype, False)]
+
+
+def test_auto_fp8_materialization_happens_before_device_cast(monkeypatch):
+    from comfy import ops
+    from comfy import model_management
+    from comfy.quant_ops import QuantizedTensor
+
+    layer = ops.manual_cast.Linear(2, 2, dtype=torch.bfloat16)
+    qdata = torch.ones((2, 2), dtype=torch.float8_e4m3fn)
+    params = ops.TensorCoreFP8Layout.Params(
+        scale=torch.ones((), dtype=torch.float32),
+        orig_dtype=torch.bfloat16,
+        orig_shape=(2, 2),
+    )
+    layer.weight = torch.nn.Parameter(
+        QuantizedTensor(qdata, "TensorCoreFP8Layout", params),
+        requires_grad=False,
+    )
+    layer.bias = None
+
+    calls = []
+    original_cast_to = model_management.cast_to
+
+    def capture_cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
+        calls.append(weight)
+        return original_cast_to(weight, dtype=dtype, device=None, non_blocking=non_blocking, copy=copy, stream=None, r=None)
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "auto")
+    monkeypatch.setattr(model_management, "is_device_cpu", lambda device: False)
+    monkeypatch.setattr(model_management, "cast_to", capture_cast_to)
+    monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: False)
+    monkeypatch.setattr(model_management, "sync_stream", lambda device, stream: None)
+
+    weight, bias = ops.cast_bias_weight(
+        layer,
+        torch.randn(1, 2),
+        dtype=torch.bfloat16,
+        device=torch.device("cuda:0"),
+        bias_dtype=torch.bfloat16,
+        offloadable=False,
+        compute_dtype=torch.bfloat16,
+        want_requant=False,
+    )
+
+    assert bias is None
+    assert weight.dtype == torch.bfloat16
+    assert calls
+    assert not isinstance(calls[0], QuantizedTensor)
+    assert calls[0].device.type == "cpu"
+    assert calls[0].dtype == torch.bfloat16
 
 
 def test_weight_prefetch_scheduler_respects_byte_budget():
@@ -1664,6 +1740,28 @@ def test_fp8_materialization_after_uses_memory_token_device_in_fake_mode():
 
     assert out.device.type == "cuda"
     assert out.dtype is torch.bfloat16
+
+
+def test_fp8_materialization_after_uses_cpu_materialization(monkeypatch):
+    from comfy import quant_ops
+
+    if quant_ops.ck is not None:
+        monkeypatch.setattr(
+            quant_ops.ck,
+            "dequantize_per_tensor_fp8",
+            lambda *args, **kwargs: pytest.fail("materialize_per_tensor_fp8_after should not use CUDA/backend dequantization"),
+        )
+
+    token = torch.empty((), dtype=torch.int64)
+    source = torch.randn(8, 8, dtype=torch.bfloat16)
+    scale = torch.ones((), dtype=torch.float32)
+    qdata = source.to(torch.float8_e4m3fn)
+
+    out = torch.ops.comfy_quant.materialize_per_tensor_fp8_after(token, qdata, scale, 2, 2)
+
+    assert out.device.type == "cpu"
+    assert out.dtype is torch.bfloat16
+    assert torch.isfinite(out.float()).all()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")

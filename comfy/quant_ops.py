@@ -86,17 +86,8 @@ def _materialize_per_tensor_fp8_after(
 ) -> torch.Tensor:
     output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
     device = memory_token.device
-    if qdata.device == device:
-        return _materialize_per_tensor_fp8(qdata, scale, output_dtype_code, mode_code)
-    if mode_code == _FP8_MATERIALIZATION_CODES["torch"]:
-        return qdata.to(device=device, dtype=output_dtype) * scale.to(device=device, dtype=output_dtype)
-    if mode_code == _FP8_MATERIALIZATION_CODES["comfy_kitchen"] and _CK_AVAILABLE:
-        qdata_device = qdata.to(device=device)
-        return ck.dequantize_per_tensor_fp8(qdata_device, scale.to(device=device), output_dtype)
-    if _CK_AVAILABLE and not _fp8e4m3fn_triton_unsupported(device):
-        qdata_device = qdata.to(device=device)
-        return ck.dequantize_per_tensor_fp8(qdata_device, scale.to(device=device), output_dtype)
-    return qdata.to(device=device, dtype=output_dtype) * scale.to(device=device, dtype=output_dtype)
+    materialized = qdata.cpu().to(dtype=output_dtype) * scale.cpu().to(dtype=output_dtype)
+    return materialized.to(device=device, non_blocking=True)
 
 
 @_materialize_per_tensor_fp8_after.register_fake
@@ -110,16 +101,10 @@ def _materialize_per_tensor_fp8_after_fake(
     return memory_token.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
 
 
-def _materialize_fp8_gpu_candidate(memory_token: torch.Tensor, qdata: torch.Tensor, scale: torch.Tensor, *, output_dtype_code: int, out: torch.Tensor) -> None:
-    del memory_token
-    output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
-    out.copy_(qdata.to(device=out.device, dtype=output_dtype) * scale.to(device=out.device, dtype=output_dtype))
-
-
 def _materialize_fp8_cpu_candidate(memory_token: torch.Tensor, qdata: torch.Tensor, scale: torch.Tensor, *, output_dtype_code: int, out: torch.Tensor) -> None:
     del memory_token
     output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
-    materialized = qdata.to(dtype=output_dtype) * scale.to(dtype=output_dtype)
+    materialized = qdata.cpu().to(dtype=output_dtype) * scale.cpu().to(dtype=output_dtype)
     out.copy_(materialized.to(device=out.device), non_blocking=True)
 
 
@@ -133,7 +118,6 @@ def _register_fp8_materialization_inductor_lowering() -> None:
         return
 
     op = torch.ops.comfy_quant.materialize_per_tensor_fp8_after.default
-    gpu_choice = ExternKernelChoice(_materialize_fp8_gpu_candidate, name="comfy_materialize_fp8_gpu")
     cpu_choice = ExternKernelChoice(_materialize_fp8_cpu_candidate, name="comfy_materialize_fp8_cpu")
 
     @register_lowering(op, type_promotion_kind=None)
@@ -147,9 +131,7 @@ def _register_fp8_materialization_inductor_lowering() -> None:
             stride=ir.FlexibleLayout.contiguous_strides(qdata.get_size()),
         )
         inputs = [memory_token, qdata, scale]
-        choices = [gpu_choice.bind(inputs, layout, output_dtype_code=int(output_dtype_code))]
-        if int(mode_code) == _FP8_MATERIALIZATION_CODES["auto"] and qdata.get_device().type == "cpu" and device.type == "cuda":
-            choices.append(cpu_choice.bind(inputs, layout, output_dtype_code=int(output_dtype_code)))
+        choices = [cpu_choice.bind(inputs, layout, output_dtype_code=int(output_dtype_code))]
         return autotune_select_algorithm("comfy_materialize_per_tensor_fp8_after", choices, inputs, layout)
 
 
