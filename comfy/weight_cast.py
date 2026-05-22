@@ -347,7 +347,6 @@ def get_weight_cast_runtime(module: torch.nn.Module, input: torch.Tensor | None 
         and is_torch_compiling()
         and graph_visible_backend_unavailable_reason() is None
         and not _is_device_cpu(input.device)
-        and _module_needs_graph_visible_weight_cast(module, input)
     ):
         return _GRAPH_VISIBLE_RUNTIME
     return _EAGER_RUNTIME

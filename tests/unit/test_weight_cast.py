@@ -243,6 +243,26 @@ def test_compiled_cast_capable_module_uses_graph_visible_even_when_flag_false(mo
     assert runtime.name == weight_cast.BACKEND_GRAPH_VISIBLE
 
 
+def test_compiled_runtime_selection_avoids_module_attribute_guards(monkeypatch):
+    from comfy import ops
+    from comfy import weight_cast
+
+    layer = ops.disable_weight_init.Linear(2, 2)
+    x = torch.randn(1, 2)
+
+    monkeypatch.setattr(weight_cast, "is_torch_compiling", lambda: True)
+    monkeypatch.setattr(weight_cast, "_is_device_cpu", lambda device: False)
+    monkeypatch.setattr(
+        weight_cast,
+        "_module_needs_graph_visible_weight_cast",
+        lambda module, input: (_ for _ in ()).throw(AssertionError("module attrs inspected")),
+    )
+
+    runtime = weight_cast.get_weight_cast_runtime(layer, x)
+
+    assert runtime.name == weight_cast.BACKEND_GRAPH_VISIBLE
+
+
 def test_mixed_precision_linear_compile_path_avoids_parameter_inspection(monkeypatch):
     from comfy import model_management
     from comfy import ops
