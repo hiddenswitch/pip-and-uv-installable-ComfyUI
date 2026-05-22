@@ -176,7 +176,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             return torch.empty(5, 20, dtype=torch.bfloat16)
 
         layer.forward_comfy_cast_weights = wrapped_forward
-        with mock.patch("comfy.ops._quantized_layout_supports_fast_matmul", return_value=True):
+        with mock.patch("comfy.ops._quantized_layout_supports_fast_matmul", return_value=False):
             layer(torch.randn(5, 10, dtype=torch.bfloat16))
 
         self.assertTrue(calls)
@@ -184,9 +184,26 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertTrue(calls[0][1])
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_vbar_auto_policy_keeps_quantized_weight_without_fast_matmul_probe(self):
+        layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
+        layer.quant_format = "float8_e4m3fn"
+        layer.layout_type = "TensorCoreFP8E4M3Layout"
+        layer.weight = torch.nn.Parameter(
+            QuantizedTensor.from_float(
+                torch.randn(20, 10, dtype=torch.bfloat16),
+                "TensorCoreFP8E4M3Layout",
+                scale="recalculate",
+            ),
+            requires_grad=False,
+        )
+
+        with mock.patch("comfy.ops._quantized_layout_supports_fast_matmul", return_value=False):
+            self.assertTrue(ops.should_keep_quantized_vbar(layer, layer.weight))
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_quantized_lora_patch_bakes_back_into_weight(self):
         """LoRA-style patches on quantized layers should bake and requantize, not become runtime adapters."""
-        from comfy.model_patcher import ModelPatcher
+        from comfy.model_patcher import ModelPatcher, should_bake_lowvram_patch
 
         class TinyModel(torch.nn.Module):
             def __init__(self):
@@ -204,6 +221,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
                 )
 
         model = TinyModel()
+        self.assertTrue(should_bake_lowvram_patch(model.layer, model.layer.weight))
         patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
         patcher.add_patches({"layer.weight": ("diff", (torch.randn(20, 10, dtype=torch.bfloat16) * 0.01,))})
 

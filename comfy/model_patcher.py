@@ -208,7 +208,7 @@ def key_param_name_to_key(key, param):
 
 def should_bake_lowvram_patch(module, weight, set_func=None) -> bool:
     if isinstance(weight, QuantizedTensor):
-        return False
+        return True
     if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
         return False
     return set_func is not None

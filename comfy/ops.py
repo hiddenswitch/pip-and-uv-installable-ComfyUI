@@ -1438,7 +1438,6 @@ def should_keep_quantized_vbar(module, tensor):
     return (
         layout_type is not None
         and not getattr(module, "_full_precision_mm", False)
-        and _quantized_layout_supports_fast_matmul(layout_type)
     )
 
 
@@ -1762,7 +1761,6 @@ def mixed_precision_ops(quant_config=None, compute_dtype=torch.bfloat16, full_pr
                 force_cast_blocks_quantized = getattr(self, 'comfy_force_cast_weights', False) and not isinstance(self.weight, QuantizedTensor)
                 _use_quantized = (
                         getattr(self, 'layout_type', None) is not None and
-                        _quantized_layout_supports_fast_matmul(self.layout_type) and
                         not isinstance(input, QuantizedTensor) and not self._full_precision_mm and
                         not force_cast_blocks_quantized and
                         len(self.weight_function) == 0 and len(self.bias_function) == 0

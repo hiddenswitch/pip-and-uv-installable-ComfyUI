@@ -69,7 +69,7 @@ def test_manual_cast_embedding_preserves_float_weight_dtype():
     assert torch.allclose(out, torch.nn.functional.embedding(tokens, layer.weight))
 
 
-def test_dynamic_quantized_lowvram_lora_patch_is_deferred(monkeypatch):
+def test_dynamic_quantized_lowvram_lora_patch_is_baked(monkeypatch):
     from comfy import model_patcher
 
     class DummyQuantizedTensor:
@@ -77,7 +77,7 @@ def test_dynamic_quantized_lowvram_lora_patch_is_deferred(monkeypatch):
 
     monkeypatch.setattr(model_patcher, "QuantizedTensor", DummyQuantizedTensor)
 
-    assert model_patcher.should_bake_lowvram_patch(object(), DummyQuantizedTensor(), set_func=lambda _: None) is False
+    assert model_patcher.should_bake_lowvram_patch(object(), DummyQuantizedTensor(), set_func=lambda _: None) is True
 
 
 def test_comfy_weight_custom_ops_compile_with_eager_backend():
