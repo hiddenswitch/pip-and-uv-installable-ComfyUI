@@ -287,7 +287,6 @@ def _schedule_weight_resolves(
     resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
     in_flight: list[tuple[int, torch.fx.Node]] = []
     insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
-    memory_frontier = memory_seed
     resident_bytes = 0
 
     for index, node in enumerate(resolve_nodes):
@@ -324,9 +323,7 @@ def _schedule_weight_resolves(
             resident_bytes = budget_bytes
             continue
 
-        memory_token = _join_memory_tokens(graph, freed_tokens, memory_frontier, node)
-        if freed_tokens:
-            memory_frontier = memory_token
+        memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
         prefetch = _insert_prefetch_after_memory_token(graph, node, memory_token, insertion_anchors)
 
         with graph.inserting_before(node):
@@ -354,7 +351,6 @@ def _schedule_fp8_materializations(
 ) -> None:
     in_flight: list[tuple[int, torch.fx.Node]] = []
     insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
-    memory_frontier = memory_seed
     resident_bytes = 0
 
     for node in materialize_nodes:
@@ -383,9 +379,7 @@ def _schedule_fp8_materializations(
             resident_bytes = budget_bytes
             continue
 
-        memory_token = _join_memory_tokens(graph, freed_tokens, memory_frontier, node)
-        if freed_tokens:
-            memory_frontier = memory_token
+        memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
         accounted = _replace_materialization_with_memory_token(graph, node, memory_token, insertion_anchors)
         release_token = _insert_materialization_release(graph, release_anchor, accounted, memory_token)
         in_flight.append((size, release_token))
@@ -434,8 +428,10 @@ def _join_memory_tokens(
     seed: torch.fx.Node,
     anchor: torch.fx.Node,
 ) -> torch.fx.Node:
-    token = seed
-    for freed in freed_tokens:
+    if not freed_tokens:
+        return seed
+    token = freed_tokens[0]
+    for freed in freed_tokens[1:]:
         with graph.inserting_before(anchor):
             token = graph.call_function(torch.ops.comfy_weight.memory_join, args=(token, freed))
             token.meta.update(freed.meta)

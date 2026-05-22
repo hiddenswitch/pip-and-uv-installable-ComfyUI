@@ -7,6 +7,24 @@ from comfy.cli_args_types import Configuration
 from comfy.execution_context import context_configuration
 
 
+def _node_target_contains(graph: torch.fx.Graph, text: str) -> list[torch.fx.Node]:
+    return [node for node in graph.nodes if text in str(node.target)]
+
+
+def _node_depends_on(node: torch.fx.Node, dependency: torch.fx.Node) -> bool:
+    seen: set[torch.fx.Node] = set()
+    stack = [arg for arg in node.all_input_nodes]
+    while stack:
+        current = stack.pop()
+        if current is dependency:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(current.all_input_nodes)
+    return False
+
+
 def test_weight_cast_backends_report_dynamic_vram_disabled():
     from comfy import weight_cast
 
@@ -374,6 +392,52 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
     assert prefetches[1] < first_release_memory
     assert first_release_memory < prefetches[2]
     assert first_release_memory < prefetches[3]
+
+
+def test_weight_prefetch_scheduler_models_reusable_memory_slots():
+    from comfy import ops
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(4)]
+    args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=2, budget_bytes=1024))
+        return graphs[-1].forward
+
+    def fn(x):
+        total = x
+        for layer_args in args:
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *layer_args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, layer_args[2], layer_args[3])
+        return total
+
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2))
+
+    graph = graphs[0].graph
+    prefetches = _node_target_contains(graph, "prefetch_weight_bias_after")
+    releases = _node_target_contains(graph, "release_memory_")
+
+    assert len(prefetches) == 4
+    assert len(releases) == 4
+    assert not _node_depends_on(prefetches[0], releases[0])
+    assert not _node_depends_on(prefetches[1], releases[0])
+    assert _node_depends_on(prefetches[2], releases[0])
+    assert not _node_depends_on(prefetches[2], releases[1])
+    assert _node_depends_on(prefetches[3], releases[1])
+    assert not _node_depends_on(prefetches[3], releases[0])
 
 
 def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses(monkeypatch):
@@ -1281,7 +1345,48 @@ def test_fp8_materialization_scheduler_threads_memory_credits(monkeypatch):
     graph_text = graphs[0].code
     assert "comfy_quant.materialize_per_tensor_fp8_after" in graph_text
     assert "comfy_quant.release_materialization_" in graph_text
-    assert "comfy_weight.memory_join" in graph_text
+
+
+def test_fp8_materialization_scheduler_models_reusable_memory_slots(monkeypatch):
+    from comfy import quant_ops
+    from comfy.weight_cast_schedule import schedule_weight_prefetches
+
+    graphs = []
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(schedule_weight_prefetches(gm, lookahead=2, budget_bytes=1024))
+        return graphs[-1].forward
+
+    def fn(qdata_1, qdata_2, qdata_3, qdata_4, scale):
+        first = quant_ops.materialize_per_tensor_fp8(qdata_1, scale, torch.bfloat16)
+        y1 = first.float().sum()
+        second = quant_ops.materialize_per_tensor_fp8(qdata_2, scale, torch.bfloat16)
+        y2 = second.float().sum()
+        third = quant_ops.materialize_per_tensor_fp8(qdata_3, scale, torch.bfloat16)
+        y3 = third.float().sum()
+        fourth = quant_ops.materialize_per_tensor_fp8(qdata_4, scale, torch.bfloat16)
+        y4 = fourth.float().sum()
+        return y1 + y2 + y3 + y4
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    qdatas = [torch.zeros(4, 4, dtype=torch.float8_e4m3fn) for _ in range(4)]
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+
+    compiled(*qdatas, scale)
+
+    graph = graphs[0].graph
+    materializes = _node_target_contains(graph, "materialize_per_tensor_fp8_after")
+    releases = _node_target_contains(graph, "release_materialization_")
+
+    assert len(materializes) == 4
+    assert len(releases) == 4
+    assert not _node_depends_on(materializes[0], releases[0])
+    assert not _node_depends_on(materializes[1], releases[0])
+    assert _node_depends_on(materializes[2], releases[0])
+    assert not _node_depends_on(materializes[2], releases[1])
+    assert _node_depends_on(materializes[3], releases[1])
+    assert not _node_depends_on(materializes[3], releases[0])
 
 
 def test_fp8_materialization_scheduler_respects_budget(monkeypatch):
