@@ -438,14 +438,8 @@ jobs:
 #          cd ${GITHUB_WORKSPACE}/src
 #          python -m pytest -v tests/inference
   build_and_execute_windows_nvidia:
-    # TEMP-DISABLED: Initialize containers fails on this Windows runner
-    # image. Re-enable once the runner image is fixed.
-    if: false
     environment: "Testing"
-    # Static name (instead of ${{ matrix.target.friendly_name }}): when
-    # ``if: false`` short-circuits the matrix expansion, GH Actions can't
-    # evaluate the template and renders it literally as a phantom job.
-    name: "Windows CUDA 12.8 PyTorch 2.10.0 (disabled)"
+    name: ${{ matrix.target.friendly_name }}
     runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 45
     container:

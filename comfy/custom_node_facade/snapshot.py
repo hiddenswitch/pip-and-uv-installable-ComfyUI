@@ -19,7 +19,6 @@ from .registry import (
     FacadeProject,
     FacadeRegistry,
     FacadeVersion,
-    canonicalize_project_name,
     is_excluded_facade_project,
     normalize_repo_url,
 )
