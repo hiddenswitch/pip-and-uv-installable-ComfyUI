@@ -19,6 +19,7 @@ from comfy_api.torch_helpers.torch_compile import COMPILE_KEY
 logger = logging.getLogger(__name__)
 
 DIFFUSION_MODEL = "diffusion_model"
+TORCH_COMPILE_MIN_RESERVED_VRAM = 4 * 1024 * 1024 * 1024
 TORCH_COMPILE_BACKENDS = [
     "inductor",
     "torch_tensorrt",
@@ -107,6 +108,8 @@ class TorchCompileModel(CustomNode):
                 del compile_kwargs["mode"]
 
             if isinstance(model, HooksSupport):
+                if backend == "inductor":
+                    model_management.reserve_extra_vram(TORCH_COMPILE_MIN_RESERVED_VRAM, "torch.compile")
                 preserve_dynamic = isinstance(model, ModelPatcher) and model.is_dynamic()
                 to_return = model.clone(disable_dynamic=not preserve_dynamic)
                 object_patches = [p.strip() for p in object_patch.split(",")]

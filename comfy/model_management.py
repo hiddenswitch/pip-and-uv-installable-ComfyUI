@@ -722,6 +722,16 @@ def extra_reserved_memory():
     return EXTRA_RESERVED_VRAM
 
 
+def reserve_extra_vram(minimum_bytes: int, reason: str = ""):
+    global EXTRA_RESERVED_VRAM
+    minimum_bytes = int(minimum_bytes)
+    if minimum_bytes <= EXTRA_RESERVED_VRAM:
+        return
+    EXTRA_RESERVED_VRAM = minimum_bytes
+    suffix = f" for {reason}" if reason else ""
+    logger.info("Reserving %.0fMB VRAM%s.", EXTRA_RESERVED_VRAM / (1024 * 1024), suffix)
+
+
 def minimum_inference_memory():
     return (1024 * 1024 * 1024) * 0.8 + extra_reserved_memory()
 

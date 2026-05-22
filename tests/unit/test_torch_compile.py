@@ -211,6 +211,23 @@ def test_set_torch_compile_wrapper_uses_aimdo_strategy_for_dynamic_vbar_modules(
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
 
 
+def test_weight_cast_compile_disables_prefetch_auto_budget_by_default(monkeypatch):
+    import comfy_api.torch_helpers.torch_compile as torch_compile
+
+    calls = []
+
+    def fake_wrap(backend, *, lookahead=0, budget_bytes=None):
+        calls.append((backend, lookahead, budget_bytes))
+        return backend
+
+    monkeypatch.setattr(torch_compile, "wrap_backend_with_weight_prefetch_scheduler", fake_wrap)
+
+    kwargs = torch_compile._with_weight_prefetch_scheduler({"backend": "inductor"})
+
+    assert kwargs["backend"] == "inductor"
+    assert calls == [("inductor", 0, 0)]
+
+
 def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_dynamic_patcher(monkeypatch):
     calls = []
 
@@ -259,6 +276,22 @@ def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_cast_capable_mo
     assert len(calls) == 1
     assert callable(calls[0][1]["backend"])
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
+
+
+def test_torch_compile_model_reserves_activation_headroom(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        "comfy_extras.nodes.nodes_torch_compile.model_management.reserve_extra_vram",
+        lambda minimum_bytes, reason="": calls.append((minimum_bytes, reason)),
+    )
+
+    patcher = _FakePatcher()
+    node = TorchCompileModel()
+    (compiled,) = node.patch(patcher, backend="inductor")
+
+    assert compiled is not patcher
+    assert calls == [(4 * 1024 * 1024 * 1024, "torch.compile")]
 
 
 def test_dynamic_vbar_compile_forces_all_cast_capable_layers_graph_visible(monkeypatch):

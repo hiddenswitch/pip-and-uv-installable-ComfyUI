@@ -92,7 +92,10 @@ def _without_cudagraphs(compile_kwargs: dict[str, Any]) -> dict[str, Any]:
 
 def _with_weight_prefetch_scheduler(compile_kwargs: dict[str, Any]) -> dict[str, Any]:
     scheduled_kwargs = dict(compile_kwargs)
-    scheduled_kwargs["backend"] = wrap_backend_with_weight_prefetch_scheduler(scheduled_kwargs["backend"])
+    scheduled_kwargs["backend"] = wrap_backend_with_weight_prefetch_scheduler(
+        scheduled_kwargs["backend"],
+        budget_bytes=0,
+    )
     return scheduled_kwargs
 
 

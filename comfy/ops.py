@@ -19,6 +19,7 @@
 import json
 import logging
 import os
+import collections
 from typing import Optional
 
 import comfy_aimdo.model_vbar
@@ -41,6 +42,8 @@ from .interruption import throw_exception_if_processing_interrupted
 logger = logging.getLogger(__name__)
 
 _DYNAMIC_VRAM_FP8_POLICIES = {"auto", "resident", "materialize"}
+_CPU_MATERIALIZATION_BUFFERS = collections.OrderedDict()
+_CPU_MATERIALIZATION_BUFFER_LIMIT = 4
 
 
 def dynamic_vram_fp8_policy():
@@ -561,14 +564,50 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
     return offload_stream
 
 
-def _dequantize_quantized_tensor_on_cpu(tensor, dtype, device):
-    tensor = tensor.to(device=torch.device("cpu")).to(dtype=dtype)
-    return tensor.dequantize().to(device=device, non_blocking=True)
+def _cpu_materialization_buffer(shape, dtype):
+    key = (tuple(int(dim) for dim in shape), dtype)
+    buffer = _CPU_MATERIALIZATION_BUFFERS.pop(key, None)
+    if buffer is None:
+        buffer = torch.empty(key[0], dtype=dtype, device="cpu")
+    _CPU_MATERIALIZATION_BUFFERS[key] = buffer
+    while len(_CPU_MATERIALIZATION_BUFFERS) > _CPU_MATERIALIZATION_BUFFER_LIMIT:
+        _CPU_MATERIALIZATION_BUFFERS.popitem(last=False)
+    return buffer
+
+
+def _copy_fp8_to_cpu_materialization_buffer(tensor, dtype):
+    qdata = getattr(tensor, "_qdata", None)
+    params = getattr(tensor, "_params", None)
+    scale = getattr(params, "scale", None)
+    orig_shape = tuple(getattr(params, "orig_shape", tuple(tensor.shape)))
+    if (
+        not isinstance(qdata, torch.Tensor)
+        or not isinstance(scale, torch.Tensor)
+        or scale.numel() != 1
+        or qdata.dtype not in (torch.float8_e4m3fn, torch.float8_e5m2)
+    ):
+        return None
+
+    qdata_cpu = qdata if qdata.device.type == "cpu" else qdata.cpu()
+    materialized = _cpu_materialization_buffer(qdata_cpu.shape, dtype)
+    materialized.copy_(qdata_cpu)
+    materialized.mul_(scale.cpu().to(dtype=dtype))
+    if tuple(materialized.shape) != orig_shape:
+        slices = tuple(slice(0, dim) for dim in orig_shape)
+        materialized = materialized[slices]
+    return materialized
 
 
 def _materialize_quantized_tensor_on_cpu(tensor, dtype):
+    materialized = _copy_fp8_to_cpu_materialization_buffer(tensor, dtype)
+    if materialized is not None:
+        return materialized
     tensor = tensor.to(device=torch.device("cpu")).to(dtype=dtype)
     return tensor.dequantize()
+
+
+def _dequantize_quantized_tensor_on_cpu(tensor, dtype, device):
+    return _materialize_quantized_tensor_on_cpu(tensor, dtype).to(device=device, non_blocking=True)
 
 
 def resolve_cast_module_with_vbar(s, dtype, device, bias_dtype, compute_dtype, want_requant):

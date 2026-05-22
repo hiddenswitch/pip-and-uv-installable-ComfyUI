@@ -687,6 +687,27 @@ def test_auto_fp8_materialization_happens_before_device_cast(monkeypatch):
     assert calls[0].dtype == torch.bfloat16
 
 
+def test_cpu_fp8_materialization_reuses_buffer():
+    from comfy import ops
+    from comfy.quant_ops import QuantizedTensor
+
+    if not ops.mixed_precision_quantization_available():
+        return
+
+    ops._CPU_MATERIALIZATION_BUFFERS.clear()
+    source = torch.randn(8, 8, dtype=torch.bfloat16)
+    quantized = QuantizedTensor.from_float(source, "TensorCoreFP8E4M3Layout", scale="recalculate")
+
+    first = ops._materialize_quantized_tensor_on_cpu(quantized, torch.bfloat16)
+    first_ptr = first.data_ptr()
+    second = ops._materialize_quantized_tensor_on_cpu(quantized, torch.bfloat16)
+
+    assert first.device.type == "cpu"
+    assert first.dtype is torch.bfloat16
+    assert second.data_ptr() == first_ptr
+    assert len(ops._CPU_MATERIALIZATION_BUFFERS) == 1
+
+
 def test_weight_prefetch_scheduler_respects_byte_budget():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
