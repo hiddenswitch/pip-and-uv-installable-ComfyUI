@@ -40,6 +40,24 @@ class _ScheduleDecision:
     reserved_size: int
 
 
+@dataclass(frozen=True)
+class _TimedScheduleItem:
+    size: int
+    copy_cost: int
+    compute_cost: int
+    prefetchable: bool = True
+
+
+@dataclass(frozen=True)
+class _TimedScheduleResult:
+    makespan: int
+    load_order: tuple[int, ...]
+    load_starts: tuple[int, ...]
+    load_ends: tuple[int, ...]
+    compute_starts: tuple[int, ...]
+    compute_ends: tuple[int, ...]
+
+
 def _target_name(node: torch.fx.Node) -> str:
     target = node.target
     name = getattr(target, "__name__", None)
@@ -442,6 +460,144 @@ def _solve_memory_schedule(
         resident_bytes += size
 
     return decisions
+
+
+def _solve_timed_memory_schedule(
+    items: list[_TimedScheduleItem],
+    *,
+    budget_bytes: int,
+    copy_engines: int = 1,
+) -> _TimedScheduleResult:
+    """Find the minimum makespan schedule for a small linear forward trace.
+
+    This exact MILP oracle is intended for tests and validating graph-rewrite
+    heuristics. It models one compute engine running items in trace order, one
+    or more copy/materialization engines, and a reusable memory capacity. A
+    loaded item occupies capacity from copy start until its compute finishes.
+    """
+    from scipy.optimize import Bounds, LinearConstraint, milp
+    from scipy.sparse import lil_matrix
+
+    count = len(items)
+    if count == 0:
+        return _TimedScheduleResult(0, (), (), (), (), ())
+    if budget_bytes <= 0:
+        raise ValueError("budget_bytes must be positive")
+    if copy_engines <= 0:
+        raise ValueError("copy_engines must be positive")
+    for item in items:
+        if item.size <= 0 or item.copy_cost <= 0 or item.compute_cost <= 0:
+            raise ValueError("timed schedule sizes and costs must be positive")
+        if item.size > budget_bytes:
+            raise ValueError("item size exceeds memory budget")
+
+    horizon = sum(item.copy_cost + item.compute_cost for item in items)
+    times = range(horizon + 1)
+    load_offset = 0
+    compute_offset = count * (horizon + 1)
+    variable_count = 2 * count * (horizon + 1)
+
+    def load_var(index: int, time: int) -> int:
+        return load_offset + index * (horizon + 1) + time
+
+    def compute_var(index: int, time: int) -> int:
+        return compute_offset + index * (horizon + 1) + time
+
+    lower_bounds = [0.0] * variable_count
+    upper_bounds = [1.0] * variable_count
+    integrality = [1] * variable_count
+    objective = [0.0] * variable_count
+
+    for index, item in enumerate(items):
+        for time in times:
+            if time + item.copy_cost > horizon:
+                upper_bounds[load_var(index, time)] = 0.0
+            if time + item.compute_cost > horizon:
+                upper_bounds[compute_var(index, time)] = 0.0
+            if index == count - 1:
+                objective[compute_var(index, time)] = time + item.compute_cost
+
+    rows: list[dict[int, float]] = []
+    lower: list[float] = []
+    upper: list[float] = []
+
+    def add_constraint(coefficients: dict[int, float], low: float, high: float) -> None:
+        rows.append(coefficients)
+        lower.append(low)
+        upper.append(high)
+
+    for index, item in enumerate(items):
+        add_constraint({load_var(index, time): 1.0 for time in times}, 1.0, 1.0)
+        add_constraint({compute_var(index, time): 1.0 for time in times}, 1.0, 1.0)
+
+        load_start = {load_var(index, time): float(time) for time in times}
+        compute_start = {compute_var(index, time): float(time) for time in times}
+        precedence = dict(compute_start)
+        for variable, coefficient in load_start.items():
+            precedence[variable] = precedence.get(variable, 0.0) - coefficient
+        add_constraint(precedence, float(item.copy_cost), float("inf"))
+
+        if not item.prefetchable:
+            add_constraint(precedence, float(item.copy_cost), float(item.copy_cost))
+
+    for index, item in enumerate(items[:-1]):
+        coefficients = {compute_var(index + 1, time): float(time) for time in times}
+        for time in times:
+            variable = compute_var(index, time)
+            coefficients[variable] = coefficients.get(variable, 0.0) - float(time)
+        add_constraint(coefficients, float(item.compute_cost), float("inf"))
+
+    for tick in range(horizon):
+        coefficients: dict[int, float] = {}
+        for index, item in enumerate(items):
+            for start in range(max(0, tick - item.copy_cost + 1), tick + 1):
+                coefficients[load_var(index, start)] = 1.0
+        add_constraint(coefficients, 0.0, float(copy_engines))
+
+    for tick in range(horizon + 1):
+        coefficients = {}
+        for index, item in enumerate(items):
+            for start in range(tick + 1):
+                coefficients[load_var(index, start)] = coefficients.get(load_var(index, start), 0.0) + float(item.size)
+            for start in range(max(0, tick - item.compute_cost + 1)):
+                coefficients[compute_var(index, start)] = coefficients.get(compute_var(index, start), 0.0) - float(item.size)
+        add_constraint(coefficients, 0.0, float(budget_bytes))
+
+    matrix = lil_matrix((len(rows), variable_count), dtype=float)
+    for row_index, coefficients in enumerate(rows):
+        for variable, coefficient in coefficients.items():
+            matrix[row_index, variable] = coefficient
+
+    result = milp(
+        c=objective,
+        integrality=integrality,
+        bounds=Bounds(lower_bounds, upper_bounds),
+        constraints=LinearConstraint(matrix.tocsr(), lower, upper),
+        options={"time_limit": 10.0},
+    )
+    if not result.success or result.x is None:
+        raise RuntimeError(f"timed memory schedule MILP failed: {result.message}")
+
+    load_starts = tuple(_selected_time(result.x, load_var(index, 0), horizon) for index in range(count))
+    compute_starts = tuple(_selected_time(result.x, compute_var(index, 0), horizon) for index in range(count))
+    load_ends = tuple(start + item.copy_cost for start, item in zip(load_starts, items, strict=True))
+    compute_ends = tuple(start + item.compute_cost for start, item in zip(compute_starts, items, strict=True))
+    load_order = tuple(sorted(range(count), key=lambda index: (load_starts[index], index)))
+    return _TimedScheduleResult(
+        makespan=compute_ends[-1],
+        load_order=load_order,
+        load_starts=load_starts,
+        load_ends=load_ends,
+        compute_starts=compute_starts,
+        compute_ends=compute_ends,
+    )
+
+
+def _selected_time(solution: Any, offset: int, horizon: int) -> int:
+    selected = [time for time in range(horizon + 1) if solution[offset + time] > 0.5]
+    if len(selected) != 1:
+        raise RuntimeError(f"expected exactly one selected start time, got {selected}")
+    return selected[0]
 
 
 def _reserve_unscheduled_item(

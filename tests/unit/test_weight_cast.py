@@ -275,6 +275,65 @@ def test_memory_schedule_solver_handles_unscheduled_items_as_full_capacity_barri
     assert decisions[2].dependencies == (0, 1)
 
 
+def _assert_timed_schedule_feasible(items, result, *, budget_bytes, copy_engines):
+    horizon = result.makespan
+    assert all(start >= 0 for start in result.load_starts)
+    assert all(start >= 0 for start in result.compute_starts)
+    for index, item in enumerate(items):
+        assert result.load_ends[index] == result.load_starts[index] + item.copy_cost
+        assert result.compute_ends[index] == result.compute_starts[index] + item.compute_cost
+        assert result.compute_starts[index] >= result.load_ends[index]
+    for index, item in enumerate(items[:-1]):
+        assert result.compute_starts[index + 1] >= result.compute_ends[index]
+
+    for tick in range(horizon + 1):
+        active_copies = sum(start <= tick < end for start, end in zip(result.load_starts, result.load_ends, strict=True))
+        assert active_copies <= copy_engines
+        resident_bytes = sum(
+            item.size
+            for item, load_start, compute_end in zip(items, result.load_starts, result.compute_ends, strict=True)
+            if load_start <= tick < compute_end
+        )
+        assert resident_bytes <= budget_bytes
+
+
+def test_timed_memory_schedule_uses_milp_for_non_fifo_copy_order():
+    import comfy.weight_cast_schedule as schedule
+
+    items = [
+        schedule._TimedScheduleItem(size=6, copy_cost=5, compute_cost=2),
+        schedule._TimedScheduleItem(size=2, copy_cost=1, compute_cost=5),
+        schedule._TimedScheduleItem(size=4, copy_cost=4, compute_cost=1),
+        schedule._TimedScheduleItem(size=3, copy_cost=2, compute_cost=4),
+        schedule._TimedScheduleItem(size=5, copy_cost=6, compute_cost=2),
+        schedule._TimedScheduleItem(size=1, copy_cost=1, compute_cost=3),
+        schedule._TimedScheduleItem(size=2, copy_cost=3, compute_cost=2),
+    ]
+
+    result = schedule._solve_timed_memory_schedule(items, budget_bytes=10, copy_engines=2)
+
+    _assert_timed_schedule_feasible(items, result, budget_bytes=10, copy_engines=2)
+    assert result.makespan == 26
+    assert result.load_order == (0, 1, 2, 3, 4, 6, 5)
+    assert result.load_starts == (0, 6, 8, 11, 13, 19, 14)
+    assert result.compute_starts == (5, 7, 12, 14, 19, 21, 24)
+
+
+def test_timed_memory_schedule_respects_non_prefetchable_items():
+    import comfy.weight_cast_schedule as schedule
+
+    items = [
+        schedule._TimedScheduleItem(size=3, copy_cost=2, compute_cost=3),
+        schedule._TimedScheduleItem(size=2, copy_cost=4, compute_cost=2, prefetchable=False),
+        schedule._TimedScheduleItem(size=3, copy_cost=2, compute_cost=3),
+    ]
+
+    result = schedule._solve_timed_memory_schedule(items, budget_bytes=6, copy_engines=2)
+
+    _assert_timed_schedule_feasible(items, result, budget_bytes=6, copy_engines=2)
+    assert result.compute_starts[1] == result.load_ends[1]
+
+
 def test_weight_prefetch_backend_auto_sizes_without_env(monkeypatch):
     from comfy import ops
     import comfy.weight_cast_schedule as schedule
