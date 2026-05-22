@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
 import logging
 import os
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import torch
 import torch.fx
 
+from . import model_management
 from .weight_cast import get_materialization_spec
 from .weight_cast_ops import get_registered_module
 
@@ -19,6 +21,23 @@ PREFETCH_LOOKAHEAD_ENV = "COMFY_WEIGHT_PREFETCH_LOOKAHEAD"
 PREFETCH_MAX_WEIGHT_MB_ENV = "COMFY_WEIGHT_PREFETCH_MAX_WEIGHT_MB"
 DEFAULT_PREFETCH_MAX_WEIGHT_BYTES = 256 * 1024 * 1024
 PATCH_MATERIALIZATION_RESERVATION_FACTOR = 3
+AUTO_BUDGET_HEADROOM_BYTES = 1024 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _ScheduleItem:
+    node: torch.fx.Node
+    kind: str
+    size: int
+    release: torch.fx.Node | None
+    prefetchable: bool
+
+
+@dataclass(frozen=True)
+class _ScheduleDecision:
+    scheduled: bool
+    dependencies: tuple[int, ...]
+    reserved_size: int
 
 
 def _target_name(node: torch.fx.Node) -> str:
@@ -228,6 +247,37 @@ def _prefetch_nbytes(node: torch.fx.Node) -> int:
     return _reserve_patch_materialization_scratch(module, module_bytes)
 
 
+def _first_cuda_device(example_inputs: list[torch.Tensor]) -> torch.device | None:
+    for value in example_inputs:
+        if isinstance(value, torch.Tensor) and value.device.type == "cuda":
+            return value.device
+    return None
+
+
+def _auto_prefetch_budget_bytes(example_inputs: list[torch.Tensor], required_bytes: int) -> int | None:
+    device = _first_cuda_device(example_inputs)
+    if device is None or required_bytes <= 0:
+        return None
+    try:
+        free_bytes = int(model_management.get_free_memory(device))
+        reserved_bytes = int(model_management.extra_reserved_memory()) + AUTO_BUDGET_HEADROOM_BYTES
+    except Exception:
+        return None
+    usable_bytes = max(0, free_bytes - reserved_bytes)
+    if usable_bytes <= 0:
+        return None
+    return min(required_bytes, usable_bytes)
+
+
+def _auto_prefetch_lookahead(sizes: list[int], budget_bytes: int | None) -> int:
+    if not sizes or budget_bytes is None or budget_bytes <= 0:
+        return 0
+    # Auto mode is constrained by measured memory credits, not by a fixed
+    # window. Let every traced use be considered; the budget/release-token
+    # solver decides which loads can actually be in flight.
+    return len(sizes)
+
+
 def _module_debug_name(value: Any) -> str:
     module = _module_from_arg(value)
     if module is None:
@@ -254,136 +304,178 @@ def schedule_weight_prefetches(
     That makes the copy synchronous at the point of use. This pass makes the
     memory resource visible as graph dataflow: prefetches consume a memory
     token, and releases return one. A future prefetch is schedulable as soon as
-    the graph has produced enough release tokens to satisfy the configured
-    budget.
+    the graph has produced enough release tokens to satisfy the budget. With a
+    lookahead at least as large as the traced use count, this is the earliest
+    feasible schedule for an ordered forward: initial loads start from the seed
+    until capacity is exhausted, and each later load depends only on the exact
+    release tokens needed to make room.
     """
     lookahead = max(0, int(lookahead))
     if lookahead == 0 or budget_bytes is None or budget_bytes <= 0:
         return gm
     graph = gm.graph
-    resolve_nodes = [node for node in graph.nodes if _is_resolve_weight(node) or _is_resolve_weight_bias(node)]
-    materialize_nodes = [node for node in graph.nodes if _is_materialize_fp8(node)]
-    if not resolve_nodes and not materialize_nodes:
+    items = _collect_schedule_items(graph)
+    if not items:
         return gm
 
-    memory_seed = _insert_memory_seed(graph, (resolve_nodes or materialize_nodes)[0])
-    _schedule_weight_resolves(graph, resolve_nodes, memory_seed, budget_bytes, lookahead, max_weight_bytes)
-    _schedule_fp8_materializations(graph, materialize_nodes, memory_seed, budget_bytes, lookahead)
+    memory_seed = _insert_memory_seed(graph, items[0].node)
+    _schedule_memory_items(graph, items, memory_seed, budget_bytes, lookahead, max_weight_bytes)
 
     graph.lint()
     gm.recompile()
     return gm
 
 
-def _schedule_weight_resolves(
+def _collect_schedule_items(graph: torch.fx.Graph) -> list[_ScheduleItem]:
+    release_nodes = _release_nodes_by_invocation(graph)
+    items: list[_ScheduleItem] = []
+    for node in graph.nodes:
+        if _is_resolve_weight(node) or _is_resolve_weight_bias(node):
+            invocation = _resolve_invocation(node)
+            items.append(
+                _ScheduleItem(
+                    node=node,
+                    kind="resolve",
+                    size=max(1, _resolve_nbytes(node)),
+                    release=release_nodes.get(invocation),
+                    prefetchable=_can_prefetch_resolve(node),
+                )
+            )
+        elif _is_materialize_fp8(node):
+            items.append(
+                _ScheduleItem(
+                    node=node,
+                    kind="materialize",
+                    size=max(1, _materialization_nbytes(node)),
+                    release=_last_user_node(graph, node),
+                    prefetchable=True,
+                )
+            )
+    return items
+
+
+def _schedule_memory_items(
     graph: torch.fx.Graph,
-    resolve_nodes: list[torch.fx.Node],
+    items: list[_ScheduleItem],
     memory_seed: torch.fx.Node,
     budget_bytes: int,
     lookahead: int,
     max_weight_bytes: int | None,
 ) -> None:
-    release_nodes = _release_nodes_by_invocation(graph)
-    resolve_sizes = [_resolve_nbytes(node) for node in resolve_nodes]
-    in_flight: list[tuple[int, torch.fx.Node]] = []
     insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
-    resident_bytes = 0
+    decisions = _solve_memory_schedule(
+        items,
+        budget_bytes=budget_bytes,
+        lookahead=lookahead,
+        max_weight_bytes=max_weight_bytes,
+    )
+    release_tokens: dict[int, torch.fx.Node] = {}
 
-    for index, node in enumerate(resolve_nodes):
+    for index, item in enumerate(items):
+        node = item.node
         if node.graph is None:
             continue
-        args = tuple(node.args)
-        invocation = _resolve_invocation(node)
-        release = release_nodes.get(invocation)
-        size = max(1, resolve_sizes[index])
+        release = item.release
+        decision = decisions[index]
 
         if release is None:
             continue
-        if not _can_prefetch_resolve(node):
-            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
-            in_flight.append((budget_bytes, release_token))
-            resident_bytes += budget_bytes
+
+        if not decision.scheduled:
+            release_token = _reserve_unscheduled_item(graph, item, release, memory_seed)
+            release_tokens[index] = release_token
             continue
 
-        if size > budget_bytes or (max_weight_bytes is not None and size > max_weight_bytes):
-            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
-            in_flight.append((budget_bytes, release_token))
-            resident_bytes += budget_bytes
-            continue
-
-        freed_tokens: list[torch.fx.Node] = []
-        while (len(in_flight) >= lookahead or resident_bytes + size > budget_bytes) and in_flight:
-            freed_size, freed_token = in_flight.pop(0)
-            resident_bytes -= freed_size
-            freed_tokens.append(freed_token)
-
-        if resident_bytes + size > budget_bytes:
-            release_token = _replace_release_with_memory_token(graph, release, memory_seed)
-            in_flight = [(budget_bytes, release_token)]
-            resident_bytes = budget_bytes
-            continue
+        freed_tokens = [release_tokens[dependency] for dependency in decision.dependencies]
 
         memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
-        prefetch = _insert_prefetch_after_memory_token(graph, node, memory_token, insertion_anchors)
-
-        with graph.inserting_before(node):
-            if _is_resolve_weight_bias(node):
-                new_args = args[:3] + (prefetch,) + args[3:]
-                resolved = graph.call_function(torch.ops.comfy_weight.resolve_prefetched_weight_bias, args=new_args)
-            else:
-                new_args = args[:2] + (prefetch,) + args[2:]
-                resolved = graph.call_function(torch.ops.comfy_weight.resolve_prefetched_weight, args=new_args)
-            resolved.meta.update(node.meta)
-
-        node.replace_all_uses_with(resolved)
-        graph.erase_node(node)
-        release_token = _replace_release_with_memory_token(graph, release, prefetch)
-        in_flight.append((size, release_token))
-        resident_bytes += size
+        if item.kind == "resolve":
+            active_token = _rewrite_resolve_with_prefetch(graph, node, memory_token, insertion_anchors)
+            release_token = _replace_release_with_memory_token(graph, release, active_token)
+        else:
+            active_token = _replace_materialization_with_memory_token(graph, node, memory_token, insertion_anchors)
+            release_token = _insert_materialization_release(graph, release, active_token, memory_token)
+        release_tokens[index] = release_token
 
 
-def _schedule_fp8_materializations(
-    graph: torch.fx.Graph,
-    materialize_nodes: list[torch.fx.Node],
-    memory_seed: torch.fx.Node,
+def _solve_memory_schedule(
+    items: list[_ScheduleItem],
+    *,
     budget_bytes: int,
     lookahead: int,
-) -> None:
-    in_flight: list[tuple[int, torch.fx.Node]] = []
-    insertion_anchors: dict[torch.fx.Node, torch.fx.Node] = {}
+    max_weight_bytes: int | None,
+) -> list[_ScheduleDecision]:
+    in_flight: list[tuple[int, int]] = []
     resident_bytes = 0
+    decisions: list[_ScheduleDecision] = []
 
-    for node in materialize_nodes:
-        if node.graph is None:
+    for index, item in enumerate(items):
+        size = item.size
+        if item.release is None:
+            decisions.append(_ScheduleDecision(False, (), 0))
             continue
-        size = max(1, _materialization_nbytes(node))
-        release_anchor = _last_user_node(graph, node)
-        if release_anchor is None:
+        can_schedule = (
+            item.prefetchable
+            and size <= budget_bytes
+            and not (item.kind == "resolve" and max_weight_bytes is not None and size > max_weight_bytes)
+        )
+        if not can_schedule:
+            decisions.append(_ScheduleDecision(False, (), budget_bytes))
+            in_flight.append((budget_bytes, index))
+            resident_bytes += budget_bytes
             continue
 
-        if size > budget_bytes:
-            release_token = _insert_materialization_release(graph, release_anchor, node, memory_seed)
-            in_flight = [(budget_bytes, release_token)]
-            resident_bytes = budget_bytes
-            continue
-
-        freed_tokens: list[torch.fx.Node] = []
+        freed: list[int] = []
         while (len(in_flight) >= lookahead or resident_bytes + size > budget_bytes) and in_flight:
-            freed_size, freed_token = in_flight.pop(0)
+            freed_size, freed_index = in_flight.pop(0)
             resident_bytes -= freed_size
-            freed_tokens.append(freed_token)
+            freed.append(freed_index)
 
         if resident_bytes + size > budget_bytes:
-            release_token = _insert_materialization_release(graph, release_anchor, node, memory_seed)
-            in_flight = [(budget_bytes, release_token)]
+            decisions.append(_ScheduleDecision(False, (), budget_bytes))
+            in_flight = [(budget_bytes, index)]
             resident_bytes = budget_bytes
             continue
 
-        memory_token = _join_memory_tokens(graph, freed_tokens, memory_seed, node)
-        accounted = _replace_materialization_with_memory_token(graph, node, memory_token, insertion_anchors)
-        release_token = _insert_materialization_release(graph, release_anchor, accounted, memory_token)
-        in_flight.append((size, release_token))
+        decisions.append(_ScheduleDecision(True, tuple(freed), size))
+        in_flight.append((size, index))
         resident_bytes += size
+
+    return decisions
+
+
+def _reserve_unscheduled_item(
+    graph: torch.fx.Graph,
+    item: _ScheduleItem,
+    release: torch.fx.Node,
+    memory_seed: torch.fx.Node,
+) -> torch.fx.Node:
+    if item.kind == "resolve":
+        return _replace_release_with_memory_token(graph, release, memory_seed)
+    return _insert_materialization_release(graph, release, item.node, memory_seed)
+
+
+def _rewrite_resolve_with_prefetch(
+    graph: torch.fx.Graph,
+    node: torch.fx.Node,
+    memory_token: torch.fx.Node,
+    insertion_anchors: dict[torch.fx.Node, torch.fx.Node],
+) -> torch.fx.Node:
+    args = tuple(node.args)
+    prefetch = _insert_prefetch_after_memory_token(graph, node, memory_token, insertion_anchors)
+
+    with graph.inserting_before(node):
+        if _is_resolve_weight_bias(node):
+            new_args = args[:3] + (prefetch,) + args[3:]
+            resolved = graph.call_function(torch.ops.comfy_weight.resolve_prefetched_weight_bias, args=new_args)
+        else:
+            new_args = args[:2] + (prefetch,) + args[2:]
+            resolved = graph.call_function(torch.ops.comfy_weight.resolve_prefetched_weight, args=new_args)
+        resolved.meta.update(node.meta)
+
+    node.replace_all_uses_with(resolved)
+    graph.erase_node(node)
+    return prefetch
 
 
 def _resolve_invocation(node: torch.fx.Node) -> tuple[Any, Any]:
@@ -531,13 +623,25 @@ def wrap_backend_with_weight_prefetch_scheduler(
         compile_backend = backend
 
     def scheduled_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor], **kwargs):
-        effective_lookahead = int(os.environ.get(PREFETCH_LOOKAHEAD_ENV, lookahead))
+        resolve_nodes = [node for node in gm.graph.nodes if _is_resolve_weight(node) or _is_resolve_weight_bias(node)]
+        materialize_nodes = [node for node in gm.graph.nodes if _is_materialize_fp8(node)]
+        schedule_sizes = [_resolve_nbytes(node) for node in resolve_nodes] + [_materialization_nbytes(node) for node in materialize_nodes]
+        required_bytes = sum(max(1, size) for size in schedule_sizes)
+
+        explicit_lookahead = os.environ.get(PREFETCH_LOOKAHEAD_ENV)
+        effective_lookahead = int(explicit_lookahead) if explicit_lookahead is not None else int(lookahead)
         effective_budget = budget_bytes
         if os.environ.get(PREFETCH_BUDGET_MB_ENV):
             effective_budget = int(os.environ[PREFETCH_BUDGET_MB_ENV]) * 1024 * 1024
-            if effective_lookahead == 0:
-                effective_lookahead = 4
+            if explicit_lookahead is None and effective_lookahead == 0:
+                effective_lookahead = _auto_prefetch_lookahead(schedule_sizes, effective_budget)
+        elif effective_budget is None:
+            effective_budget = _auto_prefetch_budget_bytes(example_inputs, required_bytes)
+            if explicit_lookahead is None and effective_lookahead == 0:
+                effective_lookahead = _auto_prefetch_lookahead(schedule_sizes, effective_budget)
         effective_max_weight = DEFAULT_PREFETCH_MAX_WEIGHT_BYTES
+        if effective_budget is not None and not os.environ.get(PREFETCH_MAX_WEIGHT_MB_ENV):
+            effective_max_weight = None
         if os.environ.get(PREFETCH_MAX_WEIGHT_MB_ENV):
             max_weight_mb = int(os.environ[PREFETCH_MAX_WEIGHT_MB_ENV])
             effective_max_weight = None if max_weight_mb <= 0 else max_weight_mb * 1024 * 1024

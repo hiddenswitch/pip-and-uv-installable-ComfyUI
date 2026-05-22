@@ -227,6 +227,157 @@ def test_weight_prefetch_scheduler_lookahead_zero_leaves_demand_resolves():
     assert "comfy_weight.prefetch_weight_bias" not in graph_text
 
 
+def test_memory_schedule_solver_emits_earliest_capacity_dependencies():
+    import comfy.weight_cast_schedule as schedule
+
+    items = [
+        schedule._ScheduleItem(None, "resolve", 4, object(), True),
+        schedule._ScheduleItem(None, "resolve", 2, object(), True),
+        schedule._ScheduleItem(None, "resolve", 2, object(), True),
+        schedule._ScheduleItem(None, "resolve", 3, object(), True),
+        schedule._ScheduleItem(None, "resolve", 1, object(), True),
+    ]
+
+    decisions = schedule._solve_memory_schedule(
+        items,
+        budget_bytes=6,
+        lookahead=len(items),
+        max_weight_bytes=None,
+    )
+
+    assert [decision.scheduled for decision in decisions] == [True] * len(items)
+    assert [decision.dependencies for decision in decisions] == [
+        (),
+        (),
+        (0,),
+        (1,),
+        (),
+    ]
+
+
+def test_memory_schedule_solver_handles_unscheduled_items_as_full_capacity_barriers():
+    import comfy.weight_cast_schedule as schedule
+
+    items = [
+        schedule._ScheduleItem(None, "resolve", 2, object(), True),
+        schedule._ScheduleItem(None, "resolve", 2, object(), False),
+        schedule._ScheduleItem(None, "resolve", 2, object(), True),
+    ]
+
+    decisions = schedule._solve_memory_schedule(
+        items,
+        budget_bytes=4,
+        lookahead=len(items),
+        max_weight_bytes=None,
+    )
+
+    assert [decision.scheduled for decision in decisions] == [True, False, True]
+    assert decisions[2].dependencies == (0, 1)
+
+
+def test_weight_prefetch_backend_auto_sizes_without_env(monkeypatch):
+    from comfy import ops
+    import comfy.weight_cast_schedule as schedule
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+
+    monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_BUDGET_MB", raising=False)
+    monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_LOOKAHEAD", raising=False)
+    monkeypatch.setattr(schedule, "_first_cuda_device", lambda example_inputs: torch.device("cuda:0"))
+    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 2 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(schedule.model_management, "extra_reserved_memory", lambda: 128 * 1024 * 1024)
+
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(3)]
+    args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    graphs = []
+
+    def inner_backend(gm, example_inputs, **kwargs):
+        graphs.append(gm)
+        return gm.forward
+
+    backend = schedule.wrap_backend_with_weight_prefetch_scheduler(inner_backend)
+
+    def fn(x):
+        total = x
+        for layer_args in args:
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *layer_args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, layer_args[2], layer_args[3])
+        return total
+
+    compiled = torch.compile(fn, backend=backend)
+    compiled(torch.randn(1, 2))
+
+    graph_text = graphs[0].code
+    assert "comfy_weight.prefetch_weight_bias_after" in graph_text
+    assert "comfy_weight.resolve_prefetched_weight_bias" in graph_text
+
+
+def test_weight_prefetch_backend_auto_solves_large_weights_from_memory(monkeypatch):
+    from comfy import ops
+    import comfy.weight_cast_schedule as schedule
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+
+    one_gib = 1024 * 1024 * 1024
+    monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_BUDGET_MB", raising=False)
+    monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_LOOKAHEAD", raising=False)
+    monkeypatch.delenv("COMFY_WEIGHT_PREFETCH_MAX_WEIGHT_MB", raising=False)
+    monkeypatch.setattr(schedule, "_first_cuda_device", lambda example_inputs: torch.device("cuda:0"))
+    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 3 * one_gib)
+    monkeypatch.setattr(schedule.model_management, "extra_reserved_memory", lambda: 0)
+
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(6)]
+    args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    graphs = []
+
+    monkeypatch.setattr(schedule, "_resolve_nbytes", lambda node: one_gib)
+
+    def inner_backend(gm, example_inputs, **kwargs):
+        graphs.append(gm)
+        return gm.forward
+
+    backend = schedule.wrap_backend_with_weight_prefetch_scheduler(inner_backend)
+
+    def fn(x):
+        total = x
+        for layer_args in args:
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *layer_args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, layer_args[2], layer_args[3])
+        return total
+
+    compiled = torch.compile(fn, backend=backend)
+    compiled(torch.randn(1, 2))
+
+    graph = graphs[0].graph
+    prefetches = _node_target_contains(graph, "prefetch_weight_bias_after")
+    releases = _node_target_contains(graph, "release_memory_")
+
+    assert len(prefetches) == 6
+    assert len(releases) == 6
+    assert not _node_depends_on(prefetches[0], releases[0])
+    assert not _node_depends_on(prefetches[1], releases[0])
+    assert _node_depends_on(prefetches[2], releases[0])
+    assert not _node_depends_on(prefetches[2], releases[1])
+    assert _node_depends_on(prefetches[3], releases[1])
+    assert not _node_depends_on(prefetches[3], releases[0])
+
+
 def test_compiled_manual_cast_uses_graph_visible_op_even_when_resident(monkeypatch):
     from comfy import ops
     from comfy import weight_cast
@@ -1387,6 +1538,76 @@ def test_fp8_materialization_scheduler_models_reusable_memory_slots(monkeypatch)
     assert not _node_depends_on(materializes[2], releases[1])
     assert _node_depends_on(materializes[3], releases[1])
     assert not _node_depends_on(materializes[3], releases[0])
+
+
+def test_weight_prefetch_scheduler_solves_unified_flux_like_memory_graph(monkeypatch):
+    from comfy import ops, quant_ops
+    import comfy.weight_cast_schedule as schedule
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+
+    one_gib = 1024 * 1024 * 1024
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(3)]
+    layer_args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    graphs = []
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    monkeypatch.setattr(schedule, "_resolve_nbytes", lambda node: one_gib)
+    monkeypatch.setattr(schedule, "_materialization_nbytes", lambda node: one_gib)
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(
+            schedule.schedule_weight_prefetches(
+                gm,
+                lookahead=128,
+                budget_bytes=2 * one_gib,
+                max_weight_bytes=None,
+            )
+        )
+        return graphs[-1].forward
+
+    def fn(x, qdata_1, qdata_2, qdata_3, scale):
+        total = x
+        for args, qdata in zip(layer_args, (qdata_1, qdata_2, qdata_3), strict=True):
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, args[2], args[3])
+            materialized = quant_ops.materialize_per_tensor_fp8(qdata, scale, torch.bfloat16)
+            total = total + materialized.float().sum().to(total.dtype)
+        return total
+
+    qdatas = [torch.zeros(2, 2, dtype=torch.float8_e4m3fn) for _ in range(3)]
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2), *qdatas, scale)
+
+    graph = graphs[0].graph
+    memory_ops = [
+        node
+        for node in graph.nodes
+        if "prefetch_weight_bias_after" in str(node.target) or "materialize_per_tensor_fp8_after" in str(node.target)
+    ]
+    releases = [
+        node
+        for node in graph.nodes
+        if "release_memory_" in str(node.target) or "release_materialization_" in str(node.target)
+    ]
+
+    assert len(memory_ops) == 6
+    assert len(releases) == 6
+    assert not _node_depends_on(memory_ops[0], releases[0])
+    assert not _node_depends_on(memory_ops[1], releases[0])
+    assert _node_depends_on(memory_ops[2], releases[0])
+    assert not _node_depends_on(memory_ops[2], releases[1])
+    assert _node_depends_on(memory_ops[3], releases[1])
+    assert not _node_depends_on(memory_ops[3], releases[0])
 
 
 def test_fp8_materialization_scheduler_respects_budget(monkeypatch):
