@@ -1511,6 +1511,25 @@ def test_fp8_materialization_after_uses_memory_token_device_in_fake_mode():
     assert out.dtype is torch.bfloat16
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_fp8_materialization_after_compiles_cpu_storage_to_cuda_output():
+    import comfy.quant_ops  # noqa: F401
+
+    def fn(token, qdata, scale):
+        return torch.ops.comfy_quant.materialize_per_tensor_fp8_after(token, qdata, scale, 2, 0)
+
+    qdata = torch.randn(8, 8, dtype=torch.bfloat16).to(torch.float8_e4m3fn)
+    scale = torch.ones((), dtype=torch.float32)
+    token = torch.empty((), device="cuda", dtype=torch.int64)
+    compiled = torch.compile(fn, backend="inductor", mode="max-autotune")
+
+    out = compiled(token, qdata, scale)
+
+    assert out.device.type == "cuda"
+    assert out.dtype is torch.bfloat16
+    assert torch.isfinite(out.float()).all()
+
+
 def test_fp8_materialization_scheduler_models_reusable_memory_slots(monkeypatch):
     from comfy import quant_ops
     from comfy.weight_cast_schedule import schedule_weight_prefetches
