@@ -84,7 +84,19 @@ def _materialize_per_tensor_fp8_after(
     output_dtype_code: int,
     mode_code: int,
 ) -> torch.Tensor:
-    return _materialize_per_tensor_fp8(qdata, scale, output_dtype_code, mode_code)
+    output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
+    device = memory_token.device
+    if qdata.device == device:
+        return _materialize_per_tensor_fp8(qdata, scale, output_dtype_code, mode_code)
+    if mode_code == _FP8_MATERIALIZATION_CODES["torch"]:
+        return qdata.to(device=device, dtype=output_dtype) * scale.to(device=device, dtype=output_dtype)
+    if mode_code == _FP8_MATERIALIZATION_CODES["comfy_kitchen"] and _CK_AVAILABLE:
+        qdata_device = qdata.to(device=device)
+        return ck.dequantize_per_tensor_fp8(qdata_device, scale.to(device=device), output_dtype)
+    if _CK_AVAILABLE and not _fp8e4m3fn_triton_unsupported(device):
+        qdata_device = qdata.to(device=device)
+        return ck.dequantize_per_tensor_fp8(qdata_device, scale.to(device=device), output_dtype)
+    return qdata.to(device=device, dtype=output_dtype) * scale.to(device=device, dtype=output_dtype)
 
 
 @_materialize_per_tensor_fp8_after.register_fake
@@ -95,7 +107,7 @@ def _materialize_per_tensor_fp8_after_fake(
     output_dtype_code: int,
     mode_code: int,
 ) -> torch.Tensor:
-    return qdata.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
+    return memory_token.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
 
 
 @torch.library.custom_op(

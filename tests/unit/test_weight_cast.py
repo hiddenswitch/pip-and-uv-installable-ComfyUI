@@ -1498,6 +1498,19 @@ def test_fp8_materialization_scheduler_threads_memory_credits(monkeypatch):
     assert "comfy_quant.release_materialization_" in graph_text
 
 
+def test_fp8_materialization_after_uses_memory_token_device_in_fake_mode():
+    import comfy.quant_ops  # noqa: F401
+
+    with torch._subclasses.fake_tensor.FakeTensorMode():
+        token = torch.empty((), device="cuda")
+        qdata = torch.empty(4, 4, dtype=torch.float8_e4m3fn, device="cpu")
+        scale = torch.ones((), dtype=torch.float32, device="cpu")
+        out = torch.ops.comfy_quant.materialize_per_tensor_fp8_after(token, qdata, scale, 2, 1)
+
+    assert out.device.type == "cuda"
+    assert out.dtype is torch.bfloat16
+
+
 def test_fp8_materialization_scheduler_models_reusable_memory_slots(monkeypatch):
     from comfy import quant_ops
     from comfy.weight_cast_schedule import schedule_weight_prefetches
