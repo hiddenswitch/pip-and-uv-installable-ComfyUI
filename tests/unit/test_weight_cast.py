@@ -297,6 +297,72 @@ def _assert_timed_schedule_feasible(items, result, *, budget_bytes, copy_engines
         assert resident_bytes <= budget_bytes
 
 
+def _fifo_timed_schedule_makespan(items, *, budget_bytes, copy_engines):
+    time = 0
+    next_compute = 0
+    resident: set[int] = set()
+    ready: set[int] = set()
+    copy_jobs: list[tuple[int, int]] = []
+    compute_job: tuple[int, int] | None = None
+
+    while next_compute < len(items):
+        changed = True
+        while changed:
+            changed = False
+            completed_copies = [(index, end) for index, end in copy_jobs if end <= time]
+            if completed_copies:
+                ready.update(index for index, _ in completed_copies)
+                copy_jobs = [(index, end) for index, end in copy_jobs if end > time]
+                changed = True
+            if compute_job is not None and compute_job[1] <= time:
+                index, _ = compute_job
+                resident.remove(index)
+                ready.discard(index)
+                next_compute = index + 1
+                compute_job = None
+                changed = True
+        if next_compute >= len(items):
+            break
+
+        if compute_job is None and next_compute in ready:
+            compute_job = (next_compute, time + items[next_compute].compute_cost)
+            continue
+
+        used_bytes = sum(items[index].size for index in resident)
+        started_copy = False
+        while len(copy_jobs) < copy_engines:
+            next_load = None
+            for candidate in range(next_compute, len(items)):
+                item = items[candidate]
+                if candidate in resident:
+                    continue
+                if not item.prefetchable and candidate != next_compute:
+                    break
+                if used_bytes + item.size <= budget_bytes:
+                    next_load = candidate
+                    break
+            if next_load is None:
+                break
+            item = items[next_load]
+            resident.add(next_load)
+            copy_jobs.append((next_load, time + item.copy_cost))
+            used_bytes += item.size
+            started_copy = True
+            if not item.prefetchable:
+                break
+        if started_copy:
+            continue
+
+        next_times = [end for _, end in copy_jobs]
+        if compute_job is not None:
+            next_times.append(compute_job[1])
+        if not next_times:
+            return None
+        time = min(candidate for candidate in next_times if candidate > time)
+
+    return max([time] + [end for _, end in copy_jobs] + ([compute_job[1]] if compute_job else []))
+
+
 def test_timed_memory_schedule_uses_milp_for_non_fifo_copy_order():
     import comfy.weight_cast_schedule as schedule
 
@@ -332,6 +398,36 @@ def test_timed_memory_schedule_respects_non_prefetchable_items():
 
     _assert_timed_schedule_feasible(items, result, budget_bytes=6, copy_engines=2)
     assert result.compute_starts[1] == result.load_ends[1]
+
+
+def test_timed_memory_schedule_optimizes_larger_mixed_trace_beyond_fifo():
+    import comfy.weight_cast_schedule as schedule
+
+    items = [
+        schedule._TimedScheduleItem(size=6, copy_cost=5, compute_cost=2),
+        schedule._TimedScheduleItem(size=2, copy_cost=1, compute_cost=5),
+        schedule._TimedScheduleItem(size=4, copy_cost=4, compute_cost=1),
+        schedule._TimedScheduleItem(size=3, copy_cost=2, compute_cost=4),
+        schedule._TimedScheduleItem(size=5, copy_cost=6, compute_cost=2),
+        schedule._TimedScheduleItem(size=1, copy_cost=1, compute_cost=3),
+        schedule._TimedScheduleItem(size=2, copy_cost=3, compute_cost=2),
+        schedule._TimedScheduleItem(size=4, copy_cost=2, compute_cost=4, prefetchable=False),
+        schedule._TimedScheduleItem(size=3, copy_cost=5, compute_cost=1),
+        schedule._TimedScheduleItem(size=2, copy_cost=1, compute_cost=3),
+        schedule._TimedScheduleItem(size=5, copy_cost=4, compute_cost=2),
+        schedule._TimedScheduleItem(size=1, copy_cost=2, compute_cost=2),
+    ]
+    budget_bytes = 10
+    copy_engines = 2
+
+    result = schedule._solve_timed_memory_schedule(items, budget_bytes=budget_bytes, copy_engines=copy_engines)
+    fifo_makespan = _fifo_timed_schedule_makespan(items, budget_bytes=budget_bytes, copy_engines=copy_engines)
+
+    _assert_timed_schedule_feasible(items, result, budget_bytes=budget_bytes, copy_engines=copy_engines)
+    assert fifo_makespan is not None
+    assert result.makespan < fifo_makespan
+    assert any(later < earlier for earlier, later in zip(result.load_order, result.load_order[1:], strict=False))
+    assert result.compute_starts[7] == result.load_ends[7]
 
 
 def test_weight_prefetch_backend_auto_sizes_without_env(monkeypatch):
@@ -1699,6 +1795,82 @@ def test_weight_prefetch_scheduler_solves_unified_flux_like_memory_graph(monkeyp
     assert not _node_depends_on(memory_ops[2], releases[1])
     assert _node_depends_on(memory_ops[3], releases[1])
     assert not _node_depends_on(memory_ops[3], releases[0])
+
+
+def test_weight_prefetch_scheduler_rewrites_larger_interleaved_fx_graph(monkeypatch):
+    from comfy import ops, quant_ops
+    import comfy.weight_cast_schedule as schedule
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+
+    layers = [ops.manual_cast.Linear(2, 2) for _ in range(10)]
+    layer_args = [
+        (
+            module_weight_shape(layer),
+            module_bias_shape(layer),
+            register_module(layer),
+            invocation,
+        )
+        for invocation, layer in enumerate(layers, start=1)
+    ]
+    resolve_sizes = [5, 2, 4, 1, 3, 6, 2, 5, 1, 4]
+    materialize_sizes = [2, 4, 1, 5, 2, 3, 6, 1, 4, 2]
+    graphs = []
+    resolve_iter = iter(resolve_sizes)
+    materialize_iter = iter(materialize_sizes)
+
+    monkeypatch.setenv("COMFYUI_FP8_MATERIALIZATION", "torch")
+    monkeypatch.setattr(schedule, "_resolve_nbytes", lambda node: next(resolve_iter))
+    monkeypatch.setattr(schedule, "_materialization_nbytes", lambda node: next(materialize_iter))
+
+    def capture_backend(gm, example_inputs):
+        graphs.append(
+            schedule.schedule_weight_prefetches(
+                gm,
+                lookahead=64,
+                budget_bytes=10,
+                max_weight_bytes=None,
+            )
+        )
+        return graphs[-1].forward
+
+    def fn(x, scale, *qdatas):
+        total = x
+        for index, (args, qdata) in enumerate(zip(layer_args, qdatas, strict=True)):
+            weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *args, 0, 0, 0, False, 0, -1)
+            total = total + torch.nn.functional.linear(x, weight, bias)
+            torch.ops.comfy_weight.release_(total, args[2], args[3])
+            if index % 3 == 1:
+                total = total.sin()
+            materialized = quant_ops.materialize_per_tensor_fp8(qdata, scale, torch.bfloat16)
+            total = total + materialized.float().sum().to(total.dtype)
+            if index % 4 == 2:
+                total = total + x.cos()
+        return total
+
+    qdatas = [torch.zeros(2, 2, dtype=torch.float8_e4m3fn) for _ in layers]
+    scale = torch.ones((), dtype=torch.float32)
+    compiled = torch.compile(fn, backend=capture_backend)
+    compiled(torch.randn(1, 2), scale, *qdatas)
+
+    graph = graphs[0].graph
+    graph_text = graphs[0].code
+    memory_ops = [
+        node
+        for node in graph.nodes
+        if "prefetch_weight_bias_after" in str(node.target) or "materialize_per_tensor_fp8_after" in str(node.target)
+    ]
+    releases = [
+        node
+        for node in graph.nodes
+        if "release_memory_" in str(node.target) or "release_materialization_" in str(node.target)
+    ]
+
+    assert len(memory_ops) == 20
+    assert len(releases) == 20
+    assert "resolve_prefetched_weight_bias" in graph_text
+    assert "comfy_weight.resolve_weight_bias" not in graph_text
+    assert "comfy_quant.materialize_per_tensor_fp8_after" in graph_text
+    assert graph_text.count("memory_join") >= 5
 
 
 def test_fp8_materialization_scheduler_respects_budget(monkeypatch):
