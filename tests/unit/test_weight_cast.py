@@ -792,6 +792,45 @@ def test_lowvram_patch_requantizes_to_original_layout():
     assert module.weight_lowvram_function is None
 
 
+def test_lowvram_patch_on_demand_keeps_quantized_source(monkeypatch):
+    from comfy import ops
+    from comfy.quant_ops import QuantizedTensor
+
+    if not ops.mixed_precision_quantization_available():
+        return
+
+    monkeypatch.setattr(ops, "lowvram_lora_materialization_policy", lambda: "on-demand")
+
+    source = torch.randn(8, 8, dtype=torch.bfloat16)
+    quantized = QuantizedTensor.from_float(source, "TensorCoreFP8E4M3Layout", scale="recalculate")
+    calls = []
+
+    class Module:
+        def __init__(self):
+            self.layout_type = "TensorCoreFP8E4M3Layout"
+            self.seed_key = "test.on_demand.weight"
+            self.weight = torch.nn.Parameter(quantized, requires_grad=False)
+            self.patch_fn = self.patch
+            self.weight_lowvram_function = self.patch_fn
+            self._v_signature = object()
+
+        def patch(self, weight):
+            calls.append(weight)
+            return weight + 1
+
+    module = Module()
+    old_weight = module.weight
+    patched, applied = ops._apply_lowvram_patch_on_cpu(module, "weight", module.weight, torch.bfloat16)
+
+    assert applied is True
+    assert patched.device.type == "cpu"
+    assert torch.allclose(patched, calls[0] + 1)
+    assert module.weight is old_weight
+    assert module.weight_lowvram_function is module.patch_fn
+    assert old_weight._qdata.numel() == quantized._qdata.numel()
+    assert module._v_signature is not None
+
+
 def test_large_lowvram_cpu_patch_trims_allocator(monkeypatch):
     from comfy import ops
 

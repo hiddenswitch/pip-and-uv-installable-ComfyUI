@@ -65,6 +65,7 @@ class PerformanceFeature(enum.Enum):
 
 COMFY_KITCHEN_BACKENDS = ("eager", "cuda", "triton")
 FP8_MATERIALIZATION_MODES = ("auto", "torch", "comfy_kitchen")
+LOWVRAM_LORA_MATERIALIZATION_MODES = ("quantized-cache", "on-demand")
 
 VRAM_MODES = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
 PRECISION_MODES = ("force_fp32", "force_fp16", "force_bf16")
@@ -193,6 +194,7 @@ class Configuration(dict):
         bf16_text_enc (bool): Store text encoder weights in bf16.
         supports_fp8_compute (bool): ComfyUI will act like if the device supports fp8 compute.
         fp8_materialization (str): Select how FP8 weights are materialized to bf16/fp16/fp32. auto leaves room for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.
+        lowvram_lora_materialization (str): Select how low-VRAM LoRA patches on quantized weights are materialized. quantized-cache bakes once and stores back in the original quantized layout; on-demand applies LoRA into a temporary materialized weight each resolve.
         cache_classic (bool): WARNING: Unused. Use the old style (aggressive) caching.
         cache_none (bool): Reduced RAM/VRAM usage at the expense of executing every node for each run.
         async_offload (Optional[int]): Use async weight offloading. An optional argument controls the amount of offload streams.
@@ -285,6 +287,7 @@ class Configuration(dict):
         self.enable_comfy_kitchen_backends: list[str] = []
         self.disable_comfy_kitchen_backends: list[str] = []
         self.fp8_materialization: str = "auto"
+        self.lowvram_lora_materialization: str = "quantized-cache"
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: float = 0.0
         self.disable_dynamic_vram: bool = False

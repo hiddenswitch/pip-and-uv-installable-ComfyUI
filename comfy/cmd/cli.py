@@ -28,6 +28,7 @@ from ..cli_args_types import (
     Configuration, LatentPreviewMethod, PerformanceFeature,
     VRAM_MODES, PRECISION_MODES, UNET_MODES, VAE_MODES, TEXT_ENC_MODES,
     ATTENTION_MODES, UPCAST_MODES, FP8_MATERIALIZATION_MODES,
+    LOWVRAM_LORA_MATERIALIZATION_MODES,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ _DEVICE_OPTS: list[tuple] = [
     ("enable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--enable-comfy-kitchen-backends", help="Re-enable comfy_kitchen quantization backends previously disabled by guess-settings or another flag. Comma-separated. Valid: eager, cuda, triton.")),
     ("disable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--disable-comfy-kitchen-backends", help="Disable comfy_kitchen quantization backends. Use this to skip an op backend that crashes on your hardware (e.g. triton fp8e4nv on Ampere). Comma-separated. Valid: eager, cuda, triton.")),
     ("fp8_materialization", str, typer.Option("auto", "--fp8-materialization", envvar="COMFYUI_FP8_MATERIALIZATION", help=f"Select how FP8 weights are materialized to bf16/fp16/fp32. Choices: {', '.join(FP8_MATERIALIZATION_MODES)}. auto is reserved for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.")),
+    ("lowvram_lora_materialization", str, typer.Option("quantized-cache", "--lowvram-lora-materialization", envvar="COMFY_LOWVRAM_LORA_MATERIALIZATION", help=f"Select how low-VRAM LoRA patches on quantized weights are materialized. Choices: {', '.join(LOWVRAM_LORA_MATERIALIZATION_MODES)}. quantized-cache bakes once and stores back in the original quantized layout; on-demand applies LoRA into a temporary materialized weight each resolve.")),
 ]
 
 _VRAM_OPTS: list[tuple] = [
@@ -380,6 +382,10 @@ def _build_config(params: dict) -> Configuration:
 
     if filtered.get("quantity", 1) < 1:
         raise typer.BadParameter("--quantity must be at least 1")
+    if filtered.get("lowvram_lora_materialization", "quantized-cache") not in LOWVRAM_LORA_MATERIALIZATION_MODES:
+        raise typer.BadParameter(
+            f"--lowvram-lora-materialization must be one of: {', '.join(LOWVRAM_LORA_MATERIALIZATION_MODES)}"
+        )
 
     for list_field in ("base_paths", "extra_model_paths_config", "panic_when",
                        "whitelist_custom_nodes", "blacklist_custom_nodes",

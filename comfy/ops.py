@@ -44,6 +44,7 @@ from .interruption import throw_exception_if_processing_interrupted
 logger = logging.getLogger(__name__)
 
 _DYNAMIC_VRAM_FP8_POLICIES = {"auto", "resident", "materialize"}
+_LOWVRAM_LORA_MATERIALIZATION_POLICIES = {"quantized-cache", "on-demand"}
 _CPU_MATERIALIZATION_BUFFERS = collections.OrderedDict()
 _CPU_MATERIALIZATION_BUFFER_LIMIT = 1
 _CPU_PATCH_TRIM_THRESHOLD = 128 * 1024 * 1024
@@ -67,6 +68,18 @@ def dynamic_vram_diag_enabled():
 
 def direct_materialize_pinning_enabled():
     return os.environ.get("COMFY_DIRECT_MATERIALIZE_PINNING", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def lowvram_lora_materialization_policy():
+    policy = (
+        os.environ.get("COMFY_LOWVRAM_LORA_MATERIALIZATION", None)
+        or getattr(args, "lowvram_lora_materialization", "quantized-cache")
+        or "quantized-cache"
+    ).strip().lower()
+    if policy not in _LOWVRAM_LORA_MATERIALIZATION_POLICIES:
+        logger.warning("Unknown COMFY_LOWVRAM_LORA_MATERIALIZATION=%r; using quantized-cache", policy)
+        return "quantized-cache"
+    return policy
 
 
 def _trim_cpu_allocator():
@@ -744,7 +757,7 @@ def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
     materialized = _materialize_tensor_on_cpu_for_lowvram_patch(tensor, dtype)
     patched = lowvram_fn(materialized)
     _bounce_mmap_tensors(lowvram_fn)
-    if cache_materialized:
+    if cache_materialized and lowvram_lora_materialization_policy() == "quantized-cache":
         cached = _requantize_patched_lowvram_weight(s, param_key, patched, tensor)
         setattr(s, param_key, cached)
         setattr(s, param_key + "_lowvram_function", None)

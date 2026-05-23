@@ -101,6 +101,12 @@ def test_default_values():
     assert config.normalvram is False
     assert config.novram is False
     assert config.cpu is False
+    assert config.lowvram_lora_materialization == "quantized-cache"
+
+
+def test_lowvram_lora_materialization_arg():
+    config = _config_from(lowvram_lora_materialization="on-demand")
+    assert config.lowvram_lora_materialization == "on-demand"
 
 
 def test_listen_and_port():
