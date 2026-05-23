@@ -478,6 +478,13 @@ jobs:
         run: |
           uv venv C:/venv --python python3
           uv pip install --python C:/venv/Scripts/python.exe torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+      - name: Install Windows runtime dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = "$env:TEMP\vc_redist.x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait
       - name: Write Overrides
         run: |
           cat <<'EOF' > excludes.txt
@@ -490,6 +497,7 @@ jobs:
       - name: Install ComfyUI
         run: |
           uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --prerelease allow ".[dev]" --inexact
+          C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
       - name: Install custom nodes
         run: |
           uv pip install --python C:/venv/Scripts/python.exe -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact || true
