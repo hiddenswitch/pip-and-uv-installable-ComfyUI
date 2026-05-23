@@ -683,6 +683,19 @@ def _materialize_tensor_on_cpu_for_lowvram_patch(tensor, dtype):
     return tensor.to(device=torch.device("cpu"), dtype=dtype, copy=True)
 
 
+def _release_replaced_quantized_storage(tensor):
+    if not isinstance(tensor, QuantizedTensor):
+        return
+    qdata = getattr(tensor, "_qdata", None)
+    if not isinstance(qdata, torch.Tensor):
+        return
+    _bounce_mmap_tensor(qdata)
+    try:
+        tensor._qdata = torch.empty((0,), dtype=qdata.dtype, device="cpu")
+    except Exception:
+        pass
+
+
 def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
     lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
     if lowvram_fn is None or tensor is None:
@@ -699,6 +712,7 @@ def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
             pass
         setattr(s, param_key, patched)
         setattr(s, param_key + "_lowvram_function", None)
+        _release_replaced_quantized_storage(tensor)
         s._v_signature = None
     if patched.device.type == "cpu" and patched.numel() * patched.element_size() >= _CPU_PATCH_TRIM_THRESHOLD:
         _trim_cpu_allocator()

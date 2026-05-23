@@ -730,6 +730,7 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
             return weight + 1
 
     module = Module()
+    old_weight = module.weight
     patched, applied = ops._apply_lowvram_patch_on_cpu(module, "weight", module.weight, torch.bfloat16)
 
     assert applied is True
@@ -740,6 +741,7 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
     assert torch.allclose(patched, calls[0] + 1)
     assert module.weight is patched
     assert module.weight_lowvram_function is None
+    assert old_weight._qdata.numel() == 0
     assert module._v_signature is None
 
 
