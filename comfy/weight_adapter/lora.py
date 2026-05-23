@@ -1,5 +1,6 @@
-import logging
 import contextlib
+import logging
+import os
 from typing import Optional
 
 import torch
@@ -127,17 +128,19 @@ class LoraDiff(WeightAdapterTrainBase):
 
 logger = logging.getLogger(__name__)
 CPU_LORA_CHUNK_BYTES = 8 * 1024 * 1024
+CPU_LORA_MAX_THREADS = max(1, int(os.environ.get("COMFY_CPU_LORA_MAX_THREADS", "8")))
 
 
 @contextlib.contextmanager
-def _single_threaded_cpu_lora():
+def _bounded_threaded_cpu_lora():
     previous = torch.get_num_threads()
-    if previous != 1:
-        torch.set_num_threads(1)
+    target = min(previous, CPU_LORA_MAX_THREADS)
+    if previous != target:
+        torch.set_num_threads(target)
     try:
         yield
     finally:
-        if previous != 1:
+        if previous != target:
             torch.set_num_threads(previous)
 
 
@@ -296,7 +299,7 @@ class LoRAAdapter(WeightAdapterBase):
                 scale = strength * alpha
                 row_size = max(1, weight[0].numel() * weight.element_size())
                 rows_per_chunk = max(1, CPU_LORA_CHUNK_BYTES // row_size)
-                with _single_threaded_cpu_lora():
+                with _bounded_threaded_cpu_lora():
                     for start in range(0, mat1_flat.shape[0], rows_per_chunk):
                         end = min(start + rows_per_chunk, mat1_flat.shape[0])
                         lora_chunk = torch.mm(mat1_flat[start:end], mat2_flat).reshape(weight[start:end].shape)

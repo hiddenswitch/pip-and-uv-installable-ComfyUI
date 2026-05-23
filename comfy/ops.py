@@ -687,9 +687,19 @@ def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
     lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
     if lowvram_fn is None or tensor is None:
         return tensor, False
+    cache_materialized = isinstance(tensor, QuantizedTensor)
     materialized = _materialize_tensor_on_cpu_for_lowvram_patch(tensor, dtype)
     patched = lowvram_fn(materialized)
     _bounce_mmap_tensors(lowvram_fn)
+    if cache_materialized:
+        patched = torch.nn.Parameter(patched.detach(), requires_grad=False)
+        try:
+            patched._model_dtype = dtype
+        except Exception:
+            pass
+        setattr(s, param_key, patched)
+        setattr(s, param_key + "_lowvram_function", None)
+        s._v_signature = None
     if patched.device.type == "cpu" and patched.numel() * patched.element_size() >= _CPU_PATCH_TRIM_THRESHOLD:
         _trim_cpu_allocator()
     return patched, True

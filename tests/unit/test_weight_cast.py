@@ -721,13 +721,16 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
 
     class Module:
         def __init__(self):
+            self.weight = torch.nn.Parameter(quantized, requires_grad=False)
             self.weight_lowvram_function = self.patch
+            self._v_signature = object()
 
         def patch(self, weight):
             calls.append(weight)
             return weight + 1
 
-    patched, applied = ops._apply_lowvram_patch_on_cpu(Module(), "weight", quantized, torch.bfloat16)
+    module = Module()
+    patched, applied = ops._apply_lowvram_patch_on_cpu(module, "weight", module.weight, torch.bfloat16)
 
     assert applied is True
     assert calls
@@ -735,6 +738,9 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
     assert calls[0].dtype is torch.bfloat16
     assert patched.device.type == "cpu"
     assert torch.allclose(patched, calls[0] + 1)
+    assert module.weight is patched
+    assert module.weight_lowvram_function is None
+    assert module._v_signature is None
 
 
 def test_large_lowvram_cpu_patch_trims_allocator(monkeypatch):
@@ -793,18 +799,19 @@ def test_cpu_lora_bake_uses_chunked_delta(monkeypatch):
     assert mm_shapes == [(2, 3), (2, 3), (2, 3)]
 
 
-def test_cpu_lora_bake_restores_torch_threads(monkeypatch):
+def test_cpu_lora_bake_bounds_and_restores_torch_threads(monkeypatch):
     from comfy.weight_adapter import lora as lora_adapter
 
     events = []
 
+    monkeypatch.setattr(lora_adapter, "CPU_LORA_MAX_THREADS", 4)
     monkeypatch.setattr(torch, "get_num_threads", lambda: 8)
     monkeypatch.setattr(torch, "set_num_threads", lambda value: events.append(value))
 
-    with lora_adapter._single_threaded_cpu_lora():
+    with lora_adapter._bounded_threaded_cpu_lora():
         events.append("body")
 
-    assert events == [1, "body", 8]
+    assert events == [4, "body", 8]
 
 
 def test_weight_prefetch_scheduler_respects_byte_budget():
@@ -1680,6 +1687,10 @@ def test_lowvram_materialization_vram_bytes_reserves_patch_scratch():
     assert (
         lowvram_materialization_vram_bytes(geometry, has_lowvram_patch=True)
         == final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
+    )
+    assert (
+        lowvram_materialization_vram_bytes(geometry, has_lowvram_patch=True, cpu_lowvram_patch=True)
+        == final_bytes
     )
 
 

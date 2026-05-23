@@ -232,10 +232,12 @@ def lowvram_materialization_geometry(module, param_key, tensor, model_dtype, fun
     return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
 
 
-def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvram_patch=False):
+def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvram_patch=False, cpu_lowvram_patch=False):
     final_bytes = memory_management.vram_aligned_size(geometry)
     if final_bytes == 0:
         return 0
+    if cpu_lowvram_patch:
+        return final_bytes
     if function_count <= 0 and not has_lowvram_patch:
         return final_bytes
     return final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
@@ -1883,6 +1885,7 @@ class ModelPatcherDynamic(ModelPatcher):
                         vram_geometry,
                         function_count=len(weight_function),
                         has_lowvram_patch=has_lowvram_patch,
+                        cpu_lowvram_patch=has_lowvram_patch and isinstance(weight, QuantizedTensor),
                     )
                     weight_cast.set_materialization_param(
                         m,
