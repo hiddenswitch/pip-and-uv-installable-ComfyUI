@@ -696,6 +696,33 @@ def _release_replaced_quantized_storage(tensor):
         pass
 
 
+def _requantize_patched_lowvram_weight(s, param_key, patched, original):
+    seed = utils.string_to_seed(getattr(s, "seed_key", param_key))
+    set_weight = getattr(s, "set_weight", None)
+    if set_weight is not None:
+        quantized = set_weight(patched, seed=seed, return_weight=True)
+    else:
+        layout_type = getattr(s, "layout_type", None)
+        if layout_type is None:
+            return torch.nn.Parameter(patched.detach(), requires_grad=False)
+        quantized = QuantizedTensor.from_float(
+            patched,
+            layout_type,
+            scale="recalculate",
+            stochastic_rounding=seed,
+            inplace_ops=True,
+        )
+        try:
+            quantized = quantized.to(original.dtype)
+        except Exception:
+            pass
+    try:
+        quantized._model_dtype = getattr(original, "_model_dtype", patched.dtype)
+    except Exception:
+        pass
+    return torch.nn.Parameter(quantized, requires_grad=False)
+
+
 def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
     lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
     if lowvram_fn is None or tensor is None:
@@ -705,12 +732,8 @@ def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
     patched = lowvram_fn(materialized)
     _bounce_mmap_tensors(lowvram_fn)
     if cache_materialized:
-        patched = torch.nn.Parameter(patched.detach(), requires_grad=False)
-        try:
-            patched._model_dtype = dtype
-        except Exception:
-            pass
-        setattr(s, param_key, patched)
+        cached = _requantize_patched_lowvram_weight(s, param_key, patched, tensor)
+        setattr(s, param_key, cached)
         setattr(s, param_key + "_lowvram_function", None)
         _release_replaced_quantized_storage(tensor)
         s._v_signature = None

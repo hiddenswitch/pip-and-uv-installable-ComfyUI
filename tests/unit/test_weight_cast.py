@@ -721,6 +721,8 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
 
     class Module:
         def __init__(self):
+            self.layout_type = "TensorCoreFP8E4M3Layout"
+            self.seed_key = "test.weight"
             self.weight = torch.nn.Parameter(quantized, requires_grad=False)
             self.weight_lowvram_function = self.patch
             self._v_signature = object()
@@ -729,8 +731,15 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
             calls.append(weight)
             return weight + 1
 
+        def set_weight(self, weight, inplace_update=False, seed=None, return_weight=False, **kwargs):
+            out = QuantizedTensor.from_float(weight, self.layout_type, scale="recalculate", stochastic_rounding=seed)
+            if return_weight:
+                return out
+            self.weight = torch.nn.Parameter(out, requires_grad=False)
+
     module = Module()
     old_weight = module.weight
+    old_storage_numel = old_weight._qdata.numel()
     patched, applied = ops._apply_lowvram_patch_on_cpu(module, "weight", module.weight, torch.bfloat16)
 
     assert applied is True
@@ -739,7 +748,9 @@ def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
     assert calls[0].dtype is torch.bfloat16
     assert patched.device.type == "cpu"
     assert torch.allclose(patched, calls[0] + 1)
-    assert module.weight is patched
+    assert module.weight is not patched
+    assert isinstance(module.weight, QuantizedTensor)
+    assert module.weight._qdata.numel() == old_storage_numel
     assert module.weight_lowvram_function is None
     assert old_weight._qdata.numel() == 0
     assert module._v_signature is None
