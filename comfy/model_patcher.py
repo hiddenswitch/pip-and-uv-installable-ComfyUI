@@ -158,7 +158,8 @@ class LowVramPatch:
 
     def __call__(self, weight):
         patches = self.prepared_patches if self.prepared_patches is not None else self.patches[self.key]
-        return lora.calculate_weight(patches, weight, self.key, intermediate_dtype=weight.dtype)
+        intermediate_dtype = torch.float32 if weight.device.type == "cpu" else weight.dtype
+        return lora.calculate_weight(patches, weight, self.key, intermediate_dtype=intermediate_dtype)
 
 LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR = 2
 
