@@ -514,6 +514,11 @@ jobs:
             [ "$attempt" -eq 3 ] && exit 1
             sleep 15
           done
+      - name: Repair Windows OpenCV wheel
+        run: |
+          uv pip uninstall --python C:/venv/Scripts/python.exe opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
+          uv pip install --python C:/venv/Scripts/python.exe -U --no-deps opencv-python-headless
+          C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
       - name: Lint for errors
         run: |
           C:/venv/Scripts/ruff.exe check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
