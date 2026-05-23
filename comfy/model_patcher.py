@@ -877,6 +877,11 @@ class ModelPatcher(ModelManageable, PatchSupport):
                         sd.pop(k)
             return sd
 
+    def _consume_baked_patch(self, key):
+        if key in self.patches:
+            self.patches.pop(key)
+            self.patches_uuid = uuid.uuid4()
+
     def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False, force_cast=False, discard_quantized_backup=False):
         weight, set_func, convert_func = get_key_weight(self.model, key)
         if key not in self.patches and not force_cast:
@@ -889,7 +894,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         if key not in self.backup and not return_weight and not skip_backup:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
-        if is_quantized(weight):
+        if is_quantized(weight) or isinstance(weight, QuantizedTensor):
             if not isinstance(weight, QuantizedTensor):
                 out_weight = weight.to(device_to)
                 if has_patches:
@@ -911,7 +916,10 @@ class ModelPatcher(ModelManageable, PatchSupport):
                 out_weight = lora.calculate_weight(self.patches[key], temp_weight, key, intermediate_dtype=torch.float32)
 
                 if set_func is not None:
-                    return set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
+                    out_weight = set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
+                    if discard_quantized_backup and not return_weight:
+                        self._consume_baked_patch(key)
+                    return out_weight
 
                 if return_weight:
                     return out_weight
@@ -919,6 +927,8 @@ class ModelPatcher(ModelManageable, PatchSupport):
                     utils.copy_to_param(self.model, key, out_weight)
                 else:
                     utils.set_attr_param(self.model, key, out_weight)
+                if discard_quantized_backup:
+                    self._consume_baked_patch(key)
                 return
 
             out_weight = weight.to(device_to)

@@ -260,6 +260,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
 
         self.assertIsInstance(model.layer.weight, QuantizedTensor)
         self.assertNotIn("layer.weight", patcher.backup)
+        self.assertNotIn("layer.weight", patcher.patches)
         self.assertFalse(hasattr(model.layer.weight, "patches"))
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
