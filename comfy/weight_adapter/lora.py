@@ -127,7 +127,7 @@ class LoraDiff(WeightAdapterTrainBase):
 
 
 logger = logging.getLogger(__name__)
-CPU_LORA_CHUNK_BYTES = 8 * 1024 * 1024
+CPU_LORA_CHUNK_BYTES = max(1, int(os.environ.get("COMFY_CPU_LORA_CHUNK_MB", "256"))) * 1024 * 1024
 CPU_LORA_MAX_THREADS = max(1, int(os.environ.get("COMFY_CPU_LORA_MAX_THREADS", "8")))
 
 
