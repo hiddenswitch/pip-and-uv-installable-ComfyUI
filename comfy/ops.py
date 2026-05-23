@@ -659,6 +659,8 @@ def _cpu_materialization_buffer(shape, dtype):
     buffer = _CPU_MATERIALIZATION_BUFFERS.pop(key, None)
     if buffer is None:
         buffer = torch.empty(key[0], dtype=dtype, device="cpu")
+    elif buffer.is_inference():
+        buffer = torch.empty(key[0], dtype=dtype, device="cpu")
     _CPU_MATERIALIZATION_BUFFERS[key] = buffer
     while len(_CPU_MATERIALIZATION_BUFFERS) > _CPU_MATERIALIZATION_BUFFER_LIMIT:
         _CPU_MATERIALIZATION_BUFFERS.popitem(last=False)
@@ -679,6 +681,8 @@ def _copy_fp8_to_cpu_materialization_buffer(tensor, dtype):
         return None
 
     qdata_cpu = qdata if qdata.device.type == "cpu" else qdata.cpu()
+    if qdata_cpu.is_inference():
+        qdata_cpu = qdata_cpu.clone()
     materialized = _cpu_materialization_buffer(qdata_cpu.shape, dtype)
     materialized.copy_(qdata_cpu)
     _bounce_mmap_tensor(qdata_cpu)

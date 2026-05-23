@@ -209,10 +209,30 @@ def key_param_name_to_key(key, param):
 
 def should_bake_lowvram_patch(module, weight, set_func=None, *, dynamic_lowvram=False) -> bool:
     if isinstance(weight, QuantizedTensor):
-        return not dynamic_lowvram
+        if not dynamic_lowvram:
+            return True
+        return ops.lowvram_lora_materialization_policy() == "quantized-cache"
     if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
         return False
     return set_func is not None
+
+
+def quantized_patch_materialization_dtype(model, key, weight):
+    model_dtype = getattr(model, "manual_cast_dtype", None) or getattr(weight, "_model_dtype", None)
+    if model_dtype is not None:
+        return model_dtype
+
+    op_key = key.rsplit(".", 1)
+    if len(op_key) == 2:
+        try:
+            module = utils.get_attr(model, op_key[0])
+            model_dtype = getattr(module, op_key[1] + "_comfy_model_dtype", None)
+            if model_dtype is not None:
+                return model_dtype
+        except Exception:
+            pass
+
+    return torch.bfloat16
 
 
 def lowvram_materialization_geometry(module, param_key, tensor, model_dtype, function_count=0):
@@ -857,20 +877,53 @@ class ModelPatcher(ModelManageable, PatchSupport):
                         sd.pop(k)
             return sd
 
-    def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False, force_cast=False):
+    def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False, force_cast=False, discard_quantized_backup=False):
         weight, set_func, convert_func = get_key_weight(self.model, key)
         if key not in self.patches and not force_cast:
             return weight
 
         inplace_update = self.weight_inplace_update or inplace_update
 
-        if key not in self.backup and not return_weight:
+        has_patches = key in self.patches
+        skip_backup = discard_quantized_backup and has_patches and isinstance(weight, QuantizedTensor)
+        if key not in self.backup and not return_weight and not skip_backup:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
         if is_quantized(weight):
+            if not isinstance(weight, QuantizedTensor):
+                out_weight = weight.to(device_to)
+                if has_patches:
+                    patches = move_patch_to_device(self.patches[key], self.load_device if self.gguf.patch_on_device else self.offload_device)
+                    out_weight.patches = [(patches, key)]
+                if return_weight:
+                    return out_weight
+                if inplace_update:
+                    utils.copy_to_param(self.model, key, out_weight)
+                else:
+                    utils.set_attr_param(self.model, key, out_weight)
+                return
+
+            if has_patches:
+                temp_dtype = quantized_patch_materialization_dtype(self.model, key, weight)
+                temp_weight = ops._materialize_quantized_tensor_on_cpu(weight, temp_dtype)
+                if convert_func is not None:
+                    temp_weight = convert_func(temp_weight, inplace=True)
+                out_weight = lora.calculate_weight(self.patches[key], temp_weight, key, intermediate_dtype=torch.float32)
+
+                if set_func is not None:
+                    return set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
+
+                if return_weight:
+                    return out_weight
+                elif inplace_update:
+                    utils.copy_to_param(self.model, key, out_weight)
+                else:
+                    utils.set_attr_param(self.model, key, out_weight)
+                return
+
             out_weight = weight.to(device_to)
-            patches = move_patch_to_device(self.patches[key], self.load_device if self.gguf.patch_on_device else self.offload_device)
-            out_weight.patches = [(patches, key)]
+            if return_weight:
+                return out_weight
             if inplace_update:
                 utils.copy_to_param(self.model, key, out_weight)
             else:
@@ -1857,7 +1910,7 @@ class ModelPatcherDynamic(ModelPatcher):
                         if lora.calculate_shape(self.patches[key], weight, key) != weight.shape:
                             return (True, 0)
                         if should_bake_lowvram_patch(m, weight, set_func, dynamic_lowvram=True):
-                            self.patch_weight_to_device(key)
+                            self.patch_weight_to_device(key, discard_quantized_backup=True)
                             weight, _, _ = get_key_weight(self.model, key)
                             setattr(m, param_key + "_lowvram_function", None)
                         else:

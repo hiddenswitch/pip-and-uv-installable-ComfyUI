@@ -89,13 +89,26 @@ def test_manual_cast_embedding_preserves_float_weight_dtype():
 
 def test_dynamic_quantized_lowvram_lora_patch_is_baked(monkeypatch):
     from comfy import model_patcher
+    from comfy import ops
 
     class DummyQuantizedTensor:
         pass
 
     monkeypatch.setattr(model_patcher, "QuantizedTensor", DummyQuantizedTensor)
+    monkeypatch.setattr(ops, "lowvram_lora_materialization_policy", lambda: "quantized-cache")
 
     assert model_patcher.should_bake_lowvram_patch(object(), DummyQuantizedTensor(), set_func=lambda _: None) is True
+    assert (
+        model_patcher.should_bake_lowvram_patch(
+            object(),
+            DummyQuantizedTensor(),
+            set_func=lambda _: None,
+            dynamic_lowvram=True,
+        )
+        is True
+    )
+
+    monkeypatch.setattr(ops, "lowvram_lora_materialization_policy", lambda: "on-demand")
     assert (
         model_patcher.should_bake_lowvram_patch(
             object(),

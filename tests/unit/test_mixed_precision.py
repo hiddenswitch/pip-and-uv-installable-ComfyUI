@@ -229,7 +229,38 @@ class TestMixedPrecisionOps(unittest.TestCase):
 
         self.assertIsInstance(model.layer.weight, QuantizedTensor)
         self.assertEqual(model.layer.weight._layout_cls, "TensorCoreFP8E4M3Layout")
+        self.assertFalse(hasattr(model.layer.weight, "patches"))
         self.assertEqual(model.layer.weight_function, [])
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_dynamic_quantized_lora_bake_can_discard_base_backup(self):
+        """Dynamic VRAM LoRA baking should replace fp8 storage without keeping a second base copy."""
+        from comfy.model_patcher import ModelPatcher
+
+        class TinyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
+                self.layer.quant_format = "float8_e4m3fn"
+                self.layer.layout_type = "TensorCoreFP8E4M3Layout"
+                self.layer.weight = torch.nn.Parameter(
+                    QuantizedTensor.from_float(
+                        torch.randn(20, 10, dtype=torch.bfloat16),
+                        "TensorCoreFP8E4M3Layout",
+                        scale="recalculate",
+                    ),
+                    requires_grad=False,
+                )
+
+        model = TinyModel()
+        patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+        patcher.add_patches({"layer.weight": ("diff", (torch.randn(20, 10, dtype=torch.bfloat16) * 0.01,))})
+
+        patcher.patch_weight_to_device("layer.weight", device_to=torch.device("cpu"), discard_quantized_backup=True)
+
+        self.assertIsInstance(model.layer.weight, QuantizedTensor)
+        self.assertNotIn("layer.weight", patcher.backup)
+        self.assertFalse(hasattr(model.layer.weight, "patches"))
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_disabled_fp8_compute_preserves_scaled_quantized_weight(self):
