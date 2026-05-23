@@ -47,6 +47,8 @@ _DYNAMIC_VRAM_FP8_POLICIES = {"auto", "resident", "materialize"}
 _CPU_MATERIALIZATION_BUFFERS = collections.OrderedDict()
 _CPU_MATERIALIZATION_BUFFER_LIMIT = 1
 _CPU_PATCH_TRIM_THRESHOLD = 128 * 1024 * 1024
+_CPU_PATCH_TRIM_BATCH_THRESHOLD = 4 * 1024 * 1024 * 1024
+_CPU_PATCH_TRIM_PENDING_BYTES = 0
 _LIBC = None
 _LIBC_TRIM_UNAVAILABLE = False
 
@@ -78,6 +80,17 @@ def _trim_cpu_allocator():
         _LIBC.malloc_trim(0)
     except Exception:
         _LIBC_TRIM_UNAVAILABLE = True
+
+
+def _trim_cpu_allocator_after_patch(nbytes):
+    global _CPU_PATCH_TRIM_PENDING_BYTES
+    if nbytes < _CPU_PATCH_TRIM_THRESHOLD:
+        return
+    _CPU_PATCH_TRIM_PENDING_BYTES += nbytes
+    if _CPU_PATCH_TRIM_PENDING_BYTES < _CPU_PATCH_TRIM_BATCH_THRESHOLD:
+        return
+    _CPU_PATCH_TRIM_PENDING_BYTES = 0
+    _trim_cpu_allocator()
 
 
 def _bounce_mmap_tensor(tensor):
@@ -737,8 +750,8 @@ def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
         setattr(s, param_key + "_lowvram_function", None)
         _release_replaced_quantized_storage(tensor)
         s._v_signature = None
-    if patched.device.type == "cpu" and patched.numel() * patched.element_size() >= _CPU_PATCH_TRIM_THRESHOLD:
-        _trim_cpu_allocator()
+    if patched.device.type == "cpu":
+        _trim_cpu_allocator_after_patch(patched.numel() * patched.element_size())
     return patched, True
 
 

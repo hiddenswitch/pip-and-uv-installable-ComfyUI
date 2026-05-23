@@ -766,6 +766,8 @@ def test_large_lowvram_cpu_patch_trims_allocator(monkeypatch):
             self.weight_lowvram_function = lambda weight: weight
 
     monkeypatch.setattr(ops, "_CPU_PATCH_TRIM_THRESHOLD", 1)
+    monkeypatch.setattr(ops, "_CPU_PATCH_TRIM_BATCH_THRESHOLD", 1)
+    monkeypatch.setattr(ops, "_CPU_PATCH_TRIM_PENDING_BYTES", 0)
     monkeypatch.setattr(ops, "_trim_cpu_allocator", lambda: calls.append("trim"))
 
     _, applied = ops._apply_lowvram_patch_on_cpu(
