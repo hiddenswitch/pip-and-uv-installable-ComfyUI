@@ -448,8 +448,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - labels: [self-hosted, windows-cuda-3060-12gb]
-            friendly_name: "Windows CUDA 12.8 PyTorch 2.10.0"
+          - labels: [self-hosted, windows-cuda-3090-24gb]
+            friendly_name: "Windows RTX 3090 CUDA 12.8 PyTorch 2.10.0"
             container: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.0-ltsc2022
             stable_abi_cuda: "cu128"
     defaults:
