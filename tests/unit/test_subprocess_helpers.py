@@ -51,7 +51,7 @@ def chatty_program_path(tmp_path) -> str:
             time.sleep(60)
     """).strip() + "\n"
     path = tmp_path / "chatty.py"
-    path.write_text(src)
+    path.write_text(src, encoding="utf-8")
     return str(path)
 
 
@@ -67,7 +67,7 @@ def quick_exit_program_path(tmp_path) -> str:
         sys.exit(0)
     """).strip() + "\n"
     path = tmp_path / "quick.py"
-    path.write_text(src)
+    path.write_text(src, encoding="utf-8")
     return str(path)
 
 
