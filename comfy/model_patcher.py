@@ -1855,6 +1855,33 @@ class ModelPatcherDynamic(ModelPatcher):
         vbar = self._vbar_get()
         return (vbar.loaded_size() if vbar is not None else 0) + getattr(self.model, "model_loaded_weight_memory", 0)
 
+    def _release_dynamic_vbars(self):
+        dynamic_vbars = getattr(self.model, "dynamic_vbars", None)
+        if not dynamic_vbars:
+            return
+
+        try:
+            ops._drain_deferred_vbar_unpins(block=True)
+        except Exception:
+            logger.debug("Failed to drain deferred VBAR unpins during detach", exc_info=True)
+
+        for module in self.model.modules():
+            if hasattr(module, "_v"):
+                module._v = None
+            if hasattr(module, "_v_signature"):
+                module._v_signature = None
+            if hasattr(module, "_prefetch"):
+                module._prefetch = None
+
+        for vbar in list(dynamic_vbars.values()):
+            try:
+                if getattr(vbar, "_ptr", None):
+                    comfy_aimdo.model_vbar.lib.vbar_free(vbar._devctx, vbar._ptr)
+                    vbar._ptr = None
+            except Exception:
+                logger.debug("Failed to explicitly release dynamic VBAR", exc_info=True)
+        dynamic_vbars.clear()
+
     # Pinning is deferred to ops time. Assert against this API to avoid pin leaks.
 
     def pin_weight_to_device(self, key):
@@ -2088,6 +2115,13 @@ class ModelPatcherDynamic(ModelPatcher):
             self.partially_unload(None, 1e32)
             for m in self.model.modules():
                 move_weight_functions(m, device_to)
+
+    def detach(self, unpatch_all=True):
+        try:
+            return super().detach(unpatch_all=unpatch_all)
+        finally:
+            if unpatch_all:
+                self._release_dynamic_vbars()
 
     def partially_load(self, device_to, extra_memory=0, force_patch_weights=False):
         assert not force_patch_weights  # See above
