@@ -134,7 +134,7 @@ CPU_LORA_MAX_THREADS = max(1, int(os.environ.get("COMFY_CPU_LORA_MAX_THREADS", "
 @contextlib.contextmanager
 def _bounded_threaded_cpu_lora():
     previous = torch.get_num_threads()
-    target = min(previous, CPU_LORA_MAX_THREADS)
+    target = CPU_LORA_MAX_THREADS
     if previous != target:
         torch.set_num_threads(target)
     try:
