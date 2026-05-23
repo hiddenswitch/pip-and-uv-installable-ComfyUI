@@ -708,6 +708,105 @@ def test_cpu_fp8_materialization_reuses_buffer():
     assert len(ops._CPU_MATERIALIZATION_BUFFERS) == 1
 
 
+def test_lowvram_patch_materializes_quantized_weight_on_cpu_before_transfer():
+    from comfy import ops
+    from comfy.quant_ops import QuantizedTensor
+
+    if not ops.mixed_precision_quantization_available():
+        return
+
+    source = torch.randn(8, 8, dtype=torch.bfloat16)
+    quantized = QuantizedTensor.from_float(source, "TensorCoreFP8E4M3Layout", scale="recalculate")
+    calls = []
+
+    class Module:
+        def __init__(self):
+            self.weight_lowvram_function = self.patch
+
+        def patch(self, weight):
+            calls.append(weight)
+            return weight + 1
+
+    patched, applied = ops._apply_lowvram_patch_on_cpu(Module(), "weight", quantized, torch.bfloat16)
+
+    assert applied is True
+    assert calls
+    assert calls[0].device.type == "cpu"
+    assert calls[0].dtype is torch.bfloat16
+    assert patched.device.type == "cpu"
+    assert torch.allclose(patched, calls[0] + 1)
+
+
+def test_large_lowvram_cpu_patch_trims_allocator(monkeypatch):
+    from comfy import ops
+
+    calls = []
+
+    class Module:
+        def __init__(self):
+            self.weight_lowvram_function = lambda weight: weight
+
+    monkeypatch.setattr(ops, "_CPU_PATCH_TRIM_THRESHOLD", 1)
+    monkeypatch.setattr(ops, "_trim_cpu_allocator", lambda: calls.append("trim"))
+
+    _, applied = ops._apply_lowvram_patch_on_cpu(
+        Module(),
+        "weight",
+        torch.ones(2, 2, dtype=torch.bfloat16),
+        torch.bfloat16,
+    )
+
+    assert applied is True
+    assert calls == ["trim"]
+
+
+def test_cpu_lora_bake_uses_chunked_delta(monkeypatch):
+    from comfy.weight_adapter import lora as lora_adapter
+
+    weight = torch.zeros(6, 4, dtype=torch.bfloat16)
+    up = torch.arange(18, dtype=torch.bfloat16).reshape(6, 3)
+    down = torch.arange(12, dtype=torch.bfloat16).reshape(3, 4)
+    adapter = lora_adapter.LoRAAdapter(set(), (up, down, None, None, None, None))
+
+    mm_shapes = []
+    original_mm = torch.mm
+
+    def capture_mm(a, b):
+        mm_shapes.append(tuple(a.shape))
+        return original_mm(a, b)
+
+    monkeypatch.setattr(lora_adapter, "CPU_LORA_CHUNK_BYTES", weight[0].numel() * weight.element_size() * 2)
+    monkeypatch.setattr(torch, "mm", capture_mm)
+
+    out = adapter.calculate_weight(
+        weight.clone(),
+        "layer.weight",
+        strength=1.0,
+        strength_model=1.0,
+        offset=None,
+        function=lambda x: x,
+        intermediate_dtype=torch.bfloat16,
+    )
+
+    expected = original_mm(up, down).to(torch.bfloat16)
+    assert torch.allclose(out, expected)
+    assert mm_shapes == [(2, 3), (2, 3), (2, 3)]
+
+
+def test_cpu_lora_bake_restores_torch_threads(monkeypatch):
+    from comfy.weight_adapter import lora as lora_adapter
+
+    events = []
+
+    monkeypatch.setattr(torch, "get_num_threads", lambda: 8)
+    monkeypatch.setattr(torch, "set_num_threads", lambda value: events.append(value))
+
+    with lora_adapter._single_threaded_cpu_lora():
+        events.append("body")
+
+    assert events == [1, "body", 8]
+
+
 def test_weight_prefetch_scheduler_respects_byte_budget():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module

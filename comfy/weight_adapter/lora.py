@@ -1,4 +1,5 @@
 import logging
+import contextlib
 from typing import Optional
 
 import torch
@@ -125,6 +126,19 @@ class LoraDiff(WeightAdapterTrainBase):
 
 
 logger = logging.getLogger(__name__)
+CPU_LORA_CHUNK_BYTES = 8 * 1024 * 1024
+
+
+@contextlib.contextmanager
+def _single_threaded_cpu_lora():
+    previous = torch.get_num_threads()
+    if previous != 1:
+        torch.set_num_threads(1)
+    try:
+        yield
+    finally:
+        if previous != 1:
+            torch.set_num_threads(previous)
 
 
 class LoRAAdapter(WeightAdapterBase):
@@ -270,9 +284,27 @@ class LoRAAdapter(WeightAdapterBase):
                 .transpose(0, 1)
             )
         try:
-            lora_diff = torch.mm(
-                mat1.flatten(start_dim=1), mat2.flatten(start_dim=1)
-            ).reshape(weight.shape)
+            mat1_flat = mat1.flatten(start_dim=1)
+            mat2_flat = mat2.flatten(start_dim=1)
+            use_cpu_chunks = (
+                weight.device.type == "cpu"
+                and dora_scale is None
+                and weight.numel() * weight.element_size() >= CPU_LORA_CHUNK_BYTES
+                and mat1_flat.shape[0] == weight.shape[0]
+            )
+            if use_cpu_chunks:
+                scale = strength * alpha
+                row_size = max(1, weight[0].numel() * weight.element_size())
+                rows_per_chunk = max(1, CPU_LORA_CHUNK_BYTES // row_size)
+                with _single_threaded_cpu_lora():
+                    for start in range(0, mat1_flat.shape[0], rows_per_chunk):
+                        end = min(start + rows_per_chunk, mat1_flat.shape[0])
+                        lora_chunk = torch.mm(mat1_flat[start:end], mat2_flat).reshape(weight[start:end].shape)
+                        weight[start:end] += function((scale * lora_chunk).type(weight.dtype))
+                del mat1, mat2, mat1_flat, mat2_flat
+                return weight
+
+            lora_diff = torch.mm(mat1_flat, mat2_flat).reshape(weight.shape)
             del mat1, mat2
             if dora_scale is not None:
                 weight = weight_decompose(

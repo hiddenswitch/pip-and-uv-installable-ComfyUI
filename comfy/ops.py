@@ -20,6 +20,8 @@ import json
 import logging
 import os
 import collections
+import ctypes
+import gc
 from typing import Optional
 
 import comfy_aimdo.model_vbar
@@ -43,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 _DYNAMIC_VRAM_FP8_POLICIES = {"auto", "resident", "materialize"}
 _CPU_MATERIALIZATION_BUFFERS = collections.OrderedDict()
-_CPU_MATERIALIZATION_BUFFER_LIMIT = 4
+_CPU_MATERIALIZATION_BUFFER_LIMIT = 1
+_CPU_PATCH_TRIM_THRESHOLD = 128 * 1024 * 1024
+_LIBC = None
+_LIBC_TRIM_UNAVAILABLE = False
 
 
 def dynamic_vram_fp8_policy():
@@ -60,6 +65,59 @@ def dynamic_vram_diag_enabled():
 
 def direct_materialize_pinning_enabled():
     return os.environ.get("COMFY_DIRECT_MATERIALIZE_PINNING", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trim_cpu_allocator():
+    global _LIBC, _LIBC_TRIM_UNAVAILABLE
+    if _LIBC_TRIM_UNAVAILABLE:
+        return
+    gc.collect()
+    try:
+        if _LIBC is None:
+            _LIBC = ctypes.CDLL("libc.so.6")
+        _LIBC.malloc_trim(0)
+    except Exception:
+        _LIBC_TRIM_UNAVAILABLE = True
+
+
+def _bounce_mmap_tensor(tensor):
+    if not isinstance(tensor, torch.Tensor):
+        return
+    try:
+        storage = tensor.untyped_storage()
+    except Exception:
+        return
+    mmap_refs = getattr(storage, "_comfy_tensor_mmap_refs", None)
+    if not mmap_refs:
+        return
+    try:
+        mmap_refs[0].bounce()
+        storage._comfy_tensor_mmap_touched = False
+    except Exception:
+        pass
+
+
+def _bounce_mmap_tensors(value, seen=None):
+    if seen is None:
+        seen = set()
+    value_id = id(value)
+    if value_id in seen:
+        return
+    seen.add(value_id)
+    if isinstance(value, torch.Tensor):
+        _bounce_mmap_tensor(value)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _bounce_mmap_tensors(item, seen)
+        return
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            _bounce_mmap_tensors(item, seen)
+        return
+    weights = getattr(value, "weights", None)
+    if weights is not None:
+        _bounce_mmap_tensors(weights, seen)
 
 
 def _tensor_diag(tensor):
@@ -464,6 +522,11 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
         has_patch_functions = len(getattr(s, "weight_function", [])) > 0 or len(getattr(s, "bias_function", [])) > 0
 
         xfer_source = [s.weight, s.bias]
+        lowvram_applied = {"weight": False, "bias": False}
+        for index, (param_key, target_dtype) in enumerate((("weight", dtype), ("bias", bias_dtype))):
+            patched_source, applied = _apply_lowvram_patch_on_cpu(s, param_key, xfer_source[index], target_dtype)
+            xfer_source[index] = patched_source
+            lowvram_applied[param_key] = applied
 
         use_pin = not direct_materialize or (direct_materialize_pinning_enabled() and not has_patch_functions)
         pin_geometry = cast_geometry if direct_materialize else None
@@ -551,7 +614,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
 
         for param_key in ("weight", "bias"):
             lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
-            if lowvram_fn is not None:
+            if lowvram_fn is not None and not lowvram_applied.get(param_key, False):
                 ensure_offload_stream(s, cast_buffer_offset, False)
                 lowvram_fn.prepare(lambda size: get_cast_buffer(size), offload_stream)
 
@@ -559,6 +622,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
         prefetch["cast_dest"] = cast_dest
         prefetch["cast_geometry"] = cast_geometry
         prefetch["needs_cast"] = needs_cast
+        prefetch["lowvram_applied"] = lowvram_applied
         s._prefetch = prefetch
 
     return offload_stream
@@ -591,6 +655,7 @@ def _copy_fp8_to_cpu_materialization_buffer(tensor, dtype):
     qdata_cpu = qdata if qdata.device.type == "cpu" else qdata.cpu()
     materialized = _cpu_materialization_buffer(qdata_cpu.shape, dtype)
     materialized.copy_(qdata_cpu)
+    _bounce_mmap_tensor(qdata_cpu)
     materialized.mul_(scale.cpu().to(dtype=dtype))
     if tuple(materialized.shape) != orig_shape:
         slices = tuple(slice(0, dim) for dim in orig_shape)
@@ -608,6 +673,26 @@ def _materialize_quantized_tensor_on_cpu(tensor, dtype):
 
 def _dequantize_quantized_tensor_on_cpu(tensor, dtype, device):
     return _materialize_quantized_tensor_on_cpu(tensor, dtype).to(device=device, non_blocking=True)
+
+
+def _materialize_tensor_on_cpu_for_lowvram_patch(tensor, dtype):
+    if tensor is None:
+        return None
+    if isinstance(tensor, QuantizedTensor):
+        return _materialize_quantized_tensor_on_cpu(tensor, dtype)
+    return tensor.to(device=torch.device("cpu"), dtype=dtype, copy=True)
+
+
+def _apply_lowvram_patch_on_cpu(s, param_key, tensor, dtype):
+    lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
+    if lowvram_fn is None or tensor is None:
+        return tensor, False
+    materialized = _materialize_tensor_on_cpu_for_lowvram_patch(tensor, dtype)
+    patched = lowvram_fn(materialized)
+    _bounce_mmap_tensors(lowvram_fn)
+    if patched.device.type == "cpu" and patched.numel() * patched.element_size() >= _CPU_PATCH_TRIM_THRESHOLD:
+        _trim_cpu_allocator()
+    return patched, True
 
 
 def resolve_cast_module_with_vbar(s, dtype, device, bias_dtype, compute_dtype, want_requant):
@@ -655,7 +740,8 @@ def resolve_cast_module_with_vbar(s, dtype, device, bias_dtype, compute_dtype, w
         keep_quantized = want_requant and isinstance(x, QuantizedTensor) and len(fns) == 0
         if (not keep_quantized and orig.dtype != dtype) or len(fns) > 0 or (isinstance(x, QuantizedTensor) and not want_requant):
             x = to_dequant(x, dtype)
-        if not resident and lowvram_fn is not None:
+        lowvram_already_applied = prefetch.get("lowvram_applied", {}).get(param_key, False)
+        if not resident and lowvram_fn is not None and not lowvram_already_applied:
             x = to_dequant(x, dtype if compute_dtype is None else compute_dtype)
             x = lowvram_fn(x)
             if (want_requant and len(fns) == 0 or update_weight):
