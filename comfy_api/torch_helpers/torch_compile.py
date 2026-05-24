@@ -81,7 +81,9 @@ def _without_cudagraphs(compile_kwargs: dict[str, Any]) -> dict[str, Any]:
     options["max_autotune"] = False
     options["max_autotune_gemm"] = False
     options["max_autotune_pointwise"] = False
+    options["split_cat_fx_passes"] = False
     options["triton.autotune_at_compile_time"] = False
+    options["triton.autotune_pointwise"] = False
     options["triton.cudagraphs"] = False
     options["triton.cudagraph_trees"] = False
     graph_kwargs["options"] = options
@@ -94,7 +96,6 @@ def _with_weight_prefetch_scheduler(compile_kwargs: dict[str, Any]) -> dict[str,
     scheduled_kwargs = dict(compile_kwargs)
     scheduled_kwargs["backend"] = wrap_backend_with_weight_prefetch_scheduler(
         scheduled_kwargs["backend"],
-        budget_bytes=0,
     )
     return scheduled_kwargs
 
@@ -238,6 +239,14 @@ class _CompiledModel(torch.nn.Module):
         super().__init__()
         _make_module_tensors_contiguous(module)
         _stabilize_comfy_weight_cast_attrs(module, force_graph_visible_cast=force_graph_visible_cast)
+        options = compile_kwargs.get("options")
+        self._inductor_config_options: dict[str, Any] = {}
+        if options:
+            import torch._inductor.config as inductor_config
+
+            self._inductor_config_options = {
+                key: value for key, value in dict(options).items() if key in inductor_config._config
+            }
         self.compiled = torch.compile(model=module, **compile_kwargs)
         object.__setattr__(self, "_original", module)
         self._compile_disabled_reason: str | None = None
@@ -280,6 +289,11 @@ class _CompiledModel(torch.nn.Module):
         _mark_cudagraph_step_begin()
         reset_invocation_ids()
         try:
+            if self._inductor_config_options:
+                import torch._inductor.config as inductor_config
+
+                with inductor_config.patch(self._inductor_config_options):
+                    return self.compiled(*args, **kwargs)
             return self.compiled(*args, **kwargs)
         except Exception as exc:
             if not _is_unsupported_fp8e4nv_compile_error(exc):

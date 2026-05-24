@@ -24,7 +24,8 @@ PATCH_MATERIALIZATION_RESERVATION_FACTOR = 3
 AUTO_BUDGET_HEADROOM_BYTES = 2 * 1024 * 1024 * 1024
 AUTO_BUDGET_LARGEST_ITEM_HEADROOM_FACTOR = 2
 AUTO_BUDGET_FREE_MEMORY_HEADROOM_FRACTION = 0.35
-AUTO_BUDGET_LARGEST_ITEM_CAP_FACTOR = 2
+AUTO_BUDGET_LARGEST_ITEM_CAP_FACTOR = 8
+AUTO_BUDGET_TOTAL_MEMORY_FRACTION = 0.50
 
 
 @dataclass(frozen=True)
@@ -290,6 +291,19 @@ def _auto_prefetch_budget_bytes(example_inputs: list[torch.Tensor], sizes: list[
     except Exception:
         return None
     usable_bytes = max(0, free_bytes - reserved_bytes)
+    if usable_bytes <= 0 and largest_item > 0:
+        try:
+            total_bytes = int(model_management.get_total_memory(device))
+        except Exception:
+            total_bytes = 0
+        if total_bytes > 0:
+            total_headroom = max(AUTO_BUDGET_HEADROOM_BYTES, largest_item * AUTO_BUDGET_LARGEST_ITEM_HEADROOM_FACTOR)
+            capacity_bytes = max(0, total_bytes - int(model_management.extra_reserved_memory()) - total_headroom)
+            usable_bytes = min(
+                capacity_bytes,
+                int(total_bytes * AUTO_BUDGET_TOTAL_MEMORY_FRACTION),
+                largest_item * AUTO_BUDGET_LARGEST_ITEM_CAP_FACTOR,
+            )
     if usable_bytes <= 0:
         return None
     if largest_item > 0:

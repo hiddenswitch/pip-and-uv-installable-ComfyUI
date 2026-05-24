@@ -4,10 +4,12 @@ import os
 
 from ..vendor.appdirs import user_cache_dir
 
+TORCH_COMPILE_CACHE_VERSION = "v5"
+
 
 def setup_torch_compile_cache_dirs() -> None:
     """Set persistent torch compile cache directories unless the user did."""
-    cache_root = os.path.join(user_cache_dir(appname="comfyui"), "torch_compile")
+    cache_root = os.path.join(user_cache_dir(appname="comfyui"), "torch_compile", TORCH_COMPILE_CACHE_VERSION)
     cache_dirs = {
         "TORCHINDUCTOR_CACHE_DIR": os.path.join(cache_root, "inductor"),
         "TRITON_CACHE_DIR": os.path.join(cache_root, "triton"),

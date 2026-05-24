@@ -212,6 +212,12 @@ def should_bake_lowvram_patch(module, weight, set_func=None, *, dynamic_lowvram=
         if not dynamic_lowvram:
             return True
         return ops.lowvram_lora_materialization_policy() == "quantized-cache"
+    if getattr(weight, "dtype", None) in model_management.FLOAT8_TYPES:
+        if not dynamic_lowvram:
+            return True
+        return ops.lowvram_lora_materialization_policy() == "quantized-cache"
+    if dynamic_lowvram and isinstance(weight, torch.Tensor) and torch.is_floating_point(weight):
+        return ops.lowvram_lora_materialization_policy() == "quantized-cache"
     if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
         return False
     return set_func is not None
@@ -890,7 +896,7 @@ class ModelPatcher(ModelManageable, PatchSupport):
         inplace_update = self.weight_inplace_update or inplace_update
 
         has_patches = key in self.patches
-        skip_backup = discard_quantized_backup and has_patches and isinstance(weight, QuantizedTensor)
+        skip_backup = discard_quantized_backup and has_patches
         if key not in self.backup and not return_weight and not skip_backup:
             self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
@@ -941,6 +947,8 @@ class ModelPatcher(ModelManageable, PatchSupport):
             return
 
         temp_dtype = lora_compute_dtype(device_to) if key in self.patches else None
+        if key in self.patches and discard_quantized_backup:
+            temp_dtype = quantized_patch_materialization_dtype(self.model, key, weight)
         if device_to is not None:
             temp_weight = model_management.cast_to_device(weight, device_to, temp_dtype, copy=True)
         else:
@@ -958,8 +966,13 @@ class ModelPatcher(ModelManageable, PatchSupport):
                 utils.copy_to_param(self.model, key, out_weight)
             else:
                 utils.set_attr_param(self.model, key, out_weight)
+            if discard_quantized_backup and key in self.patches:
+                self._consume_baked_patch(key)
         else:
-            return set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
+            out_weight = set_func(out_weight, inplace_update=inplace_update, seed=utils.string_to_seed(key), return_weight=return_weight)
+            if discard_quantized_backup and not return_weight and key in self.patches:
+                self._consume_baked_patch(key)
+            return out_weight
 
     def pin_weight_to_device(self, key):
         if self.gguf.loaded_from_gguf and key not in self.patches:

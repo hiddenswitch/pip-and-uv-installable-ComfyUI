@@ -120,6 +120,82 @@ def test_dynamic_quantized_lowvram_lora_patch_is_baked(monkeypatch):
     )
 
 
+def test_dynamic_float8_lowvram_lora_patch_is_baked_and_consumed(monkeypatch):
+    from comfy import model_patcher
+    from comfy import ops
+
+    if not hasattr(torch, "float8_e4m3fn"):
+        pytest.skip("float8 dtype unavailable")
+
+    layer = torch.nn.Linear(4, 4, bias=False, dtype=torch.bfloat16)
+    layer.weight = torch.nn.Parameter(layer.weight.detach().to(torch.float8_e4m3fn), requires_grad=False)
+    model = torch.nn.Module()
+    model.weight = layer.weight
+    model.manual_cast_dtype = torch.bfloat16
+
+    patcher = model_patcher.ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+    patcher.patches["weight"] = [object()]
+    patcher.patches_uuid = object()
+
+    calls = []
+
+    def fake_calculate_weight(patches, weight, key, **kwargs):
+        calls.append((patches, weight, key, kwargs))
+        return weight + 1
+
+    monkeypatch.setattr(ops, "lowvram_lora_materialization_policy", lambda: "quantized-cache")
+    monkeypatch.setattr(model_patcher.lora, "calculate_weight", fake_calculate_weight)
+
+    assert model_patcher.should_bake_lowvram_patch(
+        model,
+        model.weight,
+        dynamic_lowvram=True,
+    ) is True
+
+    patcher.patch_weight_to_device("weight", discard_quantized_backup=True)
+
+    assert "weight" not in patcher.patches
+    assert calls
+    assert calls[0][1].dtype is torch.bfloat16
+    assert model.weight.dtype is torch.float8_e4m3fn
+
+
+def test_dynamic_floating_lowvram_lora_patch_is_baked_without_backup(monkeypatch):
+    from comfy import model_patcher
+    from comfy import ops
+
+    model = torch.nn.Linear(4, 4, bias=False, dtype=torch.bfloat16)
+    model.manual_cast_dtype = torch.bfloat16
+    original = model.weight
+
+    patcher = model_patcher.ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+    patcher.patches["weight"] = [object()]
+
+    calls = []
+
+    def fake_calculate_weight(patches, weight, key, **kwargs):
+        calls.append((patches, weight, key, kwargs))
+        return weight + 1
+
+    monkeypatch.setattr(ops, "lowvram_lora_materialization_policy", lambda: "quantized-cache")
+    monkeypatch.setattr(model_patcher.lora, "calculate_weight", fake_calculate_weight)
+
+    assert model_patcher.should_bake_lowvram_patch(
+        model,
+        model.weight,
+        dynamic_lowvram=True,
+    ) is True
+
+    patcher.patch_weight_to_device("weight", discard_quantized_backup=True)
+
+    assert "weight" not in patcher.patches
+    assert "weight" not in patcher.backup
+    assert calls
+    assert calls[0][1].dtype is torch.bfloat16
+    assert model.weight is not original
+    assert model.weight.dtype is torch.bfloat16
+
+
 def test_comfy_weight_custom_ops_compile_with_eager_backend():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
@@ -569,7 +645,25 @@ def test_weight_prefetch_backend_auto_keeps_compile_headroom(monkeypatch):
         required_bytes=6 * one_gib,
     )
 
-    assert budget == 2 * one_gib
+    assert budget == int(3.5 * one_gib)
+
+
+def test_weight_prefetch_backend_auto_uses_total_memory_when_dynamic_residency_hides_free_memory(monkeypatch):
+    import comfy.weight_cast_schedule as schedule
+
+    one_gib = 1024 * 1024 * 1024
+    monkeypatch.setattr(schedule, "_first_cuda_device", lambda example_inputs: torch.device("cuda:0"))
+    monkeypatch.setattr(schedule.model_management, "get_free_memory", lambda device: 128 * 1024 * 1024)
+    monkeypatch.setattr(schedule.model_management, "get_total_memory", lambda device: 24 * one_gib)
+    monkeypatch.setattr(schedule.model_management, "extra_reserved_memory", lambda: 512 * 1024 * 1024)
+
+    budget = schedule._auto_prefetch_budget_bytes(
+        [torch.randn(1)],
+        [512 * 1024 * 1024, one_gib],
+        required_bytes=32 * one_gib,
+    )
+
+    assert budget == 8 * one_gib
 
 
 def test_compiled_manual_cast_uses_graph_visible_op_even_when_resident(monkeypatch):
@@ -1301,7 +1395,7 @@ def test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve()
     assert release_memory[1] < prefetches[1]
 
 
-def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypatch):
+def test_dynamic_vbar_prefetch_is_opportunistic_when_aimdo_has_no_room(monkeypatch):
     from comfy import model_management, ops
 
     layer = ops.manual_cast.Linear(2, 2)
@@ -1334,8 +1428,36 @@ def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypat
     )
 
     assert state[0] is stream
-    assert calls[0][5]["dedicated_buffer"] is True
-    assert calls[0][5]["prefetch_hint"] is False
+    assert calls[0][5]["dedicated_buffer"] is False
+    assert calls[0][5]["prefetch_hint"] is True
+
+
+def test_dynamic_vbar_prefetch_deferred_when_hint_cannot_materialize(monkeypatch):
+    from comfy import model_management, ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = (object(), 0, 4096)
+
+    monkeypatch.setattr(model_management, "is_device_cpu", lambda device: False)
+    monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: True)
+
+    def fake_cast_modules_with_vbar(modules, dtype, device, bias_dtype, non_blocking, **kwargs):
+        assert kwargs["prefetch_hint"] is True
+        modules[0]._prefetch = None
+        return object()
+
+    monkeypatch.setattr(ops, "cast_modules_with_vbar", fake_cast_modules_with_vbar)
+
+    state = ops._legacy_weight_cast_prefetch(
+        layer,
+        torch.device("cuda:0"),
+        torch.float16,
+        torch.float16,
+        torch.float16,
+        False,
+    )
+
+    assert state is None
 
 
 def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypatch):
@@ -2280,4 +2402,4 @@ def test_direct_materialize_prefetch_allows_dtype_changing_weight(monkeypatch):
         False,
     ) is not None
     assert calls[0][1] is torch.bfloat16
-    assert calls[0][5]["prefetch_hint"] is False
+    assert calls[0][5]["prefetch_hint"] is True

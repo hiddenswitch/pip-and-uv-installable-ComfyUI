@@ -206,12 +206,14 @@ def test_set_torch_compile_wrapper_uses_aimdo_strategy_for_dynamic_vbar_modules(
     assert callable(calls[0][1]["backend"])
     assert calls[0][1]["options"]["triton.cudagraphs"] is False
     assert calls[0][1]["options"]["triton.cudagraph_trees"] is False
+    assert calls[0][1]["options"]["triton.autotune_pointwise"] is False
+    assert calls[0][1]["options"]["split_cat_fx_passes"] is False
     assert "mode" not in calls[0][1]
     assert len(patcher.added) == 1
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
 
 
-def test_weight_cast_compile_disables_prefetch_auto_budget_by_default(monkeypatch):
+def test_weight_cast_compile_uses_prefetch_auto_budget_by_default(monkeypatch):
     import comfy_api.torch_helpers.torch_compile as torch_compile
 
     calls = []
@@ -225,7 +227,7 @@ def test_weight_cast_compile_disables_prefetch_auto_budget_by_default(monkeypatc
     kwargs = torch_compile._with_weight_prefetch_scheduler({"backend": "inductor"})
 
     assert kwargs["backend"] == "inductor"
-    assert calls == [("inductor", 0, 0)]
+    assert calls == [("inductor", 0, None)]
 
 
 def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_dynamic_patcher(monkeypatch):
@@ -250,6 +252,8 @@ def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_dynamic_patcher
     assert len(calls) == 1
     assert callable(calls[0][1]["backend"])
     assert calls[0][1]["options"]["triton.cudagraphs"] is False
+    assert calls[0][1]["options"]["triton.autotune_pointwise"] is False
+    assert calls[0][1]["options"]["split_cat_fx_passes"] is False
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
 
 
@@ -566,6 +570,6 @@ def test_setup_torch_compile_cache_dirs_uses_app_cache_and_preserves_overrides(m
 
     setup_torch_compile_cache_dirs()
 
-    assert os.environ["TORCHINDUCTOR_CACHE_DIR"] == str(tmp_path / "comfyui" / "torch_compile" / "inductor")
+    assert os.environ["TORCHINDUCTOR_CACHE_DIR"] == str(tmp_path / "comfyui" / "torch_compile" / "v5" / "inductor")
     assert os.environ["TRITON_CACHE_DIR"] == "/already/set"
-    assert os.environ["CUDA_CACHE_PATH"] == str(tmp_path / "comfyui" / "torch_compile" / "cuda")
+    assert os.environ["CUDA_CACHE_PATH"] == str(tmp_path / "comfyui" / "torch_compile" / "v5" / "cuda")
