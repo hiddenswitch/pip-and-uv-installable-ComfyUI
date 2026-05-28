@@ -892,7 +892,7 @@ def test_kontext_template_input_count_includes_bypassed_image():
     )
     if not matches:
         pytest.skip("flux_kontext_dev_basic template not installed")
-    workflow = json.loads(Path(matches[0]).read_text())
+    workflow = json.loads(Path(matches[0]).read_text(encoding="utf-8"))
     counts = count_input_slots(workflow)
     active, total = counts["images"]
     assert total > active, (
@@ -964,7 +964,7 @@ def _load_workflow(name: str) -> dict:
     the node registry. Unknown classes (e.g. WanVideoWrapper) survive via
     `preserve_unknown_nodes=True`.
     """
-    workflow = json.loads((_WORKFLOWS_DIR / f"{name}.json").read_text())
+    workflow = json.loads((_WORKFLOWS_DIR / f"{name}.json").read_text(encoding="utf-8"))
     if "nodes" in workflow and "links" in workflow:
         from comfy.nodes.package import import_all_nodes_in_workspace
         from comfy.nodes_context import get_nodes
@@ -975,7 +975,7 @@ def _load_workflow(name: str) -> dict:
 
 def _maybe_load_expected(name: str) -> dict | None:
     path = _WORKFLOWS_DIR / f"{name}.expected.json"
-    return json.loads(path.read_text()) if path.exists() else None
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 @pytest.mark.parametrize("name", WORKFLOW_FIXTURES, ids=WORKFLOW_FIXTURES)
@@ -1020,7 +1020,7 @@ def _collect_builtin_templates() -> list:
     ):
         for p in sorted(Path(d).glob("*.json")):
             try:
-                wf = json.loads(p.read_text())
+                wf = json.loads(p.read_text(encoding="utf-8"))
             except Exception:
                 continue
             is_ui = isinstance(wf, dict) and "nodes" in wf and "links" in wf
@@ -1036,7 +1036,7 @@ def _collect_builtin_templates() -> list:
 
 @pytest.mark.parametrize("path", _collect_builtin_templates())
 def test_builtin_templates_smoke(path: Path):
-    workflow = json.loads(path.read_text())
+    workflow = json.loads(path.read_text(encoding="utf-8"))
     from comfy.nodes.package_typing import ExportedNodes
     params = discover(workflow, node_mappings=ExportedNodes())
 
