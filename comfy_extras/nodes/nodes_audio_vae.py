@@ -20,6 +20,11 @@ class AudioVAEModelManageable(ModelManageableStub):
         self.offload_device = comfy.model_management.vae_offload_device()
 
     @property
+    def first_stage_model(self) -> AudioVAE:
+        """Compatibility with nodes that still treat audio VAEs like comfy.sd.VAE."""
+        return self.model
+
+    @property
     def current_device(self) -> torch.device:
         try:
             return next(self.model.parameters()).device
@@ -57,14 +62,28 @@ class AudioVAEModelManageable(ModelManageableStub):
             self.model.to(device=device_to)
         return self.model
 
-    def encode(self, audio: dict) -> torch.Tensor:
+    def encode(self, audio: dict | torch.Tensor) -> torch.Tensor:
         comfy.model_management.load_models_gpu([self])
-        waveform = audio["waveform"].to(self.load_device)
-        return self.model.encode(waveform, sample_rate=audio["sample_rate"])
+        if isinstance(audio, dict):
+            waveform = audio["waveform"].to(self.load_device)
+            sample_rate = audio["sample_rate"]
+        else:
+            waveform = audio.to(self.load_device)
+            sample_rate = self.sample_rate
+
+        expected_channels = self.model.autoencoder.encoder.in_channels
+        if waveform.ndim >= 3 and waveform.shape[1] != expected_channels and waveform.shape[-1] == expected_channels:
+            waveform = waveform.movedim(-1, 1)
+
+        return self.model.encode(waveform, sample_rate=sample_rate)
 
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
         comfy.model_management.load_models_gpu([self])
-        return self.model.decode(latents.to(self.load_device))
+        waveform = self.model.decode(latents.to(self.load_device))
+        expected_channels = self.model.autoencoder.decoder.out_ch
+        if waveform.ndim >= 3 and waveform.shape[1] == expected_channels:
+            waveform = waveform.movedim(1, -1)
+        return waveform
 
     def num_of_latents_from_frames(self, frames_number: int, frame_rate: int) -> int:
         return self.model.num_of_latents_from_frames(frames_number, frame_rate)
@@ -78,8 +97,16 @@ class AudioVAEModelManageable(ModelManageableStub):
         return self.model.sample_rate
 
     @property
+    def audio_sample_rate(self) -> int:
+        return self.sample_rate
+
+    @property
     def output_sample_rate(self) -> int:
         return self.model.output_sample_rate
+
+    @property
+    def audio_sample_rate_output(self) -> int:
+        return self.output_sample_rate
 
     @property
     def latent_channels(self) -> int:
