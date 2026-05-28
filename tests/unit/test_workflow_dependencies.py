@@ -38,7 +38,10 @@ def test_primitive_node_excluded_from_packages():
 
 
 def test_virtual_node_types_are_complete():
-    for vt in ("PrimitiveNode", "Note", "MarkdownNote", "Reroute"):
+    for vt in (
+        "PrimitiveNode", "Int", "Float", "String", "StringMultiline", "Boolean",
+        "Note", "MarkdownNote", "Reroute", "Label (rgthree)",
+    ):
         assert vt in VIRTUAL_NODE_TYPES
 
 

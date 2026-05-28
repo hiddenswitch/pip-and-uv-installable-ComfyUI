@@ -1,7 +1,7 @@
 """Tests for comfy.component_model.workflow_convert."""
 from __future__ import annotations
 
-import json
+import importlib.util
 import logging
 
 import pytest
@@ -462,6 +462,16 @@ class TestResolveSource:
         }
         result = _resolve_source(20, 0, nodes, {})
         assert result == ("value", 3.5)
+
+    def test_typed_primitive_alias_returns_value(self):
+        nodes = {
+            20: {
+                "type": "Int", "mode": 0,
+                "widgets_values": [17],
+            },
+        }
+        result = _resolve_source(20, 0, nodes, {})
+        assert result == ("value", 17)
 
     def test_bypass_no_matching_type(self):
         """Bypass node with no matching input type returns None."""
@@ -1245,11 +1255,7 @@ def _load_template_workflow(template_id: str) -> dict | None:
 
 def _real_nodes_available() -> bool:
     """Check if the node system can be loaded."""
-    try:
-        from comfy.nodes.package import import_all_nodes_in_workspace
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("comfy.nodes.package") is not None
 
 
 @pytest.fixture(scope="module")

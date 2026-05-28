@@ -1043,7 +1043,100 @@ def _download_workflow_models(workflow_sources: list[str], dry_run: bool = False
 
 class _RunWorkflowCommand(typer.core.TyperCommand):
     @staticmethod
-    def _extract_workflow_ref(args: list[str]) -> str | None:
+    def _option_value_arity_by_name(ctx: click.Context | None) -> dict[str, int]:
+        if ctx is None:
+            return {}
+        arity: dict[str, int] = {}
+        for param in ctx.command.params:
+            if not isinstance(param, click.Option):
+                continue
+            consumes = 0 if param.is_flag else max(1, param.nargs)
+            for opt in (*param.opts, *param.secondary_opts):
+                arity[opt] = consumes
+        return arity
+
+    @classmethod
+    def _known_option_names(cls, ctx: click.Context | None) -> set[str]:
+        return set(cls._option_value_arity_by_name(ctx))
+
+    @staticmethod
+    def _set_expr_for_workflow_param(param, raw_value: str) -> str:
+        return f"{param.node_id}.inputs.{param.widget_name}={raw_value}"
+
+    @classmethod
+    def _workflow_flag_for_param(cls, param, ctx: click.Context | None = None) -> str | None:
+        if not param.flag_name:
+            return None
+        flag = f"--{param.flag_name}"
+        if flag in cls._known_option_names(ctx):
+            return f"--x-{param.flag_name}"
+        return flag
+
+    @classmethod
+    def _rewrite_workflow_param_args(cls, args: list[str], ctx: click.Context | None = None) -> list[str]:
+        ref = cls._extract_workflow_ref(args, ctx=ctx)
+        if not ref:
+            return args
+        try:
+            workflow_params = _discover_from_ref(ref)
+        except Exception:
+            return args
+        by_flag = {
+            flag: p
+            for p in workflow_params
+            if (flag := cls._workflow_flag_for_param(p, ctx=ctx)) is not None
+        }
+        by_negative_boolean_flag = {
+            f"--no-{flag.removeprefix('--')}": p
+            for p in workflow_params
+            if p.type == "BOOLEAN" and (flag := cls._workflow_flag_for_param(p, ctx=ctx)) is not None
+        }
+        if not by_flag:
+            return args
+
+        rewritten: list[str] = []
+        i = 0
+        n = len(args)
+        while i < n:
+            arg = args[i]
+            if arg == "--":
+                rewritten.extend(args[i:])
+                break
+
+            option, eq, value = arg.partition("=")
+            negative_boolean_param = by_negative_boolean_flag.get(option)
+            if negative_boolean_param is not None:
+                if eq:
+                    raise click.UsageError(f"Option {option!r} does not take a value.")
+                rewritten.extend(["--set", cls._set_expr_for_workflow_param(negative_boolean_param, "false")])
+                i += 1
+                continue
+
+            param = by_flag.get(option)
+            if param is None:
+                rewritten.append(arg)
+                i += 1
+                continue
+
+            if eq:
+                rewritten.extend(["--set", cls._set_expr_for_workflow_param(param, value)])
+                i += 1
+                continue
+
+            if param.type == "BOOLEAN" and (i + 1 >= n or args[i + 1].startswith("-")):
+                rewritten.extend(["--set", cls._set_expr_for_workflow_param(param, "true")])
+                i += 1
+                continue
+
+            if i + 1 >= n:
+                raise click.UsageError(f"Option {arg!r} requires a value.")
+            rewritten.extend(["--set", cls._set_expr_for_workflow_param(param, args[i + 1])])
+            i += 2
+        return rewritten
+
+    @classmethod
+    def _extract_workflow_ref(cls, args: list[str], ctx: click.Context | None = None) -> str | None:
+        arity_by_name = cls._option_value_arity_by_name(ctx)
         i = 0
         n = len(args)
         while i < n:
@@ -1057,7 +1150,11 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             if a == "-":
                 return "-"
             if a.startswith("-") and len(a) > 1:
-                i += 1 if "=" in a else 2
+                option = a.partition("=")[0]
+                if "=" in a:
+                    i += 1
+                else:
+                    i += 1 + arity_by_name.get(option, 1)
                 continue
             return a
         return None
@@ -1072,8 +1169,8 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             ("--compile", "Wrap the diffusion transformer in torch.compile"),
         ]
 
-    @staticmethod
-    def _example_invocation(ref: str, params) -> str | None:
+    @classmethod
+    def _example_invocation(cls, ref: str, params, ctx: click.Context | None = None) -> str | None:
         from ..entrypoints.workflow_params import TIER_HEADLINE
         target = next(
             (p for p in params if p.tier == TIER_HEADLINE and p.type in ("STRING", "INT", "FLOAT")),
@@ -1081,11 +1178,14 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         )
         if target is None:
             return None
+        flag = cls._workflow_flag_for_param(target, ctx=ctx)
+        if flag:
+            return f"comfyui run-workflow {ref} {flag} <value>"
         return f"comfyui run-workflow {ref} --set {target.node_id}.inputs.{target.widget_name}=<value>"
 
     def parse_args(self, ctx, args):
         if "--help" in args or "-h" in args:
-            ref = self._extract_workflow_ref(args)
+            ref = self._extract_workflow_ref(args, ctx=ctx)
             if ref:
                 try:
                     params = _discover_from_ref(ref)
@@ -1107,7 +1207,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                     return
                 self._render_workflow_help(ctx, ref, params, raw_workflow)
                 ctx.exit()
-        return super().parse_args(ctx, args)
+        return super().parse_args(ctx, self._rewrite_workflow_param_args(args, ctx=ctx))
 
     def _render_workflow_help(self, ctx, ref: str, params, raw_workflow: dict | None = None) -> None:
         from rich import box
@@ -1123,8 +1223,9 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         console = Console()
 
         def _flag_for(p) -> str:
-            if p.flag_name:
-                return f"--{p.flag_name}"
+            flag = self._workflow_flag_for_param(p, ctx=ctx)
+            if flag:
+                return flag
             return f"--set {p.node_id}.{p.widget_name}"
 
         def _make_section(rows: list, heading: str) -> Panel | None:
@@ -1256,7 +1357,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             footer_lines.append("(no parameters detected)")
         if n_advanced:
             footer_lines.append(f"[dim]{n_advanced} advanced params hidden — see them with: comfyui workflows params {ref} --all[/dim]")
-        example = self._example_invocation(ref, params)
+        example = self._example_invocation(ref, params, ctx=ctx)
         if example:
             footer_lines.append(f"[bold]Example:[/bold]")
             footer_lines.append(f"  [dim]{example}[/dim]")

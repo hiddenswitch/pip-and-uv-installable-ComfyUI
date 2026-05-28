@@ -105,9 +105,22 @@ class _PromptQueueStub:
         return 0
 
 
+class _PromptServerRouterStub:
+    frozen = True
+
+
+class _PromptServerAppStub:
+    def __init__(self):
+        self.router = _PromptServerRouterStub()
+
+    def add_routes(self, routes):
+        logger.debug("PromptServer.app.add_routes() called on stub with %s routes", len(routes or []))
+
+
 class _PromptServerStub(ServerStub):
     def __init__(self):
         super().__init__()
+        self.app = _PromptServerAppStub()
         self.routes = prompt_server_instance_routes
         self.on_prompt_handlers = []
         self.prompt_queue = _PromptQueueStub()

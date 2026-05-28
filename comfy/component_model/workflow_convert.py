@@ -35,8 +35,14 @@ _WIDGET_TYPES: Final[frozenset[str]] = frozenset({"INT", "FLOAT", "STRING", "BOO
 _VIRTUAL_NODE_TYPES: Final[frozenset[str]] = frozenset({
     "Reroute",
     "PrimitiveNode",
+    "Int",
+    "Float",
+    "String",
+    "StringMultiline",
+    "Boolean",
     "Note",
     "MarkdownNote",
+    "Label (rgthree)",
     "SetNode",
     "GetNode",
 })
@@ -93,6 +99,15 @@ _FRONTEND_WIDGET_SERIALIZATION_OVERRIDES: Final[
         ("width", 1024),
         ("height", 1024),
     ),
+})
+
+_PRIMITIVE_VALUE_NODE_TYPES: Final[frozenset[str]] = frozenset({
+    "PrimitiveNode",
+    "Int",
+    "Float",
+    "String",
+    "StringMultiline",
+    "Boolean",
 })
 
 
@@ -584,7 +599,7 @@ def _resolve_source(
                 )
         return None
 
-    if node_type == "PrimitiveNode":
+    if node_type in _PRIMITIVE_VALUE_NODE_TYPES:
         wv = node.get("widgets_values", [])
         if wv:
             return ("value", wv[0])
@@ -1312,7 +1327,7 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited, set_node_map=N
                                           set_node_map=set_node_map)
         return None
 
-    if class_type == 'PrimitiveNode':
+    if class_type in _PRIMITIVE_VALUE_NODE_TYPES:
         # PrimitiveNode is a virtual node. See
         # ComfyUI_frontend src/lib/litegraph/src/subgraph/ExecutableNodeDTO.ts
         # ``resolveOutput``: for a virtual node it calls ``getInputLink`` and

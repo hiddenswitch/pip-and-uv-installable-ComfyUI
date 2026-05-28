@@ -28,8 +28,14 @@ logger = logging.getLogger(__name__)
 VIRTUAL_NODE_TYPES: frozenset[str] = frozenset({
     "Reroute",
     "PrimitiveNode",
+    "Int",
+    "Float",
+    "String",
+    "StringMultiline",
+    "Boolean",
     "Note",
     "MarkdownNote",
+    "Label (rgthree)",
 })
 
 CORE_PACKAGES: frozenset[str] = frozenset({

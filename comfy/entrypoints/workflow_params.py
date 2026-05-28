@@ -325,6 +325,11 @@ _TYPED_PRIMITIVE_CLASSES = frozenset({
     "PrimitiveInt",
     "PrimitiveFloat",
     "PrimitiveBoolean",
+    "String",
+    "StringMultiline",
+    "Int",
+    "Float",
+    "Boolean",
 })
 
 

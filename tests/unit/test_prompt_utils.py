@@ -1,4 +1,5 @@
 import importlib.resources
+import importlib.util
 import json
 
 import pytest
@@ -21,10 +22,7 @@ from comfy.component_model.prompt_utils import (
     _is_node_ref,
     _TEXT_ENCODE_FIELDS,
     _STEPS_CLASS_TYPES,
-    _SEED_FIELDS,
     _IMAGE_LOAD_CLASS_TYPES,
-    _VIDEO_LOAD_CLASS_TYPES,
-    _AUDIO_LOAD_CLASS_TYPES,
 )
 from tests.inference import workflows
 
@@ -839,6 +837,17 @@ class TestReplaceVideosSpecific:
         result = replace_videos(prompt, ["https://example.com/new.mp4"])
         assert result["1"]["inputs"]["value"] == "https://example.com/new.mp4"
 
+    def test_vhs_load_video_video_field_updated(self):
+        prompt = {
+            "1": {
+                "inputs": {"video": "old.mp4", "frame_load_cap": 100},
+                "class_type": "VHS_LoadVideo",
+            }
+        }
+        result = replace_videos(prompt, ["new.mp4"])
+        assert result["1"]["class_type"] == "VHS_LoadVideo"
+        assert result["1"]["inputs"]["video"] == "new.mp4"
+
     def test_multiple_video_nodes(self):
         prompt = {
             "1": {"inputs": {"file": "a.mp4"}, "class_type": "LoadVideo"},
@@ -929,11 +938,7 @@ class TestReplaceAudiosSpecific:
 
 
 def _real_nodes_available() -> bool:
-    try:
-        from comfy.nodes.package import import_all_nodes_in_workspace
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("comfy.nodes.package") is not None
 
 
 def _load_template_workflow(template_id: str) -> dict | None:

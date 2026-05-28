@@ -80,6 +80,8 @@ _IMAGE_LOAD_CLASS_TYPES = frozenset({
 _VIDEO_LOAD_CLASS_TYPES = frozenset({
     "LoadVideo",
     "LoadVideoFromURL",
+    "VHS_LoadVideo",
+    "VHS_LoadVideoFFmpeg",
     "VideoRequestParameter",
 })
 
@@ -294,6 +296,11 @@ _MEDIA_LOADER_TO_URL: dict[str, str] = {
     "LoadAudio": "LoadAudioFromURL",
 }
 
+_MEDIA_INPUT_FIELDS: dict[str, str] = {
+    "VHS_LoadVideo": "video",
+    "VHS_LoadVideoFFmpeg": "video",
+}
+
 
 def _find_media_nodes(prompt: dict, class_types: frozenset) -> list[str]:
     """Return node IDs of media-loading nodes matching *class_types*."""
@@ -329,7 +336,8 @@ def _replace_media(
             node["inputs"] = {"value": values[i]}
             node.pop("_meta", None)
         else:
-            node["inputs"]["value"] = values[i]
+            field = _MEDIA_INPUT_FIELDS.get(class_type, "value")
+            node["inputs"][field] = values[i]
     return prompt
 
 
@@ -437,7 +445,6 @@ _MODEL_PASSTHROUGH_CLASS_TYPES = frozenset({
     "ModelSamplingAuraFlow",
     "ModelSamplingStableCascade",
     "ModelSamplingLTXV",
-    "CFGGuider",  # lives between model and sampler; not a passthrough but worth noting
 })
 
 _CLIP_PRODUCER_CLASS_TYPES = frozenset({
@@ -512,9 +519,9 @@ def _find_model_chain_tail(prompt: dict) -> Optional[str]:
 
     Opposite end from :func:`_find_model_splice_point`. ``torch.compile``
     should wrap the final patched model, so the TorchCompileModel splice
-    point sits AFTER all LoRAs / ``ModelSampling*`` / ``CFGGuider`` stages.
-    Walks forward from the earliest root loader through passthroughs until
-    the next consumer is a sampler / guider (non-passthrough).
+    point sits AFTER all LoRAs / ``ModelSampling*`` stages and before guider
+    nodes. Walks forward from the earliest root loader through passthroughs
+    until the next consumer is a sampler / guider (non-passthrough).
     """
     root = _find_model_splice_point(prompt)
     if root is None:
