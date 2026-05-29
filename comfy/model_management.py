@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from comfy.model_patcher import ModelPatcher
+    from .model_patcher import ModelPatcher
 
 
 class VRAMState(Enum):
@@ -835,7 +835,7 @@ class LoadedModel:
             self._patcher_finalizer.detach()
 
     def is_dead(self):
-        return self.real_model() is not None and self.model is None
+        return self.real_model is not None and self.real_model() is not None and self.model is None
 
 
 def use_more_memory(extra_memory, loaded_models, device):
@@ -980,7 +980,7 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
         ram_to_free = ram_required - psutil.virtual_memory().available
         if ram_to_free <= 0 and i not in unloaded_model:
             continue
-        resident_memory, _ = current_loaded_models[i].model_mmap_residency(free=True)
+        resident_memory, _ = current_loaded_models[i].model.model_mmap_residency(free=True)
         if resident_memory > 0:
             logger.debug(f"RAM Unloading {current_loaded_models[i].model.model.__class__.__name__}")
 
@@ -1090,7 +1090,7 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
     for loaded_model in models_to_load:
         device = loaded_model.device
         total_memory_required[device] = total_memory_required.get(device, 0) + loaded_model.model_memory_required(device)
-        resident_memory, model_memory = loaded_model.model_mmap_residency()
+        resident_memory, model_memory = loaded_model.model.model_mmap_residency()
         pinned_memory = loaded_model.model.pinned_memory_size()
         # FIXME: This can over-free the pins as it budgets to pin the entire model. We should
         # make this JIT to keep as much pinned as possible.

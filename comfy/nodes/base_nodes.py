@@ -875,7 +875,7 @@ class VAELoader:
         # image TAESDs (composed from separate encoder/decoder files via
         # load_taesd) are not addressable by a single vae_path.
         if vae_path is not None:
-            vae.patcher.cached_patcher_init = (comfy.sd.load_vae_patcher, (vae_path, metadata, None))
+            vae.patcher.cached_patcher_init = (sd.load_vae_patcher, (vae_path, metadata, None))
         return (vae,)
 
 

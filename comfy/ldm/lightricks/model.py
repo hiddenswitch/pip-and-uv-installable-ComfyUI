@@ -12,7 +12,7 @@ from torch import nn
 
 from .symmetric_patchifier import SymmetricPatchifier, latent_to_pixel_coords
 from ..common_dit import rms_norm
-from ..modules.attention import optimized_attention, optimized_attention_masked
+from ..modules.attention import optimized_attention
 from ...ops import disable_weight_init
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 
@@ -399,18 +399,18 @@ def _attention_with_guide_mask(q, k, v, heads, guide_mask, attn_precision, trans
     out = torch.empty_like(q)
 
     if guide_start > 0: # In practice currently guides are always after noise, guard for safety if this changes.
-        out[:, :guide_start, :] = comfy.ldm.modules.attention.optimized_attention(
+        out[:, :guide_start, :] = optimized_attention(
             q[:, :guide_start, :], k, v, heads, mask=guide_mask.noisy_mask,
             attn_precision=attn_precision, transformer_options=transformer_options,
             low_precision_attention=False, # sageattn mask support is unreliable
         )
-    out[:, guide_start:tracked_end, :] = comfy.ldm.modules.attention.optimized_attention(
+    out[:, guide_start:tracked_end, :] = optimized_attention(
         q[:, guide_start:tracked_end, :], k, v, heads, mask=guide_mask.tracked_mask,
         attn_precision=attn_precision, transformer_options=transformer_options,
         low_precision_attention=False,
     )
     if tracked_end < q.shape[1]: # Every guide token is tracked, and nothing comes after them, guard for safety if this changes.
-        out[:, tracked_end:, :] = comfy.ldm.modules.attention.optimized_attention(
+        out[:, tracked_end:, :] = optimized_attention(
             q[:, tracked_end:, :], k, v, heads,
             attn_precision=attn_precision, transformer_options=transformer_options,
         )

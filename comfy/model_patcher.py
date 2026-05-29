@@ -53,7 +53,6 @@ import comfy_aimdo.host_buffer
 logger = logging.getLogger(__name__)
 
 from . import memory_management
-from . import pinned_memory
 import comfy_aimdo.model_vbar
 
 
@@ -1901,9 +1900,18 @@ class ModelPatcherDynamic(ModelPatcher):
         per-device pin state.
         """
         if device not in self.model.dynamic_pins:
+            if comfy_aimdo.host_buffer.lib is None:
+                class EmptyHostBuffer:
+                    size = 0
+
+                empty_weights = EmptyHostBuffer()
+                empty_patches = EmptyHostBuffer()
+            else:
+                empty_weights = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
+                empty_patches = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
             self.model.dynamic_pins[device] = {
-                "weights": (comfy_aimdo.host_buffer.HostBuffer(0, 0, 0), [], [-1], [0]),
-                "patches": (comfy_aimdo.host_buffer.HostBuffer(0, 0, 0), [], [-1], [0]),
+                "weights": (empty_weights, [], [-1], [0]),
+                "patches": (empty_patches, [], [-1], [0]),
                 "hostbufs_initialized": False,
                 "failed": False,
                 "active": False,

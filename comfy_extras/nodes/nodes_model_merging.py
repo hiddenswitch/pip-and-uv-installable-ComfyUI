@@ -1,6 +1,5 @@
 from comfy import sd, utils
 from comfy import model_base
-from comfy import model_management
 from comfy import model_sampling
 from comfy.cmd import folder_paths
 

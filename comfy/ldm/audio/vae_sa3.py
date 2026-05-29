@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 
-import comfy.ops
-import comfy.model_management
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.audio.autoencoder import WNConv1d
+from ... import model_management
+from ... import ops as comfy_ops
+from ..modules.attention import optimized_attention
+from .autoencoder import WNConv1d
 
-ops = comfy.ops.disable_weight_init
+ops = comfy_ops.disable_weight_init
 
 class Transpose(nn.Module):
     def forward(self, x, **kwargs):
@@ -43,9 +43,9 @@ class DynamicTanh(nn.Module):
         self.beta = nn.Parameter(torch.empty(dim, dtype=dtype, device=device))
 
     def forward(self, x):
-        alpha = comfy.ops.cast_to_input(self.alpha, x)
-        gamma = comfy.ops.cast_to_input(self.gamma, x)
-        beta = comfy.ops.cast_to_input(self.beta, x)
+        alpha = comfy_ops.cast_to_input(self.alpha, x)
+        gamma = comfy_ops.cast_to_input(self.gamma, x)
+        beta = comfy_ops.cast_to_input(self.beta, x)
         return gamma * torch.tanh(alpha * x) + beta
 
 
@@ -60,7 +60,7 @@ class RotaryEmbedding(nn.Module):
         return self.forward(t)
 
     def forward(self, t):
-        freqs = torch.outer(t.float(), comfy.model_management.cast_to(self.inv_freq, dtype=torch.float32, device=t.device))
+        freqs = torch.outer(t.float(), model_management.cast_to(self.inv_freq, dtype=torch.float32, device=t.device))
         freqs = torch.cat((freqs, freqs), dim=-1)
         return freqs, 1.
 
@@ -307,7 +307,7 @@ class TransformerResamplingBlock(nn.Module):
             x = x.reshape(-1, input_seg, C)
 
             new_tokens = self.new_tokens.expand(x.shape[0], output_seg, -1)
-            x = torch.cat([x, comfy.ops.cast_to_input(new_tokens, x)], dim=-2)
+            x = torch.cat([x, comfy_ops.cast_to_input(new_tokens, x)], dim=-2)
             del new_tokens
 
             x = x.reshape(B, -1, C)
@@ -425,24 +425,24 @@ class SoftNormBottleneck(nn.Module):
                 p.requires_grad = False
 
     def encode(self, x, return_info=False, **kwargs):
-        x = x * comfy.ops.cast_to_input(self.scaling_factor, x) \
-              + comfy.ops.cast_to_input(self.bias, x)
+        x = x * comfy_ops.cast_to_input(self.scaling_factor, x) \
+              + comfy_ops.cast_to_input(self.bias, x)
         if hasattr(self, "running_std"):
-            x = x / comfy.ops.cast_to_input(self.running_std, x)
+            x = x / comfy_ops.cast_to_input(self.running_std, x)
         if return_info:
             return x, {}
         return x
 
     def decode(self, x, **kwargs):
         if hasattr(self, "running_std"):
-            x = x * comfy.ops.cast_to_input(self.running_std, x)
+            x = x * comfy_ops.cast_to_input(self.running_std, x)
         if self.noise_regularize:
             scaling = self.running_std if hasattr(self, "running_std") \
                       else x.std(dim=-1, keepdim=True)
-            noise = torch.randn_like(x) * comfy.ops.cast_to_input(scaling, x) * 1e-3
+            noise = torch.randn_like(x) * comfy_ops.cast_to_input(scaling, x) * 1e-3
             x = x + noise
         if self.noise_augment_dim > 0:
-            noise = comfy.ops.cast_to_input(self.noise_scaling_factor, x) * torch.randn(
+            noise = comfy_ops.cast_to_input(self.noise_scaling_factor, x) * torch.randn(
                 x.shape[0], self.noise_augment_dim, x.shape[-1], device=x.device, dtype=x.dtype)
             x = torch.cat([x, noise], dim=1)
         return x

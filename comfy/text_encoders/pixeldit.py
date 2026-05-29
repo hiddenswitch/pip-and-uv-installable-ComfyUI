@@ -1,12 +1,14 @@
 import torch
 
-from comfy import sd1_clip
+from .. import sd1_clip
+from . import llama
 from .lumina2 import Gemma2BTokenizer, LuminaModel
-import comfy.text_encoders.llama
 
 
 class PixelDiTGemma2_2BModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}, textmodel_json_config=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         llama_quantization_metadata = model_options.get("llama_quantization_metadata", None)
         if llama_quantization_metadata is not None:
             model_options = model_options.copy()
@@ -14,10 +16,10 @@ class PixelDiTGemma2_2BModel(sd1_clip.SDClipModel):
 
         super().__init__(
             device=device, layer=layer, layer_idx=layer_idx,
-            textmodel_json_config={}, dtype=dtype,
+            textmodel_json_config=textmodel_json_config, dtype=dtype,
             special_tokens={"start": 2, "pad": 0},
             layer_norm_hidden_state=False,
-            model_class=comfy.text_encoders.llama.Gemma2_2B,
+            model_class=llama.Gemma2_2B,
             enable_attention_masks=attention_mask,
             return_attention_masks=attention_mask,
             model_options=model_options,

@@ -869,8 +869,8 @@ class StableAudio1(BaseModel):
 
 class StableAudio3(BaseModel):
     def __init__(self, model_config, seconds_total_embedder_weights, padding_embedding=None, model_type=ModelType.FLOW, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.audio.dit.AudioDiffusionTransformer)
-        self.seconds_total_embedder = comfy.ldm.audio.embedders.NumberConditioner(768, min_val=0, max_val=384, fourier_features_type=model_config.unet_config["timestep_features_type"])
+        super().__init__(model_config, model_type, device=device, unet_model=AudioDiffusionTransformer)
+        self.seconds_total_embedder = NumberConditioner(768, min_val=0, max_val=384, fourier_features_type=model_config.unet_config["timestep_features_type"])
         self.seconds_total_embedder.load_state_dict(seconds_total_embedder_weights)
         if padding_embedding is not None:
             self.padding_embedding = torch.nn.Parameter(padding_embedding, requires_grad=False)
@@ -906,7 +906,7 @@ class StableAudio3(BaseModel):
 
         concat_cond = self.concat_cond(**kwargs)
         if concat_cond is not None:
-            out['local_add_cond'] = comfy.conds.CONDNoiseShape(concat_cond)
+            out['local_add_cond'] = conds.CONDNoiseShape(concat_cond)
 
         noise = kwargs.get("noise", None)
         device = kwargs["device"]
@@ -915,7 +915,7 @@ class StableAudio3(BaseModel):
         seconds_total_embed = self.seconds_total_embedder([seconds_total])[0].to(device)
 
         global_embed = seconds_total_embed.reshape((1, -1))
-        out['global_embed'] = comfy.conds.CONDRegular(global_embed)
+        out['global_embed'] = conds.CONDRegular(global_embed)
 
         cross_attn = kwargs.get("cross_attn", None)
         if cross_attn is not None:
@@ -928,7 +928,7 @@ class StableAudio3(BaseModel):
                     pad = pe.view(1, 1, -1).expand(cross_attn.shape[0], max_text_tokens - n_text, -1)
                     cross_attn = torch.cat([cross_attn, pad], dim=1)
             cross_attn = torch.cat([cross_attn, seconds_total_embed.repeat((cross_attn.shape[0], 1, 1))], dim=1)
-            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+            out['c_crossattn'] = conds.CONDRegular(cross_attn)
 
         return out
 

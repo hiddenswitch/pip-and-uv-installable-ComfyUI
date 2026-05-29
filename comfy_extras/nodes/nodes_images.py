@@ -13,7 +13,6 @@ import torch
 import zlib
 from fractions import Fraction
 
-from server import PromptServer
 from comfy.cli_args import args
 from typing_extensions import override
 

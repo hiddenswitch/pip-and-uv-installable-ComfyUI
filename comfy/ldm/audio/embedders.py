@@ -61,7 +61,7 @@ class NumberEmbedder(nn.Module):
         super().__init__()
         self.features = features
         if fourier_features_type == "expo":
-            self.embedding = nn.Sequential(ExpoFourierFeatures(dim=dim), comfy.ops.manual_cast.Linear(in_features=dim, out_features=features))
+            self.embedding = nn.Sequential(ExpoFourierFeatures(dim=dim), ops.manual_cast.Linear(in_features=dim, out_features=features))
         else:
             self.embedding = TimePositionalEmbedding(dim=dim, out_features=features)
 

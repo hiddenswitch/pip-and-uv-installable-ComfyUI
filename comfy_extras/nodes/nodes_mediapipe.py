@@ -23,8 +23,8 @@ import comfy.utils
 from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
-from comfy_extras.mediapipe.face_landmarker import FaceLandmarker
-from comfy_extras.mediapipe.face_geometry import transformation_matrix_from_detection
+from ..mediapipe.face_landmarker import FaceLandmarker
+from ..mediapipe.face_geometry import transformation_matrix_from_detection
 
 
 FaceDetectionType = io.Custom("FACE_DETECTION_MODEL")

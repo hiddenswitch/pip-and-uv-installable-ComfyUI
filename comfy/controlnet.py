@@ -326,7 +326,7 @@ class ControlNet(ControlBase):
     def deepclone_multigpu(self, load_device, autoregister=False):
         c = self.copy()
         c.control_model = copy.deepcopy(c.control_model)
-        c.control_model_wrapped = comfy.model_patcher.ModelPatcher(c.control_model, load_device=load_device, offload_device=comfy.model_management.unet_offload_device())
+        c.control_model_wrapped = model_patcher.ModelPatcher(c.control_model, load_device=load_device, offload_device=model_management.unet_offload_device())
         if autoregister:
             self.multigpu_clones[load_device] = c
         return c

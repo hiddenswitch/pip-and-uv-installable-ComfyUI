@@ -7,10 +7,8 @@ import logging
 from collections import namedtuple
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from comfy.model_patcher import ModelPatcher
-import comfy.utils
-import comfy.patcher_extension
-import comfy.model_management
+    from .model_patcher import ModelPatcher
+from . import model_management
 
 
 class MultiGPUThreadPool:
@@ -134,7 +132,7 @@ def create_multigpu_deepclones(model: ModelPatcher, max_gpus: int, gpu_options: 
     # Exclude the primary model's actual device, not the global current device:
     # after SelectModelDevice(gpu:N) the primary may not live on the process's
     # current CUDA device, and excluding the wrong device picks bad extras.
-    all_devices = comfy.model_management.get_all_torch_devices(exclude_current=False)
+    all_devices = model_management.get_all_torch_devices(exclude_current=False)
     full_extra_devices = [d for d in all_devices if d != model.load_device]
     limit_extra_devices = full_extra_devices[:max_gpus-1]
     extra_devices = limit_extra_devices.copy()
@@ -152,7 +150,7 @@ def create_multigpu_deepclones(model: ModelPatcher, max_gpus: int, gpu_options: 
                 # is_multigpu_base_clone=False, which would later be filtered out by
                 # prepare_model_patcher_multigpu_clones() and silently shrink the
                 # work split back to one GPU.
-                loaded_models: list[ModelPatcher] = comfy.model_management.loaded_models()
+                loaded_models: list[ModelPatcher] = model_management.loaded_models()
                 for lm in loaded_models:
                     if lm.model is None:
                         continue

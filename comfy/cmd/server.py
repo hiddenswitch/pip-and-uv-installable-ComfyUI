@@ -64,7 +64,7 @@ from ..digest import digest
 from ..execution_context import current_execution_context
 from ..images import open_image
 from ..middleware.cache_middleware import cache_control
-from ..model_management import get_torch_device, get_torch_device_name, get_total_memory, get_free_memory, torch_version
+from ..model_management import torch_version
 from ..nodes.package_typing import ExportedNodes
 from ..progress_types import PreviewImageMetadata
 from ..app.assets.api.routes import register_assets_routes

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import pytest
 
-from app.assets.api.schemas_out import Asset, AssetCreated
+from comfy.app.assets.api.schemas_out import Asset, AssetCreated
 
 pytestmark = pytest.mark.usefixtures("autoclean_unit_test_assets")
 

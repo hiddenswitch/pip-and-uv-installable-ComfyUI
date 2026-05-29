@@ -10,10 +10,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
-from comfy import sd1_clip
-from comfy.ldm.modules.attention import TORCH_HAS_GQA, optimized_attention_for_device
-from comfy.text_encoders.llama import RMSNorm, apply_rope
+from .. import ops as ops_module
+from .. import sd1_clip
+from ..ldm.modules.attention import TORCH_HAS_GQA, optimized_attention_for_device
+from .llama import RMSNorm, apply_rope
 
 
 @dataclass
@@ -175,8 +175,8 @@ class GptOssTopKRouter(nn.Module):
         self.bias = nn.Parameter(torch.empty(config.num_local_experts, device=device, dtype=dtype))
 
     def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        weight = comfy.ops.cast_to_input(self.weight, hidden_states, copy=False)
-        bias = comfy.ops.cast_to_input(self.bias, hidden_states, copy=False)
+        weight = ops_module.cast_to_input(self.weight, hidden_states, copy=False)
+        bias = ops_module.cast_to_input(self.bias, hidden_states, copy=False)
         logits = F.linear(hidden_states, weight, bias)
         top_vals, top_idx = torch.topk(logits, self.top_k, dim=-1)
         # Softmax over top-k slice only
@@ -517,7 +517,7 @@ class LensGptOssClipModel(nn.Module):
         operations = model_options.get("custom_operations")
         if operations is None:
             quant_config = model_options.get("quantization_metadata") or {}
-            operations = comfy.ops.mixed_precision_ops(quant_config, dtype, full_precision_mm=True)
+            operations = ops_module.mixed_precision_ops(quant_config, dtype, full_precision_mm=True)
         self.operations = operations
 
         cfg_overrides = model_options.get("gpt_oss_config", {})

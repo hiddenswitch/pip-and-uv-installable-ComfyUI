@@ -135,7 +135,7 @@ class Dino2Embeddings(torch.nn.Module):
         self.mask_token = torch.nn.Parameter(torch.empty(1, dim, dtype=dtype, device=device))
 
     def interpolate_pos_encoding(self, x, h_pixels, w_pixels):
-        pos_embed = comfy.model_management.cast_to_device(self.position_embeddings, x.device, torch.float32)
+        pos_embed = cast_to_device(self.position_embeddings, x.device, torch.float32)
 
         class_pos = pos_embed[:, 0:1]
         patch_pos = pos_embed[:, 1:]

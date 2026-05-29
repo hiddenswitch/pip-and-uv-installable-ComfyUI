@@ -18,6 +18,7 @@ from . import utils
 from .context_windows import ContextHandlerABC
 from .controlnet import ControlBase
 from .hooks import EnumHookMode, HookGroup
+from .extra_samplers import uni_pc
 from .k_diffusion import sampling as k_diffusion_sampling
 from .model_base import BaseModel
 from .model_patcher import ModelPatcher

@@ -1,6 +1,6 @@
 import re
 import json
-import string
+import string as string_module
 from typing_extensions import override
 
 from comfy_api.latest import ComfyExtension, io
@@ -11,7 +11,7 @@ class StringFormat(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         autogrow = io.Autogrow.TemplateNames(
             input=io.AnyType.Input("value"),
-            names=list(string.ascii_lowercase),
+            names=list(string_module.ascii_lowercase),
             min=0,
         )
         return io.Schema(

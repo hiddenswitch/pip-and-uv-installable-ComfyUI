@@ -16,10 +16,14 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import torch
 import logging
 import contextlib
 import json
+import typing
+from typing import Optional
+
+import torch
+from torch import Tensor
 
 import comfy_aimdo.model_vbar
 import comfy_aimdo.torch
@@ -30,19 +34,48 @@ from . import model_management
 from . import pinned_memory
 from . import utils
 from .cli_args import args, PerformanceFeature
+from .execution_context import current_execution_context
+from .interruption import throw_exception_if_processing_interrupted
+
+logger = logging.getLogger(__name__)
+_RUN_EVERY_OP_ENABLED = model_management.torch_version_numeric >= (2, 5)
 
 def run_every_op():
-    if torch.compiler.is_compiling():
+    global _RUN_EVERY_OP_ENABLED
+    if not _RUN_EVERY_OP_ENABLED or torch.compiler.is_compiling():
         return
 
-    model_management.throw_exception_if_processing_interrupted()
+    throw_exception_if_processing_interrupted()
 
-def scaled_dot_product_attention(q, k, v, *args, **kwargs):
+
+def _scaled_dot_product_attention(q, k, v, *args, **kwargs):
     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
 
+scaled_dot_product_attention = _scaled_dot_product_attention
+_cudnn_attention_disabled = False
+
+
+def _check_cudnn_nvrtc_compatibility():
+    """Check whether cuDNN attention is likely compatible with PyTorch CUDA."""
+    try:
+        pytorch_cuda = torch.version.cuda
+        if pytorch_cuda is None:
+            return False
+
+        pytorch_cuda_major = int(pytorch_cuda.split('.')[0])
+        cudnn_version = torch.backends.cudnn.version()
+        if cudnn_version is None:
+            return False
+
+        cudnn_major = cudnn_version // 10000
+        return cudnn_major >= 9 and pytorch_cuda_major >= 12
+    except Exception:
+        return False
+
+
 try:
-    if torch.cuda.is_available() and model_management.WINDOWS:
+    if torch.cuda.is_available():
         from torch.nn.attention import SDPBackend, sdpa_kernel
         import inspect
         if "set_priority" in inspect.signature(sdpa_kernel).parameters:
@@ -52,17 +85,35 @@ try:
                 SDPBackend.MATH,
             ]
 
-            SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+            if _check_cudnn_nvrtc_compatibility():
+                SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+            else:
+                logger.debug("Skipping cuDNN attention backend due to potential version compatibility")
 
-            def scaled_dot_product_attention(q, k, v, *args, **kwargs):
-                if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
-                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
-                with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
-                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+            def _scaled_dot_product_attention_sdpa2(q, k, v, *args, **kwargs):
+                global _cudnn_attention_disabled
+                try:
+                    if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
+                        return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                    with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                        return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                except RuntimeError as e:
+                    error_msg = str(e)
+                    if "cuDNN" in error_msg or "cudnn" in error_msg.lower() or "nvrtc" in error_msg.lower():
+                        if not _cudnn_attention_disabled:
+                            logger.warning(f"cuDNN attention failed, falling back to other backends: {error_msg}")
+                            _cudnn_attention_disabled = True
+                        fallback_priority = [b for b in SDPA_BACKEND_PRIORITY if b != SDPBackend.CUDNN_ATTENTION]
+                        with sdpa_kernel(fallback_priority, set_priority=True):
+                            return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                    raise
+
+            scaled_dot_product_attention = _scaled_dot_product_attention_sdpa2
         else:
-            logging.warning("Torch version too old to set sdpa backend priority.")
-except (ModuleNotFoundError, TypeError):
-    logging.warning("Could not set sdpa backend priority.")
+            logger.warning("Torch version too old to set sdpa backend priority, even though you are using CUDA")
+except Exception as exc_info:
+    if torch.cuda.is_available():
+        logger.debug("Could not set sdpa backend priority.", exc_info=exc_info)
 
 NVIDIA_MEMORY_CONV_BUG_WORKAROUND = False
 try:
@@ -452,6 +503,52 @@ class CastWeightBiasOp:
     comfy_cast_weights = False
     weight_function = []
     bias_function = []
+
+
+class SkipInit:
+    def reset_parameters(self):
+        return None
+
+
+class skip_init:
+    class Linear(SkipInit, torch.nn.Linear):
+        pass
+
+    class Conv1d(SkipInit, torch.nn.Conv1d):
+        pass
+
+    class Conv2d(SkipInit, torch.nn.Conv2d):
+        pass
+
+    class Conv3d(SkipInit, torch.nn.Conv3d):
+        pass
+
+    class GroupNorm(SkipInit, torch.nn.GroupNorm):
+        pass
+
+    class LayerNorm(SkipInit, torch.nn.LayerNorm):
+        pass
+
+    class ConvTranspose2d(SkipInit, torch.nn.ConvTranspose2d):
+        pass
+
+    class ConvTranspose1d(SkipInit, torch.nn.ConvTranspose1d):
+        pass
+
+    class Embedding(SkipInit, torch.nn.Embedding):
+        def forward(self, *args, **kwargs) -> Tensor:
+            if "out_dtype" in kwargs:
+                kwargs.pop("out_dtype")
+            return super().forward(*args, **kwargs)
+
+    @classmethod
+    def conv_nd(cls, dims, *args, **kwargs):
+        if dims == 2:
+            return cls.Conv2d(*args, **kwargs)
+        if dims == 3:
+            return cls.Conv3d(*args, **kwargs)
+        raise ValueError(f"unsupported dimensions: {dims}")
+
 
 class disable_weight_init:
     @staticmethod
@@ -915,6 +1012,10 @@ class fp8_ops(manual_cast):
             uncast_bias_weight(self, weight, bias, offload_stream)
             return x
 
+
+class scaled_fp8_op_base(manual_cast):
+    pass
+
 CUBLAS_IS_AVAILABLE = False
 try:
     from cublas_ops import CublasLinear, cublas_half_matmul
@@ -940,6 +1041,12 @@ if CUBLAS_IS_AVAILABLE:
                     return self.forward_comfy_cast_weights(*args, **kwargs)
                 else:
                     return super().forward(*args, **kwargs)
+else:
+    class cublas_ops(disable_weight_init):
+        pass
+
+
+Operations = typing.Type[typing.Union[manual_cast, fp8_ops, disable_weight_init, skip_init, scaled_fp8_op_base]]
 
 # ==============================================================================
 # Mixed Precision Operations
@@ -949,6 +1056,7 @@ from .quant_ops import (
     QUANT_ALGOS,
     TensorCoreFP8Layout,
     get_layout_class,
+    mixed_precision_quantization_available,
 )
 
 
@@ -1506,14 +1614,18 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
 
     return MixedPrecisionOps
 
-def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_fp8=False, fp8_optimizations=False, model_config=None):
+def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_fp8=False, fp8_optimizations=False, model_config=None, inference_mode: Optional[bool] = None):
+    if inference_mode is None:
+        inference_mode = current_execution_context().inference_mode
     fp8_compute = model_management.supports_fp8_compute(load_device) # TODO: if we support more ops this needs to be more granular
     nvfp4_compute = model_management.supports_nvfp4_compute(load_device)
     mxfp8_compute = model_management.supports_mxfp8_compute(load_device)
 
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
-        logging.info("Using mixed precision operations")
+        logger.info("Using mixed precision operations")
         disabled = set()
+        if not mixed_precision_quantization_available():
+            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4"})
         if not nvfp4_compute:
             disabled.add("nvfp4")
         if not mxfp8_compute:
@@ -1521,7 +1633,6 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         if not fp8_compute:
             disabled.add("float8_e4m3fn")
             disabled.add("float8_e5m2")
-        logging.info("Native ops: {} {}".format(", ".join(QUANT_ALGOS.keys() - disabled), ", emulated ops: {}".format(", ".join(disabled)) if len(disabled) > 0 else ""))
         return mixed_precision_ops(model_config.quant_config, compute_dtype, disabled=disabled)
 
     if (
@@ -1537,10 +1648,10 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         weight_dtype == torch.float16 and
         (compute_dtype == torch.float16 or compute_dtype is None)
     ):
-        logging.info("Using cublas ops")
+        logger.debug("Using cublas ops")
         return cublas_ops
 
     if compute_dtype is None or weight_dtype == compute_dtype:
-        return disable_weight_init
+        return disable_weight_init if inference_mode else skip_init
 
     return manual_cast

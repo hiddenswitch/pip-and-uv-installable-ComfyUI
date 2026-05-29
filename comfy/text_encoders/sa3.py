@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from comfy import sd1_clip
-from comfy.text_encoders.llama import Attention as LlamaAttention, RMSNorm, MLP, precompute_freqs_cis, apply_rope, _make_scaled_embedding
-from comfy.text_encoders.spiece_tokenizer import SPieceTokenizer
+from .. import sd1_clip
+from .llama import Attention as LlamaAttention, RMSNorm, MLP, precompute_freqs_cis, apply_rope, _make_scaled_embedding
+from .spiece_tokenizer import SPieceTokenizer
 
 
 class T5GemmaEncoderConfig:
@@ -172,9 +172,11 @@ class T5GemmaModel(nn.Module):
 
 
 class T5GemmaSDClipModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, model_options={}):
+    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, model_options={}, textmodel_json_config=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
         super().__init__(device=device, layer=layer, layer_idx=layer_idx,
-                         textmodel_json_config={}, dtype=dtype,
+                         textmodel_json_config=textmodel_json_config, dtype=dtype,
                          special_tokens={"pad": 0},
                          model_class=T5GemmaModel,
                          enable_attention_masks=True, zero_out_masked=True,
