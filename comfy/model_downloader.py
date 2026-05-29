@@ -598,6 +598,7 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ltx-2", "split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"),
     HuggingFile("Comfy-Org/ltx-2", "split_files/loras/ltx2-squish.safetensors"),
     HuggingFile("Comfy-Org/ltx-2.3", "split_files/loras/ltx-2.3-id-lora-talkvid-3k.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2.3", "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-DiffSynth-ControlNets", "split_files/loras/qwen_image_union_diffsynth_lora.safetensors"),
     HuggingFile("Comfy-Org/USO_1.0_Repackaged", "split_files/loras/uso-flux1-dit-lora-v1.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors"),
