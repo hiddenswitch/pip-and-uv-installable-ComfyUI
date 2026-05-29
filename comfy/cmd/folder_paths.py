@@ -21,6 +21,90 @@ from ..component_model.platform_path import construct_path
 
 _module_properties = create_module_properties()
 
+output_directory = os.path.join(base_path, "output")
+temp_directory = os.path.join(base_path, "temp")
+input_directory = os.path.join(base_path, "input")
+user_directory = os.path.join(base_path, "user")
+
+filename_list_cache: dict[str, tuple[list[str], dict[str, float], float]] = {}
+
+class CacheHelper:
+    """
+    Helper class for managing file list cache data.
+    """
+    def __init__(self):
+        self.cache: dict[str, tuple[list[str], dict[str, float], float]] = {}
+        self.active = False
+
+    def get(self, key: str, default=None) -> tuple[list[str], dict[str, float], float]:
+        if not self.active:
+            return default
+        return self.cache.get(key, default)
+
+    def set(self, key: str, value: tuple[list[str], dict[str, float], float]) -> None:
+        if self.active:
+            self.cache[key] = value
+
+    def clear(self):
+        self.cache.clear()
+
+    def __enter__(self):
+        self.active = True
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.active = False
+        self.clear()
+
+cache_helper = CacheHelper()
+
+extension_mimetypes_cache = {
+    "webp" : "image",
+    "fbx" : "model",
+}
+
+def map_legacy(folder_name: str) -> str:
+    legacy = {"unet": "diffusion_models",
+              "clip": "text_encoders"}
+    return legacy.get(folder_name, folder_name)
+
+if not os.path.exists(input_directory):
+    try:
+        os.makedirs(input_directory)
+    except:
+        logging.error("Failed to create input directory")
+
+def set_output_directory(output_dir: str) -> None:
+    global output_directory
+    output_directory = output_dir
+
+def set_temp_directory(temp_dir: str) -> None:
+    global temp_directory
+    temp_directory = temp_dir
+
+def set_input_directory(input_dir: str) -> None:
+    global input_directory
+    input_directory = input_dir
+
+def get_output_directory() -> str:
+    global output_directory
+    return output_directory
+
+def get_temp_directory() -> str:
+    global temp_directory
+    return temp_directory
+
+def get_input_directory() -> str:
+    global input_directory
+    return input_directory
+
+def get_user_directory() -> str:
+    return user_directory
+
+def set_user_directory(user_dir: str) -> None:
+    global user_directory
+    user_directory = user_dir
+
 
 def _current_execution_context():
     """Deferred import to avoid circular dependency with execution_context."""
@@ -184,7 +268,9 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         ModelPaths(["latent_upscale_models"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["background_removal"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["frame_interpolation"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(["geometry_estimation"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["optical_flow"], supported_extensions=set(supported_pt_extensions)),
+        ModelPaths(["detection"], supported_extensions=set(supported_pt_extensions)),
         hf_cache_paths,
         hf_xet,
     ]

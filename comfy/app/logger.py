@@ -7,6 +7,44 @@ from datetime import datetime
 
 from ..component_model.node_traceback import NodeExecutionErrorFilter
 
+ANSI_NAMED_COLORS = {
+    'black':   '\033[30m',
+    'red':     '\033[31m',
+    'green':   '\033[32m',
+    'yellow':  '\033[33m',
+    'blue':    '\033[34m',
+    'magenta': '\033[35m',
+    'cyan':    '\033[36m',
+    'white':   '\033[37m',
+}
+
+ANSI_LEVEL_COLORS = {
+    'DEBUG':    ANSI_NAMED_COLORS['cyan'],
+    'INFO':     ANSI_NAMED_COLORS['green'],
+    'WARNING':  ANSI_NAMED_COLORS['yellow'],
+    'ERROR':    ANSI_NAMED_COLORS['red'],
+    'CRITICAL': ANSI_NAMED_COLORS['magenta'],
+}
+
+ANSI_RESET = '\033[0m'
+ANSI_BOLD  = '\033[1m'
+
+
+class ColoredFormatter(logging.Formatter):
+    def format(self, record):
+        color = ANSI_LEVEL_COLORS.get(record.levelname, '')
+        bold  = ANSI_BOLD if record.levelno >= logging.WARNING else ''
+        level_tag = f"{bold}{color}[{record.levelname}]{ANSI_RESET} "
+        message = super().format(record)
+        line_color = ANSI_NAMED_COLORS.get(getattr(record, 'color', ''), '')
+        if line_color:
+            return f"{level_tag}{line_color}{message}{ANSI_RESET}"
+        return level_tag + message
+
+logs = None
+stdout_interceptor = None
+stderr_interceptor = None
+
 # initialize with sane defaults
 logs = deque(maxlen=1000)
 stdout_interceptor = sys.stdout
@@ -92,12 +130,10 @@ def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool 
     logger.setLevel(log_level)
 
     node_error_filter = NodeExecutionErrorFilter()
+    formatter = ColoredFormatter("%(message)s")
 
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] [%(name)s] [%(filename)s:%(lineno)d] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    ))
+    stream_handler.setFormatter(formatter)
     stream_handler.addFilter(node_error_filter)
 
     if use_stdout:
@@ -106,7 +142,7 @@ def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool 
 
         # Lesser to stdout
         stdout_handler = logging.StreamHandler(sys.stdout)
-        stdout_handler.setFormatter(logging.Formatter("%(message)s"))
+        stdout_handler.setFormatter(formatter)
         stdout_handler.addFilter(lambda record: record.levelno < logging.ERROR)
         stdout_handler.addFilter(node_error_filter)
         logger.addHandler(stdout_handler)
@@ -119,7 +155,6 @@ def setup_logger(log_level: str = 'INFO', capacity: int = 300, use_stdout: bool 
 def _patch_tqdm_write():
     try:
         import tqdm
-        _original_write = tqdm.tqdm.write
 
         @staticmethod
         def _logging_write(s, file=None, end="\n", nolock=False):

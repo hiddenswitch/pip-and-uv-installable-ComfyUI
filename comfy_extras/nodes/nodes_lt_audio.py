@@ -14,9 +14,9 @@ class LTXVAudioVAELoader1(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="LTXVAudioVAELoader1",
-            display_name="LTXV Audio VAE Loader (Legacy)",
-            category="audio",
+            node_id="LTXVAudioVAELoader",
+            display_name="Load LTXV Audio VAE",
+            category="model/loaders",
             inputs=[
                 io.Combo.Input(
                     "ckpt_name",
@@ -44,7 +44,7 @@ class LTXVAudioVAEEncode(VAEEncodeAudio):
         return io.Schema(
             node_id="LTXVAudioVAEEncode",
             display_name="LTXV Audio VAE Encode",
-            category="audio",
+            category="model/latent/audio",
             inputs=[
                 io.Audio.Input("audio", tooltip="The audio to be encoded."),
                 io.Vae.Input(
@@ -67,7 +67,7 @@ class LTXVAudioVAEDecode(io.ComfyNode):
         return io.Schema(
             node_id="LTXVAudioVAEDecode",
             display_name="LTXV Audio VAE Decode",
-            category="audio",
+            category="model/latent/audio",
             inputs=[
                 io.Latent.Input("samples", tooltip="The latent to be decoded."),
                 io.Vae.Input(
@@ -100,7 +100,7 @@ class LTXVEmptyLatentAudio(io.ComfyNode):
         return io.Schema(
             node_id="LTXVEmptyLatentAudio",
             display_name="LTXV Empty Latent Audio",
-            category="latent/audio",
+            category="model/latent/audio",
             inputs=[
                 io.Int.Input(
                     "frames_number",

@@ -956,7 +956,7 @@ class TrainLoraNode(io.ComfyNode):
         return io.Schema(
             node_id="TrainLoraNode",
             display_name="Train LoRA",
-            category="training",
+            category="model/training",
             is_experimental=True,
             is_input_list=True,  # All inputs become lists
             inputs=[
@@ -1312,7 +1312,7 @@ class LoraModelLoader(io.ComfyNode):
         return io.Schema(
             node_id="LoraModelLoader",
             display_name="Load LoRA Model",
-            category="loaders",
+            category="model/loaders",
             is_experimental=True,
             inputs=[
                 io.Model.Input(
@@ -1408,7 +1408,7 @@ class LossGraphNode(io.ComfyNode):
             node_id="LossGraphNode",
             search_aliases=["training chart", "training visualization", "plot loss"],
             display_name="Plot Loss Graph",
-            category="training",
+            category="model/training",
             is_experimental=True,
             is_output_node=True,
             inputs=[

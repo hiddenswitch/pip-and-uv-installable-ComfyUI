@@ -25,13 +25,14 @@ import platform
 import sys
 import warnings
 import weakref
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from threading import RLock
 from typing import List, Sequence, Final, Optional
 
 import psutil
 import torch
+import comfy_aimdo.host_buffer
 import comfy_aimdo.vram_buffer
 from opentelemetry.trace import get_current_span
 
@@ -49,6 +50,11 @@ model_management_lock = RLock()
 torch.set_float32_matmul_precision("high")
 
 logger = logging.getLogger(__name__)
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from comfy.model_patcher import ModelPatcher
+
 
 class VRAMState(Enum):
     DISABLED = 0  # No vram present: no need to move models to vram
@@ -230,6 +236,107 @@ def get_torch_device():
                 warnings.warn("torch.cuda.current_device() did not return a device, returning a CPU torch device")
                 return torch.device("cpu")
 
+
+def get_all_torch_devices(exclude_current=False):
+    global cpu_state
+    devices = []
+    if cpu_state == CPUState.GPU:
+        # NVIDIA + AMD/ROCm both expose their GPUs through torch.cuda.*;
+        # without the AMD arm, single-GPU ROCm users get an empty list
+        # which silently turns unload_all_models() into a no-op.
+        if is_nvidia() or is_amd():
+            for i in range(torch.cuda.device_count()):
+                devices.append(torch.device("cuda", i))
+        elif is_intel_xpu():
+            for i in range(torch.xpu.device_count()):
+                devices.append(torch.device("xpu", i))
+        elif is_ascend_npu():
+            for i in range(torch.npu.device_count()):
+                devices.append(torch.device("npu", i))
+        elif is_mlu():
+            for i in range(torch.mlu.device_count()):
+                devices.append(torch.device("mlu", i))
+        else:
+            # Fallback for unhandled GPU backends (e.g. DirectML): at least
+            # report the current device so callers like unload_all_models()
+            # do not silently no-op.
+            devices.append(get_torch_device())
+    else:
+        devices.append(get_torch_device())
+    if exclude_current:
+        current = get_torch_device()
+        if current in devices:
+            devices.remove(current)
+    return devices
+
+def get_gpu_device_options():
+    """Return list of device option strings for node widgets.
+
+    Always includes "default" and "cpu". When multiple GPUs are present,
+    adds "gpu:0", "gpu:1", etc. (vendor-agnostic labels).
+    """
+    options = ["default", "cpu"]
+    devices = get_all_torch_devices()
+    if len(devices) > 1:
+        for i in range(len(devices)):
+            options.append(f"gpu:{i}")
+    return options
+
+def get_gpu_device_options_no_cpu():
+    """Variant of get_gpu_device_options that omits "cpu".
+
+    Intended for components like the VAE selector where running on CPU
+    is impractical and should not be offered as a choice.
+    """
+    return [o for o in get_gpu_device_options() if o != "cpu"]
+
+def resolve_gpu_device_option(option: str):
+    """Resolve a device option string to a torch.device.
+
+    Returns None for "default" (let the caller use its normal default).
+    Returns torch.device("cpu") for "cpu".
+    For "gpu:N", returns the Nth torch device. Returns None if the
+    index is out of range, the option string is malformed, or
+    unrecognized (callers are expected to log their own context-rich
+    message before falling back to the default device).
+    """
+    if option is None or option == "default":
+        return None
+    if option == "cpu":
+        return torch.device("cpu")
+    if option.startswith("gpu:"):
+        try:
+            idx = int(option[4:])
+        except ValueError:
+            return None
+        devices = get_all_torch_devices()
+        if 0 <= idx < len(devices):
+            return devices[idx]
+    return None
+
+@contextmanager
+def cuda_device_context(device):
+    """Context manager that sets torch.cuda.current_device to match *device*.
+
+    Used when running operations on a non-default CUDA device so that custom
+    CUDA kernels (e.g. comfy_kitchen fp8 quantization) pick up the correct
+    device index.  The previous device is restored on exit.
+
+    No-op when *device* is not CUDA, has no explicit index, or already matches
+    the current device.
+    """
+    prev = None
+    if device.type == "cuda" and device.index is not None:
+        prev = torch.cuda.current_device()
+        if prev != device.index:
+            torch.cuda.set_device(device)
+        else:
+            prev = None
+    try:
+        yield
+    finally:
+        if prev is not None:
+            torch.cuda.set_device(prev)
 
 def get_total_memory(dev=None, torch_total_too=False):
     global directml_device
@@ -546,9 +653,21 @@ try:
     logger.debug("Device: {}".format(get_torch_device_name(get_torch_device())))
 except:
     logger.warning("Could not pick default device.")
+try:
+    for device in get_all_torch_devices(exclude_current=True):
+        logger.info("Device: {}".format(get_torch_device_name(device)))
+except:
+    pass
 
 current_loaded_models: Final[List["LoadedModel"]] = []
 
+DIRTY_MMAPS = set()
+
+PIN_PRESSURE_HYSTERESIS = 256 * 1024 * 1024
+
+#Freeing registerables on pressure does imply a GPU sync, so go big on
+#the hysteresis so each expensive sync gives us back a good chunk.
+REGISTERABLE_PIN_HYSTERESIS = 2048 * 1024 * 1024
 
 def module_size(module):
     module_mem = 0
@@ -557,7 +676,6 @@ def module_size(module):
         t = sd[k]
         module_mem += t.nbytes
     return module_mem
-
 
 def module_mmap_residency(module, free=False):
     mmap_touched_mem = 0
@@ -582,6 +700,48 @@ def module_mmap_residency(module, free=False):
     return mmap_touched_mem, module_mem
 
 
+def mark_mmap_dirty(storage):
+    mmap_refs = getattr(storage, "_comfy_tensor_mmap_refs", None)
+    if mmap_refs is not None:
+        DIRTY_MMAPS.add(mmap_refs[0])
+
+def free_pins(size, evict_active=False):
+    freed_total = 0
+    for loaded_model in reversed(current_loaded_models):
+        if size <= 0:
+            return freed_total
+        model = loaded_model.model
+        if model is not None and model.is_dynamic() and (evict_active or not model.model.dynamic_pins[model.load_device]["active"]):
+            freed = model.partially_unload_ram(size)
+            freed_total += freed
+            size -= freed
+    return freed_total
+
+def ensure_pin_budget(size, evict_active=False):
+    shortfall = size + memory_management.RAM_CACHE_HEADROOM / 2 - psutil.virtual_memory().available
+    if shortfall <= 0:
+        return True
+
+    to_free = shortfall + PIN_PRESSURE_HYSTERESIS
+    return free_pins(to_free, evict_active=evict_active) >= shortfall
+
+def ensure_pin_registerable(size, evict_active=False):
+    shortfall = TOTAL_PINNED_MEMORY + size - MAX_PINNED_MEMORY
+    if MAX_PINNED_MEMORY <= 0:
+        return False
+    if shortfall <= 0:
+        return True
+
+    shortfall += REGISTERABLE_PIN_HYSTERESIS
+    for loaded_model in reversed(current_loaded_models):
+        model = loaded_model.model
+        if model is not None and model.is_dynamic() and (evict_active or not model.model.dynamic_pins[model.load_device]["active"]):
+            shortfall -= model.unregister_inactive_pins(shortfall)
+            if shortfall <= 0:
+                return True
+    return shortfall <= REGISTERABLE_PIN_HYSTERESIS
+
+
 class LoadedModel:
     def __init__(self, model: ModelManageable):
         self._set_model(model)
@@ -591,7 +751,7 @@ class LoadedModel:
         self.model_finalizer = None
         self._patcher_finalizer = None
 
-    def _set_model(self, model):
+    def _set_model(self, model: ModelPatcher):
         self._model = weakref.ref(model)
         if model.parent is not None:
             self._parent_model = weakref.ref(model.parent)
@@ -602,6 +762,7 @@ class LoadedModel:
         model = self._parent_model()
         if model is not None:
             self._set_model(model)
+            self.device = model.load_device
 
     @property
     def model(self) -> ModelManageable:
@@ -609,9 +770,6 @@ class LoadedModel:
 
     def model_memory(self):
         return self.model.model_size()
-
-    def model_mmap_residency(self, free=False):
-        return self.model.model_mmap_residency(free=free)
 
     def model_loaded_memory(self):
         return self.model.loaded_size()
@@ -706,7 +864,6 @@ if WINDOWS:
     if total_vram > (15 * 1024):  # more extra reserved vram on 16GB+ cards
         EXTRA_RESERVED_VRAM += 100 * 1024 * 1024
 
-
     def get_free_ram():
         return windows.get_free_ram()
 else:
@@ -772,7 +929,14 @@ def free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pins
     span = get_current_span()
     span.set_attribute("memory_required", memory_required)
     with model_management_lock:
-        unloaded_models = _free_memory(memory_required, device, keep_loaded)
+        unloaded_models = _free_memory(
+            memory_required,
+            device,
+            keep_loaded,
+            for_dynamic=for_dynamic,
+            pins_required=pins_required,
+            ram_required=ram_required,
+        )
         span.set_attribute("unloaded_models", list(map(str, unloaded_models)))
         return unloaded_models
 
@@ -795,8 +959,8 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
     for x in can_unload_sorted:
         i = x[-1]
         memory_to_free = 1e32
-        pins_to_free = 1e32
-        if not DISABLE_SMART_MEMORY or device is None:
+        pins_to_free = 0
+        if current_loaded_models[i].model.is_dynamic() and (not DISABLE_SMART_MEMORY or device is None):
             memory_to_free = 0 if device is None else memory_required - get_free_memory(device)
             pins_to_free = pins_required - get_free_ram()
             if current_loaded_models[i].model.is_dynamic() and for_dynamic:
@@ -1367,6 +1531,7 @@ STREAM_CAST_BUFFERS = {}
 LARGEST_CASTED_WEIGHT = (None, 0)
 STREAM_AIMDO_CAST_BUFFERS = {}
 LARGEST_AIMDO_CASTED_WEIGHT = (None, 0)
+STREAM_PIN_BUFFERS = {}
 
 DEFAULT_AIMDO_CAST_BUFFER_RESERVATION_SIZE = 16 * 1024 ** 3
 
@@ -1408,23 +1573,66 @@ def get_aimdo_cast_buffer(offload_stream, device):
     if cast_buffer is None:
         cast_buffer = comfy_aimdo.vram_buffer.VRAMBuffer(DEFAULT_AIMDO_CAST_BUFFER_RESERVATION_SIZE, device.index)
         STREAM_AIMDO_CAST_BUFFERS[offload_stream] = cast_buffer
-
     return cast_buffer
 
+def get_pin_buffer(offload_stream):
+    pin_buffer = STREAM_PIN_BUFFERS.get(offload_stream, None)
+    if pin_buffer is None:
+        pin_buffer = comfy_aimdo.host_buffer.HostBuffer(0, 0, pinned_hostbuf_size(8 * 1024**3), mark_cold=False)
+        STREAM_PIN_BUFFERS[offload_stream] = pin_buffer
+    elif offload_stream is not None:
+        event = getattr(pin_buffer, "_comfy_event", None)
+        if event is not None:
+            event.synchronize()
+            delattr(pin_buffer, "_comfy_event")
+    return pin_buffer
+
+def resize_pin_buffer(pin_buffer, size):
+    global TOTAL_PINNED_MEMORY
+    old_size = pin_buffer.size
+    if size <= old_size:
+        return True
+    growth = size - old_size
+    memory_management.extra_ram_release(memory_management.RAM_CACHE_HEADROOM)
+    ensure_pin_budget(growth, evict_active=True)
+    ensure_pin_registerable(growth, evict_active=True)
+    try:
+        pin_buffer.extend(size=size, reallocate=True)
+    except RuntimeError:
+        return False
+    TOTAL_PINNED_MEMORY += pin_buffer.size - old_size
+    return True
 
 def reset_cast_buffers():
+    global TOTAL_PINNED_MEMORY
     global LARGEST_CASTED_WEIGHT
     global LARGEST_AIMDO_CASTED_WEIGHT
 
     LARGEST_CASTED_WEIGHT = (None, 0)
     LARGEST_AIMDO_CASTED_WEIGHT = (None, 0)
-    for offload_stream in set(STREAM_CAST_BUFFERS) | set(STREAM_AIMDO_CAST_BUFFERS):
+    for offload_stream in set(STREAM_CAST_BUFFERS) | set(STREAM_AIMDO_CAST_BUFFERS) | set(STREAM_PIN_BUFFERS):
         if offload_stream is not None:
             offload_stream.synchronize()
     synchronize()
 
+    for mmap_obj in DIRTY_MMAPS:
+        mmap_obj.bounce()
+    DIRTY_MMAPS.clear()
+
+    for pin_buffer in STREAM_PIN_BUFFERS.values():
+        TOTAL_PINNED_MEMORY -= pin_buffer.size
+    TOTAL_PINNED_MEMORY = max(0, TOTAL_PINNED_MEMORY)
+
+    for loaded_model in current_loaded_models:
+        model = loaded_model.model
+        if model is not None and model.is_dynamic():
+            model.model.dynamic_pins[model.load_device]["active"] = False
+            model.partially_unload_ram(1e30, subsets=[ "patches" ])
+            model.model.dynamic_pins[model.load_device]["patches"] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, pinned_hostbuf_size(model.model_size())), [], [-1], [0])
+
     STREAM_CAST_BUFFERS.clear()
     STREAM_AIMDO_CAST_BUFFERS.clear()
+    STREAM_PIN_BUFFERS.clear()
     soft_empty_cache()
 
 
@@ -1472,7 +1680,7 @@ def sync_stream(device, stream):
     current_stream(device).wait_stream(stream)
 
 
-def cast_to_gathered(tensors, r, non_blocking=False, stream=None):
+def cast_to_gathered(tensors, r, non_blocking=False, stream=None, r2=None):
     wf_context = nullcontext()
     if stream is not None:
         wf_context = stream
@@ -1480,17 +1688,20 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None):
             wf_context = wf_context.as_context(stream)
 
     dest_views = memory_management.interpret_gathered_like(tensors, r)
+    dest2_views = memory_management.interpret_gathered_like(tensors, r2) if r2 is not None else None
     with wf_context:
         for tensor in tensors:
             dest_view = dest_views.pop(0)
+            dest2_view = dest2_views.pop(0) if dest2_views is not None else None
             if tensor is None:
                 continue
-            if memory_management.read_tensor_file_slice_into(tensor, dest_view):
+            if memory_management.read_tensor_file_slice_into(tensor, dest_view, stream=stream, destination2=dest2_view):
                 continue
             storage = tensor._qdata.untyped_storage() if isinstance(tensor, quant_ops.QuantizedTensor) else tensor.untyped_storage()
-            if hasattr(storage, "_comfy_tensor_mmap_touched"):
-                storage._comfy_tensor_mmap_touched = True
+            mark_mmap_dirty(storage)
             dest_view.copy_(tensor, non_blocking=non_blocking)
+            if dest2_view is not None:
+                dest2_view.copy_(dest_view, non_blocking=non_blocking)
 
 
 def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
@@ -1531,14 +1742,17 @@ TOTAL_PINNED_MEMORY = 0
 MAX_PINNED_MEMORY = -1
 if not args.disable_pinned_memory:
     if is_nvidia() or is_amd():
+        ram = get_total_memory(torch.device("cpu"))
         if WINDOWS:
-            MAX_PINNED_MEMORY = get_total_memory(torch.device("cpu")) * 0.40  # Windows limit is apparently 50%
+            MAX_PINNED_MEMORY = ram * 0.40  # Windows limit is apparently 50%
         else:
-            MAX_PINNED_MEMORY = get_total_memory(torch.device("cpu")) * 0.90
+            MAX_PINNED_MEMORY = ram * 0.90
         logger.debug("Enabled pinned memory {}".format(MAX_PINNED_MEMORY // (1024 * 1024)))
 
 PINNING_ALLOWED_TYPES = set(["Tensor", "Parameter", "QuantizedTensor"])
 
+def pinned_hostbuf_size(size):
+    return max(0, int(min(size, MAX_PINNED_MEMORY) * 2))
 
 def discard_cuda_async_error():
     try:
@@ -1572,8 +1786,8 @@ def pin_memory(tensor):
         return False
 
     size = tensor.nbytes
-    if (TOTAL_PINNED_MEMORY + size) > MAX_PINNED_MEMORY:
-        return False
+    memory_management.extra_ram_release(memory_management.RAM_CACHE_HEADROOM)
+    ensure_pin_registerable(size)
 
     ptr = tensor.data_ptr()
     if ptr == 0:
@@ -1611,7 +1825,8 @@ def unpin_memory(tensor):
         return False
 
     if torch.cuda.cudart().cudaHostUnregister(ptr) == 0:
-        TOTAL_PINNED_MEMORY -= PINNED_MEMORY.pop(ptr)
+        size = PINNED_MEMORY.pop(ptr)
+        TOTAL_PINNED_MEMORY -= size
         return True
     else:
         logger.warning("Unpin error.")
@@ -2069,9 +2284,41 @@ def _soft_empty_cache(force=False):
 
 def unload_all_models():
     with model_management_lock:
-        free_memory(1e30, get_torch_device())
+        for device in get_all_torch_devices():
+            free_memory(1e30, device)
         trim_memory()
 
+
+def unload_model_and_clones(model: ModelPatcher, unload_additional_models=True, all_devices=False):
+    'Unload only model and its clones - primarily for multigpu cloning purposes.'
+    with model_management_lock:
+        _unload_model_and_clones(model, unload_additional_models=unload_additional_models, all_devices=all_devices)
+
+
+def _unload_model_and_clones(model: ModelPatcher, unload_additional_models=True, all_devices=False):
+    initial_keep_loaded: list[LoadedModel] = current_loaded_models.copy()
+    additional_models = []
+    if unload_additional_models:
+        additional_models = model.get_nested_additional_models()
+    keep_loaded = []
+    for loaded_model in initial_keep_loaded:
+        if loaded_model.model is not None:
+            if model.clone_base_uuid == loaded_model.model.clone_base_uuid:
+                continue
+            # check additional models if they are a match
+            skip = False
+            for add_model in additional_models:
+                if add_model.clone_base_uuid == loaded_model.model.clone_base_uuid:
+                    skip = True
+                    break
+            if skip:
+                continue
+        keep_loaded.append(loaded_model)
+    if not all_devices:
+        free_memory(1e30, get_torch_device(), keep_loaded)
+    else:
+        for device in get_all_torch_devices():
+            free_memory(1e30, device, keep_loaded)
 
 def debug_memory_summary():
     if is_amd() or is_nvidia():

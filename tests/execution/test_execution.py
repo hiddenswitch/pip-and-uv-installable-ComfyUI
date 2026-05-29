@@ -21,8 +21,8 @@ async def run_warmup(client, prefix="warmup"):
 class TestExecution:
     # Initialize server and client
     client = fixture(client_fixture, scope="class", autouse=True, params=[
+        {"extra_args": {"cache_classic": True}, "should_cache_results": True},
         {"extra_args": {}, "should_cache_results": True},
-        {"extra_args": {"cache_lru": 0}, "should_cache_results": True},
         {"extra_args": {"cache_lru": 100}, "should_cache_results": True},
         {"extra_args": {"cache_none": True}, "should_cache_results": False},
     ])

@@ -22,7 +22,9 @@ from .text_encoders import lt
 from .text_encoders import lumina2
 from .text_encoders import omnigen2
 from .text_encoders import pixart_t5
+from .text_encoders import pixeldit
 from .text_encoders import sa_t5
+from .text_encoders import sa3
 from .text_encoders import sd2_clip
 from .text_encoders import sd3_clip
 from .text_encoders import wan
@@ -35,6 +37,7 @@ from .text_encoders import ace15
 from .text_encoders import longcat_image
 from .text_encoders import ernie
 from .text_encoders import cogvideo
+from .text_encoders import gpt_oss
 from .text_encoders import hidream_o1
 
 
@@ -644,6 +647,29 @@ class StableAudio(supported_models_base.BASE):
         return supported_models_base.ClipTarget(sa_t5.SAT5Tokenizer, sa_t5.SAT5Model)
 
 
+class StableAudio3(StableAudio):
+    unet_config = {
+        "audio_model": "dit1.0",
+        "global_cond_shared_embed": True,
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 2.0,
+    }
+
+    latent_format = latent_formats.StableAudio3
+
+    memory_usage_factor = 7
+
+    def get_model(self, state_dict, prefix="", device=None):
+        seconds_total_sd = utils.state_dict_prefix_replace(state_dict, {"conditioner.conditioners.seconds_total.": ""}, filter_keys=True)
+        padding_embedding = state_dict.get("conditioner.conditioners.prompt.padding_embedding", None)
+        return model_base.StableAudio3(self, seconds_total_embedder_weights=seconds_total_sd, padding_embedding=padding_embedding, device=device)
+
+    def clip_target(self, state_dict={}):
+        return supported_models_base.ClipTarget(sa3.SAT5GemmaTokenizer, sa3.SAT5GemmaModel)
+
 class AuraFlow(supported_models_base.BASE):
     unet_config = {
         "cond_seq_dim": 2048,
@@ -865,6 +891,48 @@ class Flux2(Flux):
 
         return None
 
+
+class Lens(supported_models_base.BASE):
+    """Microsoft Lens (3.8B dual-stream MMDiT, GPT-OSS-20B text features, Flux2 VAE)."""
+
+    unet_config = {
+        "image_model": "lens",
+    }
+
+    sampling_settings = {
+        "shift": 1.829, # Default mu for 1440x1440 (and any seq_len > 4300
+    }
+
+    unet_extra_config = {}
+    latent_format = latent_formats.Flux2
+
+    memory_usage_factor = 4.0
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32] # fp16 causes NaNs
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.Lens(self, model_type=model_base.ModelType.FLUX, device=device)
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        for hint in ("gpt_oss.transformer.", ""):
+            full_prefix = "{}{}".format(pref, hint)
+            if "{}layers.0.self_attn.sinks".format(full_prefix) in state_dict:
+                detect = hunyuan_video.llama_detect(state_dict, full_prefix)
+                return supported_models_base.ClipTarget(
+                    gpt_oss.LensTokenizer,
+                    gpt_oss.lens_te(**detect),
+                )
+        return supported_models_base.ClipTarget(
+            gpt_oss.LensTokenizer,
+            gpt_oss.lens_te(),
+        )
 
 class GenmoMochi(supported_models_base.BASE):
     unet_config = {
@@ -1221,6 +1289,71 @@ class ZImagePixelSpace(ZImage):
     def get_model(self, state_dict, prefix="", device=None):
         return model_base.ZImagePixelSpace(self, device=device)
 
+class PixelDiTT2I(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "pixeldit_t2i",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "shift": 4.0,  # 1024px stage 3 default; 2.0 for 512px
+    }
+
+    latent_format = latent_formats.PixelDiTPixel
+    memory_usage_factor = 0.04
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.PixelDiTT2I(self, device=device)
+
+    def process_unet_state_dict(self, state_dict):
+        # pixel_dim from pixel_embedder.proj.weight = (pixel_dim, in_channels); p2 derived per-weight from total // (6 * pixel_dim).
+        pixel_dim = next(v for k, v in state_dict.items() if k.endswith("pixel_embedder.proj.weight")).shape[0]
+
+        out = {}
+        marker = ".adaLN_modulation.0."
+        for k, v in state_dict.items():
+            if k.startswith("_repa_projector") or k.startswith("net_ema."):
+                continue
+            if k.startswith("core."):
+                k = k[len("core."):]
+            elif k.startswith("net."):
+                k = k[len("net."):]
+            if "pixel_blocks." in k and marker in k:
+                # Split into msa (chunks 0-2) and mlp (chunks 3-5) for the two-Linear PiTBlock to reduce peak VRAM
+                p2 = v.shape[0] // (6 * pixel_dim)
+                trail = v.shape[1:]  # () for bias, (in_dim,) for weight
+                vv = v.view(p2, 6, pixel_dim, *trail)
+                base, suffix = k.split(marker)
+                out[f"{base}.adaLN_modulation_msa.{suffix}"] = vv[:, 0:3].reshape(3 * p2 * pixel_dim, *trail).contiguous()
+                out[f"{base}.adaLN_modulation_mlp.{suffix}"] = vv[:, 3:6].reshape(3 * p2 * pixel_dim, *trail).contiguous()
+            else:
+                out[k] = v
+        return out
+
+    def clip_target(self, state_dict={}):
+        return supported_models_base.ClipTarget(
+            pixeldit.PixelDiTGemma2Tokenizer,
+            pixeldit.PixelDiTGemma2TE,
+        )
+
+class PiD(PixelDiTT2I):
+    unet_config = {
+        "image_model": "pid",
+    }
+
+    sampling_settings = {
+        "shift": 1.5, # close approximation of the original distill 4 steps [0.999, 0.866, 0.634, 0.342, 0]
+    }
+
+    memory_usage_factor = 0.04
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.PiD(self, device=device)
 
 class WAN21_T2V(supported_models_base.BASE):
     unet_config = {
@@ -1551,7 +1684,7 @@ class HiDreamO1(supported_models_base.BASE):
     }
 
     latent_format = latent_formats.HiDreamO1Pixel
-    memory_usage_factor = 0.6
+    memory_usage_factor = 0.033
     # fp16 not supported: LM MLP down_proj activations fp16 overflow, causing NaNs
     supported_inference_dtypes = [torch.bfloat16, torch.float32]
 
@@ -2138,6 +2271,7 @@ models = [
     SV3D_u,
     SV3D_p,
     SD3,
+    StableAudio3,
     StableAudio,
     AuraFlow,
     PixArtAlpha,
@@ -2164,6 +2298,8 @@ models = [
     CosmosI2VPredict2,
     ZImagePixelSpace,
     ZImage,
+    PiD,
+    PixelDiTT2I,
     Lumina2,
     WAN22_T2V,
     WAN21_CausalAR_T2V,
@@ -2191,6 +2327,7 @@ models = [
     Omnigen2,
     QwenImage,
     Flux2,
+    Lens,
     Kandinsky5Image,
     Kandinsky5,
     Anima,

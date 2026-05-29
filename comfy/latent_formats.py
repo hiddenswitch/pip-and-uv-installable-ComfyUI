@@ -161,6 +161,12 @@ class SD3(LatentFormat):
 class StableAudio1(LatentFormat):
     latent_channels = 64
     latent_dimensions = 1
+    temporal_downscale_ratio = 2048
+
+class StableAudio3(LatentFormat):
+    latent_channels = 256
+    latent_dimensions = 1
+    temporal_downscale_ratio = 4096
 
 
 class Flux(SD3):
@@ -794,6 +800,7 @@ class ACEAudio(LatentFormat):
 class ACEAudio15(LatentFormat):
     latent_channels = 64
     latent_dimensions = 1
+    temporal_downscale_ratio = 1764
 
 
 class ChromaRadiance(LatentFormat):
@@ -821,11 +828,13 @@ class ZImagePixelSpace(ChromaRadiance):
     """
     pass
 
-
 class HiDreamO1Pixel(ChromaRadiance):
     """Pixel-space latent format for HiDream-O1.
     No VAE — model patches/unpatches raw RGB internally with patch_size=32.
     """
+    pass
+
+class PixelDiTPixel(ChromaRadiance):
     pass
 
 class CogVideoX(LatentFormat):

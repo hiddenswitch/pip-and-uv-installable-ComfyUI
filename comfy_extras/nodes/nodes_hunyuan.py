@@ -49,7 +49,7 @@ class EmptyHunyuanLatentVideo(io.ComfyNode):
         return io.Schema(
             node_id="EmptyHunyuanLatentVideo",
             display_name="Empty HunyuanVideo 1.0 Latent",
-            category="latent/video",
+            category="model/latent/video",
             inputs=[
                 io.Int.Input("width", default=848, min=16, max=MAX_RESOLUTION, step=16),
                 io.Int.Input("height", default=480, min=16, max=MAX_RESOLUTION, step=16),
@@ -89,7 +89,7 @@ class HunyuanVideo15ImageToVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="HunyuanVideo15ImageToVideo",
-            category="conditioning/video_models",
+            category="model/conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -140,7 +140,7 @@ class HunyuanVideo15SuperResolution(io.ComfyNode):
         return io.Schema(
             node_id="HunyuanVideo15SuperResolution",
             display_name="Hunyuan Video 1.5 Super Resolution",
-            category="conditioning/video_models",
+            category="model/conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -184,9 +184,9 @@ class LatentUpscaleModelLoader1(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id="LatentUpscaleModelLoader1",
-            display_name="Load Latent Upscale Model (Legacy)",
-            category="loaders",
+            node_id="LatentUpscaleModelLoader",
+            display_name="Load Latent Upscale Model",
+            category="model/loaders",
             inputs=[
                 io.Combo.Input("model_name", options=get_filename_list_with_downloadable("latent_upscale_models")),
             ],
@@ -237,7 +237,7 @@ class HunyuanVideo15LatentUpscaleWithModel(io.ComfyNode):
         return io.Schema(
             node_id="HunyuanVideo15LatentUpscaleWithModel",
             display_name="Hunyuan Video 15 Latent Upscale With Model",
-            category="latent",
+            category="model/latent",
             inputs=[
                 io.LatentUpscaleModel.Input("model"),
                 io.Latent.Input("samples"),
@@ -319,7 +319,7 @@ class HunyuanImageToVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="HunyuanImageToVideo",
-            category="conditioning/video_models",
+            category="model/conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Vae.Input("vae"),
@@ -372,7 +372,7 @@ class EmptyHunyuanImageLatent(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="EmptyHunyuanImageLatent",
-            category="latent",
+            category="model/latent",
             inputs=[
                 io.Int.Input("width", default=2048, min=64, max=nodes.MAX_RESOLUTION, step=32),
                 io.Int.Input("height", default=2048, min=64, max=nodes.MAX_RESOLUTION, step=32),
@@ -397,7 +397,7 @@ class HunyuanRefinerLatent(io.ComfyNode):
         return io.Schema(
             node_id="HunyuanRefinerLatent",
             display_name="Hunyuan Latent Refiner",
-            category="conditioning/video_models",
+            category="model/conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),

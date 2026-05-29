@@ -67,7 +67,7 @@ class CLIPTextEncode(ComfyNodeABC):
     OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
     FUNCTION = "encode"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
     DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
     SEARCH_ALIASES = ["text", "prompt", "text prompt", "positive prompt", "negative prompt", "encode text", "text encoder", "encode prompt"]
 
@@ -87,7 +87,7 @@ class ConditioningCombine:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "combine"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
     SEARCH_ALIASES = ["combine", "merge conditioning", "combine prompts", "merge prompts", "mix prompts", "add prompt"]
 
     def combine(self, conditioning_1, conditioning_2):
@@ -105,7 +105,7 @@ class ConditioningAverage:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "addWeighted"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def addWeighted(self, conditioning_to, conditioning_from, conditioning_to_strength):
         out = []
@@ -146,7 +146,7 @@ class ConditioningConcat:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "concat"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def concat(self, conditioning_to, conditioning_from):
         out = []
@@ -181,7 +181,7 @@ class ConditioningSetArea:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def append(self, conditioning, width, height, x, y, strength):
         c = node_helpers.conditioning_set_values(conditioning, {"area": (height // 8, width // 8, y // 8, x // 8),
@@ -204,7 +204,7 @@ class ConditioningSetAreaPercentage:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def append(self, conditioning, width, height, x, y, strength):
         c = node_helpers.conditioning_set_values(conditioning, {"area": ("percentage", height, width, y, x),
@@ -223,7 +223,7 @@ class ConditioningSetAreaStrength:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def append(self, conditioning, strength):
         c = node_helpers.conditioning_set_values(conditioning, {"strength": strength})
@@ -244,7 +244,7 @@ class ConditioningSetMask:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def append(self, conditioning, mask, set_cond_area, strength):
         set_area_to_bounds = False
@@ -319,7 +319,7 @@ class VAEDecode:
     OUTPUT_TOOLTIPS = ("The decoded image.",)
     FUNCTION = "decode"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
     DESCRIPTION = "Decodes latent images back into pixel space images."
     SEARCH_ALIASES = ["decode", "decode latent", "latent to image", "render latent"]
 
@@ -381,7 +381,7 @@ class VAEEncode:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "encode"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
     SEARCH_ALIASES = ["encode", "encode image", "image to latent"]
 
     def encode(self, vae: VAE, pixels) -> tuple[Optional[Latent]]:
@@ -418,7 +418,7 @@ class VAEEncodeForInpaint:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "encode"
 
-    CATEGORY = "latent/inpaint"
+    CATEGORY = "model/latent/inpaint"
 
     def encode(self, vae, pixels, mask, grow_mask_by=6) -> tuple[Optional[Latent]]:
         if pixels is None:
@@ -469,7 +469,7 @@ class InpaintModelConditioning:
     RETURN_NAMES = ("positive", "negative", "latent")
     FUNCTION = "encode"
 
-    CATEGORY = "conditioning/inpaint"
+    CATEGORY = "model/conditioning/inpaint"
 
     def encode(self, positive: io.Conditioning.CondList, negative: io.Conditioning.CondList, pixels, vae, mask, noise_mask=True) -> tuple[io.Conditioning.CondList, io.Conditioning.CondList, Optional[Latent]]:
         if pixels is None:
@@ -626,7 +626,7 @@ class CheckpointLoaderSimple:
                        "The VAE model used for encoding and decoding images to and from latent space.")
     FUNCTION = "load_checkpoint"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
     DESCRIPTION = "Loads a diffusion model checkpoint, diffusion models are used to denoise latents."
     SEARCH_ALIASES = ["load model", "checkpoint", "model loader", "load checkpoint", "ckpt", "model"]
 
@@ -693,7 +693,7 @@ class unCLIPCheckpointLoader:
     RETURN_TYPES = ("MODEL", "CLIP", "VAE", "CLIP_VISION")
     FUNCTION = "load_checkpoint"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_checkpoint(self, ckpt_name, output_vae=True, output_clip=True):
         ckpt_path = get_full_path_or_raise("checkpoints", ckpt_name, KNOWN_UNCLIP_CHECKPOINTS)
@@ -710,7 +710,7 @@ class CLIPSetLastLayer:
     RETURN_TYPES = ("CLIP",)
     FUNCTION = "set_last_layer"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def set_last_layer(self, clip, stop_at_clip_layer):
         clip = clip.clone()
@@ -740,8 +740,8 @@ class LoraLoader:
     OUTPUT_TOOLTIPS = ("The modified diffusion model.", "The modified CLIP model.")
     FUNCTION = "load_lora"
 
-    CATEGORY = "loaders"
-    DESCRIPTION = "LoRAs are used to modify diffusion and CLIP models, altering the way in which latents are denoised such as applying styles. Multiple LoRA nodes can be linked together."
+    CATEGORY = "model/loaders"
+    DESCRIPTION = "This LoRA loader is used to modify both diffusion and CLIP models, altering the way in which latents are denoised such as applying styles. Multiple LoRA nodes can be linked together."
     SEARCH_ALIASES = ["lora", "load lora", "apply lora", "lora loader", "lora model"]
 
     def load_lora(self, model, clip, lora_name, strength_model, strength_clip):
@@ -750,17 +750,19 @@ class LoraLoader:
 
         lora_path = get_full_path_or_raise("loras", lora_name, KNOWN_LORAS)
         lora = None
+        lora_metadata = None
         if self.loaded_lora is not None:
             if self.loaded_lora[0] == lora_path:
                 lora = self.loaded_lora[1]
+                lora_metadata = self.loaded_lora[2] if len(self.loaded_lora) > 2 else None
             else:
                 self.loaded_lora = None
 
         if lora is None:
-            lora = utils.load_torch_file(lora_path, safe_load=True)
-            self.loaded_lora = (lora_path, lora)
+            lora, lora_metadata = utils.load_torch_file(lora_path, safe_load=True, return_metadata=True)
+            self.loaded_lora = (lora_path, lora, lora_metadata)
 
-        model_lora, clip_lora = sd.load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_name=lora_name)
+        model_lora, clip_lora = sd.load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_name=lora_name, lora_metadata=lora_metadata)
         return (model_lora, clip_lora)
 
 
@@ -773,6 +775,7 @@ class LoraLoaderModelOnly(LoraLoader):
                              }}
 
     RETURN_TYPES = ("MODEL",)
+    DESCRIPTION = "This LoRAs loader is used to modify the diffusion model, altering the way in which latents are denoised such as applying styles. Multiple LoRA nodes can be linked together."
     FUNCTION = "load_lora_model_only"
 
     def load_lora_model_only(self, model, lora_name, strength_model):
@@ -841,11 +844,12 @@ class VAELoader:
     RETURN_TYPES = ("VAE",)
     FUNCTION = "load_vae"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     # TODO: scale factor?
     def load_vae(self, vae_name):
         metadata = None
+        vae_path = None
         if vae_name == "pixel_space":
             sd_ = {}
             sd_["pixel_space_vae"] = torch.tensor(1.0)
@@ -864,6 +868,14 @@ class VAELoader:
                 metadata["tae_latent_channels"] = 128
         vae = sd.VAE(sd=sd_, metadata=metadata, ckpt_name=vae_name)
         vae.throw_exception_if_invalid()
+        # Register a reload factory on the patcher so multigpu deepclones
+        # (Select VAE Device, future MultiGPU VAE work-units) can produce
+        # per-device clones from the same loader context. Only set when we
+        # actually have a single backing file -- pixel_space and the
+        # image TAESDs (composed from separate encoder/decoder files via
+        # load_taesd) are not addressable by a single vae_path.
+        if vae_path is not None:
+            vae.patcher.cached_patcher_init = (comfy.sd.load_vae_patcher, (vae_path, metadata, None))
         return (vae,)
 
 
@@ -875,7 +887,7 @@ class ControlNetLoader:
     RETURN_TYPES = ("CONTROL_NET",)
     FUNCTION = "load_controlnet"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
     SEARCH_ALIASES = ["controlnet", "control net", "cn", "load controlnet", "controlnet loader"]
 
     def load_controlnet(self, control_net_name):
@@ -918,7 +930,7 @@ class DiffControlNetLoader:
     RETURN_TYPES = ("CONTROL_NET",)
     FUNCTION = "load_controlnet"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_controlnet(self, model, control_net_name):
         controlnet_path = get_full_path_or_raise("controlnet", control_net_name, KNOWN_DIFF_CONTROLNETS)
@@ -939,7 +951,7 @@ class ControlNetApply:
     FUNCTION = "apply_controlnet"
 
     DEPRECATED = True
-    CATEGORY = "conditioning/controlnet"
+    CATEGORY = "model/conditioning/controlnet"
 
     def apply_controlnet(self, conditioning, control_net, image: RGBImageBatch, strength):
         if strength == 0:
@@ -977,7 +989,7 @@ class ControlNetApplyAdvanced:
     RETURN_NAMES = ("positive", "negative")
     FUNCTION = "apply_controlnet"
 
-    CATEGORY = "conditioning/controlnet"
+    CATEGORY = "model/conditioning/controlnet"
     SEARCH_ALIASES = ["controlnet", "apply controlnet", "use controlnet", "control net"]
 
     def apply_controlnet(self, positive, negative, control_net, image, strength, start_percent, end_percent, vae=None, extra_concat=[]):
@@ -1044,7 +1056,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip_name": (get_filename_list_with_downloadable("text_encoders", KNOWN_CLIP_MODELS),),
-                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox"],),
+                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1055,7 +1067,7 @@ class CLIPLoader:
 
     CATEGORY = "advanced/loaders"
 
-    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B"
+    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\nlens: gpt-oss-20b\n pixeldit: gemma 2 2B elm"
 
     def load_clip(self, clip_name, type="stable_diffusion", device="default"):
         clip_type = getattr(sd.CLIPType, type.upper(), sd.CLIPType.STABLE_DIFFUSION)
@@ -1109,7 +1121,7 @@ class CLIPVisionLoader:
     RETURN_TYPES = ("CLIP_VISION",)
     FUNCTION = "load_clip"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_clip(self, clip_name):
         clip_path = get_full_path_or_raise("clip_vision", clip_name, KNOWN_CLIP_VISION_MODELS)
@@ -1132,7 +1144,7 @@ class CLIPVisionEncode:
     RETURN_TYPES = ("CLIP_VISION_OUTPUT",)
     FUNCTION = "encode"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def encode(self, clip_vision, image, crop="center"):
         crop_image = True
@@ -1150,7 +1162,7 @@ class StyleModelLoader:
     RETURN_TYPES = ("STYLE_MODEL",)
     FUNCTION = "load_style_model"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_style_model(self, style_model_name):
         style_model_path = get_full_path_or_raise("style_models", style_model_name)
@@ -1175,7 +1187,7 @@ class StyleModelApply:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "apply_stylemodel"
 
-    CATEGORY = "conditioning/style_model"
+    CATEGORY = "model/conditioning/style_model"
 
     def apply_stylemodel(self, conditioning, style_model, clip_vision_output, strength=1.0, strength_type="multiply"):
         cond = style_model.get_cond(clip_vision_output).flatten(start_dim=0, end_dim=1).unsqueeze(dim=0)
@@ -1237,7 +1249,7 @@ class unCLIPConditioning:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "apply_adm"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def apply_adm(self, conditioning, clip_vision_output, strength, noise_augmentation):
         if strength == 0:
@@ -1255,7 +1267,7 @@ class GLIGENLoader:
     RETURN_TYPES = ("GLIGEN",)
     FUNCTION = "load_gligen"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_gligen(self, gligen_name):
         gligen_path = get_full_path_or_raise("gligen", gligen_name, KNOWN_GLIGEN_MODELS)
@@ -1279,7 +1291,7 @@ class GLIGENTextBoxApply:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning/gligen"
+    CATEGORY = "model/conditioning/gligen"
 
     def append(self, conditioning_to, clip, gligen_textbox_model, text, width, height, x, y):
         c = []
@@ -1311,7 +1323,7 @@ class EmptyLatentImage:
     OUTPUT_TOOLTIPS = ("The empty latent image batch.",)
     FUNCTION = "generate"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
     DESCRIPTION = "Create a new batch of empty latent images to be denoised via sampling."
     SEARCH_ALIASES = ["empty", "empty latent", "new latent", "create latent", "blank latent", "blank"]
 
@@ -1326,21 +1338,22 @@ class LatentFromBatch:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"samples": ("LATENT",),
-                             "batch_index": ("INT", {"default": 0, "min": 0, "max": 63}),
+                             "batch_index": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION}),
                              "length": ("INT", {"default": 1, "min": 1, "max": 64}),
                              }}
-
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "frombatch"
 
-    CATEGORY = "latent/batch"
+    CATEGORY = "model/latent/batch"
 
     def frombatch(self, samples, batch_index, length):
         if samples is None:
             return None,
         s = samples.copy()
         s_in = samples["samples"]
-        batch_index = min(s_in.shape[0] - 1, batch_index)
+        if batch_index < 0:
+            batch_index += s_in.shape[0]
+        batch_index = max(0, min(s_in.shape[0] - 1, batch_index))
         length = min(s_in.shape[0] - batch_index, length)
         s["samples"] = s_in[batch_index:batch_index + length].clone()
         if "noise_mask" in samples:
@@ -1370,7 +1383,7 @@ class RepeatLatentBatch:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "repeat"
 
-    CATEGORY = "latent/batch"
+    CATEGORY = "model/latent/batch"
 
     def repeat(self, samples, amount):
         if samples is None:
@@ -1406,7 +1419,7 @@ class LatentUpscale:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "upscale"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
 
     def upscale(self, samples, upscale_method, width, height, crop):
         if samples is None:
@@ -1443,7 +1456,7 @@ class LatentUpscaleBy:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "upscale"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
 
     def upscale(self, samples, upscale_method, scale_by):
         if samples is None:
@@ -1465,7 +1478,7 @@ class LatentRotate:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "rotate"
 
-    CATEGORY = "latent/transform"
+    CATEGORY = "model/latent/transform"
 
     def rotate(self, samples, rotation):
         if samples is None:
@@ -1495,7 +1508,7 @@ class LatentFlip:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "flip"
 
-    CATEGORY = "latent/transform"
+    CATEGORY = "model/latent/transform"
 
     def flip(self, samples, flip_method):
         if samples is None:
@@ -1524,7 +1537,7 @@ class LatentComposite:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "composite"
 
-    CATEGORY = "latent"
+    CATEGORY = "model/latent"
 
     def composite(self, samples_to, samples_from, x, y, composite_method="normal", feather=0):
         x = x // 8
@@ -1614,7 +1627,7 @@ class LatentCrop:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "crop"
 
-    CATEGORY = "latent/transform"
+    CATEGORY = "model/latent/transform"
 
     def crop(self, samples, width, height, x, y):
         if samples is None:
@@ -1648,7 +1661,7 @@ class SetLatentNoiseMask:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "set_mask"
 
-    CATEGORY = "latent/inpaint"
+    CATEGORY = "model/latent/inpaint"
 
     def set_mask(self, samples, mask):
         if samples is None:
@@ -1660,7 +1673,7 @@ class SetLatentNoiseMask:
 
 def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False):
     latent_image = latent["samples"]
-    latent_image = sample.fix_empty_latent_channels(model, latent_image, latent.get("downscale_ratio_spacial", None))
+    latent_image = sample.fix_empty_latent_channels(model, latent_image, latent.get("downscale_ratio_spacial", None), latent.get("downscale_ratio_temporal", None))
 
     if disable_noise:
         noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
@@ -1679,6 +1692,7 @@ def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, 
                             force_full_denoise=force_full_denoise, noise_mask=noise_mask, callback=callback, disable_pbar=disable_pbar, seed=seed)
     out = latent.copy()
     out.pop("downscale_ratio_spacial", None)
+    out.pop("downscale_ratio_temporal", None)
     out["samples"] = samples
     return (out,)
 
@@ -1705,7 +1719,7 @@ class KSampler:
     OUTPUT_TOOLTIPS = ("The denoised latent.",)
     FUNCTION = "sample"
 
-    CATEGORY = "sampling"
+    CATEGORY = "model/sampling"
     DESCRIPTION = "Uses the provided model, positive and negative conditioning to denoise the latent image."
     SEARCH_ALIASES = ["sampler", "sample", "generate", "denoise", "diffuse", "txt2img", "img2img"]
 
@@ -1736,7 +1750,7 @@ class KSamplerAdvanced:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "sample"
 
-    CATEGORY = "sampling"
+    CATEGORY = "model/sampling"
 
     def sample(self, model, add_noise, noise_seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, start_at_step, end_at_step, return_with_leftover_noise, denoise=1.0):
         force_full_denoise = True
@@ -1943,7 +1957,7 @@ class LoadImageMask(LoadImage):
             }
         }
 
-    CATEGORY = "mask"
+    CATEGORY = "image"
     RETURN_TYPES = ("MASK",)
     FUNCTION = "load_image_mask"
 

@@ -194,7 +194,7 @@ class SplitImageWithAlpha(io.ComfyNode):
         return io.Schema(
             node_id="SplitImageWithAlpha",
             display_name="Split Image with Alpha",
-            category="mask/compositing",
+            category="image/compositing",
             inputs=[
                 io.Image.Input("image"),
             ],
@@ -217,7 +217,7 @@ class JoinImageWithAlpha(io.ComfyNode):
         return io.Schema(
             node_id="JoinImageWithAlpha",
             display_name="Join Image with Alpha",
-            category="mask/compositing",
+            category="image/compositing",
             inputs=[
                 io.Image.Input("image"),
                 io.Mask.Input("alpha"),

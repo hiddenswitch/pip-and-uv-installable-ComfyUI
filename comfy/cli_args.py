@@ -64,11 +64,11 @@ parser.add_argument("--temp-directory", type=str, default=None, help="Set the Co
 parser.add_argument("--input-directory", type=str, default=None, help="Set the ComfyUI input directory.")
 parser.add_argument("--auto-launch", action="store_true", help="Automatically launch ComfyUI in the default browser.")
 parser.add_argument("--disable-auto-launch", action="store_true", help="Disable auto launching the browser.")
-parser.add_argument("--cuda-device", type=int, default=None, metavar="DEVICE_ID",
-                    help="Set the id of the cuda device this instance will use.")
+parser.add_argument("--cuda-device", type=str, default=None, metavar="DEVICE_ID",
+                    help="Set the ids of cuda devices this instance will use, as a comma-separated list (e.g. '0' or '0,1'). All other devices will not be visible.")
 parser.add_argument("--torch-device", type=str, default=None, metavar="DEVICE",
                     help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")
-parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device.")
+parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device, all other devices will stay visible.")
 
 cm_group = parser.add_mutually_exclusive_group()
 cm_group.add_argument("--cuda-malloc", action="store_true", help="Enable cudaMallocAsync.")
@@ -112,13 +112,11 @@ parser.add_argument("--enable-triton-backend", action="store_true", help="Enable
 parser.add_argument("--preview-method", type=LatentPreviewMethod, default=LatentPreviewMethod.Auto, help="Default preview method.")
 parser.add_argument("--preview-size", type=int, default=512, help="Sets the maximum preview size for sampler nodes.")
 
-CACHE_RAM_AUTO_GB = -1.0
-
 cache_group = parser.add_mutually_exclusive_group()
+cache_group.add_argument("--cache-ram", nargs='*', type=float, default=[], metavar="GB", help="Use RAM pressure caching with the specified headroom thresholds. This is the default caching mode. The first value sets the active-cache threshold; the optional second value sets the inactive-cache/pin threshold. Defaults when no values are provided: active 10%% of system RAM (min 2GB, max 10GB), inactive 100%% of system RAM (max 96GB).")
 cache_group.add_argument("--cache-classic", action="store_true", help="Use the old style (aggressive) caching.")
 cache_group.add_argument("--cache-lru", type=int, default=0, help="Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.")
 cache_group.add_argument("--cache-none", action="store_true", help="Reduced RAM/VRAM usage at the expense of executing every node for each run.")
-cache_group.add_argument("--cache-ram", nargs='?', const=CACHE_RAM_AUTO_GB, type=float, default=0, help="Use RAM pressure caching with the specified headroom threshold. If available RAM drops below the threshold the cache removes large items to free RAM. Default (when no value is provided): 25%% of system RAM (min 4GB, max 32GB).")
 
 attn_group = parser.add_mutually_exclusive_group()
 attn_group.add_argument("--use-split-cross-attention", action="store_true", help="Use split cross attention.")
@@ -139,12 +137,12 @@ manager_group.add_argument("--disable-manager-ui", action="store_true", help="Di
 manager_group.add_argument("--enable-manager-legacy-ui", action="store_true", help="Enables the legacy UI of ComfyUI-Manager.")
 
 vram_group = parser.add_mutually_exclusive_group()
-vram_group.add_argument("--gpu-only", action="store_true", help="Store and run everything on the GPU.")
-vram_group.add_argument("--highvram", action="store_true", help="Keep models in GPU memory.")
-vram_group.add_argument("--normalvram", action="store_true", help="Force normal vram use.")
-vram_group.add_argument("--lowvram", action="store_true", help="Split unet for less vram.")
-vram_group.add_argument("--novram", action="store_true", help="Minimal vram usage.")
-vram_group.add_argument("--cpu", action="store_true", help="Use CPU for everything.")
+vram_group.add_argument("--gpu-only", action="store_true", help="Store and run everything (text encoders/CLIP models, etc... on the GPU).")
+vram_group.add_argument("--highvram", action="store_true", help="By default models will be unloaded to CPU memory after being used. This option keeps them in GPU memory.")
+vram_group.add_argument("--normalvram", action="store_true", help="Used to force normal vram use if lowvram gets automatically enabled.")
+vram_group.add_argument("--lowvram", action="store_true", help="Doesn't do anything if dynamic vram is enabled. If dynamic vram isn't being used this option makes the text encoders run on the CPU.")
+vram_group.add_argument("--novram", action="store_true", help="When lowvram isn't enough.")
+vram_group.add_argument("--cpu", action="store_true", help="To use the CPU for everything (slow).")
 
 parser.add_argument("--reserve-vram", type=float, default=0, help="VRAM to reserve in GB.")
 parser.add_argument("--async-offload", nargs='?', const=2, type=int, default=None, metavar="NUM_STREAMS", help="Use async weight offloading.")

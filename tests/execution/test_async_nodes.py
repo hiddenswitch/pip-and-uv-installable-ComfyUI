@@ -17,6 +17,7 @@ from .common import _ProgressHandler, ComfyClient, client_fixture
 @pytest.mark.execution
 class TestAsyncNodes:
     client = fixture(client_fixture, scope="class", autouse=True, params=[
+        {"extra_args": {"cache_classic": True}, "should_cache_results": True},
         {"extra_args": {"cache_lru": 0}, "should_cache_results": True},
         {"extra_args": {"cache_lru": 100}, "should_cache_results": True},
     ])

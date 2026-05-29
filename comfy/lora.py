@@ -499,16 +499,23 @@ def calculate_weight(patches: ModelPatchesDictValue, weight, key, intermediate_d
 
     return weight
 
-def prefetch_prepared_value(value, allocate_buffer, stream):
+def prefetch_prepared_value(value, counter, destination, stream, copy):
     if isinstance(value, torch.Tensor):
-        dest = allocate_buffer(memory_management.vram_aligned_size(value))
-        model_management.cast_to_gathered([value], dest, non_blocking=True, stream=stream)
+        size = memory_management.vram_aligned_size(value)
+        offset = counter[0]
+        counter[0] += size
+        if destination is None:
+            return value
+
+        dest = destination[offset:offset + size]
+        if copy:
+            model_management.cast_to_gathered([value], dest, non_blocking=True, stream=stream)
         return memory_management.interpret_gathered_like([value], dest)[0]
     elif isinstance(value, weight_adapter.WeightAdapterBase):
-        return type(value)(value.loaded_keys, prefetch_prepared_value(value.weights, allocate_buffer, stream))
+        return type(value)(value.loaded_keys, prefetch_prepared_value(value.weights, counter, destination, stream, copy))
     elif isinstance(value, tuple):
-        return tuple(prefetch_prepared_value(item, allocate_buffer, stream) for item in value)
+        return tuple(prefetch_prepared_value(item, counter, destination, stream, copy) for item in value)
     elif isinstance(value, list):
-        return [prefetch_prepared_value(item, allocate_buffer, stream) for item in value]
+        return [prefetch_prepared_value(item, counter, destination, stream, copy) for item in value]
 
     return value

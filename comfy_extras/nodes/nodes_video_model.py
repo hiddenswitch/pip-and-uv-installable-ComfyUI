@@ -18,7 +18,7 @@ class ImageOnlyCheckpointLoader:
     RETURN_TYPES = ("MODEL", "CLIP_VISION", "VAE")
     FUNCTION = "load_checkpoint"
 
-    CATEGORY = "loaders"
+    CATEGORY = "model/loaders"
 
     def load_checkpoint(self, ckpt_name, output_vae=True, output_clip=True):
         ckpt_path = get_or_download("checkpoints", ckpt_name, KNOWN_IMAGE_ONLY_CHECKPOINTS)
@@ -45,7 +45,7 @@ class SVD_img2vid_Conditioning:
 
     FUNCTION = "encode"
 
-    CATEGORY = "conditioning/video_models"
+    CATEGORY = "model/conditioning/video_models"
 
     def encode(self, clip_vision, init_image, vae, width, height, video_frames, motion_bucket_id, fps, augmentation_level):
         output = clip_vision.encode_image(init_image)
@@ -70,7 +70,7 @@ class VideoLinearCFGGuidance:
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "patch"
 
-    CATEGORY = "sampling/video_models"
+    CATEGORY = "model/sampling/guiders"
 
     def patch(self, model, min_cfg):
         def linear_cfg(args):
@@ -95,7 +95,7 @@ class VideoTriangleCFGGuidance:
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "patch"
 
-    CATEGORY = "sampling/video_models"
+    CATEGORY = "model/sampling/guiders"
 
     def patch(self, model, min_cfg):
         def linear_cfg(args):
@@ -146,7 +146,7 @@ class ConditioningSetAreaPercentageVideo:
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "append"
 
-    CATEGORY = "conditioning"
+    CATEGORY = "model/conditioning"
 
     def append(self, conditioning, width, height, temporal, x, y, z, strength):
         c = node_helpers.conditioning_set_values(conditioning, {"area": ("percentage", temporal, height, width, z, y, x),
@@ -165,5 +165,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ImageOnlyCheckpointLoader": "Image Only Checkpoint Loader (img2vid model)",
+    "ImageOnlyCheckpointLoader": "Load Checkpoint Image Only (img2vid model)",
+    "VideoLinearCFGGuidance": "Video Linear CFG Guidance",
+    "VideoTriangleCFGGuidance": "Video Triangle CFG Guidance",
 }

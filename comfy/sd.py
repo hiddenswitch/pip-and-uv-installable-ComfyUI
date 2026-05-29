@@ -15,6 +15,7 @@ import yaml
 from . import clip_vision as clip_vision_module
 from . import diffusers_convert
 from . import gligen
+from . import memory_management
 from . import model_detection
 from . import model_management
 from . import model_sampling
@@ -26,6 +27,7 @@ from .component_model.deprecation import _deprecate_method
 from .hooks import EnumHookMode
 from .ldm.ace.vae.music_dcae_pipeline import MusicDCAE
 from .ldm.audio.autoencoder import AudioOobleckVAE
+from .ldm.audio.vae_sa3 import SA3AudioVAE
 from .ldm.cascade.stage_a import StageA
 from .ldm.cascade.stage_c_coder import StageC_coder
 from .ldm.cosmos.vae import CausalContinuousVideoTokenizer
@@ -78,6 +80,9 @@ from .text_encoders import qwen35 as qwen_35
 from .text_encoders import ernie
 from .text_encoders import gemma4
 from .text_encoders import cogvideo
+from .text_encoders import gpt_oss
+from .text_encoders import pixeldit
+from .text_encoders import sa3
 
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
@@ -87,7 +92,7 @@ from .weight_adapter import WeightAdapterBase, BypassInjectionManager
 logger = logging.getLogger(__name__)
 
 
-def load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_name=None):
+def load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_name=None, lora_metadata=None):
     key_map = {}
     if model is not None:
         key_map = model_lora_keys_unet(model.model, key_map)
@@ -99,6 +104,8 @@ def load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_
     if model is not None:
         new_modelpatcher: ModelPatcher = model.clone()
         k = new_modelpatcher.add_patches(loaded, strength_model)
+        if lora_metadata:
+            new_modelpatcher.set_attachments("lora_metadata", lora_metadata)
     else:
         k = ()
         new_modelpatcher = None
@@ -106,6 +113,8 @@ def load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_
     if clip is not None:
         new_clip = clip.clone()
         k1 = new_clip.add_patches(loaded, strength_clip)
+        if lora_metadata:
+            new_clip.patcher.set_attachments("lora_metadata", lora_metadata)
     else:
         k1 = ()
         new_clip = None
@@ -341,41 +350,43 @@ class CLIP:
                 self.cond_stage_model.set_clip_options({"projected_pooled": False})
 
             self.load_model(tokens)
-            self.cond_stage_model.set_clip_options({"execution_device": self.patcher.load_device})
+            device = self.patcher.load_device
+            self.cond_stage_model.set_clip_options({"execution_device": device})
             all_hooks.reset()
             self.patcher.patch_hooks(None)
             if show_pbar:
                 pbar = ProgressBar(len(scheduled_keyframes))
 
-            for scheduled_opts in scheduled_keyframes:
-                t_range = scheduled_opts[0]
-                # don't bother encoding any conds outside of start_percent and end_percent bounds
-                if "start_percent" in add_dict:
-                    if t_range[1] < add_dict["start_percent"]:
-                        continue
-                if "end_percent" in add_dict:
-                    if t_range[0] > add_dict["end_percent"]:
-                        continue
-                hooks_keyframes = scheduled_opts[1]
-                for hook, keyframe in hooks_keyframes:
-                    hook.hook_keyframe._current_keyframe = keyframe
-                # apply appropriate hooks with values that match new hook_keyframe
-                self.patcher.patch_hooks(all_hooks)
-                # perform encoding as normal
-                o = self.cond_stage_model.encode_token_weights(tokens)
-                cond, pooled = o[:2]
-                pooled_dict = {"pooled_output": pooled}
-                # add clip_start_percent and clip_end_percent in pooled
-                pooled_dict["clip_start_percent"] = t_range[0]
-                pooled_dict["clip_end_percent"] = t_range[1]
-                # add/update any keys with the provided add_dict
-                pooled_dict.update(add_dict)
-                # add hooks stored on clip
-                self.add_hooks_to_dict(pooled_dict)
-                all_cond_pooled.append([cond, pooled_dict])
-                if show_pbar:
-                    pbar.update(1)
-                model_management.throw_exception_if_processing_interrupted()
+            with model_management.cuda_device_context(device):
+                for scheduled_opts in scheduled_keyframes:
+                    t_range = scheduled_opts[0]
+                    # don't bother encoding any conds outside of start_percent and end_percent bounds
+                    if "start_percent" in add_dict:
+                        if t_range[1] < add_dict["start_percent"]:
+                            continue
+                    if "end_percent" in add_dict:
+                        if t_range[0] > add_dict["end_percent"]:
+                            continue
+                    hooks_keyframes = scheduled_opts[1]
+                    for hook, keyframe in hooks_keyframes:
+                        hook.hook_keyframe._current_keyframe = keyframe
+                    # apply appropriate hooks with values that match new hook_keyframe
+                    self.patcher.patch_hooks(all_hooks)
+                    # perform encoding as normal
+                    o = self.cond_stage_model.encode_token_weights(tokens)
+                    cond, pooled = o[:2]
+                    pooled_dict = {"pooled_output": pooled}
+                    # add clip_start_percent and clip_end_percent in pooled
+                    pooled_dict["clip_start_percent"] = t_range[0]
+                    pooled_dict["clip_end_percent"] = t_range[1]
+                    # add/update any keys with the provided add_dict
+                    pooled_dict.update(add_dict)
+                    # add hooks stored on clip
+                    self.add_hooks_to_dict(pooled_dict)
+                    all_cond_pooled.append([cond, pooled_dict])
+                    if show_pbar:
+                        pbar.update(1)
+                    model_management.throw_exception_if_processing_interrupted()
             all_hooks.reset()
         return all_cond_pooled
 
@@ -389,8 +400,12 @@ class CLIP:
             self.cond_stage_model.set_clip_options({"projected_pooled": False})
 
         self.load_model(tokens)
-        self.cond_stage_model.set_clip_options({"execution_device": self.patcher.load_device})
-        o = self.cond_stage_model.encode_token_weights(tokens)
+        device = self.patcher.load_device
+        self.cond_stage_model.set_clip_options({"execution_device": device})
+
+        with model_management.cuda_device_context(device):
+            o = self.cond_stage_model.encode_token_weights(tokens)
+
         cond, pooled = o[:2]
         if return_dict:
             out = {"cond": cond, "pooled_output": pooled}
@@ -431,6 +446,13 @@ class CLIP:
             sd_clip[k] = sd_tokenizer[k]
         return sd_clip
 
+    def state_dict_for_saving(self):
+        sd_clip = self.patcher.model_state_dict_for_saving()
+        sd_tokenizer = self.tokenizer.state_dict()
+        for k in sd_tokenizer:
+            sd_clip[k] = sd_tokenizer[k]
+        return sd_clip
+
     def load_model(self, tokens=None):
         if tokens is None:
             tokens = {}
@@ -447,9 +469,12 @@ class CLIP:
         self.cond_stage_model.reset_clip_options()
 
         self.load_model(tokens)
+        device = self.patcher.load_device
         self.cond_stage_model.set_clip_options({"layer": None})
-        self.cond_stage_model.set_clip_options({"execution_device": self.patcher.load_device})
-        return self.cond_stage_model.generate(tokens, do_sample=do_sample, max_length=max_length, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, repetition_penalty=repetition_penalty, seed=seed, presence_penalty=presence_penalty)
+        self.cond_stage_model.set_clip_options({"execution_device": device})
+
+        with model_management.cuda_device_context(device):
+            return self.cond_stage_model.generate(tokens, do_sample=do_sample, max_length=max_length, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, repetition_penalty=repetition_penalty, seed=seed, presence_penalty=presence_penalty)
 
     def decode(self, token_ids, skip_special_tokens=True):
         return self.tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
@@ -860,6 +885,34 @@ class VAE:
                 self.working_dtypes = [torch.float32]
                 self.disable_offload = True
                 self.extra_1d_channel = 16
+            elif "decoder.layers.3.transformers.0.pre_norm.alpha" in sd:  # Stable Audio 3 VAE
+                if "decoder.layers.3.transformers.11.self_attn.to_out.weight" in sd:
+                    config = {"channels": 256, "transformer_depths": 12, "sinusoidal_blocks": 8,
+                              "sliding_window": [1, 1], "decoder_conv_mapping": False,
+                              "chunk_size": 128, "chunk_midpoint_shift": False}
+                    self.memory_used_encode = lambda shape, dtype: (1500 * shape[2]) * model_management.dtype_size(dtype)
+                    self.memory_used_decode = lambda shape, dtype: (1500 * shape[2] * 4096) * model_management.dtype_size(dtype)
+                else:
+                    config = {"channels": 128, "transformer_depths": 6, "sinusoidal_blocks": 0,
+                              "sliding_window": None, "decoder_conv_mapping": True,
+                              "chunk_size": 32, "chunk_midpoint_shift": True}
+                    self.memory_used_encode = lambda shape, dtype: (72 * shape[2]) * model_management.dtype_size(dtype)
+                    self.memory_used_decode = lambda shape, dtype: (72 * shape[2] * 4096) * model_management.dtype_size(dtype)
+
+                self.first_stage_model = SA3AudioVAE(**config)
+                self.latent_channels = 256
+                self.output_channels = 2
+                self.upscale_ratio = 4096
+                self.downscale_ratio = 4096
+                self.latent_dim = 1
+                self.audio_sample_rate = 44100
+                self.process_output = lambda audio: audio
+                self.process_input = lambda audio: audio
+                self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+                #This VAE has Parameters and Buffers the non-dynamic caster cannot handle
+                #Force cast it for --disable-dynamic-vram users until there is a true core fix.
+                if not memory_management.aimdo_enabled:
+                    self.disable_offload = True
             else:
                 logger.warning("WARNING: No VAE weights detected, VAE not initalized.")
                 self.first_stage_model = None
@@ -1028,50 +1081,52 @@ class VAE:
         do_tile = False
         if self.latent_dim == 2 and samples_in.ndim == 5:
             samples_in = samples_in[:, :, 0]
-        try:
-            memory_used = self.memory_used_decode(samples_in.shape, self.vae_dtype)
-            model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
-            free_memory = self.patcher.get_free_memory(self.device)
-            batch_number = int(free_memory / memory_used)
-            batch_number = max(1, batch_number)
 
-            # Pre-allocate output for VAEs that support direct buffer writes
-            preallocated = False
-            if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
-                pixel_samples = torch.empty(self.first_stage_model.decode_output_shape(samples_in.shape), device=self.output_device, dtype=self.vae_output_dtype())
-                preallocated = True
+        with model_management.cuda_device_context(self.device):
+            try:
+                memory_used = self.memory_used_decode(samples_in.shape, self.vae_dtype)
+                model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+                free_memory = self.patcher.get_free_memory(self.device)
+                batch_number = int(free_memory / memory_used)
+                batch_number = max(1, batch_number)
 
-            for x in range(0, samples_in.shape[0], batch_number):
-                samples = samples_in[x:x + batch_number].to(device=self.device, dtype=self.vae_dtype)
-                if preallocated:
-                    self.first_stage_model.decode(samples, output_buffer=pixel_samples[x:x+batch_number], **vae_options)
-                else:
-                    out = self.first_stage_model.decode(samples, **vae_options).to(device=self.output_device, dtype=self.vae_output_dtype(), copy=True)
-                    if pixel_samples is None:
-                        pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
-                    pixel_samples[x:x + batch_number].copy_(out)
-                    del out
-                self.process_output(pixel_samples[x:x+batch_number])
-        except Exception as e:
-            model_management.raise_non_oom(e)
-            logger.warning("Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
-            # NOTE: We don't know what tensors were allocated to stack variables at the time of the
-            # exception and the exception itself refs them all until we get out of this except block.
-            # So we just set a flag for tiler fallback so that tensor gc can happen once the
-            # exception is fully off the books.
-            do_tile = True
+                # Pre-allocate output for VAEs that support direct buffer writes
+                preallocated = False
+                if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
+                    pixel_samples = torch.empty(self.first_stage_model.decode_output_shape(samples_in.shape), device=self.output_device, dtype=self.vae_output_dtype())
+                    preallocated = True
 
-        if do_tile:
-            model_management.soft_empty_cache()
-            dims = samples_in.ndim - 2
-            if dims == 1 or self.extra_1d_channel is not None:
-                pixel_samples = self.decode_tiled_1d(samples_in)
-            elif dims == 2:
-                pixel_samples = self.decode_tiled_(samples_in)
-            elif dims == 3:
-                tile = 256 // self.spacial_compression_decode()
-                overlap = tile // 4
-                pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+                for x in range(0, samples_in.shape[0], batch_number):
+                    samples = samples_in[x:x + batch_number].to(device=self.device, dtype=self.vae_dtype)
+                    if preallocated:
+                        self.first_stage_model.decode(samples, output_buffer=pixel_samples[x:x+batch_number], **vae_options)
+                    else:
+                        out = self.first_stage_model.decode(samples, **vae_options).to(device=self.output_device, dtype=self.vae_output_dtype(), copy=True)
+                        if pixel_samples is None:
+                            pixel_samples = torch.empty((samples_in.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
+                        pixel_samples[x:x+batch_number].copy_(out)
+                        del out
+                    self.process_output(pixel_samples[x:x+batch_number])
+            except Exception as e:
+                model_management.raise_non_oom(e)
+                logger.warning("Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
+                # NOTE: We don't know what tensors were allocated to stack variables at the time of the
+                # exception and the exception itself refs them all until we get out of this except block.
+                # So we just set a flag for tiler fallback so that tensor gc can happen once the
+                #exception is fully off the books.
+                do_tile = True
+
+            if do_tile:
+                model_management.soft_empty_cache()
+                dims = samples_in.ndim - 2
+                if dims == 1 or self.extra_1d_channel is not None:
+                    pixel_samples = self.decode_tiled_1d(samples_in)
+                elif dims == 2:
+                    pixel_samples = self.decode_tiled_(samples_in)
+                elif dims == 3:
+                    tile = 256 // self.spacial_compression_decode()
+                    overlap = tile // 4
+                    pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
 
         pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
         return pixel_samples
@@ -1089,22 +1144,23 @@ class VAE:
         if overlap is not None:
             args["overlap"] = overlap
 
-        if dims == 1 or self.extra_1d_channel is not None:
-            args.pop("tile_y")
-            output = self.decode_tiled_1d(samples, **args)
-        elif dims == 2:
-            output = self.decode_tiled_(samples, **args)
-        elif dims == 3:
-            if overlap_t is None:
-                args["overlap"] = (1, overlap, overlap)
-            else:
-                args["overlap"] = (max(1, overlap_t), overlap, overlap)
-            if tile_t is not None:
-                args["tile_t"] = max(2, tile_t)
+        with model_management.cuda_device_context(self.device):
+            if dims == 1 or self.extra_1d_channel is not None:
+                args.pop("tile_y")
+                output = self.decode_tiled_1d(samples, **args)
+            elif dims == 2:
+                output = self.decode_tiled_(samples, **args)
+            elif dims == 3:
+                if overlap_t is None:
+                    args["overlap"] = (1, overlap, overlap)
+                else:
+                    args["overlap"] = (max(1, overlap_t), overlap, overlap)
+                if tile_t is not None:
+                    args["tile_t"] = max(2, tile_t)
 
-            output = self.decode_tiled_3d(samples, **args)
-        else:
-            raise ValueError(f"invalid dims={dims}")
+                output = self.decode_tiled_3d(samples, **args)
+            else:
+                raise ValueError(f"invalid dims={dims}")
         return output.movedim(1, -1)
 
     def encode(self, pixel_samples):
@@ -1118,44 +1174,46 @@ class VAE:
                 pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
             else:
                 pixel_samples = pixel_samples.unsqueeze(2)
-        try:
-            memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
-            model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
-            free_memory = self.patcher.get_free_memory(self.device)
-            batch_number = int(free_memory / max(1, memory_used))
-            batch_number = max(1, batch_number)
-            samples = None
-            for x in range(0, pixel_samples.shape[0], batch_number):
-                pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype)
-                if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
-                    out = self.first_stage_model.encode(pixels_in, device=self.device)
+
+        with model_management.cuda_device_context(self.device):
+            try:
+                memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
+                model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
+                free_memory = self.patcher.get_free_memory(self.device)
+                batch_number = int(free_memory / max(1, memory_used))
+                batch_number = max(1, batch_number)
+                samples = None
+                for x in range(0, pixel_samples.shape[0], batch_number):
+                    pixels_in = self.process_input(pixel_samples[x:x + batch_number]).to(self.vae_dtype)
+                    if getattr(self.first_stage_model, 'comfy_has_chunked_io', False):
+                        out = self.first_stage_model.encode(pixels_in, device=self.device)
+                    else:
+                        pixels_in = pixels_in.to(self.device)
+                        out = self.first_stage_model.encode(pixels_in)
+                    out = out.to(self.output_device).to(dtype=self.vae_output_dtype())
+                    if samples is None:
+                        samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
+                    samples[x:x + batch_number] = out
+
+            except Exception as e:
+                model_management.raise_non_oom(e)
+                logger.warning("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
+                # NOTE: We don't know what tensors were allocated to stack variables at the time of the
+                # exception and the exception itself refs them all until we get out of this except block.
+                # So we just set a flag for tiler fallback so that tensor gc can happen once the
+                # exception is fully off the books.
+                do_tile = True
+
+            if do_tile:
+                model_management.soft_empty_cache()
+                if self.latent_dim == 3:
+                    tile = 256
+                    overlap = tile // 4
+                    samples = self.encode_tiled_3d(pixel_samples, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+                elif self.latent_dim == 1 or self.extra_1d_channel is not None:
+                    samples = self.encode_tiled_1d(pixel_samples)
                 else:
-                    pixels_in = pixels_in.to(self.device)
-                    out = self.first_stage_model.encode(pixels_in)
-                out = out.to(self.output_device).to(dtype=self.vae_output_dtype())
-                if samples is None:
-                    samples = torch.empty((pixel_samples.shape[0],) + tuple(out.shape[1:]), device=self.output_device, dtype=self.vae_output_dtype())
-                samples[x:x + batch_number] = out
-
-        except Exception as e:
-            model_management.raise_non_oom(e)
-            logger.warning("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
-            # NOTE: We don't know what tensors were allocated to stack variables at the time of the
-            # exception and the exception itself refs them all until we get out of this except block.
-            # So we just set a flag for tiler fallback so that tensor gc can happen once the
-            # exception is fully off the books.
-            do_tile = True
-
-        if do_tile:
-            model_management.soft_empty_cache()
-            if self.latent_dim == 3:
-                tile = 256
-                overlap = tile // 4
-                samples = self.encode_tiled_3d(pixel_samples, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
-            elif self.latent_dim == 1 or self.extra_1d_channel is not None:
-                samples = self.encode_tiled_1d(pixel_samples)
-            else:
-                samples = self.encode_tiled_(pixel_samples)
+                    samples = self.encode_tiled_(pixel_samples)
 
         return samples
 
@@ -1181,29 +1239,29 @@ class VAE:
         if overlap is not None:
             args["overlap"] = overlap
 
-        samples = None
-        if dims == 1:
-            args.pop("tile_y")
-            samples = self.encode_tiled_1d(pixel_samples, **args)
-        elif dims == 2:
-            samples = self.encode_tiled_(pixel_samples, **args)
-        elif dims == 3:
-            if tile_t is not None:
-                tile_t_latent = max(2, self.downscale_ratio[0](tile_t))
-            else:
-                tile_t_latent = 9999
-            args["tile_t"] = self.upscale_ratio[0](tile_t_latent)
+        with model_management.cuda_device_context(self.device):
+            if dims == 1:
+                args.pop("tile_y")
+                samples = self.encode_tiled_1d(pixel_samples, **args)
+            elif dims == 2:
+                samples = self.encode_tiled_(pixel_samples, **args)
+            elif dims == 3:
+                if tile_t is not None:
+                    tile_t_latent = max(2, self.downscale_ratio[0](tile_t))
+                else:
+                    tile_t_latent = 9999
+                args["tile_t"] = self.upscale_ratio[0](tile_t_latent)
 
-            if overlap_t is None:
-                args["overlap"] = (1, overlap, overlap)
-            else:
-                args["overlap"] = (self.upscale_ratio[0](max(1, min(tile_t_latent // 2, self.downscale_ratio[0](overlap_t)))), overlap, overlap)
-            maximum = pixel_samples.shape[2]
-            maximum = self.upscale_ratio[0](self.downscale_ratio[0](maximum))
+                if overlap_t is None:
+                    args["overlap"] = (1, overlap, overlap)
+                else:
+                    args["overlap"] = (self.upscale_ratio[0](max(1, min(tile_t_latent // 2, self.downscale_ratio[0](overlap_t)))), overlap, overlap)
+                maximum = pixel_samples.shape[2]
+                maximum = self.upscale_ratio[0](self.downscale_ratio[0](maximum))
 
-            samples = self.encode_tiled_3d(pixel_samples[:, :, :maximum], **args)
-        else:
-            raise ValueError(f"unsupported values dim {dims}")
+                samples = self.encode_tiled_3d(pixel_samples[:,:,:maximum], **args)
+            else:
+                raise ValueError(f"unsupported values dim {dims}")
 
         return samples
 
@@ -1286,6 +1344,8 @@ class CLIPType(Enum):
     FLUX2 = 25
     LONGCAT_IMAGE = 26
     COGVIDEOX = 27
+    LENS = 28
+    PIXELDIT = 29
 
 
 @dataclasses.dataclass
@@ -1359,6 +1419,8 @@ class TEModel(Enum):
     GEMMA_4_E4B = 29
     GEMMA_4_E2B = 30
     GEMMA_4_31B = 31
+    T5_GEMMA = 32
+    GPT_OSS_20B = 33
 
 
 def detect_te_model(sd):
@@ -1383,6 +1445,8 @@ def detect_te_model(sd):
         if weight.shape[0] == 384:
             return TEModel.BYT5_SMALL_GLYPH
         return TEModel.T5_BASE
+    if "model.encoder.layers.0.pre_self_attn_layernorm.weight" in sd:
+        return TEModel.T5_GEMMA
     if 'model.layers.0.post_feedforward_layernorm.weight' in sd:
         if 'model.layers.59.self_attn.q_norm.weight' in sd:
             return TEModel.GEMMA_4_31B
@@ -1398,6 +1462,9 @@ def detect_te_model(sd):
             else:
                 return TEModel.GEMMA_3_4B
         return TEModel.GEMMA_2_2B
+    # Must precede the Qwen2.5-7B k_proj.bias=512 check (GPT-OSS also has 8*64=512).
+    if "layers.0.self_attn.sinks" in sd and "layers.0.mlp.experts.gate_up_proj.weight" in sd:
+        return TEModel.GPT_OSS_20B
     if 'model.layers.0.self_attn.k_proj.bias' in sd:
         weight = sd['model.layers.0.self_attn.k_proj.bias']
         if weight.shape[0] == 256:
@@ -1535,6 +1602,10 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             else:
                 clip_target.clip = sa_t5.SAT5Model
                 clip_target.tokenizer = sa_t5.SAT5Tokenizer
+        elif te_model == TEModel.T5_GEMMA:
+            clip_target.clip = sa3.SAT5GemmaModel
+            clip_target.tokenizer = sa3.SAT5GemmaTokenizer
+            tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
         elif te_model in (TEModel.GEMMA_4_E4B, TEModel.GEMMA_4_E2B, TEModel.GEMMA_4_31B):
             variant = {TEModel.GEMMA_4_E4B: gemma4.Gemma4_E4B,
                        TEModel.GEMMA_4_E2B: gemma4.Gemma4_E2B,
@@ -1543,8 +1614,12 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.tokenizer = variant.tokenizer
             tokenizer_data["tokenizer_json"] = clip_data[0].get("tokenizer_json", None)
         elif te_model == TEModel.GEMMA_2_2B:
-            clip_target.clip = lumina2.te(**llama_detect(clip_data))
-            clip_target.tokenizer = lumina2.LuminaTokenizer
+            if clip_type == CLIPType.PIXELDIT:
+                clip_target.clip = pixeldit.pixeldit_te(**llama_detect(clip_data))
+                clip_target.tokenizer = pixeldit.PixelDiTGemma2Tokenizer
+            else:
+                clip_target.clip = lumina2.te(**llama_detect(clip_data))
+                clip_target.tokenizer = lumina2.LuminaTokenizer
             tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
         elif te_model == TEModel.GEMMA_3_4B:
             clip_target.clip = lumina2.te(**llama_detect(clip_data), model_type="gemma3_4b")
@@ -1579,6 +1654,10 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = flux.flux2_te(**llama_detect(clip_data), pruned=te_model == TEModel.MISTRAL3_24B_PRUNED_FLUX2)
             clip_target.tokenizer = flux.Flux2Tokenizer
             tokenizer_data["tekken_model"] = clip_data[0].get("tekken_model", None)
+        elif te_model == TEModel.GPT_OSS_20B:
+            clip_target.clip = gpt_oss.lens_te(**llama_detect(clip_data))
+            clip_target.tokenizer = gpt_oss.LensTokenizer
+            tokenizer_data["tokenizer_json"] = clip_data[0].get("tokenizer_json", None)
         elif te_model == TEModel.QWEN3_4B:
             if clip_type == CLIPType.FLUX or clip_type == CLIPType.FLUX2:
                 clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type="qwen3_4b")
@@ -1755,13 +1834,52 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     sd, metadata = utils.load_torch_file(ckpt_path, return_metadata=True)
     out = load_state_dict_guess_config(sd, output_vae, output_clip, output_clipvision, embedding_directory, output_model, model_options, te_model_options=te_model_options, metadata=metadata, ckpt_path=ckpt_path, disable_dynamic=disable_dynamic)
     if out is None:
-        raise RuntimeError("Could not detect model type of: {}\n{}".format(ckpt_path, model_detection_error_hint(ckpt_path, sd)))
-    if output_model and out[0] is not None:
-        out[0].cached_patcher_init = (load_checkpoint_guess_config_model_only, (ckpt_path, embedding_directory, model_options, te_model_options, disable_dynamic))
-    if output_clip and out[1] is not None:
-        out[1].patcher.cached_patcher_init = (load_checkpoint_guess_config_clip_only, (ckpt_path, embedding_directory, model_options, te_model_options, disable_dynamic))
+        raise RuntimeError("ERROR: Could not detect model type of: {}\n{}".format(ckpt_path, model_detection_error_hint(ckpt_path, sd)))
+    if out[0] is not None:
+        out[0].cached_patcher_init = (load_checkpoint_guess_config, (ckpt_path, False, False, False, embedding_directory, output_model, model_options, te_model_options), 0)
+    # Register reload factories for the CLIP and VAE produced by the same checkpoint so
+    # ModelPatcher.deepclone_multigpu can spawn per-device copies (Select{CLIP,VAE}Device,
+    # MultiGPU work-units, etc.) without falling back to copy.deepcopy of an
+    # already-loaded module.
+    if out[1] is not None and getattr(out[1], "patcher", None) is not None:
+        out[1].patcher.cached_patcher_init = (load_checkpoint_clip_patcher, (ckpt_path, embedding_directory, model_options, te_model_options, disable_dynamic))
+    if out[2] is not None and getattr(out[2], "patcher", None) is not None:
+        out[2].patcher.cached_patcher_init = (load_checkpoint_vae_patcher, (ckpt_path, embedding_directory, model_options, te_model_options, disable_dynamic))
     return out
 
+
+def load_checkpoint_clip_patcher(ckpt_path, embedding_directory=None, model_options={}, te_model_options={}, disable_dynamic=False):
+    """Reload only the CLIP patcher from a checkpoint. Used as the cached_patcher_init
+    factory for the CLIP returned by load_checkpoint_guess_config."""
+    _, clip, _, _ = load_checkpoint_guess_config(
+        ckpt_path,
+        output_vae=False,
+        output_clip=True,
+        output_clipvision=False,
+        embedding_directory=embedding_directory,
+        output_model=False,
+        model_options=model_options,
+        te_model_options=te_model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    return clip.patcher
+
+
+def load_checkpoint_vae_patcher(ckpt_path, embedding_directory=None, model_options={}, te_model_options={}, disable_dynamic=False):
+    """Reload only the VAE patcher from a checkpoint. Used as the cached_patcher_init
+    factory for the VAE returned by load_checkpoint_guess_config."""
+    _, _, vae, _ = load_checkpoint_guess_config(
+        ckpt_path,
+        output_vae=True,
+        output_clip=False,
+        output_clipvision=False,
+        embedding_directory=embedding_directory,
+        output_model=False,
+        model_options=model_options,
+        te_model_options=te_model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    return vae.patcher
 
 def load_checkpoint_guess_config_model_only(ckpt_path, embedding_directory=None, model_options={}, te_model_options={}, disable_dynamic=False):
     model, *_ = load_checkpoint_guess_config(ckpt_path, False, False, False,
@@ -1796,7 +1914,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)
     parameters = utils.calculate_parameters(sd, diffusion_model_prefix)
     weight_dtype = utils.weight_dtype(sd, diffusion_model_prefix)
-    load_device = model_management.get_torch_device()
+    load_device = model_options.get("load_device", model_management.get_torch_device())
 
     custom_operations = model_options.get("custom_operations", None)
     if custom_operations is None:
@@ -1835,13 +1953,15 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     if output_model:
         inital_load_device = model_management.unet_initial_load_device(parameters, unet_dtype)
         model = model_config.get_model(sd, diffusion_model_prefix, device=inital_load_device)
-        model_patcher = get_model_patcher_class(disable_dynamic=disable_dynamic)(model, load_device=load_device, offload_device=model_management.unet_offload_device())
+        offload_device = model_options.get("offload_device", model_management.unet_offload_device())
+        model_patcher = get_model_patcher_class(disable_dynamic=disable_dynamic)(model, load_device=load_device, offload_device=offload_device)
         model.load_model_weights(sd, diffusion_model_prefix, assign=model_patcher.is_dynamic())
 
     if output_vae:
         vae_sd = utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
         vae_sd = model_config.process_vae_state_dict(vae_sd)
-        vae = VAE(sd=vae_sd, metadata=metadata)
+        vae_device = model_options.get("load_device", None)
+        vae = VAE(sd=vae_sd, metadata=metadata, device=vae_device)
 
     if output_clip:
         if te_model_options.get("custom_operations", None) is None:
@@ -1926,7 +2046,7 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
 
     parameters = utils.calculate_parameters(sd)
     weight_dtype = utils.weight_dtype(sd)
-    load_device = model_management.get_torch_device()
+    load_device = model_options.get("load_device", model_management.get_torch_device())
     model_config = model_detection.model_config_from_unet(sd, "", metadata=metadata)
 
     if model_config is not None:
@@ -1951,7 +2071,7 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
                 else:
                     logger.warning("{} {}".format(diffusers_keys[k], k))
 
-    offload_device = model_management.unet_offload_device()
+    offload_device = model_options.get("offload_device", model_management.unet_offload_device())
     unet_weight_dtype = list(model_config.supported_inference_dtypes)
     if model_config.quant_config is not None:
         weight_dtype = None
@@ -1996,6 +2116,26 @@ def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
     return model
 
 
+def load_vae_patcher(vae_path, metadata=None, device=None, disable_dynamic=False):
+    """Reload a disk-backed VAE from ``vae_path`` and return its patcher.
+
+    Used as the ``cached_patcher_init`` factory on ``VAE.patcher`` so
+    :meth:`comfy.model_patcher.ModelPatcher.deepclone_multigpu` can produce a
+    fresh, untainted VAE patcher (no inherited per-device load state, no
+    in-place quantization fallout) for multigpu work-units and the
+    SelectVAEDevice node. The optional ``device`` matches the source loader's
+    VAE initialization path; the deepclone's ``load_device`` still controls
+    where the cloned patcher is targeted.
+    """
+    if metadata is None:
+        sd, metadata = utils.load_torch_file(vae_path, return_metadata=True)
+    else:
+        sd = utils.load_torch_file(vae_path)
+    vae = VAE(sd=sd, metadata=metadata, device=device)
+    vae.throw_exception_if_invalid()
+    return vae.patcher
+
+
 @_deprecate_method(message="The load_unet function has been deprecated and will be removed please switch to: load_diffusion_model", version="*")
 def load_unet(unet_path, dtype=None):
     return load_diffusion_model(unet_path, model_options={"dtype": dtype})
@@ -2011,7 +2151,7 @@ def save_checkpoint(output_path, model, clip=None, vae=None, clip_vision=None, m
     load_models = [model]
     if clip is not None:
         load_models.append(clip.load_model())
-        clip_sd = clip.get_sd()
+        clip_sd = clip.state_dict_for_saving()
     vae_sd = None
     if vae is not None:
         vae_sd = vae.get_sd()

@@ -1,24 +1,20 @@
 from __future__ import annotations
-
-import math
-
-import collections
+import torch
 import uuid
+import math
+import collections
 
 from . import model_management
+from . import model_patcher as model_patcher_module
 from . import patcher_extension
 from . import utils
 from .controlnet import ControlBase
-from .hooks import EnumHookType, EnumWeightTarget, HookGroup, AdditionalModelsHook, create_target_dict, \
-    TransformerOptionsHook
+from .hooks import AdditionalModelsHook, EnumHookType, EnumWeightTarget, HookGroup, TransformerOptionsHook, create_target_dict
 from .model_base import BaseModel
 from .model_patcher import ModelPatcher
-from .patcher_extension import merge_nested_dicts
-
 
 def prepare_mask(noise_mask, shape, device):
     return utils.reshape_mask(noise_mask, shape).to(device)
-
 
 def get_models_from_cond(cond, model_type):
     models = []
@@ -29,7 +25,6 @@ def get_models_from_cond(cond, model_type):
             else:
                 models += [c[model_type]]
     return models
-
 
 def get_hooks_from_cond(cond, full_hooks: HookGroup):
     # get hooks from conds, and collect cnets so they can be checked for extra_hooks
@@ -49,8 +44,8 @@ def get_hooks_from_cond(cond, full_hooks: HookGroup):
         return get_extra_hooks_from_cnet(cnet.previous_controlnet, _list)
 
     hooks_list = []
-    cnets_s = set(cnets)
-    for base_cnet in cnets_s:
+    cnets = set(cnets)
+    for base_cnet in cnets:
         get_extra_hooks_from_cnet(base_cnet, hooks_list)
     extra_hooks = HookGroup.combine_all_hooks(hooks_list)
     if extra_hooks is not None:
@@ -58,7 +53,6 @@ def get_hooks_from_cond(cond, full_hooks: HookGroup):
             full_hooks.add(hook)
 
     return full_hooks
-
 
 def convert_cond(cond):
     out = []
@@ -109,8 +103,7 @@ def get_additional_models(conds, dtype):
 
     return models, inference_memory
 
-
-def get_additional_models_from_model_options(model_options: dict[str] = None):
+def get_additional_models_from_model_options(model_options: dict[str]=None):
     """loads additional models from registered AddModels hooks"""
     models = []
     if model_options is not None and "registered_hooks" in model_options:
@@ -120,13 +113,52 @@ def get_additional_models_from_model_options(model_options: dict[str] = None):
             models.extend(hook.models)
     return models
 
-
 def cleanup_additional_models(models):
     """cleanup additional models that were loaded"""
     for m in models:
         if hasattr(m, 'cleanup'):
             m.cleanup()
 
+def preprocess_multigpu_conds(conds: dict[str, list[dict[str]]], model: ModelPatcher, model_options: dict[str]):
+    '''If multigpu acceleration required, creates deepclones of ControlNets and GLIGEN per device.'''
+    multigpu_models: list[ModelPatcher] = model.get_additional_models_with_key("multigpu")
+    if len(multigpu_models) == 0:
+        return
+    extra_devices = [x.load_device for x in multigpu_models]
+    # handle controlnets
+    controlnets: set[ControlBase] = set()
+    for k in conds:
+        for kk in conds[k]:
+            if 'control' in kk:
+                controlnets.add(kk['control'])
+    if len(controlnets) > 0:
+        # first, unload all controlnet clones
+        for cnet in list(controlnets):
+            cnet_models = cnet.get_models()
+            for cm in cnet_models:
+                model_management.unload_model_and_clones(cm, unload_additional_models=True)
+
+        # next, make sure each controlnet has a deepclone for all relevant devices
+        for cnet in controlnets:
+            curr_cnet = cnet
+            while curr_cnet is not None:
+                for device in extra_devices:
+                    if device not in curr_cnet.multigpu_clones:
+                        curr_cnet.deepclone_multigpu(device, autoregister=True)
+                curr_cnet = curr_cnet.previous_controlnet
+        # since all device clones are now present, recreate the linked list for cloned cnets per device
+        for cnet in controlnets:
+            curr_cnet = cnet
+            while curr_cnet is not None:
+                prev_cnet = curr_cnet.previous_controlnet
+                for device in extra_devices:
+                    device_cnet = curr_cnet.get_instance_for_device(device)
+                    prev_device_cnet = None
+                    if prev_cnet is not None:
+                        prev_device_cnet = prev_cnet.get_instance_for_device(device)
+                    device_cnet.set_previous_controlnet(prev_device_cnet)
+                curr_cnet = prev_cnet
+    # potentially handle gligen - since not widely used, ignored for now
 
 def estimate_memory(model, noise_shape, conds):
     cond_shapes = collections.defaultdict(list)
@@ -144,7 +176,6 @@ def estimate_memory(model, noise_shape, conds):
     minimum_memory_required = model.model.memory_required([noise_shape[0]] + list(noise_shape[1:]), cond_shapes=cond_shapes_min)
     return memory_required, minimum_memory_required
 
-
 def prepare_sampling(model: ModelPatcher, noise_shape, conds, model_options=None, force_full_load=False, force_offload=False):
     executor = patcher_extension.WrapperExecutor.new_executor(
         _prepare_sampling,
@@ -152,9 +183,9 @@ def prepare_sampling(model: ModelPatcher, noise_shape, conds, model_options=None
     )
     return executor.execute(model, noise_shape, conds, model_options=model_options, force_full_load=force_full_load, force_offload=force_offload)
 
-
 def _prepare_sampling(model: ModelPatcher, noise_shape, conds, model_options=None, force_full_load=False, force_offload=False):
-    real_model: BaseModel = None
+    model.match_multigpu_clones()
+    preprocess_multigpu_conds(conds, model, model_options)
     models, inference_memory = get_additional_models(conds, model.model_dtype())
     models += get_additional_models_from_model_options(model_options)
     models += model.get_nested_additional_models()  # TODO: does this require inference_memory update?
@@ -166,10 +197,9 @@ def _prepare_sampling(model: ModelPatcher, noise_shape, conds, model_options=Non
         memory_required += inference_memory
         minimum_memory_required += inference_memory
     model_management.load_models_gpu([model] + models, memory_required=memory_required, minimum_memory_required=minimum_memory_required, force_full_load=force_full_load)
-    real_model = model.model
+    real_model: BaseModel = model.model
 
     return real_model, conds, models
-
 
 def cleanup_models(conds, models):
     cleanup_additional_models(models)
@@ -179,7 +209,6 @@ def cleanup_models(conds, models):
         control_cleanup += get_models_from_cond(conds[k], "control")
 
     cleanup_additional_models(set(control_cleanup))
-
 
 def prepare_model_patcher(model: ModelPatcher, conds, model_options: dict):
     '''
@@ -211,6 +240,21 @@ def prepare_model_patcher(model: ModelPatcher, conds, model_options: dict):
     # merge original wrappers and callbacks with hooked wrappers and callbacks
     to_load_options: dict[str] = model_options.setdefault("to_load_options", {})
     for wc_name in ["wrappers", "callbacks"]:
-        merge_nested_dicts(to_load_options.setdefault(wc_name, {}), model_options["transformer_options"][wc_name],
-                           copy_dict1=False)
+        patcher_extension.merge_nested_dicts(to_load_options.setdefault(wc_name, {}), model_options["transformer_options"][wc_name],
+                                                    copy_dict1=False)
     return to_load_options
+
+def prepare_model_patcher_multigpu_clones(model_patcher: ModelPatcher, loaded_models: list[ModelPatcher], model_options: dict):
+    '''
+    In case multigpu acceleration is enabled, prep ModelPatchers for each device.
+    '''
+    multigpu_patchers: list[ModelPatcher] = [x for x in loaded_models if x.is_multigpu_base_clone]
+    if len(multigpu_patchers) > 0:
+        multigpu_dict: dict[torch.device, ModelPatcher] = {}
+        multigpu_dict[model_patcher.load_device] = model_patcher
+        for x in multigpu_patchers:
+            x.hook_patches = model_patcher_module.create_hook_patches_clone(model_patcher.hook_patches, copy_tuples=True)
+            x.hook_mode = model_patcher.hook_mode # match main model's hook_mode
+            multigpu_dict[x.load_device] = x
+        model_options["multigpu_clones"] = multigpu_dict
+    return multigpu_patchers

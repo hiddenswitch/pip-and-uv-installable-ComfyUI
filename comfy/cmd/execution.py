@@ -7,6 +7,7 @@ import heapq
 import inspect
 import json
 import logging
+import psutil
 import sys
 import threading
 import time
@@ -736,7 +737,8 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
         logger.error(format_node_exception(ex, tb, node_id=real_node_id, class_type=class_type, input_data_formatted=input_data_formatted), exc_info=False)
 
         if model_management.is_oom(ex):
-            logger.error(f"Got an OOM, unloading all loaded models: {model_management.debug_memory_summary()}")
+            logger.info("Memory summary:\n%s", model_management.debug_memory_summary())
+            logger.error("Got an OOM, unloading all loaded models.")
             model_management.unload_all_models()
         elif isinstance(ex, RuntimeError) and ("mat1 and mat2 shapes" in str(ex)) and "Sampler" in class_type:
             logger.info("\n\nIf you have any \"Load CLIP\" or \"*CLIP Loader\" nodes in your workflow connected to this sampler node make sure the correct file(s) and type is selected.")
@@ -893,6 +895,7 @@ class PromptExecutor:
 
         self._notify_prompt_lifecycle("start", prompt_id)
         ram_headroom = int(self.cache_args.get("ram", 0) * (1024 ** 3))
+        ram_inactive_headroom = int(self.cache_args.get("ram_inactive", self.cache_args.get("ram", 0)) * (1024 ** 3))
         ram_release_callback = self.caches.outputs.ram_release if self.cache_type == CacheType.RAM_PRESSURE else None
         memory_management.set_ram_cache_release_state(ram_release_callback, ram_headroom)
 
@@ -948,8 +951,14 @@ class PromptExecutor:
                         execution_list.complete_node_execution()
 
                     if self.cache_type == CacheType.RAM_PRESSURE:
-                        model_management.free_memory(0, None, pins_required=ram_headroom, ram_required=ram_headroom)
-                        ram_release_callback(ram_headroom, free_active=True)
+                        ram_release_callback(ram_inactive_headroom)
+                        ram_shortfall = ram_headroom - psutil.virtual_memory().available
+                        freed = model_management.free_pins(ram_shortfall + 512 * (1024 ** 2))
+                        if freed < ram_shortfall:
+                            if freed > 64 * (1024 ** 2):
+                                # AIMDO MEM_DECOMMIT can outrun psutil.available catching up.
+                                time.sleep(0.05)
+                            ram_release_callback(ram_headroom, free_active=True)
                 else:
                     # Only execute when the while-loop ends without break
                     # Send cached UI for intermediate output nodes that weren't executed
