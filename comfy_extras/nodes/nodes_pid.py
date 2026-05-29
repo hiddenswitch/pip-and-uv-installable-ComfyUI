@@ -3,7 +3,7 @@
 import torch
 from typing_extensions import override
 
-import node_helpers
+from comfy import node_helpers
 import comfy.latent_formats
 from comfy_api.latest import ComfyExtension, io
 
