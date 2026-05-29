@@ -181,6 +181,21 @@ Use a no-commit merge so conflict resolution and validation happen before the me
 git pull --no-commit --no-ff -s ort -Xfind-renames=30% comfyui master
 ```
 
+Before resolving conflicts, read the previous upstream merge sequence closely. For the `0.19 -> 0.20` style merge, use these commits as the baseline example:
+
+- `ebdc4945` - merge commit, `Merge ComfyUI upstream master`
+- `d58a7150` - follow-up move commit, `Move upstream extra nodes into package layout`
+- `46ce90fd` - docs follow-up, `Document upstream merge workflow`
+- `cddc27e9` - remaining follow-up cleanup, `Complete upstream merge follow-ups`
+
+Read the whole diff of the merge commit and the few commits after it, not only the conflict hunks. For model-heavy conflicts, also read the whole upstream file and the whole fork file when the surrounding context matters. This is especially important for `model_management.py`, `model_patcher.py`, `model_base.py`, `sd.py`, `supported_models.py`, `ops.py`, `lora.py`, sampler files, and anything touching dynamic VRAM or model loading. The typical pattern is:
+
+1. The merge commit contains upstream code plus direct conflict resolutions.
+2. The next commit moves upstream root files into the fork package layout.
+3. Later commits adapt imports, tests, docs, and fork-specific cleanup.
+
+Do not guess from one conflict hunk when the file contains model-loading or memory-management behavior. Read enough of both sides to understand what upstream added, what the fork already changed, and which behavior must be preserved in the merge commit versus a follow-up commit.
+
 Resolve conflicts in the merge first. Keep directory rename detection enabled and let Git place files under renamed directories where it can. For delete/modify conflicts where this fork intentionally deleted upstream files, confirm the deletion is still intentional and use `git rm`.
 
 Before committing the merge, run all of these checks:
