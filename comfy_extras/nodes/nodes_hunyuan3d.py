@@ -2,7 +2,7 @@ import torch
 from comfy.ldm.modules.diffusionmodules.mmdit import get_1d_sincos_pos_embed_from_grid_torch
 from comfy.cmd import folder_paths
 import comfy.model_management
-from comfy_extras.nodes_save_3d import pack_variable_mesh_batch
+from .nodes_save_3d import pack_variable_mesh_batch
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, IO, Types
 from comfy_api.latest._util import MESH, VOXEL  # only for backward compatibility if someone import it from this file (will be removed later) # noqa

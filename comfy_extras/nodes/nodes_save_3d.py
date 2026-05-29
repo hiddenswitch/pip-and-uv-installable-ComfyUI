@@ -11,7 +11,7 @@ from PIL import Image
 import torch
 from typing_extensions import override
 
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy.cli_args import args
 from comfy_api.latest import ComfyExtension, IO, Types
 

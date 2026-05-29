@@ -4,7 +4,7 @@
 import torch
 
 import comfy.utils
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, Types, io
 from typing_extensions import override
 
