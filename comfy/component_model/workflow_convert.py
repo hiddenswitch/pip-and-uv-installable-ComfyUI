@@ -538,6 +538,12 @@ def _types_match(a: str | None, b: str | None) -> bool:
         return True
     if a == "*" or b == "*":
         return True
+    a_types = {part.strip() for part in a.split(",") if part.strip()}
+    b_types = {part.strip() for part in b.split(",") if part.strip()}
+    if "*" in a_types or "*" in b_types:
+        return True
+    if a_types and b_types and not a_types.isdisjoint(b_types):
+        return True
     return False
 
 

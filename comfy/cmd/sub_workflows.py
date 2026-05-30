@@ -11,8 +11,8 @@ import typer
 from .cli import (
     _with_options, _ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS,
     _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT,
-    _COMFYUI_ENV, _collect_params, _build_config, _set_config_context,
-    _discover_from_ref, _RunWorkflowCommand,
+    _COMFYUI_ENV, _collect_params, _build_config,
+    _discover_from_ref, _RunWorkflowCommand, _run_workflow_cli,
 )
 
 workflows_app = typer.Typer(name="workflows", no_args_is_help=False, add_completion=False)
@@ -69,8 +69,6 @@ def workflows_run(
     With --all, automatically install missing custom nodes from
     nodes.appmana.com and download missing models before running.
     """
-    from ..component_model.setup import setup_pre_torch, setup_post_torch
-
     _all = all
     params = _collect_params(locals(), kwargs)
     params.pop("all", None)
@@ -84,32 +82,7 @@ def workflows_run(
         params["otel_service_version"] = __version__
 
     config = _build_config(params)
-
-    if _all:
-        from .cli import _install_workflow_requirements
-        _install_workflow_requirements(config.workflows)
-
-    setup_pre_torch(config)
-    _set_config_context(config)
-    setup_post_torch(config)
-
-    from ..component_model.entrypoints_common import configure_application_paths
-    configure_application_paths(config)
-
-    if _all:
-        from .cli import _download_workflow_models
-        _download_workflow_models(config.workflows)
-
-    from ..execution_context import context_configuration
-    from ..nodes.package import import_all_nodes_in_workspace
-    with context_configuration(config):
-        import_all_nodes_in_workspace(raise_on_failure=False)
-
-    from ..entrypoints.workflow import run_workflows
-    try:
-        asyncio.run(run_workflows(config.workflows, configuration=config))
-    except KeyboardInterrupt:
-        pass
+    _run_workflow_cli(config, all=_all, dry_run=False)
 
 
 @workflows_app.command(name="submit")

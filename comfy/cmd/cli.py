@@ -685,7 +685,7 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
         except Exception:
             continue
         for name, _ in resolve_workflow_packages_versioned(
-            workflow, builtin_class_types=_load_core_class_types(),
+            workflow, builtin_class_types=_load_available_class_types(),
         ):
             packages.add(name)
 
@@ -1368,6 +1368,53 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         typer.echo(self.get_help(ctx))
 
 
+def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> None:
+    from ..component_model.setup import setup_pre_torch, setup_post_torch
+
+    # Publish the parsed config to the execution context BEFORE anything
+    # (including --all's pip resolution) imports a comfy module that reads
+    # args at module-import time — e.g. comfy.model_management latches its
+    # VRAM state from args.{novram,lowvram,...} at import. Running
+    # _install_workflow_requirements first made --novram/--lowvram silently
+    # no-op because model_management saw the default Configuration.
+    _set_config_context(config)
+
+    if all:
+        _install_workflow_requirements(config.workflows)
+
+    setup_pre_torch(config)
+    setup_post_torch(config)
+
+    from ..component_model.entrypoints_common import configure_application_paths
+    configure_application_paths(config)
+
+    if all:
+        # After torch is available we know cu128 vs cu130, so do this here
+        # rather than alongside _install_workflow_requirements.
+        if not dry_run:
+            _install_workflow_stable_abi_extensions(config.workflows)
+        # Auto-discover existing models on disk before checking what to download.
+        # Discovery + classification + folder_paths registration runs every time
+        # --all is requested, so subsequent _download_workflow_models() calls
+        # find locally-resolved files via folder_paths.get_full_path().
+        classifications, scan_summary = _auto_register_existing_models()
+        planned = _download_workflow_models(config.workflows, dry_run=dry_run)
+        if dry_run:
+            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned)
+            return
+
+    from ..execution_context import context_configuration
+    from ..nodes.package import import_all_nodes_in_workspace
+    with context_configuration(config):
+        import_all_nodes_in_workspace(raise_on_failure=False)
+
+    from ..entrypoints.workflow import run_workflows
+    try:
+        asyncio.run(run_workflows(config.workflows, configuration=config))
+    except KeyboardInterrupt:
+        pass
+
+
 @app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows", cls=_RunWorkflowCommand)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
@@ -1416,8 +1463,6 @@ def run_workflow(
       cat workflow.json | comfyui run-workflow -
       comfyui run-workflow workflow.json --novram --fast cublas_ops
     """
-    from ..component_model.setup import setup_pre_torch, setup_post_torch
-
     _all = all or dry_run
     _dry_run = dry_run
     params = _collect_params(locals(), kwargs)
@@ -1434,49 +1479,7 @@ def run_workflow(
         params["otel_service_version"] = __version__
 
     config = _build_config(params)
-
-    # Publish the parsed config to the execution context BEFORE anything
-    # (including --all's pip resolution) imports a comfy module that reads
-    # args at module-import time — e.g. comfy.model_management latches its
-    # VRAM state from args.{novram,lowvram,...} at import. Running
-    # _install_workflow_requirements first made --novram/--lowvram silently
-    # no-op because model_management saw the default Configuration.
-    _set_config_context(config)
-
-    if _all:
-        _install_workflow_requirements(config.workflows)
-
-    setup_pre_torch(config)
-    setup_post_torch(config)
-
-    from ..component_model.entrypoints_common import configure_application_paths
-    configure_application_paths(config)
-
-    if _all:
-        # After torch is available we know cu128 vs cu130, so do this here
-        # rather than alongside _install_workflow_requirements.
-        if not _dry_run:
-            _install_workflow_stable_abi_extensions(config.workflows)
-        # Auto-discover existing models on disk before checking what to download.
-        # Discovery + classification + folder_paths registration runs every time
-        # --all is requested, so subsequent _download_workflow_models() calls
-        # find locally-resolved files via folder_paths.get_full_path().
-        classifications, scan_summary = _auto_register_existing_models()
-        planned = _download_workflow_models(config.workflows, dry_run=_dry_run)
-        if _dry_run:
-            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned)
-            return
-
-    from ..execution_context import context_configuration
-    from ..nodes.package import import_all_nodes_in_workspace
-    with context_configuration(config):
-        import_all_nodes_in_workspace(raise_on_failure=False)
-
-    from ..entrypoints.workflow import run_workflows
-    try:
-        asyncio.run(run_workflows(config.workflows, configuration=config))
-    except KeyboardInterrupt:
-        pass
+    _run_workflow_cli(config, all=_all, dry_run=_dry_run)
 
 
 
@@ -1679,6 +1682,12 @@ def _load_core_class_types() -> frozenset[str]:
         ExportedNodes(),
     )
     return frozenset(core_nodes.NODE_CLASS_MAPPINGS.keys())
+
+
+def _load_available_class_types() -> frozenset[str]:
+    from ..nodes.package import import_all_nodes_in_workspace
+    nodes = import_all_nodes_in_workspace(raise_on_failure=False)
+    return frozenset(nodes.NODE_CLASS_MAPPINGS.keys())
 
 
 @app.command(name="workflow-requirements", rich_help_panel="Workflows", hidden=True)

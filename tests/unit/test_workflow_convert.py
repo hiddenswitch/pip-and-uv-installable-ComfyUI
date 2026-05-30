@@ -510,6 +510,24 @@ class TestResolveSource:
         result = _resolve_source(5, 0, nodes, links, target_type="IMAGE")
         assert result == ("link", "1", 0)
 
+    def test_bypass_routes_comma_separated_matching_type(self):
+        """Bypass routes through a multi-type input when one type matches."""
+        nodes = {
+            5: {
+                "type": "ImageOrMaskPassthrough", "mode": 4,
+                "inputs": [
+                    {"name": "image", "type": "IMAGE,MASK", "link": 50},
+                ],
+                "outputs": [
+                    {"name": "output", "type": "IMAGE", "links": [51]},
+                ],
+            },
+            1: {"type": "Producer", "mode": 0},
+        }
+        links = {50: LiteLink(50, 1, 0, 5, 0, "IMAGE")}
+        result = _resolve_source(5, 0, nodes, links, target_type="IMAGE")
+        assert result == ("link", "1", 0)
+
     def test_bypass_opposite_slot_preferred(self):
         """Bypass prefers the opposite slot (same index) when types match."""
         nodes = {
