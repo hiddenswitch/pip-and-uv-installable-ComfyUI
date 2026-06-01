@@ -107,6 +107,25 @@ class TestPromptValidateWorkflow:
         assert cfg_val == 7.5
         assert steps_val == 20
 
+    def test_prompt_validate_accepts_loose_node_input_values(self):
+        """Prompt inputs are user-defined node payloads, not only scalar-or-link values."""
+        prompt = {
+            "1": {
+                "inputs": {
+                    "optional": None,
+                    "metadata": {"style": "cinematic", "weights": [0.25, 0.75]},
+                    "values": [1, "two", False, None],
+                    "linked": ["2", 0],
+                },
+                "class_type": "CustomNode",
+            }
+        }
+        validated = Prompt.validate(prompt)
+        assert validated["1"]["inputs"]["optional"] is None
+        assert validated["1"]["inputs"]["metadata"]["style"] == "cinematic"
+        assert validated["1"]["inputs"]["values"] == (1, "two", False, None)
+        assert validated["1"]["inputs"]["linked"] == ("2", 0)
+
     @pytest.mark.parametrize("workflow_name, workflow_file", _all_workflow_files().items())
     def test_prompt_validate_all_workflows(self, workflow_name, workflow_file):
         """Prompt.validate should succeed on every bundled workflow JSON file."""

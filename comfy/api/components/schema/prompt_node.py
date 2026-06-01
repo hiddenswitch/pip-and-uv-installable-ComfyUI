@@ -127,6 +127,9 @@ OneOf = typing.Tuple[
     typing.Type[_1],
     typing.Type[_2],
     typing.Type[_3],
+    typing.Type[schemas.NoneSchema],
+    typing.Type[schemas.DictSchema],
+    typing.Type[schemas.ListSchema],
 ]
 
 
@@ -135,7 +138,7 @@ class AdditionalProperties(
     schemas.AnyTypeSchema[schemas.immutabledict[str, schemas.OUTPUT_BASE_TYPES], typing.Tuple[schemas.OUTPUT_BASE_TYPES, ...]],
 ):
     # any type
-    one_of: OneOf = dataclasses.field(default_factory=lambda: schemas.tuple_to_instance(OneOf)) # type: ignore
+    any_of: OneOf = dataclasses.field(default_factory=lambda: schemas.tuple_to_instance(OneOf)) # type: ignore
 
 
 
@@ -402,4 +405,3 @@ class PromptNode(
             arg,
             configuration=configuration,
         )
-

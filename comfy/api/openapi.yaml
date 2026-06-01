@@ -1298,10 +1298,15 @@ components:
         inputs:
           type: object
           additionalProperties:
-            oneOf:
+            anyOf:
               - type: number
               - type: string
               - type: boolean
+              - type: "null"
+              - type: object
+                additionalProperties: true
+              - type: array
+                items: {}
               - type: array
                 description: |
                   When this is specified, it is a node connection, followed by an output.
