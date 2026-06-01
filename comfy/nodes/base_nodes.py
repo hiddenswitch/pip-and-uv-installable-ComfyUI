@@ -40,7 +40,7 @@ from ..ldm.flux.weight_dtypes import FLUX_WEIGHT_DTYPES
 from ..model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise, KNOWN_CHECKPOINTS, \
     KNOWN_CLIP_VISION_MODELS, KNOWN_GLIGEN_MODELS, KNOWN_UNCLIP_CHECKPOINTS, KNOWN_LORAS, KNOWN_CONTROLNETS, \
     KNOWN_DIFF_CONTROLNETS, KNOWN_VAES, KNOWN_APPROX_VAES, get_huggingface_repo_list, KNOWN_CLIP_MODELS, \
-    KNOWN_UNET_MODELS, _get_known_models_for_folder_name
+    _get_known_models_for_folder_name
 from ..nodes.common import MAX_RESOLUTION
 from ..open_exr import load_exr
 

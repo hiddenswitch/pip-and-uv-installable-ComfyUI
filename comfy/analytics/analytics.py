@@ -6,8 +6,7 @@ from typing import Optional
 
 from .multi_event_tracker import MultiEventTracker
 from .plausible import PlausibleTracker
-from ..api.components.schema.prompt import Prompt, PromptDict
-from ..api.schemas.validation import immutabledict
+from ..api.components.schema.prompt import Prompt, PromptDict, immutabledict
 
 _event_tracker: MultiEventTracker
 
