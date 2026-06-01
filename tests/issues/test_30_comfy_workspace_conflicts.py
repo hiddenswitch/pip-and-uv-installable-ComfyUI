@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.git_clone]
 SERVER_START_TIMEOUT = 20
 # Repository URLs and references
 COMFYUI_REPO = "https://github.com/comfyanonymous/ComfyUI.git"
-COMFYSTREAM_REPO = "https://github.com/doctorpangloss/comfystream.git"
+COMFYSTREAM_REPO = "https://github.com/doctorpangloss/forks-comfystream.git"
 COMFYSTREAM_COMMIT = "f2f7929def53a4853cc5a1c2774aea70775ce2ff"
 COMFYUI_LTS_REPO = "https://github.com/hiddenswitch/ComfyUI.git"
 COMFYUI_LTS_COMMIT = "75e39c27202c8e31f8ec84eea4fc560c4e34f2c8"
