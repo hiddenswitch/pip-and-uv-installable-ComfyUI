@@ -65,7 +65,7 @@ What it detects:
 | Condition | Action |
 |-----------|--------|
 | NVIDIA GPU present | Enables `--fast cublas_ops` |
-| NVIDIA GPU with competing processes (e.g. Discord, games) | Enables `--novram` to avoid VRAM contention |
+| NVIDIA GPU with material competing GPU memory use (for example another model process or a game) | Enables `--novram` to avoid VRAM contention |
 | AMD RDNA 4 GPU (gfx12xx) | Enables `--fp16-vae` |
 | AMD GPU (older than RDNA 4) | Enables `--fp32-vae` |
 | AMD GPU on Windows | Enables `--use-quad-cross-attention` |

@@ -61,16 +61,28 @@ def _has_amd_gpu() -> bool:
 
 
 _BENIGN_PROCESS_RE = re.compile(r"^(python|nv)", re.IGNORECASE)
+_BENIGN_GPU_PROCESS_NAMES = frozenset({
+    "gnome-remote-desktop-daemon",
+    "steamwebhelper",
+})
+_COMPETING_GPU_PROCESS_MIN_MEMORY_MIB = 1024
+
+
+def _parse_nvidia_smi_memory_mib(value: str) -> int | None:
+    m = re.match(r"\s*(\d+)\s*(?:MiB)?\s*$", value)
+    if not m:
+        return None
+    return int(m.group(1))
 
 
 def _competing_gpu_processes() -> list[str]:
-    """Return names of non-Python, non-nv* processes using the NVIDIA GPU.
+    """Return names of material non-Comfy processes using the NVIDIA GPU.
 
     Returns an empty list when ``nvidia-smi`` is unavailable or fails.
     """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=process_name", "--format=csv,noheader"],
+            ["nvidia-smi", "--query-compute-apps=process_name,used_gpu_memory", "--format=csv,noheader"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -81,9 +93,17 @@ def _competing_gpu_processes() -> list[str]:
         for line in result.stdout.strip().splitlines():
             # Handle both Unix and Windows paths (nvidia-smi may return
             # full paths like C:\Program Files\Discord\Discord.exe)
-            raw = line.strip().replace("\\", "/")
+            parts = [part.strip() for part in line.split(",", 1)]
+            raw = parts[0].replace("\\", "/")
             proc = os.path.basename(raw)
-            if proc and not _BENIGN_PROCESS_RE.match(proc):
+            used_mib = _parse_nvidia_smi_memory_mib(parts[1]) if len(parts) > 1 else None
+            is_small = used_mib is not None and used_mib < _COMPETING_GPU_PROCESS_MIN_MEMORY_MIB
+            if (
+                proc
+                and not _BENIGN_PROCESS_RE.match(proc)
+                and proc not in _BENIGN_GPU_PROCESS_NAMES
+                and not is_small
+            ):
                 names.append(proc)
         return names
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
