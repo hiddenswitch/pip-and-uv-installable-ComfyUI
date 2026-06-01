@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import uuid
 from asyncio import AbstractEventLoop
 from typing import Optional, List
@@ -10,22 +11,33 @@ from aiohttp import WSMessage, ClientResponse, ClientTimeout
 from opentelemetry import trace
 
 from .client_types import V1QueuePromptResponse
-from ..api.api_client import JSONEncoder
 from ..api.components.schema.prompt import PromptDict
-from ..api.components.schema.prompt_request import PromptRequest
-from ..api.paths.history.get.responses.response_200.content.application_json.schema import Schema as GetHistoryDict
-from ..api.schemas import immutabledict
+from ..api.generated.models import PromptRequest
 from ..component_model.outputs_types import OutputsDict
 
 tracer = trace.get_tracer(__name__)
+
+
+def _json_default(obj):
+    if hasattr(obj, "items"):
+        return dict(obj.items())
+    if isinstance(obj, tuple):
+        return list(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
+def _to_jsonable(obj):
+    if hasattr(obj, "items"):
+        return {key: _to_jsonable(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(value) for value in obj]
+    return obj
 
 
 class AsyncRemoteComfyClient:
     """
     An asynchronous client for remote servers
     """
-    __json_encoder = JSONEncoder()
-
     def __init__(self, server_address: str = "http://localhost:8188", client_id: str = str(uuid.uuid4()),
                  websocket_address: Optional[str] = None, loop: Optional[AbstractEventLoop] = None):
         self.client_id = client_id
@@ -75,7 +87,7 @@ class AsyncRemoteComfyClient:
         :param prefer_header: Optional Prefer header value
         :return: The response object
         """
-        prompt_json = AsyncRemoteComfyClient.__json_encoder.encode(prompt)
+        prompt_json = json.dumps(prompt, separators=(",", ":"), default=_json_default)
         headers = self._build_headers(accept_header, prefer_header)
         return await self.session.post(urljoin(self.server_address, endpoint), data=prompt_json, headers=headers)
 
@@ -143,8 +155,8 @@ class AsyncRemoteComfyClient:
         :param prompt:
         :return:
         """
-        prompt_request = PromptRequest.validate({"prompt": prompt, "client_id": self.client_id})
-        prompt_request_json = AsyncRemoteComfyClient.__json_encoder.encode(prompt_request)
+        prompt_request = PromptRequest.model_validate({"prompt": _to_jsonable(prompt), "client_id": self.client_id})
+        prompt_request_json = prompt_request.model_dump_json(exclude_none=True)
         async with self.session.ws_connect(self.websocket_address) as ws:
             async with self.session.post(urljoin(self.server_address, "/prompt"), data=prompt_request_json,
                                          headers={'Content-Type': 'application/json'}) as response:
@@ -167,13 +179,13 @@ class AsyncRemoteComfyClient:
                     break
         async with self.session.get(urljoin(self.server_address, "/history")) as response:
             if response.status == 200:
-                history_json = immutabledict(GetHistoryDict.validate(await response.json()))
+                history_json = await response.json()
             else:
                 raise RuntimeError("Couldn't get history")
 
         # images have filename, subfolder, type keys
         # todo: use the OpenAPI spec for this when I get around to updating it
-        return history_json[prompt_id].outputs
+        return history_json[prompt_id]["outputs"]
 
     async def get_prompt_status(self, prompt_id: str) -> ClientResponse:
         """

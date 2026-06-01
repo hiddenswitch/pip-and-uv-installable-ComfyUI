@@ -148,7 +148,9 @@ You can use the OpenAPI specification file to learn more about all the supported
 
 Use a typed, generated API client for your programming language and access ComfyUI server remotely as an API.
 
-You can generate the client from [comfy/api/openapi.yaml](../comfy/api/openapi.yaml).
+You can generate the client from [openapi.yaml](../openapi.yaml). The root
+spec is the canonical OpenAPI document for both upstream-compatible ComfyUI
+routes and this fork's additional REST APIs.
 
 ### RabbitMQ / AMQP Support
 

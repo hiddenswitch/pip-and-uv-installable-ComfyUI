@@ -16,15 +16,20 @@ can validate node semantics.
 The short-term fix on this branch changes prompt input validation to `anyOf`
 and includes `null`, object, and array payloads.
 
-## Spec sources
+## Spec source
 
-- `openapi.yaml`: fork/root spec. This includes the broader REST surface,
-  including cloud/job/assets endpoints.
-- `comfy/api/openapi.yaml`: package spec currently used by
-  `comfy/cmd/openapi_gen.py` to generate Python schema/client code.
+`openapi.yaml` at the repository root is the canonical spec. It contains the
+fork's broader REST surface and the upstream-compatible ComfyUI routes. The old
+package-local OpenAPI file under `comfy/api/` has been removed; do not recreate
+package-local OpenAPI specs. When upstream changes its API spec, merge the
+relevant route and schema fixes into root `openapi.yaml`.
 
-The desired canonical spec should merge upstream's accurate jank-compatible
-ComfyUI API definitions with the additional REST APIs from the fork.
+The canonical spec must preserve both surfaces:
+
+- upstream-compatible ComfyUI routes, including the unprefixed vanilla paths
+  and `/api` aliases exposed by the server;
+- fork-only REST APIs such as assets, workflows, hub, auth, billing,
+  workspace, secrets, tasks, jobs, and internal operational endpoints.
 
 ## Generator direction
 
@@ -38,20 +43,20 @@ Candidate tool: `datamodel-code-generator`, configured for:
 
 - OpenAPI 3 input.
 - Pydantic v2 output.
-- Python 3.12 target.
+- Python 3.10 target, matching the package's supported runtime floor.
 - Strict enough typed models for stable REST request/response models.
 - Permissive `JsonValue`/`dict[str, Any]` shapes for workflow graphs,
   prompt inputs, queue metadata, history payloads, and custom-node surfaces.
 
 ## Migration steps
 
-1. Build a canonical merged OpenAPI document from root `openapi.yaml` plus
-   `comfy/api/openapi.yaml`.
+1. Maintain root `openapi.yaml` as the only canonical merged OpenAPI document.
 2. Keep workflow graph schemas intentionally loose at API boundaries.
-3. Generate Pydantic v2 models into a new package, separate from the current
-   generated schema runtime.
+3. Generate Pydantic v2 models into `comfy/api/generated/models.py`, separate
+   from the prompt compatibility shims.
 4. Port server/client call sites from `Prompt.validate()` style validation to
    Pydantic `model_validate()` only where validation is useful.
-5. Remove the old generated schema runtime after parity tests pass.
+5. Keep only tiny compatibility shims for current imports such as
+   `Prompt.validate`, `PromptDict`, `PromptRequest`, and `ApiValueError`.
 6. Add round-trip tests for bundled workflows, UI-converted workflows, queue
    payloads, history payloads, and fork-only REST endpoints.

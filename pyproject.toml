@@ -118,6 +118,7 @@ dependencies = [
     "colour",
     "av>=16.0.0",
     "pydantic~=2.0",
+    "email-validator",
     "pydantic-settings~=2.0",
     "typer",
     "questionary",
@@ -163,6 +164,7 @@ dev = [
     "mypy>=1.6.0",
     "freezegun",
     "coverage",
+    "datamodel-code-generator>=0.59",
     "pylint",
     "astroid",
     "ruff>=0.15",
@@ -174,6 +176,9 @@ dev = [
 comfyui = "comfy.cmd.cli:entrypoint"
 comfyui-worker = "comfy.entrypoints.worker:entrypoint"
 comfyui-workflow = "comfy.entrypoints.workflow:entrypoint"
+
+[tool.comfy.openapi]
+models-command = "datamodel-codegen --input openapi.yaml --input-file-type openapi --output comfy/api/generated/models.py --output-model-type pydantic_v2.BaseModel --target-python-version 3.10 --use-standard-collections --use-union-operator --disable-timestamp"
 
 [project.entry-points."fsspec.specs"]
 pkg = "comfy.component_model.package_filesystem:PkgResourcesFileSystem"
@@ -277,7 +282,6 @@ ignorelist = ["all", "format", "id", "input", "max", "min", "round", "type"]
 "comfy/app/colab.py" = ["T201"]
 "comfy/cmd/cli.py" = ["T201"]
 "comfy/cmd/list_models.py" = ["T201"]
-"comfy/cmd/openapi_gen.py" = ["T201"]
 "comfy/cmd/snapshot_pip_registry.py" = ["T201"]
 "comfy/cmd/folder_paths.py" = ["F822"]  # __all__ entries provided dynamically by module property
 "comfy_extras/nodes/nodes_eval.py" = ["S102"]
