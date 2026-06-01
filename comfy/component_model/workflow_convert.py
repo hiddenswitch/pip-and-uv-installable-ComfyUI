@@ -61,7 +61,7 @@ _UUID_RE: Final[re.Pattern[str]] = re.compile(
 )
 
 _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object], ...]]] = MappingProxyType({
-    "PreviewAny": (("preview_markdown", ""), ("preview_text", ""), ("previewMode", False)),
+    "PreviewAny": (("previewMode", False),),
     "LoadAudio": (("audioUI", ""),),
     "SaveAudio": (("audioUI", ""),),
     "PreviewAudio": (("audioUI", ""),),
@@ -81,8 +81,16 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
         ("option1", ""),
         ("option2", ""),
         ("option3", ""),
+        ("option4", ""),
+        ("option5", ""),
+        ("option6", ""),
+        ("option7", ""),
+        ("option8", ""),
+        ("option9", ""),
     ),
 })
+
+_FRONTEND_OPTIONAL_INJECTED_WIDGETS: Final[frozenset[str]] = frozenset({"CustomCombo"})
 
 _FRONTEND_WIDGET_SERIALIZATION_OVERRIDES: Final[
     MappingProxyType[str, tuple[tuple[str, object], ...]]
@@ -320,13 +328,32 @@ def _frontend_widget_default(type_spec, opts: dict):
     return opts.get("default")
 
 
-def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, object], int]:
+def _serialized_widget_names_ordered(node: dict | None) -> list[str]:
+    if node is None:
+        return []
+
+    stashed = node.get('_widget_names_ordered')
+    if isinstance(stashed, list):
+        return [name for name in stashed if isinstance(name, str)]
+
+    ordered_names: list[str] = []
+    for inp in node.get('inputs', []) or []:
+        widget = inp.get('widget')
+        if isinstance(widget, dict):
+            name = widget.get('name') or inp.get('name')
+            if isinstance(name, str):
+                ordered_names.append(name)
+    return ordered_names
+
+
+def _map_widgets(input_types: dict, widgets_values: list, node: dict | None = None) -> tuple[dict[str, object], int]:
     required = input_types.get("required", {})
     optional = input_types.get("optional", {})
 
     result: dict[str, object] = {}
     idx = 0
     in_optional = False
+    serialized_widget_names = set(_serialized_widget_names_ordered(node))
 
     for name, entry in list(required.items()) + list(optional.items()):
         if not in_optional and name in optional:
@@ -337,6 +364,8 @@ def _map_widgets(input_types: dict, widgets_values: list) -> tuple[dict[str, obj
         if not _is_widget_type(type_spec, opts):
             continue
         if opts.get("forceInput"):
+            if name in serialized_widget_names and idx < len(widgets_values):
+                idx += 1
             continue
 
         if idx < len(widgets_values):
@@ -1390,7 +1419,67 @@ def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited, set_node_map
         )
         if result is not None:
             return result
+    result = _resolve_legacy_sg_output(
+        sg_dto, slot, target_type, dto_map, visited, set_node_map=set_node_map,
+    )
+    if result is not None:
+        return result
     return None
+
+
+def _resolve_legacy_sg_output(sg_dto, slot, target_type, dto_map, visited, set_node_map=None):
+    """Resolve outputs for legacy ``extra.groupNodes`` definitions.
+
+    Legacy group nodes do not serialize modern subgraph output boundary nodes.
+    The host node still has output slots, so mirror the frontend's legacy
+    behaviour by matching that host output to a terminal inner node output with
+    the same type/name.
+    """
+    outer_outputs = sg_dto.node.get('outputs', [])
+    if slot >= len(outer_outputs):
+        return None
+
+    outer_output = outer_outputs[slot]
+    outer_type = outer_output.get('type') or target_type
+    outer_name = outer_output.get('name')
+    prefix = f"{sg_dto.exec_id}:"
+
+    candidates = []
+    for inner_dto in dto_map.values():
+        if inner_dto.sg_node_exec_id != sg_dto.exec_id:
+            continue
+        if not inner_dto.exec_id.startswith(prefix):
+            continue
+        if ':' in inner_dto.exec_id[len(prefix):]:
+            continue
+        for output_slot, output in enumerate(inner_dto.node.get('outputs', [])):
+            if outer_type is not None and output.get('type') != outer_type:
+                continue
+            if outer_name and output.get('name') not in (None, outer_name):
+                continue
+            output_links = output.get('links')
+            if output_links not in (None, []):
+                continue
+            candidates.append((inner_dto, output_slot))
+
+    if not candidates:
+        return None
+
+    exact_name_matches = [
+        candidate for candidate in candidates
+        if candidate[0].node.get('outputs', [])[candidate[1]].get('name') == outer_name
+    ]
+    if exact_name_matches:
+        candidates = exact_name_matches
+
+    if len(candidates) != 1:
+        return None
+
+    inner_dto, output_slot = candidates[0]
+    return _resolve_dto_output(
+        inner_dto, output_slot, target_type, dto_map, visited,
+        set_node_map=set_node_map,
+    )
 
 
 def _is_subgraph_type(class_type: str, sg_defs: dict[str, dict]) -> bool:
@@ -1488,7 +1577,7 @@ def _convert_ui_to_api_impl(workflow, preserve_unknown_nodes, node_mappings):
             if overridden_mapping is not None:
                 api_inputs, _wv_consumed = overridden_mapping
             else:
-                api_inputs, _wv_consumed = _map_widgets(input_types, widgets_values)
+                api_inputs, _wv_consumed = _map_widgets(input_types, widgets_values, node=node)
             use_class_type = class_type
         elif isinstance(widgets_values, dict):
             api_inputs = _map_widgets_dict(input_types, widgets_values)
@@ -1590,6 +1679,8 @@ def _convert_ui_to_api_impl(workflow, preserve_unknown_nodes, node_mappings):
                         if val is None and isinstance(default_value, str):
                             val = default_value
                         api_inputs[widget_name] = val
+                    elif use_class_type in _FRONTEND_OPTIONAL_INJECTED_WIDGETS:
+                        continue
                     else:
                         api_inputs[widget_name] = default_value
 

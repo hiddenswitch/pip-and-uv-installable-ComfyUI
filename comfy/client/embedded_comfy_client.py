@@ -352,6 +352,7 @@ class Comfy:
         self._history = History()
         self._exit_stack = None
         self._async_exit_stack = None
+        self._in_process_execution_lock = asyncio.Lock()
         # Remember the user's requested concurrency so reconfigure() can
         # rebuild the executor with the same max_workers.
         self._max_workers = max_workers
@@ -570,8 +571,8 @@ class Comfy:
         propagate.inject(carrier, span_context)
         prompt = make_mutable(prompt)
 
-        try:
-            outputs = await get_event_loop().run_in_executor(
+        async def run_prompt_in_executor() -> dict:
+            return await get_event_loop().run_in_executor(
                 self._executor,
                 _execute_prompt,
                 prompt,
@@ -583,6 +584,13 @@ class Comfy:
                 self._configuration,
                 partial_execution_targets,
             )
+
+        try:
+            if isinstance(self._executor, ContextVarExecutor):
+                async with self._in_process_execution_lock:
+                    outputs = await run_prompt_in_executor()
+            else:
+                outputs = await run_prompt_in_executor()
 
             fut = concurrent.futures.Future()
             try:

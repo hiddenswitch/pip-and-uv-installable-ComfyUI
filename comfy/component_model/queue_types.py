@@ -116,7 +116,7 @@ class QueueDict(dict):
             for sensitive_val in SENSITIVE_EXTRA_DATA_KEYS:
                 if sensitive_val in extra_data:
                     sensitive[sensitive_val] = extra_data.pop(sensitive_val)
-            extra_data["create_time"] = int(time.time() * 1000)  # timestamp in milliseconds
+            extra_data.setdefault("create_time", int(time.time() * 1000))  # timestamp in milliseconds
             queue_tuple = QueueTuple(queue_tuple.priority, queue_tuple.prompt_id, queue_tuple.prompt, extra_data, queue_tuple.good_outputs, sensitive)
 
         super().__init__(

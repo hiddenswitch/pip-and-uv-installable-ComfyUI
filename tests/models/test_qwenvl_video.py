@@ -15,8 +15,8 @@ class TestQwenVLVideo:
         # Qwen/Qwen2-VL-2B-Instruct is a good candidate for a "small" QwenVL model
         model_loader = graph.node("TransformersLoader1", ckpt_name="Qwen/Qwen2-VL-2B-Instruct")
 
-        # Load video from URL with frame cap to avoid OOM
-        video_url = "https://upload.wikimedia.org/wikipedia/commons/f/f7/2024-04-05_Luisenpark_MA_Ziegen_2.webm"
+        # Load video with frame cap to avoid OOM
+        video_url = "pkg://tests.custom_nodes.test_data/test_video.mp4"
         load_video = graph.node("LoadVideoFromURL", value=video_url, frame_load_cap=16, select_every_nth=10)
 
         # Tokenize with video

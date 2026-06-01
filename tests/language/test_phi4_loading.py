@@ -7,6 +7,7 @@ from comfy.api.components.schema.prompt import Prompt
 @pytest.mark.inference
 class TestPhi4Loading:
     @pytest.mark.asyncio
+    @pytest.mark.timeout(1200)
     async def test_phi4_loading(self):
         graph = GraphBuilder()
         model_loader = graph.node("TransformersLoaderQuantized", ckpt_name="microsoft/phi-4", load_in_4bit=True, load_in_8bit=False)

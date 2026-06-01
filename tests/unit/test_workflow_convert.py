@@ -149,6 +149,36 @@ class _OptionalFrontendDefaultsNode:
         }
 
 
+class _ToBasicPipe:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "vae": ("VAE",),
+                "positive": ("CONDITIONING",),
+                "negative": ("CONDITIONING",),
+            }
+        }
+
+
+class _BasicPipeConsumer:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "basic_pipe": ("BASIC_PIPE",),
+            }
+        }
+
+
+class _IntSource:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 _TEST_MAPPINGS = {
@@ -162,6 +192,9 @@ _TEST_MAPPINGS = {
     "ImageScaleToTotalPixels": _ImageScaleToTotalPixels,
     "ForceInputNode": _ForceInputNode,
     "OptionalFrontendDefaultsNode": _OptionalFrontendDefaultsNode,
+    "ToBasicPipe": _ToBasicPipe,
+    "BasicPipeConsumer": _BasicPipeConsumer,
+    "IntSource": _IntSource,
 }
 
 
@@ -245,6 +278,132 @@ def _build_default_workflow() -> dict:
             [9, 8, 0, 9, 0, "IMAGE"],
         ],
     }
+
+
+def test_legacy_group_node_terminal_output_is_linked(_with_test_nodes):
+    workflow = {
+        "nodes": [
+            {
+                "id": 3,
+                "type": "workflow>Impact::MAKE_BASIC_PIPE",
+                "mode": 0,
+                "inputs": [],
+                "outputs": [
+                    {
+                        "name": "basic_pipe",
+                        "type": "BASIC_PIPE",
+                        "slot_index": 0,
+                        "links": [3],
+                    }
+                ],
+                "widgets_values": ["model_a.safetensors", "positive", "negative"],
+            },
+            {
+                "id": 2,
+                "type": "BasicPipeConsumer",
+                "mode": 0,
+                "inputs": [{"name": "basic_pipe", "type": "BASIC_PIPE", "link": 3}],
+                "outputs": [],
+                "widgets_values": [],
+            },
+        ],
+        "links": [[3, 3, 0, 2, 0, "BASIC_PIPE"]],
+        "extra": {
+            "groupNodes": {
+                "Impact::MAKE_BASIC_PIPE": {
+                    "nodes": [
+                        {
+                            "index": 0,
+                            "type": "CheckpointLoaderSimple",
+                            "mode": 0,
+                            "inputs": [],
+                            "outputs": [
+                                {"name": "MODEL", "type": "MODEL", "links": []},
+                                {"name": "CLIP", "type": "CLIP", "links": []},
+                                {"name": "VAE", "type": "VAE", "links": []},
+                            ],
+                            "widgets_values": ["model_a.safetensors"],
+                        },
+                        {
+                            "index": 1,
+                            "type": "CLIPTextEncode",
+                            "mode": 0,
+                            "inputs": [{"name": "clip", "type": "CLIP", "link": None}],
+                            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": []}],
+                            "widgets_values": ["positive"],
+                        },
+                        {
+                            "index": 2,
+                            "type": "CLIPTextEncode",
+                            "mode": 0,
+                            "inputs": [{"name": "clip", "type": "CLIP", "link": None}],
+                            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": []}],
+                            "widgets_values": ["negative"],
+                        },
+                        {
+                            "index": 3,
+                            "type": "ToBasicPipe",
+                            "mode": 0,
+                            "inputs": [
+                                {"name": "model", "type": "MODEL", "link": None},
+                                {"name": "clip", "type": "CLIP", "link": None},
+                                {"name": "vae", "type": "VAE", "link": None},
+                                {"name": "positive", "type": "CONDITIONING", "link": None},
+                                {"name": "negative", "type": "CONDITIONING", "link": None},
+                            ],
+                            "outputs": [{"name": "basic_pipe", "type": "BASIC_PIPE", "links": None}],
+                            "widgets_values": [],
+                        },
+                    ],
+                    "links": [
+                        [0, 0, 3, 0, 1, "MODEL"],
+                        [0, 1, 1, 0, 1, "CLIP"],
+                        [0, 1, 2, 0, 1, "CLIP"],
+                        [0, 1, 3, 1, 1, "CLIP"],
+                        [0, 2, 3, 2, 1, "VAE"],
+                        [1, 0, 3, 3, 3, "CONDITIONING"],
+                        [2, 0, 3, 4, 4, "CONDITIONING"],
+                    ],
+                }
+            }
+        },
+    }
+
+    result = convert_ui_to_api(workflow)
+
+    assert result["2"]["inputs"]["basic_pipe"] == ["3:3", 0]
+    assert result["3:3"]["class_type"] == "ToBasicPipe"
+
+
+def test_force_input_widget_placeholder_does_not_shift_later_widgets(_with_test_nodes):
+    workflow = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "IntSource",
+                "mode": 0,
+                "inputs": [],
+                "outputs": [{"name": "INT", "type": "INT", "links": [1]}],
+                "widgets_values": [],
+            },
+            {
+                "id": 2,
+                "type": "ForceInputNode",
+                "mode": 0,
+                "inputs": [
+                    {"name": "value", "type": "INT", "widget": {"name": "value"}, "link": 1}
+                ],
+                "outputs": [],
+                "widgets_values": [123, "mapped label"],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "INT"]],
+    }
+
+    result = convert_ui_to_api(workflow)
+
+    assert result["2"]["inputs"]["value"] == ["1", 0]
+    assert result["2"]["inputs"]["label"] == "mapped label"
 
 
 # ── unit tests: _is_widget_type ───────────────────────────────────────────────

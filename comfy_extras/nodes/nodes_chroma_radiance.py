@@ -28,6 +28,24 @@ class EmptyChromaRadianceLatentImage(io.ComfyNode):
         return io.NodeOutput({"samples": latent})
 
 
+class PixelLatentToImage(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="PixelLatentToImage",
+            category="latent/image",
+            inputs=[
+                io.Latent.Input("latent"),
+            ],
+            outputs=[io.Image.Output()],
+        )
+
+    @classmethod
+    def execute(cls, *, latent) -> io.NodeOutput:
+        image = latent["samples"].movedim(1, -1).clamp(0.0, 1.0)
+        return io.NodeOutput(image)
+
+
 class ChromaRadianceOptions(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -109,6 +127,7 @@ class ChromaRadianceExtension(ComfyExtension):
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             EmptyChromaRadianceLatentImage,
+            PixelLatentToImage,
             ChromaRadianceOptions,
         ]
 

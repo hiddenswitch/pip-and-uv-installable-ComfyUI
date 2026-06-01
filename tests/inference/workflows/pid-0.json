@@ -1,0 +1,121 @@
+{
+  "1": {
+    "inputs": {
+      "noise": ["2", 0],
+      "guider": ["9", 0],
+      "sampler": ["10", 0],
+      "sigmas": ["11", 0],
+      "latent_image": ["12", 0]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {"title": "SamplerCustomAdvanced"}
+  },
+  "2": {
+    "inputs": {"noise_seed": 23456},
+    "class_type": "RandomNoise",
+    "_meta": {"title": "RandomNoise"}
+  },
+  "3": {
+    "inputs": {
+      "unet_name": "pid_flux1_512_to_2048_4step_mxfp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load PiD Diffusion Model"}
+  },
+  "4": {
+    "inputs": {
+      "text": "a sharp studio photo of a red toy car",
+      "clip": ["13", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode"}
+  },
+  "5": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1,
+      "color": 8421504
+    },
+    "class_type": "EmptyImage",
+    "_meta": {"title": "Low Quality Image"}
+  },
+  "6": {
+    "inputs": {"vae_name": "ae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load Flux VAE"}
+  },
+  "7": {
+    "inputs": {
+      "pixels": ["5", 0],
+      "vae": ["6", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {"title": "Encode LQ Latent"}
+  },
+  "8": {
+    "inputs": {
+      "positive": ["4", 0],
+      "latent": ["7", 0],
+      "latent_format": "flux",
+      "degrade_sigma": 0
+    },
+    "class_type": "PiDConditioning",
+    "_meta": {"title": "PiD Conditioning"}
+  },
+  "9": {
+    "inputs": {
+      "model": ["3", 0],
+      "conditioning": ["8", 0]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {"title": "BasicGuider"}
+  },
+  "10": {
+    "inputs": {"sampler_name": "euler"},
+    "class_type": "KSamplerSelect",
+    "_meta": {"title": "KSamplerSelect"}
+  },
+  "11": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 1,
+      "denoise": 1,
+      "model": ["3", 0]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {"title": "BasicScheduler"}
+  },
+  "12": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    },
+    "class_type": "EmptyChromaRadianceLatentImage",
+    "_meta": {"title": "Empty Pixel Latent Image"}
+  },
+  "13": {
+    "inputs": {
+      "clip_name": "gemma_2_2b_it_elm_fp8_scaled.safetensors",
+      "type": "pixeldit",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "14": {
+    "inputs": {"latent": ["1", 0]},
+    "class_type": "PixelLatentToImage",
+    "_meta": {"title": "Pixel Latent to Image"}
+  },
+  "15": {
+    "inputs": {
+      "filename_prefix": "pid",
+      "images": ["14", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

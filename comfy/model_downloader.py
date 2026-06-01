@@ -444,7 +444,7 @@ class KnownDownloadables(collections.UserList[Downloadable]):
 
 
 KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_base_1.0.safetensors", "SDXL/sd_xl_base_1.0_0.9vae.safetensors", "sdxl/sd_xl_base_1.0.safetensors")),
+    HuggingFile("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_base_1.0.safetensors", "SDXL/sd_xl_base_1.0_0.9vae.safetensors", "sdxl/sd_xl_base_1.0.safetensors", "xl/Colv49-Protov66-JugX-32-32-35.safetensors")),
     HuggingFile("stabilityai/stable-diffusion-xl-refiner-1.0", "sd_xl_refiner_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_refiner_1.0.safetensors", "SDXL/sd_xl_refiner_1.0_0.9vae.safetensors", "sdxl/sd_xl_refiner_1.0.safetensors")),
     HuggingFile("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0_fp16.safetensors"),
     HuggingFile("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0.safetensors", show_in_ui=False),
@@ -466,14 +466,14 @@ KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
     CivitFile(112902, 351306, filename="dreamshaperXL_v21TurboDPMSDE.safetensors"),
     CivitFile(139562, 344487, filename="realvisxlV40_v40Bakedvae.safetensors"),
     HuggingFile("SG161222/Realistic_Vision_V6.0_B1_noVAE", "Realistic_Vision_V6.0_NV_B1_fp16.safetensors"),
-    HuggingFile("SG161222/Realistic_Vision_V5.1_noVAE", "Realistic_Vision_V5.1_fp16-no-ema.safetensors", alternate_filenames=("sd15/Realistic_Vision_V5.1_fp16-no-ema.safetensors",)),
+    HuggingFile("SG161222/Realistic_Vision_V5.1_noVAE", "Realistic_Vision_V5.1_fp16-no-ema.safetensors", alternate_filenames=("sd15/Realistic_Vision_V5.1_fp16-no-ema.safetensors", "SD1.5/fantexiRealistic_v10.safetensors", "SD1.5/noosphere_v42.safetensors", "SD1.5/V07_v07.safetensors")),
     HuggingFile("Lykon/DreamShaper", "DreamShaper_8_pruned.safetensors", save_with_filename="dreamshaper_8.safetensors", alternate_filenames=("DreamShaper_8_pruned.safetensors", "sd1.5/dreamshaper_8.safetensors")),
     CivitFile(7371, 425083, filename="revAnimated_v2Rebirth.safetensors"),
     CivitFile(4468, 57618, filename="counterfeitV30_v30.safetensors"),
     CivitFile(241415, 272376, filename="picxReal_10.safetensors"),
     CivitFile(23900, 95489, filename="anyloraCheckpoint_bakedvaeBlessedFp16.safetensors"),
-    CivitFile(132803, 146134, filename="fantexiRealistic_v10.safetensors", alternate_filenames=("SD1.5/fantexiRealistic_v10.safetensors",)),
-    CivitFile(36538, 265285, filename="noosphere_v42.safetensors", alternate_filenames=("SD1.5/noosphere_v42.safetensors",)),
+    CivitFile(132803, 146134, filename="fantexiRealistic_v10.safetensors"),
+    CivitFile(36538, 265285, filename="noosphere_v42.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium_incl_clips.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-3-medium", "sd3_medium_incl_clips_t5xxlfp8.safetensors"),
@@ -802,7 +802,7 @@ KNOWN_APPROX_VAES: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="vae_approx")
 
 KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("stabilityai/sdxl-vae", "sdxl_vae.safetensors"),
+    HuggingFile("stabilityai/sdxl-vae", "sdxl_vae.safetensors", alternate_filenames=("sdxl.fp16.vae.safetensors",)),
     HuggingFile("stabilityai/sd-vae-ft-mse-original", "vae-ft-mse-840000-ema-pruned.safetensors"),
     # this is the flux VAE
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/vae/ae.safetensors"),
@@ -1073,6 +1073,9 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
             "anima-preview3-base.safetensors",
         ),
     ),
+    # PixelDiT and PiD pixel-space models
+    HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pixeldit_1300m_1024px_mxfp8.safetensors"),
+    HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pid_flux1_512_to_2048_4step_mxfp8.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
@@ -1121,6 +1124,8 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/vae-text-encorder-for-flux-klein-9b", "split_files/text_encoders/qwen_3_8b.safetensors"),
     # Anima (circlestone-labs) -- text encoder + VAE shared with the 2B anima diffusion models
     HuggingFile("circlestone-labs/Anima", "split_files/text_encoders/qwen_3_06b_base.safetensors"),
+    # PixelDiT and PiD text encoder
+    HuggingFile("Comfy-Org/PixelDiT", "text_encoders/gemma_2_2b_it_elm_fp8_scaled.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
     # --- Models referenced by comfyui-workflow-templates (text_encoders) ---
@@ -1283,7 +1288,7 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # SDPose detection (Comfy-Org)
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation
-    HuggingFile("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors"),
+    HuggingFile("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors", alternate_filenames=("MelRoFormer\\MelBandRoformer_fp16.safetensors", "MelRoFormer/MelBandRoformer_fp16.safetensors")),
     # ObjectRemoval (lrzjason) -- Flux Fill patch weights
     HuggingFile("lrzjason/ObjectRemovalFluxFill", "removal_timestep_alpha-2-1740.safetensors"),
 ], folder_name="diffusion_models")
@@ -1635,7 +1640,8 @@ KNOWN_JAYN7_ZIMAGE_GGUF: Final[KnownDownloadables] = KnownDownloadables([
                 alternate_filenames=("Z-Image/swiftFastAndDetailed_v10Preview.gguf",
                                      "swiftFastAndDetailed_v10Preview.gguf")),
     HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q4_K_M.gguf"),
-    HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q8_0.gguf"),
+    HuggingFile("jayn7/Z-Image-Turbo-GGUF", "z_image_turbo-Q8_0.gguf",
+                alternate_filenames=("z-image/z_image_turbo-Q8_0.gguf",)),
     HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q5_K_M.gguf"),
     HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q4_K_M.gguf"),
     HuggingFile("jayn7/Z-Image-GGUF", "z_image-Q8_0.gguf"),
@@ -1931,7 +1937,7 @@ def _get_or_download_huggingface_repo(repo_id: str, cache_dirs: Optional[list] =
         return snapshots[0]
     elif not args.disable_known_models:
         logger.debug(f"downloading repo_id={repo_id}")
-        return snapshot_download(repo_id, force_download=force, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns)
+        return snapshot_download(repo_id, cache_dir=cache_dirs[0] if cache_dirs else None, force_download=force, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns)
 
     # this repo was not found
     return None
@@ -1963,7 +1969,7 @@ def _get_cache_hits(cache_dirs: Sequence[str], local_dirs: Sequence[str], repo_i
             if local_path.is_dir():
                 local_dirs_snapshots.append(str(local_path))
 
-    for cache_dir in (None, *cache_dirs):
+    for cache_dir in cache_dirs:
         try:
             cache_dirs_snapshots.append(snapshot_download(repo_id, local_files_only=True, cache_dir=cache_dir))
         except FileNotFoundError:

@@ -20,9 +20,11 @@ warnings.filterwarnings("ignore", message=".*doesn't match a supported version")
 from .. import options
 from ..app import logger
 from ..cli_args_types import Configuration
+from ..component_model.cuda_env import ensure_pytorch_cuda_alloc_conf
 
 os.environ['TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'] = '1'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+ensure_pytorch_cuda_alloc_conf()
 os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
 os.environ["TORCHINDUCTOR_AUTOGRAD_CACHE"] = "1"
 os.environ["BITSANDBYTES_NOWELCOME"] = "1"

@@ -40,9 +40,11 @@ from ..ldm.flux.weight_dtypes import FLUX_WEIGHT_DTYPES
 from ..model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise, KNOWN_CHECKPOINTS, \
     KNOWN_CLIP_VISION_MODELS, KNOWN_GLIGEN_MODELS, KNOWN_UNCLIP_CHECKPOINTS, KNOWN_LORAS, KNOWN_CONTROLNETS, \
     KNOWN_DIFF_CONTROLNETS, KNOWN_VAES, KNOWN_APPROX_VAES, get_huggingface_repo_list, KNOWN_CLIP_MODELS, \
-    KNOWN_UNET_MODELS
+    KNOWN_UNET_MODELS, _get_known_models_for_folder_name
 from ..nodes.common import MAX_RESOLUTION
 from ..open_exr import load_exr
+
+KNOWN_DIFFUSION_MODEL_LOADS = _get_known_models_for_folder_name("diffusion_models")
 from ..sd import VAE
 from ..utils import comfy_tqdm
 
@@ -1036,7 +1038,7 @@ def get_model_options_for_dtype(weight_dtype):
 class UNETLoader:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"unet_name": (get_filename_list_with_downloadable("diffusion_models", KNOWN_UNET_MODELS),),
+        return {"required": {"unet_name": (get_filename_list_with_downloadable("diffusion_models", KNOWN_DIFFUSION_MODEL_LOADS),),
                              "weight_dtype": (FLUX_WEIGHT_DTYPES, {"advanced": True})
                              }}
 
@@ -1047,7 +1049,7 @@ class UNETLoader:
 
     def load_unet(self, unet_name, weight_dtype="default"):
         model_options = get_model_options_for_dtype(weight_dtype)
-        unet_path = get_full_path_or_raise("diffusion_models", unet_name, KNOWN_UNET_MODELS)
+        unet_path = get_full_path_or_raise("diffusion_models", unet_name, KNOWN_DIFFUSION_MODEL_LOADS)
         model = sd.load_diffusion_model(unet_path, model_options=model_options)
         return (model,)
 

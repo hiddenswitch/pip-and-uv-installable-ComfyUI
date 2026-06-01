@@ -901,7 +901,7 @@ Models referenced by custom node workflows are registered in `comfy/model_downlo
 | ComfyUI-GGUF | High | Pass | Pass | Pass | `KNOWN_GGUF_MODELS` | **Sherlocked** -- native GGUF support is built into this fork; `.gguf` files work anywhere `.safetensors` does (diffusion_models, text_encoders, clip, etc.). This node is still compatible but redundant. |
 | ComfyUI-Flux-Continuum | High | Pass | Pass | Pass | `KNOWN_UNET_MODELS` (Flux) | Depends on rgthree + essentials |
 | RES4LYF | High | Pass | Pass | Pass | `KNOWN_CHECKPOINTS` | Advanced samplers |
-| ComfyUI-WanVideoWrapper | High | Pass | Pass | Pass | ~75 models across 8 tables | Fully registered (Kijai repos) |
+| ComfyUI-WanVideoWrapper | High | Pass | Pass | Partial | ~75 models across 8 tables | Most examples execute with cost reduction; some upstream examples are xfailed locally due to removed models, 24GB GPU timeouts, or brittle upstream landmark handling. |
 | ComfyUI-WanAnimatePreprocess | High | Pass | Pass | Pass | Shares WanVideo models | Depends on WanVideoWrapper |
 | **Group C: New model tables added** | | | | | | |
 | ComfyUI-segment-anything-2 | High | Pass | Pass | Pass | `KNOWN_SAM2_MODELS` (12 files from `Kijai/sam2-safetensors`) | SAM 2.0 + 2.1 models |
@@ -927,6 +927,123 @@ Models referenced by custom node workflows are registered in `comfy/model_downlo
 | ComfyUI_Fill-Nodes | High | Pass | Pass | xfail | None (API-based) | Requires anthropic/openai API keys |
 | Bjornulf_custom_nodes | Mid | Pass | Pass | xfail | TTS models auto-download | Complex TTS dependencies |
 | ComfyUI-FlashVSR_Ultra_Fast | Mid | Pass | Pass | Pass | `KNOWN_FLASHVSR_MODELS` + WanVideo FlashVSR | From `JunhaoZhuang/FlashVSR-v1.1` + `Kijai/WanVideo_comfy` |
+
+### Known Workflow Xfails
+
+The end-to-end custom-node workflow test uses explicit xfails for upstream examples that are not actionable core regressions:
+
+| Workflow | Reason |
+|---|---|
+| `ComfyUI-KJNodes/leapfusion_hunyuuanvideo_i2v_native_testing` | Loads large Hunyuan video models and exceeds the local GPU test timeout on 24GB VRAM. |
+| `ComfyUI-WanVideoWrapper/LongCatAvatar_audio_image_to_video_example_01` | Exceeds the local GPU test timeout on 24GB VRAM. |
+| `ComfyUI-WanVideoWrapper/LongCat_TI2V_example_01` | Exceeds the local GPU test timeout on 24GB VRAM. |
+| `ComfyUI-WanVideoWrapper/wanvideo_1_3B_control_lora_example_01` | Exceeds the local GPU test timeout on 24GB VRAM. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyPortrait_example_01` | The upstream FantasyPortrait node crashes when landmark detection returns `None` for the local stub media. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyTalking_example_01` | Exceeds the local GPU test timeout on 24GB VRAM inside WanVideo sampling. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_SkyReelsV3_TalkingAvatar_example_01` | The upstream WanVideoWrapper latent preview path crashes in embedded execution when `last_node_id` is `None`. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_camera_example_01` | References a removed or unpublished model variant. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_example_01` | Runs 177 frames at 25 steps after cost reduction and exceeds the local GPU test timeout on 24GB VRAM. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_HuMo_example_01` | Exceeds the local GPU test timeout on 24GB VRAM inside WanVideo sampling. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_OneToAllAnimation_pose_control_example_01` | Hangs after GPU work on the local 24GB test rig and does not produce pytest-timeout output reliably. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Stand-In_reference_example_01` | The upstream ControlNet Aux MediaPipe face mesh graph fails to parse in the local custom-node environment. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_skyreels_a2_example_01` | Exceeds the local GPU test timeout on 24GB VRAM inside WanVideo sampling. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_2_5B_Ovi_image_to_video_audio_10_seconds_example_01` | References a removed Ovi 10-second model file. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_pusa_I2V_example_01` | 14B Pusa example exceeds local 24GB VRAM. |
+| `ComfyUI-segment-anything-2/image_batch_bbox_segment` | The upstream SAM2 batch bbox workflow crashes when Florence returns no boxes for the local stub media. |
+| `ComfyUI_UltimateSDUpscale/basic-usdu` | References the flat `4x-UltraSharp.pth` upscale model, which is not present in the local custom-node model cache. |
+| `RES4LYF/chroma txt2img` | References Chroma and `ae.sft` model filenames that are not present in the local custom-node model cache. |
+| `RES4LYF/comparison ksampler vs csksampler chain workflows` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/flux faceswap sync pulid` | References `PulidFluxInsightFaceLoader`, which is not installed by the current custom-node set. |
+| `RES4LYF/flux faceswap sync` | Crashes in upstream RES4LYF image code on empty mask coordinates with the local stub media. |
+| `RES4LYF/flux faceswap` | Crashes in upstream RES4LYF image code on empty mask coordinates with the local stub media. |
+| `RES4LYF/flux inpaint area` | Crashes in upstream RES4LYF image code on empty mask coordinates with the local stub media. |
+| `RES4LYF/flux inpaint bongmath` | Crashes in upstream RES4LYF image code on empty mask coordinates with the local stub media. |
+| `RES4LYF/flux inpainting` | References `colossusProjectFlux_v42AIO.safetensors`, which is not present in the local custom-node model cache. |
+| `RES4LYF/flux style antiblur` | References `colossusProjectFlux_v42AIO.safetensors`, which is not present in the local custom-node model cache. |
+| `RES4LYF/flux upscale thumbnail large multistage` | References unavailable Flux/controlnet model filenames and stale RES4LYF option values. |
+| `RES4LYF/flux upscale thumbnail large` | References unavailable Flux/controlnet model filenames and stale RES4LYF option values. |
+| `RES4LYF/flux upscale thumbnail widescreen` | References unavailable Flux/controlnet model filenames and stale RES4LYF option values. |
+| `RES4LYF/hidream guide data projection` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream guide epsilon projection` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream guide flow` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream guide fully_pseudoimplicit` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream guide lure` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream guide pseudoimplicit` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream hires fix` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream regional 3 zones` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream style antiblur` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream style transfer` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream txt2img` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream unsampling data WF` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream unsampling data` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream unsampling pseudoimplicit` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/hidream unsampling` | References the `ae.sft` VAE filename, which is not present in the local custom-node model cache. |
+| `RES4LYF/intro to clownsampling` | References `UltraCascade_Loader`, which is not installed by the current custom-node set. |
+| `RES4LYF/sd35 medium unsampling data` | References SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache. |
+| `RES4LYF/sd35 medium unsampling` | References SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache. |
+| `RES4LYF/sdxl regional antiblur` | References `_SDXL_/juggernautXL_v9Rundiffusionphoto2.safetensors`, which is not present in the local custom-node model cache. |
+| `RES4LYF/style transfer` | References SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache. |
+| `RES4LYF/ultracascade txt2img style transfer` | References `UltraCascade_Loader`, which is not installed by the current custom-node set. |
+| `RES4LYF/ultracascade txt2img` | References `UltraCascade_Loader`, which is not installed by the current custom-node set. |
+| `RES4LYF/wan vid2vid` | References a stale RES4LYF `unsampler_override` option value that is no longer accepted. |
+| `audio-separation-nodes-comfyui/Remix Song` | Fails locally while PyAV muxes preview audio after remix generation. |
+| `ComfyUI_AudioTools/AudioTools_example` | References `Fast Groups Muter (rgthree)`, which is not installed by the current custom-node set. |
+| `ComfyUI_IPAdapter_plus/IPAdapter_FaceIDv2_Kolors` | References Kolors/IPAdapter/ChatGLM model filenames that are not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_advanced` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_clipvision_enhancer` | References `sdxl/RealVisXL_V4.0.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_combine_embeds` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_faceid` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_ideal_faceid_config` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_kolors` | References Kolors/IPAdapter/ChatGLM model filenames that are not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_negative_image` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_noise_injection` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_portrait` | References `sdxl/juggernautXL_version8Rundiffusion.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_precise_composition` | References `sdxl/ProteusV0.3.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_precise_weight_type` | References `sdxl/ProteusV0.3.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_regional_conditioning` | References `sd15/juggernaut_reborn.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_simple` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_style_composition` | References `sdxl/AlbedoBaseXL.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_tiled` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_weight_types` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_weighted_embeds` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI_IPAdapter_plus/ipadapter_weights` | References `sd15/realisticVisionV51_v51VAE.safetensors`, which is not present in the local custom-node model cache. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.3_release` | References `JWIntegerMul`, which is not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.4.4_release` | References `OutputGet`/`OutputGetString`, which are not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.4.5_release` | References `OutputGet`/`OutputGetString`, which are not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.6.4_release` | References `OutputGet`/`OutputGetString`, which are not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.7.0_release` | References `OutputGet`/`OutputGetString`, which are not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ 1.7.1_beta` | References `OutputGet`/`OutputGetString`, which are not installed by the current custom-node set. |
+| `ComfyUI-Flux-Continuum/Flux+ Light 1.0.0_release` | References `OutputGet`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/auto_adjust_v2_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/auto_brightness_example` | References LayerStyle BiRefNet model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/blend_mode_v2_example` | Uses stale LayerStyle `ColorPicker` widget values that no longer validate. |
+| `ComfyUI_LayerStyle/crop_by_mask_&_restore_crop_box_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/distort_displace_example` | References `LayerMask: SegmentAnythingUltra V2`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/extend_canvas_example` | Uses a stale LayerStyle `ExtendCanvas` schema missing the required `color` input. |
+| `ComfyUI_LayerStyle/flux_kontext_image_scale_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/hl_frequency_detail_restore_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/icmask_example` | References `LayerMask: SegmentAnythingUltra V2`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/image_to_mask_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/image_mask_scale_as_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/image_remove_alpha & image_combine_alpha_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/image_tagger_save_example` | References `LayerMask: LoadFlorence2Model`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/layer_image_transform_example` | References `LayerMask: SegmentAnythingUltra V2`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/layerstyle_all_nodes` | References LayerStyle RMBG/BiRefNet model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/mask_by_color_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/mask_edge_ultra_detail_example` | References `Image Remove Background Rembg (mtb)`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/mask_edge_ultra_detail_v2_example` | References `LayerMask: SegmentAnythingUltra V2`, which is not installed by the current custom-node set. |
+| `ComfyUI_LayerStyle/mask_edge_ultra_detail_v3_example` | References LayerStyle BiRefNet model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/pixel_spread_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/queue_stop_example` | Uses a stale LayerStyle `QueueStop` widget value that no longer validates. |
+| `ComfyUI_LayerStyle/rembg_ultra_example` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/rounded_rectangle_example` | References LayerStyle BiRefNet model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/segformet_clothes_example` | References upstream `mattmdjaga/segformer_b3_clothes`, which is not available from HuggingFace. |
+| `ComfyUI_LayerStyle/segformet_fashion_example` | References upstream `mattmdjaga/segformer_b3_fashion`, which is not available from HuggingFace. |
+| `ComfyUI_LayerStyle/simple_text_example` | References `Alibaba-PuHuiTi-Bold.ttf`, which is not present in the local custom-node font set. |
+| `ComfyUI_LayerStyle/text_image_example` | References a non-installed LayerStyle `TextImage` font file. |
+| `ComfyUI_LayerStyle/title_example_workflow` | References LayerStyle RMBG model files that are not present in the local custom-node model cache. |
+| `ComfyUI_LayerStyle/ultra_v2_nodes_example` | References `LayerMask: SegmentAnythingUltra V2`, which is not installed by the current custom-node set. |
+| `ComfyUI_Fill-ChatterBox/Chatterbox` | Requires `torchcodec` for `torchaudio.save` in the local custom-node environment. |
 
 ### Model Source Summary
 

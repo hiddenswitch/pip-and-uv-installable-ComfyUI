@@ -1,0 +1,90 @@
+{
+  "1": {
+    "inputs": {
+      "noise": ["2", 0],
+      "guider": ["5", 0],
+      "sampler": ["6", 0],
+      "sigmas": ["7", 0],
+      "latent_image": ["8", 0]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {"title": "SamplerCustomAdvanced"}
+  },
+  "2": {
+    "inputs": {"noise_seed": 12345},
+    "class_type": "RandomNoise",
+    "_meta": {"title": "RandomNoise"}
+  },
+  "3": {
+    "inputs": {
+      "unet_name": "pixeldit_1300m_1024px_mxfp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "4": {
+    "inputs": {
+      "text": "a small red cube on a white table",
+      "clip": ["9", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode"}
+  },
+  "5": {
+    "inputs": {
+      "model": ["3", 0],
+      "conditioning": ["4", 0]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {"title": "BasicGuider"}
+  },
+  "6": {
+    "inputs": {"sampler_name": "euler"},
+    "class_type": "KSamplerSelect",
+    "_meta": {"title": "KSamplerSelect"}
+  },
+  "7": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 1,
+      "denoise": 1,
+      "model": ["3", 0]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {"title": "BasicScheduler"}
+  },
+  "8": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    },
+    "class_type": "EmptyChromaRadianceLatentImage",
+    "_meta": {"title": "Empty Pixel Latent Image"}
+  },
+  "9": {
+    "inputs": {
+      "clip_name": "gemma_2_2b_it_elm_fp8_scaled.safetensors",
+      "type": "pixeldit",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "10": {
+    "inputs": {
+      "latent": ["1", 0]
+    },
+    "class_type": "PixelLatentToImage",
+    "_meta": {"title": "Pixel Latent to Image"}
+  },
+  "11": {
+    "inputs": {
+      "filename_prefix": "pixeldit",
+      "images": ["10", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

@@ -160,7 +160,6 @@ dev = [
     "websocket-client>=1.6.1",
     "PyInstaller",
     "testcontainers",
-    "testcontainers-rabbitmq",
     "mypy>=1.6.0",
     "freezegun",
     "coverage",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import shutil
 
 from comfy.app.custom_node_manager import CustomNodeManager
 from comfy.component_model.site_packages import add_node_site, add_site_dir
@@ -9,9 +10,24 @@ from comfy.component_model.node_registry import CustomNodeSpec, CUSTOM_NODE_REGI
 
 logger = logging.getLogger(__name__)
 
+_RUNTIME_PACKAGES = ("torch", "torchvision", "torchaudio", "torchsde")
+
+
+def _remove_shadowed_runtime_packages(base_dir: Path) -> None:
+    node_site = base_dir / "node_site"
+    if not node_site.is_dir():
+        return
+    for package in _RUNTIME_PACKAGES:
+        for path in node_site.glob(f"{package}*"):
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.exists():
+                path.unlink()
+
 
 def add_node_site_to_path(base_dir: Path) -> None:
     """Add the ``node_site`` directory to ``sys.path`` and ``PYTHONPATH``."""
+    _remove_shadowed_runtime_packages(base_dir)
     add_node_site(base_dir)
     # Ensure the test source root is on PYTHONPATH so that subprocess workers
     # (ProcessPoolExecutor with spawn context) can resolve pkg:// URIs for

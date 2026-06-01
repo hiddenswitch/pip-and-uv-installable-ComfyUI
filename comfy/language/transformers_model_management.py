@@ -99,7 +99,7 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
         self._parameter_count = sum(param.nelement() for param in self.model.state_dict().values())
         self._size = sum(param.nelement() * param.element_size() for param in self.model.state_dict().values())
         self.load_device = get_torch_device()
-        self.offload_device = unet_offload_device()
+        self.offload_device = self.load_device if getattr(model, "is_quantized", False) else unet_offload_device()
         self._config_dict = config_dict
         self._on_set_processor(self._processor)
         self._model_type = ""
@@ -191,6 +191,9 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
 
     @staticmethod
     def from_pretrained(ckpt_name: str, subfolder: Optional[str] = None, config_dict: PretrainedConfig | dict | None = None, **kwargs) -> "TransformersManagedModel":
+        load_in_4bit = bool(kwargs.pop("load_in_4bit", False))
+        load_in_8bit = bool(kwargs.pop("load_in_8bit", False))
+
         hub_kwargs = {}
         if subfolder is not None and subfolder.strip() != "":
             hub_kwargs["subfolder"] = subfolder
@@ -232,6 +235,32 @@ class TransformersManagedModel(ModelManageableStub, LanguageModel):
             }
 
             kwargses_to_try = (default_kwargs, default_kwargs_trust_remote, {})
+            if load_in_4bit or load_in_8bit:
+                try:
+                    quantization_config = transformers.BitsAndBytesConfig(
+                        load_in_4bit=load_in_4bit,
+                        load_in_8bit=load_in_8bit,
+                    )
+                    quantized_default_kwargs = {
+                        **default_kwargs,
+                        "device_map": str(get_torch_device()),
+                    }
+                    quantized_default_kwargs_trust_remote = {
+                        **default_kwargs_trust_remote,
+                        "device_map": str(get_torch_device()),
+                    }
+                    quantized_kwargses = tuple(
+                        {**kwargs_to_try, "quantization_config": quantization_config}
+                        for kwargs_to_try in (quantized_default_kwargs, quantized_default_kwargs_trust_remote)
+                        if kwargs_to_try
+                    )
+                    kwargses_to_try = (*quantized_kwargses, *kwargses_to_try)
+                except Exception:
+                    logger.warning(
+                        "could not construct BitsAndBytesConfig for %s; loading without bitsandbytes quantization",
+                        ckpt_name,
+                        exc_info=True,
+                    )
 
             # if we have flash-attn installed, try to use it
             try:

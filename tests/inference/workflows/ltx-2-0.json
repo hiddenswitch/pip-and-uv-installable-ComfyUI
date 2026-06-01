@@ -398,7 +398,7 @@
     "inputs": {
       "ckpt_name": "ltx-2-19b-dev-fp8.safetensors"
     },
-    "class_type": "LTXVAudioVAELoader1",
+    "class_type": "LTXVAudioVAELoader",
     "_meta": {
       "title": "LTXV Audio VAE Loader"
     }

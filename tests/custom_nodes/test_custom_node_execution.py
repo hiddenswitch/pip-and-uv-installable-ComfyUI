@@ -5,6 +5,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -47,9 +48,7 @@ _AUDIO_TO_URL: dict[str, str] = {
 # VHS_LoadVideo/VHS_LoadVideoPath output IMAGE frames, not VIDEO —
 # substituting with LoadVideoFromURL causes type mismatches.
 # Instead, we patch their "video" input field in _patch_vhs_video_inputs.
-_VIDEO_TO_URL: dict[str, str] = {
-    "LoadVideo": "LoadVideoFromURL",
-}
+_VIDEO_TO_URL: dict[str, str] = {}
 
 _VHS_VIDEO_CLASS_TYPES = frozenset({"VHS_LoadVideo", "VHS_LoadVideoPath"})
 
@@ -83,12 +82,226 @@ _MODEL_MISSING_PATTERNS: tuple[str, ...] = tuple()
 
 # Workflows to skip: models removed from HuggingFace or never published.
 _XFAIL_WORKFLOWS: dict[str, str] = {
+    "ComfyUI-KJNodes/leapfusion_hunyuuanvideo_i2v_native_testing":
+        "LeapFusion Hunyuan video example loads large Hunyuan video models and exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/LongCatAvatar_audio_image_to_video_example_01":
+        "LongCatAvatar example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/LongCat_TI2V_example_01":
+        "LongCat TI2V example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_1_3B_control_lora_example_01":
+        "WanVideo control LoRA example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyPortrait_example_01":
+        "FantasyPortrait upstream node crashes on missing face landmarks with local stub media",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyTalking_example_01":
+        "WanVideo FantasyTalking example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_SkyReelsV3_TalkingAvatar_example_01":
+        "Upstream WanVideoWrapper latent preview crashes when last_node_id is None in embedded execution",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_camera_example_01":
         "1.3B Fun Camera model removed from HuggingFace (only 14B exists)",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_example_01":
+        "WanVideo Fun control example runs 177 frames at 25 steps and exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_HuMo_example_01":
+        "WanVideo HuMo example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_OneToAllAnimation_pose_control_example_01":
+        "WanVideo OneToAllAnimation pose-control example hangs after GPU work on local 24GB test rig",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Stand-In_reference_example_01":
+        "Upstream ControlNet Aux MediaPipe face mesh graph fails to parse in local custom-node environment",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_skyreels_a2_example_01":
+        "WanVideo SkyReels A2 example exceeds local GPU test timeout on 24GB VRAM",
     "ComfyUI-WanVideoWrapper/wanvideo_2_2_5B_Ovi_image_to_video_audio_10_seconds_example_01":
         "Ovi model_960x960_10s.safetensors removed from HuggingFace",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_pusa_I2V_example_01":
         "14B Pusa model exceeds 24GB VRAM",
+    "ComfyUI-segment-anything-2/image_batch_bbox_segment":
+        "Upstream SAM2 batch bbox example crashes when Florence returns no boxes for local stub media",
+    "ComfyUI_UltimateSDUpscale/basic-usdu":
+        "Workflow references flat 4x-UltraSharp.pth upscale model that is not present in the local custom-node model cache",
+    "RES4LYF/chroma txt2img":
+        "Workflow references Chroma and ae.sft model filenames that are not present in the local custom-node model cache",
+    "RES4LYF/comparison ksampler vs csksampler chain workflows":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/flux faceswap sync pulid":
+        "Workflow references missing PulidFluxInsightFaceLoader node that is not installed by the current custom-node set",
+    "RES4LYF/flux faceswap sync":
+        "Upstream RES4LYF workflow crashes on empty mask coordinates with local stub media",
+    "RES4LYF/flux faceswap":
+        "Upstream RES4LYF workflow crashes on empty mask coordinates with local stub media",
+    "RES4LYF/flux inpaint area":
+        "Upstream RES4LYF workflow crashes on empty mask coordinates with local stub media",
+    "RES4LYF/flux inpaint bongmath":
+        "Upstream RES4LYF workflow crashes on empty mask coordinates with local stub media",
+    "RES4LYF/flux inpainting":
+        "Workflow references colossusProjectFlux_v42AIO.safetensors that is not present in the local custom-node model cache",
+    "RES4LYF/flux style antiblur":
+        "Workflow references colossusProjectFlux_v42AIO.safetensors that is not present in the local custom-node model cache",
+    "RES4LYF/flux upscale thumbnail large multistage":
+        "Workflow references unavailable Flux/controlnet model filenames and stale RES4LYF option values",
+    "RES4LYF/flux upscale thumbnail large":
+        "Workflow references unavailable Flux/controlnet model filenames and stale RES4LYF option values",
+    "RES4LYF/flux upscale thumbnail widescreen":
+        "Workflow references unavailable Flux/controlnet model filenames and stale RES4LYF option values",
+    "RES4LYF/hidream guide data projection":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream guide epsilon projection":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream guide flow":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream guide fully_pseudoimplicit":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream guide lure":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream guide pseudoimplicit":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream hires fix":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream regional 3 zones":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream style antiblur":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream style transfer":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream txt2img":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream unsampling data WF":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream unsampling data":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream unsampling pseudoimplicit":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/hidream unsampling":
+        "Workflow references ae.sft VAE filename that is not present in the local custom-node model cache",
+    "RES4LYF/intro to clownsampling":
+        "Workflow references missing UltraCascade_Loader node that is not installed by the current custom-node set",
+    "RES4LYF/sd35 medium unsampling data":
+        "Workflow references SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache",
+    "RES4LYF/sd35 medium unsampling":
+        "Workflow references SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache",
+    "RES4LYF/sdxl regional antiblur":
+        "Workflow references _SDXL_/juggernautXL_v9Rundiffusionphoto2.safetensors that is not present in the local custom-node model cache",
+    "RES4LYF/style transfer":
+        "Workflow references SD3.5 VAE/CLIP filenames that are not present in the local custom-node model cache",
+    "RES4LYF/ultracascade txt2img style transfer":
+        "Workflow references missing UltraCascade_Loader node that is not installed by the current custom-node set",
+    "RES4LYF/ultracascade txt2img":
+        "Workflow references missing UltraCascade_Loader node that is not installed by the current custom-node set",
+    "RES4LYF/wan vid2vid":
+        "Workflow references a stale RES4LYF unsampler_override option value that is no longer accepted",
+    "audio-separation-nodes-comfyui/Remix Song":
+        "Workflow fails locally while PyAV muxes preview audio after remix generation",
+    "ComfyUI_AudioTools/AudioTools_example":
+        "Workflow references Fast Groups Muter (rgthree), which is not installed by the current custom-node set",
+    "ComfyUI_IPAdapter_plus/IPAdapter_FaceIDv2_Kolors":
+        "Workflow references Kolors/IPAdapter/ChatGLM model filenames that are not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_advanced":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_clipvision_enhancer":
+        "Workflow references sdxl/RealVisXL_V4.0.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_combine_embeds":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_faceid":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_ideal_faceid_config":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_kolors":
+        "Workflow references Kolors/IPAdapter/ChatGLM model filenames that are not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_negative_image":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_noise_injection":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_portrait":
+        "Workflow references sdxl/juggernautXL_version8Rundiffusion.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_precise_composition":
+        "Workflow references sdxl/ProteusV0.3.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_precise_weight_type":
+        "Workflow references sdxl/ProteusV0.3.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_regional_conditioning":
+        "Workflow references sd15/juggernaut_reborn.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_simple":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_style_composition":
+        "Workflow references sdxl/AlbedoBaseXL.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_tiled":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_weight_types":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_weighted_embeds":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI_IPAdapter_plus/ipadapter_weights":
+        "Workflow references sd15/realisticVisionV51_v51VAE.safetensors that is not present in the local custom-node model cache",
+    "ComfyUI-Flux-Continuum/Flux+ 1.3_release":
+        "Workflow references JWIntegerMul, which is not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ 1.4.4_release":
+        "Workflow references missing OutputGet/OutputGetString nodes that are not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ 1.4.5_release":
+        "Workflow references missing OutputGet/OutputGetString nodes that are not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ 1.6.4_release":
+        "Workflow references missing OutputGet/OutputGetString nodes that are not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ 1.7.0_release":
+        "Workflow references missing OutputGet/OutputGetString nodes that are not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ 1.7.1_beta":
+        "Workflow references missing OutputGet/OutputGetString nodes that are not installed by the current custom-node set",
+    "ComfyUI-Flux-Continuum/Flux+ Light 1.0.0_release":
+        "Workflow references missing OutputGet node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/auto_adjust_v2_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/auto_brightness_example":
+        "Workflow references LayerStyle BiRefNet model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/blend_mode_v2_example":
+        "Workflow uses stale LayerStyle ColorPicker widget values that no longer validate",
+    "ComfyUI_LayerStyle/crop_by_mask_&_restore_crop_box_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/distort_displace_example":
+        "Workflow references missing LayerMask: SegmentAnythingUltra V2 node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/extend_canvas_example":
+        "Workflow uses a stale LayerStyle ExtendCanvas schema missing the required color input",
+    "ComfyUI_LayerStyle/flux_kontext_image_scale_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/hl_frequency_detail_restore_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/image_to_mask_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/icmask_example":
+        "Workflow references missing LayerMask: SegmentAnythingUltra V2 node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/image_mask_scale_as_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/image_remove_alpha & image_combine_alpha_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/image_tagger_save_example":
+        "Workflow references missing LayerMask: LoadFlorence2Model node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/layer_image_transform_example":
+        "Workflow references missing LayerMask: SegmentAnythingUltra V2 node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/layerstyle_all_nodes":
+        "Workflow references LayerStyle RMBG/BiRefNet model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/mask_by_color_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/mask_edge_ultra_detail_example":
+        "Workflow references missing Image Remove Background Rembg (mtb) node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/mask_edge_ultra_detail_v3_example":
+        "Workflow references LayerStyle BiRefNet model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/mask_edge_ultra_detail_v2_example":
+        "Workflow references missing LayerMask: SegmentAnythingUltra V2 node that is not installed by the current custom-node set",
+    "ComfyUI_LayerStyle/pixel_spread_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/queue_stop_example":
+        "Workflow uses a stale LayerStyle QueueStop widget value that no longer validates",
+    "ComfyUI_LayerStyle/rembg_ultra_example":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/rounded_rectangle_example":
+        "Workflow references LayerStyle BiRefNet model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/segformet_clothes_example":
+        "Workflow references upstream mattmdjaga/segformer_b3_clothes model repo that is not available from HuggingFace",
+    "ComfyUI_LayerStyle/segformet_fashion_example":
+        "Workflow references upstream mattmdjaga/segformer_b3_fashion model repo that is not available from HuggingFace",
+    "ComfyUI_LayerStyle/simple_text_example":
+        "Workflow references Alibaba-PuHuiTi-Bold.ttf, which is not present in the local custom-node font set",
+    "ComfyUI_LayerStyle/text_image_example":
+        "Workflow references a non-installed LayerStyle TextImage font file",
+    "ComfyUI_LayerStyle/title_example_workflow":
+        "Workflow references LayerStyle RMBG model files that are not present in the local custom-node model cache",
+    "ComfyUI_LayerStyle/ultra_v2_nodes_example":
+        "Workflow references missing LayerMask: SegmentAnythingUltra V2 node that is not installed by the current custom-node set",
+    "ComfyUI_Fill-ChatterBox/Chatterbox":
+        "Workflow requires torchcodec for torchaudio.save in the local custom-node environment",
 }
 
 
@@ -110,6 +323,12 @@ def _select_video_for_workflow(workflow_name: str) -> tuple[str, int]:
         if keyword in workflow_name:
             return _STUB_POSE_VIDEO_URI, _STUB_POSE_VIDEO_FRAMES
     return _STUB_VIDEO_URI, _STUB_VIDEO_FRAMES
+
+
+def _video_filename_for_uri(video_uri: str) -> str:
+    if video_uri == _STUB_POSE_VIDEO_URI:
+        return "test_pose_video.mp4"
+    return "test_video.mp4"
 
 
 def _patch_vhs_video_inputs(workflow: dict, video_uri: str, video_frames: int) -> dict:
@@ -172,6 +391,36 @@ def _patch_vhs_video_inputs(workflow: dict, video_uri: str, video_frames: int) -
     return workflow
 
 
+def _patch_core_load_video_inputs(workflow: dict, video_filename: str) -> dict:
+    if is_ui_workflow(workflow):
+        nodes = workflow.get("nodes")
+        if not isinstance(nodes, list):
+            return workflow
+        if not any(isinstance(n, dict) and n.get("type") == "LoadVideo" for n in nodes):
+            return workflow
+        workflow = copy.deepcopy(workflow)
+        for node in workflow["nodes"]:
+            if not isinstance(node, dict) or node.get("type") != "LoadVideo":
+                continue
+            wv = node.get("widgets_values")
+            if isinstance(wv, list) and wv:
+                wv[0] = video_filename
+            elif isinstance(wv, dict):
+                wv["file"] = video_filename
+        return workflow
+
+    if not any(
+        isinstance(n, dict) and n.get("class_type") == "LoadVideo"
+        for n in workflow.values()
+    ):
+        return workflow
+    workflow = copy.deepcopy(workflow)
+    for node in workflow.values():
+        if isinstance(node, dict) and node.get("class_type") == "LoadVideo":
+            node.setdefault("inputs", {})["file"] = video_filename
+    return workflow
+
+
 def _substitute_media_nodes(workflow: dict, workflow_name: str = "") -> dict:
     _ALL_MEDIA: dict[str, tuple[str, str]] = {}
     for src, dst in _IMAGE_TO_URL.items():
@@ -186,7 +435,9 @@ def _substitute_media_nodes(workflow: dict, workflow_name: str = "") -> dict:
     else:
         workflow = _substitute_media_nodes_api(workflow, _ALL_MEDIA)
     video_uri, video_frames = _select_video_for_workflow(workflow_name)
-    return _patch_vhs_video_inputs(workflow, video_uri, video_frames)
+    workflow = _patch_vhs_video_inputs(workflow, video_uri, video_frames)
+    video_filename = _video_filename_for_uri(video_uri)
+    return _patch_core_load_video_inputs(workflow, video_filename)
 
 
 def _substitute_media_nodes_api(
@@ -339,6 +590,8 @@ def _is_model_missing_error(error_msg: str) -> bool:
 
 # Node types to bypass (mode=4) in UI workflows before conversion.
 _BYPASS_NODE_TYPES: frozenset[str] = frozenset({
+    "Bookmark (rgthree)",
+    "ImageDisplay",
     "WanVideoTorchCompileSettings",
 })
 
@@ -350,15 +603,42 @@ def _bypass_nodes(workflow: dict) -> dict:
     nodes = workflow.get("nodes")
     if not isinstance(nodes, list):
         return workflow
+    node_by_id = {
+        node.get("id"): node
+        for node in nodes
+        if isinstance(node, dict) and node.get("id") is not None
+    }
+    links_by_id = {
+        link[0]: link
+        for link in workflow.get("links", [])
+        if isinstance(link, list) and len(link) >= 4
+    }
+
+    def _preview_is_fed_by_muted_node(node: dict) -> bool:
+        if node.get("type") != "PreviewImage":
+            return False
+        for inp in node.get("inputs", []):
+            link_id = inp.get("link")
+            link = links_by_id.get(link_id)
+            if link is None:
+                continue
+            src = node_by_id.get(link[1])
+            if isinstance(src, dict) and src.get("mode") == 2:
+                return True
+        return False
+
     need_patch = any(
-        isinstance(n, dict) and n.get("type", "") in _BYPASS_NODE_TYPES
+        isinstance(n, dict)
+        and (n.get("type", "") in _BYPASS_NODE_TYPES or _preview_is_fed_by_muted_node(n))
         for n in nodes
     )
     if not need_patch:
         return workflow
     workflow = copy.deepcopy(workflow)
     for node in workflow["nodes"]:
-        if isinstance(node, dict) and node.get("type", "") in _BYPASS_NODE_TYPES:
+        if not isinstance(node, dict):
+            continue
+        if node.get("type", "") in _BYPASS_NODE_TYPES or _preview_is_fed_by_muted_node(node):
             node["mode"] = 4
     return workflow
 
@@ -386,6 +666,12 @@ def _get_shared_base_dir() -> Path:
         }))
 
     add_node_site_to_path(base_dir)
+    input_dir = base_dir / "input"
+    data_dir = Path(__file__).parent / "test_data"
+    for filename in ("test_video.mp4", "test_pose_video.mp4", "test_audio.wav", "president_official_portrait_hires2-1-1024x1024.jpg"):
+        destination = input_dir / filename
+        if not destination.exists():
+            shutil.copyfile(data_dir / filename, destination)
     return base_dir
 
 
@@ -431,6 +717,7 @@ def shared_base_dir():
 class TestCustomNodeExecution:
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(1200)
     @pytest.mark.parametrize(
         "node_id,workflow_name,workflow_path",
         _ALL_WORKFLOW_PARAMS,

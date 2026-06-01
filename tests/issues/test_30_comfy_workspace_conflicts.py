@@ -1,4 +1,6 @@
 import pytest
+import os
+import socket
 import subprocess
 import sys
 import shutil
@@ -15,6 +17,13 @@ COMFYSTREAM_REPO = "https://github.com/doctorpangloss/comfystream.git"
 COMFYSTREAM_COMMIT = "f2f7929def53a4853cc5a1c2774aea70775ce2ff"
 COMFYUI_LTS_REPO = "https://github.com/hiddenswitch/ComfyUI.git"
 COMFYUI_LTS_COMMIT = "75e39c27202c8e31f8ec84eea4fc560c4e34f2c8"
+LOCAL_COMFYUI_PACKAGE = Path(__file__).resolve().parents[2]
+
+
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def run_command(cmd, cwd, desc, shell=False):
@@ -83,6 +92,9 @@ def comfyui_workspace(tmp_path_factory):
     )
     run_command(install_comfystream_cmd_str, cwd=comfyui_dir, desc="Installing comfystream with overrides", shell=True)
 
+    upgrade_protobuf_cmd = f'{activate_cmd} && {uv_pip_install_base} "protobuf>=6.31.1"'
+    run_command(upgrade_protobuf_cmd, cwd=comfyui_dir, desc="Installing Python 3.14 compatible protobuf", shell=True)
+
     # 5. Additionally clone comfystream into the custom_nodes directory and check out the specific commit
     custom_nodes_dir = comfyui_dir / "custom_nodes"
     comfystream_custom_node_dir = custom_nodes_dir / "comfystream"
@@ -121,22 +133,30 @@ def test_server_starts_with_comfystream(comfyui_workspace):
     site_packages_result = run_command(site_packages_cmd, cwd=comfyui_dir, desc="Finding site-packages directory")
     site_packages_path = Path(site_packages_result.stdout.strip())
     comfy_api_init_path = site_packages_path / "comfy" / "api" / "__init__.py"
+    installed_cvpickle_path = site_packages_path / "comfy" / "component_model" / "cvpickle.py"
+    local_cvpickle_path = LOCAL_COMFYUI_PACKAGE / "comfy" / "component_model" / "cvpickle.py"
 
     assert comfy_api_init_path.is_file(), (
         f"The installed comfyui package is missing the api module. "
         f"Expected to find: {comfy_api_init_path}"
     )
+    assert installed_cvpickle_path.is_file(), f"Expected to find: {installed_cvpickle_path}"
+    shutil.copyfile(local_cvpickle_path, installed_cvpickle_path)
     print(f"--- Success: Found {comfy_api_init_path} ---")
 
     main_py_path = comfyui_dir / "main.py"
+    port = find_free_port()
 
     # Start the server as a background process
     process = None
     try:
         print("\n--- Starting ComfyUI Server ---")
+        env = os.environ.copy()
+        env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
         process = subprocess.Popen(
-            [str(venv_python), str(main_py_path)],
+            [str(venv_python), str(main_py_path), "--port", str(port)],
             cwd=comfyui_dir,
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # Redirect stderr to stdout
             text=True,
@@ -160,7 +180,7 @@ def test_server_starts_with_comfystream(comfyui_workspace):
                 output_lines.append(line)
                 if "Initializing LocalComfyStreamServer" in line:
                     found_server_msg = True
-                if "To see the GUI go to: http://127.0.0.1:8188" in line:
+                if f"To see the GUI go to: http://127.0.0.1:{port}" in line:
                     found_gui_msg = True
                     if not found_server_msg:
                         pytest.fail(
@@ -224,4 +244,3 @@ def test_server_starts_with_comfystream(comfyui_workspace):
             f"Untracked files: {untracked_inits}"
         )
         print("--- Success: No untracked __init__.py files found. ---")
-

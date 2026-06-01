@@ -8,11 +8,16 @@ on Configuration parsing) must run in its own subprocess. We do that with the
 """
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
 import pytest
 
 from comfy.cli_args_types import COMFY_KITCHEN_BACKENDS
+
+
+def _fresh_process_pool() -> ProcessPoolExecutor:
+    return ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
 
 
 def _is_disabled_in_subprocess(disable_list: list[str], target: str) -> bool:
@@ -28,6 +33,11 @@ def _is_triton_disabled_with_capability(major: int, minor: int) -> bool:
     """Worker: pretend the local CUDA device has compute capability (major, minor)."""
     from unittest import mock
     import torch
+    from comfy.cli_args import args
+
+    args.enable_triton_backend = True
+    args.disable_comfy_kitchen_backends = []
+    args.enable_comfy_kitchen_backends = []
 
     fake_props = type("Props", (), {"major": major, "minor": minor})()
     with mock.patch.object(torch.cuda, "is_available", return_value=True), \
@@ -44,7 +54,7 @@ def test_disable_comfy_kitchen_backend_takes_effect(backend):
 
     Runs in its own process so the registry mutation can't leak into other tests.
     """
-    with ProcessPoolExecutor(max_workers=1) as pool:
+    with _fresh_process_pool() as pool:
         is_disabled = pool.submit(_is_disabled_in_subprocess, [backend], backend).result(timeout=60)
     assert is_disabled, f"backend '{backend}' should be disabled after --disable-comfy-kitchen-backends={backend}"
 
@@ -66,7 +76,7 @@ def test_quant_ops_auto_disables_triton_on_pre_ada(major, minor, expect_disabled
     """quant_ops checks torch.cuda.get_device_properties at import and disables
     triton on sm < 8.9 because comfy_kitchen's fp8e4nv kernel won't compile.
     """
-    with ProcessPoolExecutor(max_workers=1) as pool:
+    with _fresh_process_pool() as pool:
         result = pool.submit(_is_triton_disabled_with_capability, major, minor).result(timeout=60)
     assert result is expect_disabled, \
         f"sm {major}.{minor}: expected triton disabled={expect_disabled}, got {result}"

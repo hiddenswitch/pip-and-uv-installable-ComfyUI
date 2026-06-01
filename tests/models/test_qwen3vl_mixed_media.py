@@ -14,13 +14,13 @@ class TestQwen3VLMixedMedia:
         # Load Qwen3-VL-2B-Instruct
         model_loader = graph.node("TransformersLoader1", ckpt_name="Qwen/Qwen3-VL-2B-Instruct", trust_remote_code=True)
 
-        # Load video (Goat)
-        video_url = "https://upload.wikimedia.org/wikipedia/commons/f/f7/2024-04-05_Luisenpark_MA_Ziegen_2.webm"
+        # Load video
+        video_url = "pkg://tests.custom_nodes.test_data/test_video.mp4"
         # Use frame cap to keep it light
         load_video = graph.node("LoadVideoFromURL", value=video_url, frame_load_cap=16, select_every_nth=10)
 
-        # Load image (Worm)
-        image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Earthworm.jpg/330px-Earthworm.jpg"
+        # Load image
+        image_url = "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
         load_image = graph.node("LoadImageFromURL", value=image_url)
 
         # Tokenize with both video and image
