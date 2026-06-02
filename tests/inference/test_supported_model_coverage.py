@@ -94,6 +94,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "SAM31": ("sam3-segment-0.json",),
     "PixelDiTT2I": ("pixeldit-0.json",),
     "PiD": ("pid-0.json",),
+    "TripoSplat": ("triposplat-0.json",),
     "CogVideoX_Inpaint": ("ltxv-1.json",),
     "CogVideoX_I2V": ("ltxv-1.json",),
     "CogVideoX_T2V": ("mochi-text-to-video-0.json",),

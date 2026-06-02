@@ -4,6 +4,7 @@ import importlib
 import importlib.metadata as metadata
 from comfy.component_model import package_filesystem
 import os
+import sys
 
 
 # Ensure the filesystem is registered once for all tests
@@ -69,6 +70,25 @@ def test_open_file_in_subdir(pkg_fs):
     """Test opening a file in a subdirectory of a package."""
     with pkg_fs.open("pkg://tests.unit.fsspec_tests.files/subdir/a.txt", "rb") as f:
         content = f.read()
+    assert content == b"OK"
+
+
+def test_open_file_from_sys_path_when_package_import_is_shadowed(monkeypatch, tmp_path):
+    """Console entrypoints may not put the source tree first on sys.path."""
+    package_dir = tmp_path / "shadowed" / "package"
+    package_dir.mkdir(parents=True)
+    (package_dir / "resource.txt").write_text("OK")
+
+    def _raise_module_not_found(_package_name):
+        raise ModuleNotFoundError("shadowed.package")
+
+    monkeypatch.setattr(package_filesystem.importlib.resources, "files", _raise_module_not_found)
+    monkeypatch.setattr(sys, "path", [str(tmp_path), *sys.path])
+
+    pkg_fs = package_filesystem.PkgResourcesFileSystem()
+    with pkg_fs.open("pkg://shadowed.package/resource.txt", "rb") as f:
+        content = f.read()
+
     assert content == b"OK"
 
 

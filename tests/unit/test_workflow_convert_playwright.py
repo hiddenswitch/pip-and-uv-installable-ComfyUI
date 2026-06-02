@@ -19,7 +19,7 @@ import socket
 import threading
 import time
 import traceback
-from importlib.metadata import version as pkg_version
+from importlib.metadata import distributions, version as pkg_version
 from pathlib import Path
 
 import pytest
@@ -57,7 +57,15 @@ def _frontend_version() -> str:
 
 
 def _templates_version() -> str:
-    return pkg_version("comfyui-workflow-templates")
+    template_dists: list[tuple[str, str]] = []
+    for dist in distributions():
+        metadata = dist.metadata
+        name = metadata.get("Name", "") if metadata is not None else ""
+        if name == "comfyui-workflow-templates" or name.startswith("comfyui-workflow-templates-"):
+            template_dists.append((name, dist.version))
+    if not template_dists:
+        return pkg_version("comfyui-workflow-templates")
+    return "+".join(f"{name.removeprefix('comfyui-workflow-templates')}={version}" for name, version in sorted(template_dists))
 
 
 def _cache_path(template_id: str) -> Path:
@@ -147,7 +155,7 @@ def _ui_template_ids() -> list[str]:
 
 def _real_nodes_available() -> bool:
     try:
-        from comfy.nodes.package import import_all_nodes_in_workspace
+        from comfy.nodes.package import import_all_nodes_in_workspace  # noqa: F401
         return True
     except ImportError:
         return False

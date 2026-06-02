@@ -627,6 +627,12 @@ class TestFindNegativeTextEncoder:
         )
         if not has_negative_input:
             pytest.skip(f"{workflow_name} has no node with negative conditioning input")
+        has_text_encoder = any(
+            node.get("class_type") in _TEXT_ENCODE_FIELDS
+            for node in prompt.values()
+        )
+        if not has_text_encoder:
+            pytest.skip(f"{workflow_name} has no text encoder")
 
         node_id = find_negative_text_encoder(prompt)
         assert node_id is not None, f"Could not find negative text encoder in {workflow_name}"

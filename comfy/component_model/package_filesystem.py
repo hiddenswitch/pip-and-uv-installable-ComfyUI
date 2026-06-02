@@ -1,4 +1,6 @@
 import importlib.resources
+import sys
+from pathlib import Path
 from fsspec.spec import AbstractFileSystem
 from fsspec.registry import register_implementation
 
@@ -24,7 +26,15 @@ class PkgResourcesFileSystem(AbstractFileSystem):
                 # Get the Traversable object for the root of the package
                 self._traversables[package_name] = importlib.resources.files(package_name)
             except ModuleNotFoundError as e:
-                raise FileNotFoundError(f"Package '{package_name}' not found.") from e
+                package_path = Path(*package_name.split("."))
+                for entry in ("", *sys.path):
+                    base = Path(entry or ".")
+                    candidate = base / package_path
+                    if candidate.exists():
+                        self._traversables[package_name] = candidate
+                        break
+                else:
+                    raise FileNotFoundError(f"Package '{package_name}' not found.") from e
         return self._traversables[package_name]
 
     def _resolve_path(self, path):

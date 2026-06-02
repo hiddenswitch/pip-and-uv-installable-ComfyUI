@@ -940,6 +940,7 @@ The end-to-end custom-node workflow test uses explicit xfails for upstream examp
 | `ComfyUI-WanVideoWrapper/wanvideo_1_3B_control_lora_example_01` | Exceeds the local GPU test timeout on 24GB VRAM. |
 | `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyPortrait_example_01` | The upstream FantasyPortrait node crashes when landmark detection returns `None` for the local stub media. |
 | `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyTalking_example_01` | Exceeds the local GPU test timeout on 24GB VRAM inside WanVideo sampling. |
+| `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_InfiniteTalk_example_03` | Exceeds the local GPU test timeout on 24GB VRAM inside WanVideo sampling/model transfer. |
 | `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_SkyReelsV3_TalkingAvatar_example_01` | The upstream WanVideoWrapper latent preview path crashes in embedded execution when `last_node_id` is `None`. |
 | `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_camera_example_01` | References a removed or unpublished model variant. |
 | `ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_example_01` | Runs 177 frames at 25 steps after cost reduction and exceeds the local GPU test timeout on 24GB VRAM. |

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 import logging
@@ -16,7 +15,7 @@ from comfy.cmd.workflow_templates import _collect_class_types
 from comfy.component_model.prompt_utils import replace_steps, replace_width, replace_height
 from comfy.component_model.workflow_convert import is_ui_workflow
 
-from comfy.component_model.node_registry import CUSTOM_NODE_REGISTRY, get_spec
+from comfy.component_model.node_registry import get_spec
 from .conftest import (
     add_node_site_to_path,
     install_all_nodes,
@@ -94,6 +93,8 @@ _XFAIL_WORKFLOWS: dict[str, str] = {
         "FantasyPortrait upstream node crashes on missing face landmarks with local stub media",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_FantasyTalking_example_01":
         "WanVideo FantasyTalking example exceeds local GPU test timeout on 24GB VRAM",
+    "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_InfiniteTalk_example_03":
+        "WanVideo InfiniteTalk example exceeds local GPU test timeout inside WanVideo sampling on 24GB VRAM",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_I2V_SkyReelsV3_TalkingAvatar_example_01":
         "Upstream WanVideoWrapper latent preview crashes when last_node_id is None in embedded execution",
     "ComfyUI-WanVideoWrapper/wanvideo_2_1_14B_Fun_control_camera_example_01":
@@ -756,7 +757,7 @@ class TestCustomNodeExecution:
             sorted(class_types)[:10],
         )
 
-        import comfy.cmd.main_pre
+        import comfy.cmd.main_pre  # noqa: F401
         real_base = str(Path(__file__).resolve().parents[3])
         config = build_config(base_dir, base_paths=[real_base])
 

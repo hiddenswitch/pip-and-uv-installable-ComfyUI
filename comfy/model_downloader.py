@@ -558,6 +558,7 @@ KNOWN_CLIP_VISION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/clip_vision/llava_llama3_vision.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/clip_vision/clip_vision_h.safetensors"),
     HuggingFile("Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged", "split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"),
+    HuggingFile("VAST-AI/TripoSplat", "clip_vision/dino_v3_vit_h.safetensors"),
     # WanVideoWrapper (Kijai) -- CLIP vision
     HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors", show_in_ui=False),
 ], folder_name="clip_vision")
@@ -817,6 +818,8 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-small-decoder", "full_encoder_small_decoder.safetensors"),
+    HuggingFile("VAST-AI/TripoSplat", "vae/flux2-vae.safetensors"),
+    HuggingFile("VAST-AI/TripoSplat", "vae/triposplat_vae_decoder_fp16.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
     # Hunyuan Image
@@ -968,6 +971,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("black-forest-labs/FLUX.2-klein-9b-kv-fp8", "flux-2-klein-9b-kv-fp8.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4b-fp8", "flux-2-klein-base-4b-fp8.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-9b-fp8", "flux-2-klein-base-9b-fp8.safetensors"),
+    # TripoSplat
+    HuggingFile("VAST-AI/TripoSplat", "diffusion_models/triposplat_fp16.safetensors"),
     # ERNIE Image (Comfy-Org)
     HuggingFile("Comfy-Org/ERNIE-Image", "diffusion_models/ernie-image-turbo.safetensors"),
     # Z Image Turbo

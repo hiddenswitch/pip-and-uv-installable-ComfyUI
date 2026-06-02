@@ -1,0 +1,116 @@
+{
+  "1": {
+    "class_type": "LoadImageFromURL",
+    "inputs": {
+      "value": "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
+    },
+    "_meta": {"title": "Load Image"}
+  },
+  "2": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1.0,
+      "width": 512,
+      "height": 512
+    },
+    "_meta": {"title": "Foreground Mask"}
+  },
+  "3": {
+    "class_type": "TripoSplatPreprocessImage",
+    "inputs": {
+      "image": ["1", 0],
+      "mask": ["2", 0],
+      "erode_radius": 0,
+      "size": 256
+    },
+    "_meta": {"title": "TripoSplat Preprocess"}
+  },
+  "4": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {
+      "clip_name": "dino_v3_vit_h.safetensors"
+    },
+    "_meta": {"title": "Load DINO3"}
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {"title": "Load Flux2 VAE"}
+  },
+  "6": {
+    "class_type": "TripoSplatConditioning",
+    "inputs": {
+      "clip_vision": ["4", 0],
+      "vae": ["5", 0],
+      "image": ["3", 0]
+    },
+    "_meta": {"title": "TripoSplat Conditioning"}
+  },
+  "7": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "triposplat_fp16.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {"title": "Load TripoSplat"}
+  },
+  "8": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 23456,
+      "steps": 1,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["7", 0],
+      "positive": ["6", 0],
+      "negative": ["6", 1],
+      "latent_image": ["6", 2]
+    },
+    "_meta": {"title": "One Step Sample"}
+  },
+  "9": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "triposplat_vae_decoder_fp16.safetensors"
+    },
+    "_meta": {"title": "Load TripoSplat VAE"}
+  },
+  "10": {
+    "class_type": "VAEDecodeTripoSplat",
+    "inputs": {
+      "samples": ["8", 0],
+      "vae": ["9", 0],
+      "num_gaussians": 32768,
+      "seed": 23456
+    },
+    "_meta": {"title": "Decode TripoSplat"}
+  },
+  "11": {
+    "class_type": "RenderSplat",
+    "inputs": {
+      "splat": ["10", 0],
+      "width": 256,
+      "height": 256,
+      "frames": 1,
+      "splat_scale": 1.0,
+      "sharpen": 2.0,
+      "headlight_shading": 0.0,
+      "opacity_threshold": 0.0,
+      "render_style": "color",
+      "background": "#848484"
+    },
+    "_meta": {"title": "Render Splat"}
+  },
+  "12": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "triposplat",
+      "images": ["11", 0]
+    },
+    "_meta": {"title": "Save Image"}
+  }
+}
