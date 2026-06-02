@@ -337,6 +337,8 @@ jobs:
     name: ${{ matrix.target.friendly_name }}
     runs-on: ${{ matrix.target.labels }}
     timeout-minutes: 25
+    env:
+      ONEAPI_DEVICE_SELECTOR: "level_zero:0"
     container:
       image: ${{ matrix.target.container }}
       options: --shm-size=8g
@@ -383,6 +385,9 @@ jobs:
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           touch overrides.txt
+          echo "torch==2.11.0+xpu" >> overrides.txt
+          echo "torchvision==0.26.0+xpu" >> overrides.txt
+          echo "torchaudio==2.11.0+xpu" >> overrides.txt
           uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
       - name: Install ComfyUI (with torch+xpu)
@@ -391,7 +396,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
-          uv pip install --torch-backend=auto "comfyui[dev]@${GITHUB_WORKSPACE}/src" --inexact
+          uv pip install --torch-backend=xpu "comfyui[dev]@${GITHUB_WORKSPACE}/src" --inexact
       - name: Install custom nodes
         env:
           UV_NO_CACHE: "1"
@@ -417,7 +422,7 @@ jobs:
         run: |
           ls -la /dev/dri/ 2>&1 || true
           clinfo -l 2>&1 || true
-          python -c "import torch; print('torch', torch.__version__); print('xpu_available', hasattr(torch, 'xpu') and torch.xpu.is_available()); print('xpu_device_count', torch.xpu.device_count() if hasattr(torch, 'xpu') else 0); [print(f'  dev{i}', torch.xpu.get_device_name(i)) for i in range(torch.xpu.device_count() if hasattr(torch, 'xpu') else 0)]"
+          python -c "import torch; print('torch', torch.__version__); assert torch.__version__.startswith('2.11.0+xpu'), torch.__version__; print('xpu_available', hasattr(torch, 'xpu') and torch.xpu.is_available()); print('xpu_device_count', torch.xpu.device_count() if hasattr(torch, 'xpu') else 0); [print(f'  dev{i}', torch.xpu.get_device_name(i)) for i in range(torch.xpu.device_count() if hasattr(torch, 'xpu') else 0)]"
       - name: Lint for errors
         run: |
           cd ${GITHUB_WORKSPACE}/src

@@ -16,7 +16,6 @@ import os
 import sys
 
 from packaging import version
-import torch
 
 from .cli_args_types import Configuration, LatentPreviewMethod, PerformanceFeature
 from .component_model.module_property import create_module_properties
@@ -288,6 +287,8 @@ def dynamic_vram_requested() -> bool:
 
 def dynamic_vram_supported() -> bool:
     """Return whether the current runtime supports dynamic VRAM."""
+    import torch
+
     torch_version = version.parse(torch.__version__.split("+", maxsplit=1)[0])
     return torch_version >= version.parse("2.8")
 
