@@ -35,7 +35,7 @@ class MultiGPUThreadPool:
 
     def _worker_loop(self, device: torch.device, work_q: queue.Queue, result_q: queue.Queue):
         try:
-            comfy.model_management.set_torch_device(device)
+            model_management.set_torch_device(device)
         except Exception as e:
             logging.error(f"MultiGPUThreadPool: failed to set device {device}: {e}")
             while True:

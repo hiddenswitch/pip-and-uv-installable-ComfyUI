@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
-from comfy.ldm.modules.attention import optimized_attention_for_device
-from comfy.image_encoders.dino2 import LayerScale as DINOv3ViTLayerScale
+from .. import ops
+from ..ldm.modules.attention import optimized_attention_for_device
+from .dino2 import LayerScale as DINOv3ViTLayerScale
 
 
 # DINOv3 ViT-H/16+ (SwiGLU)
@@ -172,11 +172,11 @@ class DINOv3ViTEmbeddings(nn.Module):
         patch_embeddings = patch_embeddings.flatten(2).transpose(1, 2)
 
         if bool_masked_pos is not None:
-            mask_token = comfy.ops.cast_to_input(self.mask_token, patch_embeddings)
+            mask_token = ops.cast_to_input(self.mask_token, patch_embeddings)
             patch_embeddings = torch.where(bool_masked_pos.unsqueeze(-1), mask_token, patch_embeddings)
 
-        cls_token = comfy.ops.cast_to_input(self.cls_token.expand(batch_size, -1, -1), patch_embeddings)
-        register_tokens = comfy.ops.cast_to_input(self.register_tokens.expand(batch_size, -1, -1), patch_embeddings)
+        cls_token = ops.cast_to_input(self.cls_token.expand(batch_size, -1, -1), patch_embeddings)
+        register_tokens = ops.cast_to_input(self.register_tokens.expand(batch_size, -1, -1), patch_embeddings)
         embeddings = torch.cat([cls_token, register_tokens, patch_embeddings], dim=1)
         return embeddings
 

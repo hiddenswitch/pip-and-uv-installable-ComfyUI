@@ -520,6 +520,8 @@ git mv comfy_extras/nodes_sdpose.py comfy_extras/nodes/nodes_sdpose.py
 
 After moving them, fix their imports so they are valid from the `comfy_extras.nodes` package (see [Import Fixes](#import-fixes) below).
 
+Do not copy upstream's root `nodes.py` custom-node loader block into `comfy/nodes/base_nodes.py` when Git presents it as a directory-rename conflict. This fork keeps node loading under the package loader/facade paths; `base_nodes.py` should remain focused on core node definitions and mappings. For new upstream extra-node files, keep the merge commit faithful, then move `comfy_extras/nodes_*.py` into `comfy_extras/nodes/` in the separate move commit so the existing package scanner can discover them.
+
 This two-step approach keeps git history cleaner and makes conflicts easier to resolve.
 
 Upstream may also still add tests under `tests-unit/`. Move those into `tests/unit/` in this fork, preserving the same relative structure.

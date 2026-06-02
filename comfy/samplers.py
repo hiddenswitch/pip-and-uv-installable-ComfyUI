@@ -465,7 +465,7 @@ def _calc_cond_batch_multigpu(model: BaseModel, conds: list[list[dict]], x_in: t
 
     def _handle_batch(device: torch.device, batch_tuple: tuple[HookGroup, tuple], results: list[thread_result]):
         try:
-            comfy.model_management.set_torch_device(device)
+            model_management.set_torch_device(device)
             model_current: BaseModel = model_options["multigpu_clones"][device].model
             # run every hooked_to_run separately
             with torch.no_grad():
