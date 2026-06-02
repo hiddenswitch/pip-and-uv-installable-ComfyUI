@@ -9,6 +9,7 @@ import pathlib
 import subprocess
 import tempfile
 import urllib
+from contextlib import contextmanager
 from contextvars import ContextVar
 from multiprocessing import Process
 from typing import List, Any, Generator
@@ -28,7 +29,6 @@ os.environ["HF_XET_HIGH_PERFORMANCE"] = "True"
 os.environ["TC_HOST"] = "localhost"
 
 from comfy.cli_args import default_configuration
-from comfy.cli_args import args
 from comfy.cli_args_types import Configuration
 from comfy.component_model.setup import setup_logging_filters
 assert "pkg" in fsspec.available_protocols()
@@ -36,6 +36,26 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
+
+
+@contextmanager
+def use_cpu_model_loading_on_xpu():
+    from comfy import model_management
+    from comfy.model_management import CPUState
+
+    original_cpu_state = model_management.cpu_state
+    if model_management.is_intel_xpu():
+        model_management.cpu_state = CPUState.CPU
+    try:
+        yield
+    finally:
+        model_management.cpu_state = original_cpu_state
+
+
+@pytest.fixture
+def cpu_model_loading_on_xpu():
+    with use_cpu_model_loading_on_xpu():
+        yield
 
 
 def run_server(server_arguments: Configuration):
@@ -58,6 +78,13 @@ def mock_user_directory():
 
 @pytest.fixture(scope="function", autouse=False)
 def has_gpu() -> bool:
+    original_cpu_state = None
+    try:
+        from comfy import model_management
+        original_cpu_state = model_management.cpu_state
+    except ImportError:
+        pass
+
     # mps
     has_gpu = False
     try:
@@ -71,19 +98,25 @@ def has_gpu() -> bool:
             except RuntimeError:
                 has_gpu = False
         if has_gpu:
-            from comfy import model_management
             from comfy.model_management import CPUState
             model_management.cpu_state = CPUState.MPS
     except ImportError:
         pass
 
     if not has_gpu:
-        # ipex
+        # xpu
         try:
             import torch
-            import intel_extension_for_pytorch as ipex
-            has_gpu = torch.xpu.device_count() > 0
+            has_gpu = (
+                hasattr(torch, "xpu")
+                and torch.xpu.is_available()
+                and torch.xpu.device_count() > 0
+            )
+            if has_gpu:
+                torch.tensor([1.0], device="xpu")
         except (ImportError, AttributeError):
+            has_gpu = False
+        except RuntimeError:
             has_gpu = False
 
         if not has_gpu:
@@ -95,11 +128,14 @@ def has_gpu() -> bool:
                 has_gpu = False
 
     if has_gpu:
-        from comfy import model_management
         from comfy.model_management import CPUState
         if model_management.cpu_state != CPUState.MPS:
             model_management.cpu_state = CPUState.GPU if has_gpu else CPUState.CPU
-    yield has_gpu
+    try:
+        yield has_gpu
+    finally:
+        if original_cpu_state is not None:
+            model_management.cpu_state = original_cpu_state
 
 
 @pytest.fixture(scope="module", autouse=False, params=["ThreadPoolExecutor", "ProcessPoolExecutor"])
@@ -251,7 +287,8 @@ def vae():
 
     vae_file = "vae-ft-mse-840000-ema-pruned.safetensors"
     try:
-        vae, = VAELoader().load_vae(vae_file)
+        with use_cpu_model_loading_on_xpu():
+            vae, = VAELoader().load_vae(vae_file)
     except FileNotFoundError:
         pytest.skip(f"{vae_file} not present on machine")
     return vae
@@ -263,7 +300,8 @@ def clip():
 
     checkpoint = "v1-5-pruned-emaonly.safetensors"
     try:
-        return CheckpointLoaderSimple().load_checkpoint(checkpoint)[1]
+        with use_cpu_model_loading_on_xpu():
+            return CheckpointLoaderSimple().load_checkpoint(checkpoint)[1]
     except FileNotFoundError:
         pytest.skip(f"{checkpoint} not present on machine")
     except RuntimeError as e:
@@ -275,7 +313,8 @@ def model(clip):
     from comfy.nodes.base_nodes import CheckpointLoaderSimple
     checkpoint = "v1-5-pruned-emaonly.safetensors"
     try:
-        return CheckpointLoaderSimple().load_checkpoint(checkpoint)[0]
+        with use_cpu_model_loading_on_xpu():
+            return CheckpointLoaderSimple().load_checkpoint(checkpoint)[0]
     except FileNotFoundError:
         pytest.skip(f"{checkpoint} not present on machine")
 

@@ -1,4 +1,3 @@
-import pathlib
 import shutil
 
 import pytest
@@ -88,10 +87,11 @@ def build_workflow(vae_encoder_option="", vae_decoder_option=""):
     }
 
 
-async def test_approx_vae_found(tmp_path_factory):
+async def test_approx_vae_found(tmp_path_factory, cpu_model_loading_on_xpu):
     workflow = build_workflow("taesdxl", "taesdxl")
     configuration = Configuration()
     configuration.cpu = True
+    configuration.disable_known_models = True
     base_dir = tmp_path_factory.mktemp("test_approx_vae_found")
     configuration.base_directory = str(base_dir)
     async with Comfy(configuration) as comfy:
