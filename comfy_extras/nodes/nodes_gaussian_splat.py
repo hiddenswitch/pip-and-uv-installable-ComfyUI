@@ -16,8 +16,8 @@ from scipy.sparse.csgraph import connected_components
 import comfy.model_management
 import comfy.utils
 from comfy_api.latest import ComfyExtension, IO, Types
-from comfy_extras.nodes_save_3d import pack_variable_mesh_batch
-from server import PromptServer
+from comfy.cmd.server import PromptServer
+from .nodes_save_3d import pack_variable_mesh_batch
 
 _C0 = 0.28209479177387814  # SH band-0 constant: DC coefficient -> base RGB
 
