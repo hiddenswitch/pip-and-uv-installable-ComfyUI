@@ -181,12 +181,64 @@ Use a no-commit merge so conflict resolution and validation happen before the me
 git pull --no-commit --no-ff -s ort -Xfind-renames=30% comfyui master
 ```
 
-Before resolving conflicts, read the previous upstream merge sequence closely. For the `0.19 -> 0.20` style merge, use these commits as the baseline example:
+Before resolving conflicts, read the previous upstream merge sequences closely. Do this even when the conflict hunk looks obvious: the follow-up commits show the kinds of fixes that are easy to miss during the merge commit itself.
+
+For the `0.16 -> 0.18` era merges, read these older examples too. They are especially useful for asset routes, workflow conversion, package-layout tests, custom-node compatibility, and context propagation:
+
+- `5c6c95ea` - merge commit, `Merge branch 'master' of github.com:Comfy-Org/ComfyUI into develop`
+- `de279e6e` - first follow-up, `Fix upstream merge follow-up issues`
+- `bd4c2fd3` - package/test adaptation, `fix tests`
+- `42a4902e` - file lock compatibility, `fix file lock`
+- `fca287e2` - workflow conversion/model fix, `Merged`
+- `7fe1d305` - package-layout/import/model/test cleanup, `fix merge issues`
+- `154174a9` - lint cleanup, `fix linting issues`
+- `dc09f472` - API import correction, `fix comfy_api import`
+- `306f7790` - frontend workflow conversion parity, `fix workflow parity`
+- `7d3e6ed2` - workflow conversion rewrite and Playwright cache refresh, `update workflow conversion code`
+- `1f83d46c` - merge commit, `Merge branch 'master' of github.com:Comfy-Org/ComfyUI into develop`
+- `49a0557f` - test import migration, `Fix test imports: from app. -> from comfy.app.`
+- `219f5225` - test patch-target migration, `Fix mock patch paths in tests: app. -> comfy.app., folder_paths -> comfy.cmd.folder_paths`
+- `f8731ae1` - folder path/context test migration, `Fix test mocks: use FolderNames/context, fix patch paths, remove missing utils.install_util`
+- `1cb6ef78` - asset test restructure, `Restructure asset tests: use comfy_background_server_from_config, fix migration import`
+- `8af843ce` - relocated Alembic path fix, `Fix alembic paths in migration test`
+- `fec19d27` - thread context fix, `Fix seeder thread context: copy contextvars so folder_paths resolve correctly`
+- `acff3997` - first context thread abstraction, `Add ContextThread helper for contextvars-aware threading`
+- `7075f8da` - prompt-worker context propagation, `DRY context propagation: use ContextThread in main.py and seeder`
+- `fe6ffadc` - executor-based context propagation, `Use ContextVarExecutor in seeder, fix asset hash collision in missing_sync test`
+- `f62e979f` - final context propagation pattern, `Use ContextVarExecutor everywhere, remove unused ContextThread`
+- `8923e655` - merge commit, `Merge branch 'master' of github.com:Comfy-Org/ComfyUI into develop`
+- `298be37f` - merge-garbled code fix, `Fix merge-garbled indentation in utils.py, demote comfy_kitchen MXFP8 warning to debug`
+- `d53b6414` - merge commit, `Merge branch 'master' of github.com:Comfy-Org/ComfyUI into develop`
+
+For the `0.19 -> 0.20` style merge, use these commits as the baseline example:
 
 - `ebdc4945` - merge commit, `Merge ComfyUI upstream master`
 - `d58a7150` - follow-up move commit, `Move upstream extra nodes into package layout`
 - `46ce90fd` - docs follow-up, `Document upstream merge workflow`
 - `cddc27e9` - remaining follow-up cleanup, `Complete upstream merge follow-ups`
+
+For the later upstream merge around `0.21`, also read:
+
+- `921070e3` - merge commit, `Merge branch 'master' of github.com:Comfy-Org/ComfyUI into develop`
+- `b9da815a` - move commit, `Move upstream extra nodes into package layout`
+- `02420c71` - package-layout/import/model-management cleanup, `Complete upstream merge follow-ups`
+- `9af07f57` - missed package import fix for PiD, `Fix PiD node helper import`
+- `b5eb2276` - workflow CLI and converter regression fix, `Fix workflow run path and bypass type matching`
+- `95a7276a` - test/inference/custom-node/model-support fixes, `Complete upstream merge test fixes`
+- `d4f6d4bc` - GPU setting heuristic fix, `Ignore small GPU helper processes for novram`
+
+Also read these additional post-`0.20` follow-up commits; they capture fixes that only showed up after deeper testing:
+
+- `cc67e0b2` - model detection and known-repo coverage, `Add HiDream O1 known repos and detection test`
+- `4bec5e9d` - sharded Diffusers loading plus inference workflow, `Add HiDream O1 inference workflow test`
+- `6651d186` - conditioning wrapper bug from name shadowing, `Fix HiDream O1 conditioning wrappers`
+- `c762a0dd` - shadowing lint enablement and cleanup, `Enable shadowing lint checks`
+- `516af487` - unit coverage for shadowing cleanup touchpoints, `Add coverage for shadowing cleanup touchpoints`
+- `7064da2a` - quantization fallback bug and Flux2 workflow, `Preserve fp8 scales when disabling fp8 kernels`
+- `e0813036` - coverage gate for supported model classes, `Track supported model inference coverage`
+- `48eecadf` - linked workflow parameter role resolution, `Resolve linked workflow parameter roles`
+- `2c8f609a` - workflow quantity and seed expansion, `Add workflow quantity seed expansion`
+- `9f53c9f0` - explicit disable flag precedence, `Honor disabled dynamic VRAM flag`
 
 Read the whole diff of the merge commit and the few commits after it, not only the conflict hunks. For model-heavy conflicts, also read the whole upstream file and the whole fork file when the surrounding context matters. This is especially important for `model_management.py`, `model_patcher.py`, `model_base.py`, `sd.py`, `supported_models.py`, `ops.py`, `lora.py`, sampler files, and anything touching dynamic VRAM or model loading. The typical pattern is:
 
@@ -195,6 +247,33 @@ Read the whole diff of the merge commit and the few commits after it, not only t
 3. Later commits adapt imports, tests, docs, and fork-specific cleanup.
 
 Do not guess from one conflict hunk when the file contains model-loading or memory-management behavior. Read enough of both sides to understand what upstream added, what the fork already changed, and which behavior must be preserved in the merge commit versus a follow-up commit.
+
+Useful review commands:
+
+```bash
+git show --stat --summary --find-renames 921070e3 b9da815a 02420c71 9af07f57 b5eb2276 95a7276a d4f6d4bc
+git show --name-status --find-renames 921070e3 b9da815a 02420c71 9af07f57 b5eb2276 95a7276a d4f6d4bc
+git show --cc --patch 921070e3 -- comfy/model_management.py comfy/model_patcher.py comfy/model_base.py comfy/sd.py comfy/supported_models.py comfy/ops.py comfy/lora.py
+git show --patch --find-renames 02420c71 95a7276a b5eb2276 9af07f57 d4f6d4bc
+git show --patch --find-renames cc67e0b2 4bec5e9d 6651d186 c762a0dd 516af487 7064da2a e0813036 48eecadf 2c8f609a 9f53c9f0
+```
+
+Do the same for the older sequences:
+
+```bash
+git show --stat --summary --find-renames 5c6c95ea de279e6e bd4c2fd3 7fe1d305 306f7790 7d3e6ed2 1f83d46c 49a0557f 219f5225 f8731ae1 1cb6ef78 fec19d27 fe6ffadc f62e979f 8923e655 298be37f d53b6414
+git show --cc --patch 5c6c95ea 1f83d46c 8923e655 d53b6414 -- comfy/model_management.py comfy/model_patcher.py comfy/model_base.py comfy/sd.py comfy/supported_models.py comfy/ops.py comfy/sample.py comfy/samplers.py comfy/app/assets comfy/component_model/workflow_convert.py
+git show --patch --find-renames de279e6e bd4c2fd3 7fe1d305 306f7790 7d3e6ed2 49a0557f 219f5225 f8731ae1 1cb6ef78 fec19d27 fe6ffadc f62e979f 298be37f
+git show --stat --summary --find-renames ebdc4945 d58a7150 46ce90fd cddc27e9
+git show --cc --patch ebdc4945 -- comfy/model_management.py comfy/model_patcher.py comfy/model_base.py comfy/sd.py comfy/supported_models.py comfy/ops.py comfy/lora.py
+git show --patch --find-renames cddc27e9 d58a7150
+```
+
+If the output is large, page through it instead of sampling only the first screen:
+
+```bash
+git show --patch --find-renames 95a7276a -- tests/inference tests/custom_nodes comfy/model_downloader.py | less
+```
 
 Resolve conflicts in the merge first. Keep directory rename detection enabled and let Git place files under renamed directories where it can. For delete/modify conflicts where this fork intentionally deleted upstream files, confirm the deletion is still intentional and use `git rm`.
 
@@ -223,6 +302,176 @@ Then commit in this order:
 3. In later commits, make import fixes, tests, docs, or fork-specific cleanup.
 
 Do not combine the merge and file moves into one commit. Keeping the move commit separate preserves useful history and makes later upstream merges less painful.
+
+## Common Follow-Up Fixes From Recent Merges
+
+The recent merge history shows recurring work that should be expected, not treated as surprising one-off cleanup.
+
+### Detailed Diff Observations
+
+The examples below are from the reviewed merge and follow-up commits. Use them as models for the kind of whole-diff reading that should happen before closing an upstream merge.
+
+- Upstream model additions usually arrive as several disconnected-looking file edits, but this fork needs them turned into a complete packaged workflow path. HiDream O1 is a good example: upstream support touched model detection, Diffusers loading, text/conditioning code, and latent/decode nodes. The fork follow-ups added known Hugging Face repos for `HiDream-ai/HiDream-O1-Image` and `HiDream-ai/HiDream-O1-Image-Dev`, added a minimal state-dict detection test for keys such as `t_embedder1.mlp.0.weight`, `x_embedder.proj1.weight`, and `visual.deepstack_merger_list.0.weight`, verified that extra visual keys are stripped during UNet state-dict processing, and added a one-step inference workflow using `DiffusersLoader`, `EmptyHiDreamO1LatentImage`, `VAEDecode`, and `SaveImage`.
+- The HiDream O1 loader path also showed why reading the full loader diff matters. The fix was not just an import adjustment: `DiffusersLoader.load_checkpoint()` had to detect repos containing a root `model.safetensors.index.json` and route them through `sd.load_checkpoint_guess_config(...)[:3]` instead of `diffusers_load.load_diffusers(...)`. That preserves upstream sharded checkpoint behavior while still returning the tuple shape expected by this fork's node path. The unit test proves both the index-file routing and dtype propagation through `model_options`.
+- Several bugs were caused by name shadowing introduced while adapting upstream code into this package layout. In HiDream O1 conditioning, a local variable named `conds` shadowed the imported `conds` module, so later references to `conds.CONDConstant` and `conds.CONDRegular` failed at runtime. The follow-up renamed the local value to `extra_cond_values`. This is the pattern that justified enabling ruff `A` and `PLR1704`, plus adding the AST-based import-shadowing test that looks for local bindings which later get used as attribute bases.
+- The shadowing cleanup was broad because upstream-style variable names collided with this fork's package imports after relocation. Examples included `dir` becoming `extension_dir`, `tuple` becoming `address_tuple`, `sentencepiece_model_pb2 as model` becoming `sentencepiece_model`, `model_sampling` becoming `model_sampling_module`, `rope` becoming `rope_fn`, `filter` becoming `filter_kernel` or `should_quantize`, and `model_patcher` / `clip_vision` becoming explicit module aliases. These are not cosmetic changes when import names are later dereferenced.
+- Quantization fixes require reading the whole operator and model-downloader context. One follow-up moved Flux2 klein FP8 filenames such as `flux-2-klein-4b-fp8.safetensors`, `flux-2-klein-9b-fp8.safetensors`, and `flux-2-klein-9b-kv-fp8.safetensors` into `KNOWN_UNET_MODELS` from the wrong model-family bucket. The same fix removed fallback logic that popped FP8 qconfig metadata like `weight_scale` when FP8 kernels were disabled. Disabled FP8 compute still needs the quantized tensor and scale metadata preserved; otherwise the fallback full-precision matmul path silently loses the calibrated weights.
+- Supported-model inference coverage was added because upstream can register a new model class without any local end-to-end proof that this fork can download, load, condition, sample, and serialize output for it. `tests/inference/test_supported_model_coverage.py` maps each `supported_models.models` class to representative workflows and fails when a supported class is missing coverage, when coverage references an unknown class, or when a listed workflow file does not exist.
+- Workflow parameter handling changed in ways that are easy to miss if only prompt execution is tested. The fork added linked-input role resolution so CLI parameters can follow primitive nodes through switch nodes. For example, a `--steps` override must update the active linked primitive behind a `ComfySwitchNode`, not blindly update every possible primitive or skip linked widgets entirely. The fix introduced helpers to resolve literal value sources and linked input sources, then tests verified that the active `full_steps` value changes while inactive `fast_steps` remains untouched.
+- Workflow quantity support affected UI workflows, API workflows, submit, convert, and seed behavior. The fork added `Configuration.quantity`, Typer `--quantity`, validation that quantity is at least 1, `apply_ui_seed_quantity()` for frontend graphs including subgraphs, definitions, and legacy `extra.groupNodes`, and `expand_workflow_quantity()` for API and UI prompts. It respects frontend `control_after_generate` modes such as `fixed`, `randomize`, `increment`, and `decrement`, wraps at `0xffffffffffffffff`, and makes `workflows submit` and `workflows convert` produce multiple seeded prompts when requested.
+- GPU defaults are another place where upstream behavior and fork heuristics diverge. A follow-up made `enables_dynamic_vram()` honor `disable_dynamic_vram` even when `enable_dynamic_vram=True`, because explicit disable flags must win over convenience flags. Another fixed local workstation behavior so tiny desktop GPU clients such as `gnome-remote-desktop-daemon` and `steamwebhelper` do not trigger `--novram`; only material non-Comfy GPU memory use should be treated as a competing process. The `main_pre` startup path also sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` only when the variable is missing or blank, preserving explicit user configuration.
+- CLI workflow execution had a configuration-order regression that was invisible from the merge conflict alone. Shared setup moved into `_run_workflow_cli()` so both `comfyui run-workflow` and `comfyui workflows run` establish the execution context before importing code that reads `comfy.cli_args.args`. Without that ordering, flags such as `--novram`, `--lowvram`, `--fast`, model paths, and workflow options can silently fall back to defaults.
+- The `0.16 -> 0.18` asset merge showed that upstream service code usually cannot be pasted into this fork without route gating and package relocation. The merge brought in a much larger asset stack: upload parsing, `AssetReference` services, tag queries, seeder/scanner services, and `/api/assets` routes. The fork adaptation gated routes behind an assets-enabled flag, made disabled routes return `503 SERVICE_DISABLED`, converted route handlers to call service-layer functions such as `list_assets_page()`, `get_asset_detail()`, `upload_from_temp_path()`, and `resolve_asset_for_download()`, and sanitized dangerous download MIME types with `X-Content-Type-Options: nosniff`.
+- The same asset merge exposed compatibility shims that must be preserved for frontend and API callers. Older code still expected names such as `asset_info_id`, `get_asset_tags()`, `add_tags_to_asset_info()`, `remove_tags_from_asset_info()`, `ingest_fs_asset()`, and `set_asset_info_preview()`, so the follow-up added wrappers around the newer `AssetReference` service and query functions. During merges, do not remove these shims just because upstream renamed the internal concept; first check whether fork REST APIs, tests, or frontend routes still use the old public name.
+- The asset tests are a good example of how upstream tests have to be rebuilt around this fork's execution context. Follow-ups changed `from app...` imports to `from comfy.app...`, rewrote mock targets from `folder_paths...` to `comfy.cmd.folder_paths...`, replaced raw folder-path monkeypatches with `FolderNames` plus `context_folder_names_and_paths`, moved upstream `tests-unit/seeder_test/test_seeder.py` into `tests/unit/seeder_test/test_seeder.py`, and used `comfy_background_server_from_config()` for REST-facing asset tests instead of duplicating subprocess setup.
+- Background threads were a recurring hidden failure in the older merges. The asset seeder and prompt worker initially used plain `threading.Thread`, which lost `contextvars` and made folder paths resolve to defaults. The final follow-up replaced those with `ContextVarExecutor`, so work submitted from server or CLI contexts preserves configuration, folder paths, and execution state. Any future upstream `threading.Thread(...)` addition should be treated as suspicious until context propagation is verified.
+- The 0.18 cache merge added pluggable cache-provider behavior into execution caching. The merge had to thread `enable_providers=True` through output caches such as `HierarchicalCache`, `LRUCache`, and `RAMPressureCache`, while leaving object caches alone. This kind of change crosses `comfy/cmd/execution.py`, `comfy_execution/caching.py`, and `comfy_execution/cache_provider.py`; test it with both unit cache-provider tests and a real workflow, because a broken cache can look like nondeterministic node execution.
+- Several older model/memory fixes were dtype and device preservation issues, not just import fixes. VAE decode/encode paths switched from unconditional `.float()` to `vae_output_dtype()` and preallocated decode output buffers for chunked IO. Sampler paths forced noise and latent inputs to `torch.float32` at sampling time, then moved results back to the configured intermediate dtype/device. A later multigpu fix updated `LoadedModel.device` when `_switch_parent()` swaps a clone back to its parent patcher. These are examples where whole-file review is required because a one-line upstream change can violate this fork's memory and dtype invariants.
+- Older workflow-conversion work relied on Playwright parity fixtures, not just hand-written unit cases. The follow-ups refreshed `tests/unit/playwright_cache/<frontend+templates>/...` and fixed conversion behavior for unknown nodes, subgraph output ordering, bypassed nodes, optional widget defaults, and frontend serialization differences. When the frontend or template package version changes, refresh parity fixtures deliberately and inspect whether the converter changed because of frontend behavior or because the fork's conversion code regressed.
+- Custom-node compatibility with relocated `comfy_extras` required more than moving files. After root-level `comfy_extras/nodes_*.py` files moved into `comfy_extras/nodes/`, vanilla custom nodes still imported the old flat namespace. The compatibility fix added a meta path redirect from `comfy_extras.<name>` to `comfy_extras.nodes.<name>` and re-exported expected symbols such as `LatentUpscaleModelLoader` for ComfyUI-LTXVideo. Keep those compatibility probes in custom-node tests when upstream adds new node modules or when the package layout changes.
+- The `8923e655` merge showed why merge output must be scanned for syntactically valid but semantically garbled code. One follow-up fixed indentation in `utils.py` after the merge and lowered a noisy `comfy_kitchen` MXFP8 warning to debug. A clean merge and passing import do not prove the merge is correct; inspect dense utility and quantization files for duplicated branches, misplaced indentation, and logging changes that would spam users or CI.
+- The `d53b6414` merge added context-window slicing for several WAN conditioning paths. The fork had to preserve relative imports and call `slice_cond()` for keys like `vace_context`, `audio_embed`, `face_pixel_values`, and `pose_latents` with the right temporal dimension, scale, and offset. This is a model-code example where reading only the class registration is insufficient; the conditioning resize hooks are what make long-context video workflows behave correctly.
+
+### Package-Layout Imports
+
+Upstream often lands files with root-style imports. After moving files under this fork's package layout, check the whole moved file for imports, not just the lines Git marked as conflicts.
+
+Examples from recent follow-ups:
+
+- `comfy_extras/nodes_mediapipe.py` moved to `comfy_extras/nodes/nodes_mediapipe.py`; `import folder_paths` became `from comfy.cmd import folder_paths`, and later `from comfy_extras.mediapipe...` became relative imports from `..mediapipe...`.
+- `comfy_extras/nodes_pid.py` moved cleanly but still needed `import node_helpers` changed to `from comfy import node_helpers`.
+- newly added text encoders and model files such as `gpt_oss.py`, `pixeldit.py`, `sa3.py`, and `vae_sa3.py` needed upstream `import comfy.foo` references converted to local package imports.
+- variables named like imported modules must be renamed, e.g. `import string` became `import string as string_module` in `nodes_string.py`.
+- after enabling shadowing checks, module aliases should make intent explicit: use names like `model_sampling_module`, `model_patcher_module`, `clip_vision_module`, `sentencepiece_model`, `rope_fn`, and `filter_kernel` when upstream local variables would otherwise collide with imported modules.
+- runtime helper tests should accompany risky renames. The shadowing cleanup added targeted coverage for vocoder alias-free filter helpers and OmitThink text filtering, because those are places where a rename can look mechanical but still break behavior.
+
+Run import scans after the move commit:
+
+```bash
+rg -n '^(import|from) (folder_paths|server|nodes|app|node_helpers)\b' comfy comfy_extras comfy_api comfy_api_nodes tests
+rg -n 'from comfy_extras\.' comfy_extras/nodes
+```
+
+Do not mechanically convert every absolute `comfy.*` import. Cross-package imports, public extension APIs, and tests sometimes need absolute paths. The goal is to remove broken root imports and avoid circular imports, not to make every import relative.
+
+### Model Management And Dynamic VRAM
+
+Model-management conflicts require whole-file review because this fork carries dynamic VRAM, pinned-memory, multigpu, mmap residency, and quantization changes that upstream does not have. Recent follow-ups fixed issues that were not obvious from one hunk:
+
+- `LoadedModel.is_dead()` had to guard `real_model` before calling the weakref.
+- mmap residency calls had to go through `loaded_model.model.model_mmap_residency()` because the wrapper owns the method.
+- dynamic pin initialization in `ModelPatcherDynamic` had to tolerate missing `comfy_aimdo.host_buffer.lib` by using empty host-buffer stubs.
+- multigpu clone selection needed to use the patcher's actual load device, not the process current CUDA device.
+- `ops.pick_operations()` had to preserve this fork's inference-vs-training behavior: `disable_weight_init` in inference mode, `skip_init` otherwise.
+- cuDNN attention selection needed runtime fallback when cuDNN/NVRTC compatibility fails.
+
+When upstream changes these areas, read the full upstream and fork versions:
+
+```bash
+git show comfyui/master:comfy/model_management.py | less
+git show HEAD:comfy/model_management.py | less
+git diff --cc -- comfy/model_management.py comfy/model_patcher.py comfy/ops.py
+```
+
+Check for protocol drift too. If upstream adds required model-patcher attributes or methods, update `comfy/model_management_types.py`, `ModelManageableStub`, dynamic patchers, and tests.
+
+### New Model Family Support
+
+When upstream adds a model family, the merge is not complete until the fork can load it through the packaged workflow path. Do all of the following:
+
+1. Verify model-class registration in `comfy/model_base.py`, `comfy/supported_models.py`, `comfy/sd.py`, and related text encoder or latent-format files.
+2. Add import fixes for new model files under `comfy/ldm/*` and `comfy/text_encoders/*`.
+3. Register required downloadable filenames in `comfy/model_downloader.py`, including alternate filenames seen in workflow templates or custom-node examples.
+4. Add a small one-step workflow under `tests/inference/workflows/`.
+5. Add coverage in `tests/inference/test_supported_model_coverage.py`.
+6. Run the targeted workflow on a GPU and verify an output artifact, not just successful import.
+
+Recent examples:
+
+- PiD and PixelDiT support required `KNOWN_UNET_MODELS` entries for `pixeldit_1300m_1024px_mxfp8.safetensors` and `pid_flux1_512_to_2048_4step_mxfp8.safetensors`, plus a PixelDiT text encoder entry for `gemma_2_2b_it_elm_fp8_scaled.safetensors`.
+- `tests/inference/workflows/pid-0.json` and `tests/inference/workflows/pixeldit-0.json` use one sampling step and `SaveImage` so the test can assert an `abs_path`.
+- SAM3 coverage must include the SAM model classes and a workflow such as `sam3-segment-0.json`.
+- StableAudio3 and Lens were added to supported-model coverage using existing or small representative workflows.
+- HiDream O1 required both model detection coverage and a one-step inference workflow. The detection test uses a small synthetic state dict to prove `HiDreamO1` is selected and visual-only keys are stripped; the workflow proves the sharded `model.safetensors.index.json` path, latent node, decode, and save output work together.
+- Flux2 FP8 work required both filename registration and operator behavior tests. The workflow exercises the template path, while the unit test proves disabled FP8 kernels still preserve `QuantizedTensor` weights and their scale metadata.
+
+Use small workflows with one sampling step when possible. The purpose is smoke coverage that validates loading, conditioning, sampling, and output serialization. It is not image-quality benchmarking.
+
+### Workflow Conversion And CLI Paths
+
+Workflow runner regressions often appear only in end-to-end workflow tests. Recent fixes included:
+
+- moving shared `run-workflow` setup into `_run_workflow_cli()` so both `comfyui run-workflow` and `comfyui workflows run` set the execution context before imports that read `args`;
+- using all available node class types, not only core nodes, when resolving workflow requirements;
+- treating comma-separated socket types such as `IMAGE,MASK` as matching when bypassing nodes;
+- preserving frontend serialized widget positions for `forceInput` widgets so later widget values do not shift;
+- resolving legacy `extra.groupNodes` outputs when old workflows lack modern subgraph boundary nodes;
+- skipping optional frontend-injected widgets such as `CustomCombo` when the frontend did not serialize them;
+- resolving direct parameter roles through linked primitive nodes and `ComfySwitchNode` so CLI overrides update the active source value instead of missing linked widgets or mutating inactive branches;
+- expanding workflow quantity consistently across UI workflows, API prompts, `workflows submit`, and `workflows convert`, including frontend seed modes such as `fixed`, `randomize`, `increment`, and `decrement`.
+
+Whenever upstream changes frontend workflow serialization, template workflows, group nodes, bypass handling, or CLI workflow execution, run the workflow-conversion unit tests and at least one real workflow through the CLI path:
+
+```bash
+uv run python -m pytest -q tests/unit/test_workflow_convert.py tests/unit/test_stream_json_objects.py
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest -q tests/inference/test_workflows.py -k 'pid-0 or pixeldit-0 or sam3-segment-0' -s
+CUDA_VISIBLE_DEVICES=1 uv run comfyui run-workflow --all tests/inference/workflows/pid-0.json
+```
+
+The inference test asserts `SaveImage` output paths. If you run the CLI manually, inspect the JSON output and confirm a real image file was produced.
+
+### Asset Routes, Database, And Seeder
+
+Upstream asset work often touches route handlers, service names, Alembic migrations, background scanning, and tests at the same time. This fork keeps asset code under `comfy/app/assets`, stores Alembic under `comfy/alembic_db`, and runs most request-facing tests through the fork's configuration object.
+
+Recent older merge fixes included:
+
+- gating `/api/assets` routes so the API returns a controlled disabled-service response when assets are unavailable instead of crashing after partial database initialization;
+- preserving compatibility names around `AssetReference` such as `asset_info_id` wrappers until all fork callers are migrated;
+- moving upstream Alembic paths from root `alembic_db` to `comfy/alembic_db` in both code and migration tests;
+- copying uploaded files into reserved destinations with `os.O_EXCL` so duplicate uploads do not clobber an existing file;
+- using `ContextVarExecutor` for the asset seeder so background scans inherit the current folder paths and configuration;
+- adding per-test cleanup fixtures and unique test bytes so asset upload/list/sync tests do not collide by hash across tests.
+
+When assets change, run the focused asset and migration tests:
+
+```bash
+uv run python -m pytest -q tests/unit/app_test/test_migrations.py tests/unit/assets_test --tb=short
+```
+
+Also check for old upstream package paths:
+
+```bash
+rg -n 'from app\.|import app\.|patch\("app\.|patch\("folder_paths\.|alembic_db' comfy tests docs
+```
+
+### Custom-Node Compatibility Shims
+
+Moving upstream files into this fork's package layout can break third-party custom nodes that import upstream's flat namespaces. Do not judge compatibility only by core node imports.
+
+The older ComfyUI-LTXVideo fix added lazy redirects from `comfy_extras.<name>` to `comfy_extras.nodes.<name>` and re-exported a symbol expected by the custom node. Keep this pattern in mind when upstream adds or moves root-level `comfy_extras/nodes_*.py` files.
+
+Run at least one custom-node loading probe when package layout changes:
+
+```bash
+uv run python -m pytest -q tests/custom_nodes/test_pip_facade_installation.py -k 'ltxvideo or custom_node' --tb=short
+```
+
+### GPU Defaults And Guess Settings
+
+Configuration heuristics affect local runs and CI. Recent fixes set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in `main_pre` when the variable is missing or blank, while preserving an explicit user value. Another fix changed `guess_settings` so tiny desktop GPU users such as `gnome-remote-desktop-daemon` and `steamwebhelper` do not force `--novram`; only material non-Comfy GPU memory use should do that.
+
+When changing startup or GPU heuristics:
+
+```bash
+uv run python -m pytest -q tests/unit/test_cuda_env.py tests/unit/test_guess_settings.py
+```
+
+Also verify the logs on a workstation with benign GPU helper processes. The merge is not done if small helper processes still cause:
+
+```text
+competing GPU processes detected (...), enabling novram
+```
 
 ## Version String
 
@@ -381,6 +630,73 @@ If you are testing RESTful API methods, you should adopt the creation of a Comfy
 If you are testing functionality of ComfyUI generally, create a new `Comfy` instance and use an async wrapper correctly to use it. See [testing](./testing.md) for examples.
 
 Observe that the configuration object is created with `default_configuration()` and will be the primary way you configure embedded or RESTful API server ComfyUI objects. Use it instead of passing raw command line args. When the upstream test parameterizes configurations with CLI args in the form of `--blah` passed via `pytestargs` (or some other similar approach), just parameterize the test normally using `pytest` features, making the appropriate change for fixtures versus test methods (i.e., fixtures will generally be parameterized with `request.params`), and you will just modify a `config = default_configuration()` object to implement the parameterization instead of raw args.
+
+### Required Post-Merge Test Pass
+
+Run the test layers in this order. Do not stop at unit tests when upstream added or modified models, nodes, workflow templates, media loaders, custom-node compatibility, or GPU settings.
+
+```bash
+# Fast correctness and conversion checks.
+uv run python -m pytest -q tests/unit --tb=short
+uv run python -m pytest -q tests/execution --tb=short
+
+# Whole-codebase lint. Run raw, no grep/head/tail.
+uv run ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
+uv run pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+
+# Representative GPU inference. Use the idle GPU explicitly.
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest -q tests/inference/test_supported_model_coverage.py
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest -q tests/inference/test_workflows.py -k 'pid-0 or pixeldit-0 or sam3-segment-0' -s
+```
+
+If upstream added a new model family or a new loader path, add or update a workflow under `tests/inference/workflows/` and run it specifically. The workflow should have a `SaveImage`, `SaveAudio`, `SaveAnimatedWEBP`, or `PreviewString` terminal when possible so `tests/inference/test_workflows.py` can assert a concrete output. For image models, inspect the generated file when debugging; a test that only imports the node is not enough.
+
+For custom-node compatibility, use GPU 1 and run targeted tests first:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest -q tests/custom_nodes/test_custom_node_execution.py -k 'ComfyUI-WanVideoWrapper or SAM3 or PiD' -s --tb=short
+```
+
+Then run the broader custom-node suite when time permits:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest -q tests/custom_nodes --tb=short
+```
+
+Custom-node failures should be classified. Fix compatibility regressions in the fork when they are caused by our package layout, import shims, workflow conversion, model discovery, or execution wrapper. Mark workflows as `xfail` only when the workflow is not actionable for the fork: removed/unpublished models, stale upstream workflow options, missing third-party custom nodes outside the test set, upstream bugs with local stub media, or workload size that consistently exceeds the local 24GB GPU timeout. Update `docs/custom_nodes.md` with every new xfail and the concrete reason.
+
+When running coverage, use it to find missing tests rather than treating the percentage as the only goal:
+
+```bash
+uv run coverage run -m pytest tests/unit tests/execution
+uv run coverage report
+```
+
+After coverage, propose or add focused tests for newly touched merge-sensitive code: workflow conversion edge cases, model downloader aliases, GPU heuristic parsing, config propagation, and package-layout imports.
+
+### Inference Workflow Requirements
+
+Inference workflows added during a merge should be cheap, deterministic enough for smoke testing, and representative of the new code path:
+
+- use one sampling step for large diffusion models unless the model cannot exercise its path with one step;
+- use local `pkg://tests.custom_nodes.test_data/...` media instead of remote URLs;
+- use known filenames from `comfy/model_downloader.py`;
+- include `SaveImage` or another terminal output node so the test asserts a produced artifact;
+- add the model class to `tests/inference/test_supported_model_coverage.py`;
+- keep model-specific workflow names obvious, e.g. `pid-0.json`, `pixeldit-0.json`, `sam3-segment-0.json`.
+
+If a new workflow needs additional model files, register them before adding the workflow. Missing models discovered only during `--all` or inference tests usually mean `comfy/model_downloader.py` needs a new `HuggingFile`, `CivitFile`, `alternate_filenames`, or folder mapping.
+
+### CLI Workflow Checks
+
+Run at least one workflow through the CLI when merge changes touch `comfy/cmd/cli.py`, `comfy/cmd/sub_workflows.py`, setup order, model downloading, custom-node installation, or workflow conversion:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 uv run comfyui run-workflow --all tests/inference/workflows/pid-0.json
+CUDA_VISIBLE_DEVICES=1 uv run comfyui workflows run --all tests/inference/workflows/pixeldit-0.json
+```
+
+Watch for configuration-order bugs. The execution context must be set before imports that read `comfy.cli_args.args`; otherwise `--novram`, `--lowvram`, `--fast`, and model paths silently fall back to defaults.
 
 ### Test Conftest Patterns
 

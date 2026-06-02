@@ -30,10 +30,13 @@ jobs:
       - name: Install ComfyUI
         run: |
           uv pip install --python .venv/bin/python --torch-backend=auto --prerelease allow ".[dev]"
+          uv cache clean
 
       - name: Install custom nodes
+        env:
+          UV_NO_CACHE: "1"
         run: |
-          uv pip install --python .venv/bin/python -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact || true
+          uv pip install --python .venv/bin/python -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
 
       - name: Environment info
         run: |

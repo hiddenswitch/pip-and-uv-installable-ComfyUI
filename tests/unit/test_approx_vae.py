@@ -91,6 +91,7 @@ def build_workflow(vae_encoder_option="", vae_decoder_option=""):
 async def test_approx_vae_found(tmp_path_factory):
     workflow = build_workflow("taesdxl", "taesdxl")
     configuration = Configuration()
+    configuration.cpu = True
     base_dir = tmp_path_factory.mktemp("test_approx_vae_found")
     configuration.base_directory = str(base_dir)
     async with Comfy(configuration) as comfy:

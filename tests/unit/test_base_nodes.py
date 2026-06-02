@@ -156,4 +156,5 @@ def test_image_pad_for_outpaint_batched():
 def test_empty_image():
     image, = EmptyImage().generate(64, 64, 1, 0xFF0000)
     assert image.shape == (1, 64, 64, 3)
-    assert torch.allclose(image[0, 0, 0], torch.tensor([1.0, 0.0, 0.0]))
+    expected = torch.tensor([1.0, 0.0, 0.0], device=image.device, dtype=image.dtype)
+    assert torch.allclose(image[0, 0, 0], expected)

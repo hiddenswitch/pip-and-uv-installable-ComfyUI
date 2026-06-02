@@ -7,6 +7,8 @@ mutate ``sys.modules`` or per-module ``NODE_CLASS_MAPPINGS``. Later
 fixtures that need the full node set should reuse this snapshot instead
 of calling ``import_all_nodes_in_workspace`` themselves.
 """
+import os
+
 import pytest
 
 
@@ -17,9 +19,11 @@ def _preloaded_nodes():
     Copies NODE_CLASS_MAPPINGS into a standalone ExportedNodes so later
     ``import_all_nodes_in_workspace`` calls (which ``.clear()`` the shared
     ``_nodes_local.nodes`` instance) can't erase entries we already saw.
-    Forces ``disable_all_custom_nodes=False`` in case an earlier test has
-    left a Configuration on the current context that would skip custom
-    node loading.
+    Normally forces ``disable_all_custom_nodes=False`` in case an earlier
+    test has left a Configuration on the current context that would skip
+    custom node loading. Device-specific CI can set
+    ``COMFYUI_UNIT_DISABLE_CUSTOM_NODES=1`` to isolate core unit tests from
+    custom-node import side effects.
     """
     from comfy.cli_args import default_configuration
     from comfy.nodes.package import import_all_nodes_in_workspace
@@ -27,7 +31,13 @@ def _preloaded_nodes():
     from comfy.execution_context import context_configuration
 
     cfg = default_configuration()
-    cfg.disable_all_custom_nodes = False
+    disable_custom_nodes = os.environ.get("COMFYUI_UNIT_DISABLE_CUSTOM_NODES", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    cfg.disable_all_custom_nodes = disable_custom_nodes
     with context_configuration(cfg):
         live = import_all_nodes_in_workspace()
 
