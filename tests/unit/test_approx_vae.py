@@ -87,7 +87,7 @@ def build_workflow(vae_encoder_option="", vae_decoder_option=""):
     }
 
 
-async def test_approx_vae_found(tmp_path_factory, cpu_model_loading_on_xpu):
+async def test_approx_vae_found(tmp_path_factory):
     workflow = build_workflow("taesdxl", "taesdxl")
     configuration = Configuration()
     configuration.cpu = True

@@ -9,7 +9,6 @@ import pathlib
 import subprocess
 import tempfile
 import urllib
-from contextlib import contextmanager
 from contextvars import ContextVar
 from multiprocessing import Process
 from typing import List, Any, Generator
@@ -36,26 +35,6 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
-
-
-@contextmanager
-def use_cpu_model_loading_on_xpu():
-    from comfy import model_management
-    from comfy.model_management import CPUState
-
-    original_cpu_state = model_management.cpu_state
-    if model_management.is_intel_xpu():
-        model_management.cpu_state = CPUState.CPU
-    try:
-        yield
-    finally:
-        model_management.cpu_state = original_cpu_state
-
-
-@pytest.fixture
-def cpu_model_loading_on_xpu():
-    with use_cpu_model_loading_on_xpu():
-        yield
 
 
 def run_server(server_arguments: Configuration):
@@ -287,8 +266,7 @@ def vae():
 
     vae_file = "vae-ft-mse-840000-ema-pruned.safetensors"
     try:
-        with use_cpu_model_loading_on_xpu():
-            vae, = VAELoader().load_vae(vae_file)
+        vae, = VAELoader().load_vae(vae_file)
     except FileNotFoundError:
         pytest.skip(f"{vae_file} not present on machine")
     return vae
@@ -300,8 +278,7 @@ def clip():
 
     checkpoint = "v1-5-pruned-emaonly.safetensors"
     try:
-        with use_cpu_model_loading_on_xpu():
-            return CheckpointLoaderSimple().load_checkpoint(checkpoint)[1]
+        return CheckpointLoaderSimple().load_checkpoint(checkpoint)[1]
     except FileNotFoundError:
         pytest.skip(f"{checkpoint} not present on machine")
     except RuntimeError as e:
@@ -313,8 +290,7 @@ def model(clip):
     from comfy.nodes.base_nodes import CheckpointLoaderSimple
     checkpoint = "v1-5-pruned-emaonly.safetensors"
     try:
-        with use_cpu_model_loading_on_xpu():
-            return CheckpointLoaderSimple().load_checkpoint(checkpoint)[0]
+        return CheckpointLoaderSimple().load_checkpoint(checkpoint)[0]
     except FileNotFoundError:
         pytest.skip(f"{checkpoint} not present on machine")
 
