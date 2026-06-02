@@ -475,11 +475,19 @@ competing GPU processes detected (...), enabling novram
 
 ## Version String
 
-Upstream uses `comfyui_version.py` at the repository root. We deleted this file and moved the version string to `pyproject.toml`.
+Upstream uses `comfyui_version.py` at the repository root. We deleted this file and moved the package version into `pyproject.toml`; the runtime CLI/server version is also mirrored in `comfy/__init__.py`.
 
-When merging, accept our deletion of `comfyui_version.py` and update the project version in `pyproject.toml` to the upstream ComfyUI version.
+When merging, accept our deletion of `comfyui_version.py` and update both version locations to the upstream ComfyUI version:
+
+```bash
+rg -n '^version = |__version__ = ' pyproject.toml comfy/__init__.py
+```
+
+Both values must match. `pyproject.toml` controls package metadata; `comfy/__init__.py` is what `comfyui --version`, server metadata, and workflow telemetry read.
 
 The version field tracks **upstream** ComfyUI; keeping it aligned lets users reason about feature parity at a glance. Fork releases use a four-part **`v<UPSTREAM>.<FORK_PATCH>`** tag scheme — e.g. `v0.21.0.1`, `v0.21.0.2`, … — with the fork-patch counter bumped per fork-only release. Never invent upstream patch versions locally; those numbers belong to upstream. The Docker tag-match patterns already accept four-part versions (`type=match,pattern=v?(\d+\.\d+\.\d+\.\d+)` in `.github/workflows/docker-build*.yml`).
+
+Place release tags on the finished, tested fork commit for that version, not merely on the upstream commit or the commit whose subject says `ComfyUI v...`. The correct tag target is the state after merge resolution, package-layout moves, model support additions, lint fixes, inference checks, and CI/test follow-ups are complete.
 
 ## Requirements
 
