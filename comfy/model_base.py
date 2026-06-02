@@ -69,6 +69,7 @@ from .ldm.pixeldit.pid import PidNet
 from .ldm.pixart.pixartms import PixArtMS
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
+from .ldm.triposplat.model import LatentSeqMMFlowModel
 from .ldm.sam3.detector import SAM3Model
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel
 from .ldm.wan.ar_model import CausalWanModel
@@ -1877,6 +1878,22 @@ class Hunyuan3Dv2_1(BaseModel):
             out['guidance'] = conds.CONDRegular(torch.FloatTensor([guidance]))
         return out
 
+class TripoSplat(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=LatentSeqMMFlowModel)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None) # DINOv3 token sequence -> cross-attention context.
+        if cross_attn is not None:
+            out['c_crossattn'] = conds.CONDRegular(cross_attn)
+        ref_latents = kwargs.get("reference_latents", None) # Flux2 VAE image latent -> additive second conditioning.
+        if ref_latents is not None:
+            out['ref_latents'] = conds.CONDList(list(ref_latents))
+        latent_shapes = kwargs.get("latent_shapes", None) # {latent, camera} nested latent
+        if latent_shapes is not None:
+            out['latent_shapes'] = conds.CONDConstant(latent_shapes)
+        return out
 
 class HiDream(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):

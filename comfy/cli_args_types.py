@@ -139,6 +139,7 @@ class Configuration(dict):
         fast (set[PerformanceFeature]): Enable some untested and potentially quality deteriorating optimizations. Pass specific optimizations if you only want to enable some (e.g. --fast fp16_accumulation fp8_matrix_mult or --fast fp16_accumulation,fp8_matrix_mult). Valid optimizations: fp16_accumulation, fp8_matrix_mult, cublas_ops, autotune, dynamic_vram
         reserve_vram (Optional[float]): Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS
         disable_dynamic_vram (bool): Disable dynamic VRAM and use estimate-based model loading.
+        fast_disk (bool): Prefer disk-backed dynamic loading and offload over unpinned RAM.
         disable_smart_memory (bool): Disable smart memory management.
         deterministic (bool): Use deterministic algorithms where possible.
         quick_test_for_ci (bool): Enable quick testing mode for CI.
@@ -286,6 +287,7 @@ class Configuration(dict):
         self.reserve_vram: float = 0.0
         self.disable_dynamic_vram: bool = False
         self.enable_dynamic_vram: bool = False
+        self.fast_disk: bool = False
         self.disable_smart_memory: bool = False
         self.deterministic: bool = False
         self.dont_print_server: bool = False

@@ -235,7 +235,7 @@ class IdeogramV1(IO.ComfyNode):
         return IO.Schema(
             node_id="IdeogramV1",
             display_name="Ideogram V1",
-            category="image/partner/Ideogram",
+            category="partner/image/Ideogram",
             description="Generates images using the Ideogram V1 model.",
             inputs=[
                 IO.String.Input(
@@ -361,7 +361,7 @@ class IdeogramV2(IO.ComfyNode):
         return IO.Schema(
             node_id="IdeogramV2",
             display_name="Ideogram V2",
-            category="image/partner/Ideogram",
+            category="partner/image/Ideogram",
             description="Generates images using the Ideogram V2 model.",
             inputs=[
                 IO.String.Input(
@@ -527,7 +527,7 @@ class IdeogramV3(IO.ComfyNode):
         return IO.Schema(
             node_id="IdeogramV3",
             display_name="Ideogram V3",
-            category="image/partner/Ideogram",
+            category="partner/image/Ideogram",
             description="Generates images using the Ideogram V3 model. "
                         "Supports both regular image generation from text prompts and image editing with mask.",
             inputs=[

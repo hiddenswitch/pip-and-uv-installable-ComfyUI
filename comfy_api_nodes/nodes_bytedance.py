@@ -370,7 +370,7 @@ class ByteDanceImageNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceImageNode",
             display_name="ByteDance Image",
-            category="image/partner/ByteDance",
+            category="partner/image/ByteDance",
             description="Generate images using ByteDance models via api based on prompt",
             inputs=[
                 IO.Combo.Input("model", options=["seedream-3-0-t2i-250415"]),
@@ -494,7 +494,7 @@ class ByteDanceSeedreamNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceSeedreamNode",
             display_name="ByteDance Seedream 4.5 & 5.0",
-            category="image/partner/ByteDance",
+            category="partner/image/ByteDance",
             description="Unified text-to-image generation and precise single-sentence editing at up to 4K resolution.",
             inputs=[
                 IO.Combo.Input(
@@ -756,7 +756,7 @@ class ByteDanceSeedreamNodeV2(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceSeedreamNodeV2",
             display_name="ByteDance Seedream 4.5 & 5.0",
-            category="image/partner/ByteDance",
+            category="partner/image/ByteDance",
             description="Unified text-to-image generation and precise single-sentence editing at up to 4K resolution.",
             inputs=[
                 IO.String.Input(
@@ -922,7 +922,7 @@ class ByteDanceTextToVideoNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceTextToVideoNode",
             display_name="ByteDance Text to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using ByteDance models via api based on prompt",
             inputs=[
                 IO.Combo.Input(
@@ -1050,7 +1050,7 @@ class ByteDanceImageToVideoNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceImageToVideoNode",
             display_name="ByteDance Image to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using ByteDance models via api based on image and prompt",
             inputs=[
                 IO.Combo.Input(
@@ -1187,7 +1187,7 @@ class ByteDanceFirstLastFrameNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceFirstLastFrameNode",
             display_name="ByteDance First-Last-Frame to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using prompt and first and last frames.",
             inputs=[
                 IO.Combo.Input(
@@ -1335,7 +1335,7 @@ class ByteDanceImageReferenceNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceImageReferenceNode",
             display_name="ByteDance Reference Images to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using prompt and reference images.",
             inputs=[
                 IO.Combo.Input(
@@ -1578,7 +1578,7 @@ class ByteDance2TextToVideoNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDance2TextToVideoNode",
             display_name="ByteDance Seedance 2.0 Text to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using Seedance 2.0 models based on a text prompt.",
             inputs=[
                 IO.DynamicCombo.Input(
@@ -1679,7 +1679,7 @@ class ByteDance2FirstLastFrameNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDance2FirstLastFrameNode",
             display_name="ByteDance Seedance 2.0 First-Last-Frame to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate video using Seedance 2.0 from a first frame image and optional last frame image.",
             inputs=[
                 IO.DynamicCombo.Input(
@@ -1946,7 +1946,7 @@ class ByteDance2ReferenceNode(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDance2ReferenceNode",
             display_name="ByteDance Seedance 2.0 Reference to Video",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description="Generate, edit, or extend video using Seedance 2.0 with reference images, "
             "videos, and audio. Supports multimodal reference, video editing, and video extension.",
             inputs=[
@@ -2243,7 +2243,7 @@ class ByteDanceCreateImageAsset(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceCreateImageAsset",
             display_name="ByteDance Create Image Asset",
-            category="image/partner/ByteDance",
+            category="partner/image/ByteDance",
             description=(
                 "Create a Seedance 2.0 personal image asset. Uploads the input image and "
                 "registers it in the given asset group. If group_id is empty, runs a real-person "
@@ -2310,7 +2310,7 @@ class ByteDanceCreateVideoAsset(IO.ComfyNode):
         return IO.Schema(
             node_id="ByteDanceCreateVideoAsset",
             display_name="ByteDance Create Video Asset",
-            category="video/partner/ByteDance",
+            category="partner/video/ByteDance",
             description=(
                 "Create a Seedance 2.0 personal video asset. Uploads the input video and "
                 "registers it in the given asset group. If group_id is empty, runs a real-person "

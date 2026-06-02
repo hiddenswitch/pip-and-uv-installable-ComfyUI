@@ -8,13 +8,13 @@ from . import model_management
 from . import model_patcher
 from . import ops
 from .image_encoders import dino2
+from .image_encoders import dino3
 from .component_model import files
 from .model_management import load_models_gpu
 from .utils import load_torch_file, transformers_convert, state_dict_prefix_replace
 
 logger = logging.getLogger(__name__)
 clip_preprocess = clip_model.clip_preprocess  # Prevent some stuff from breaking, TODO: remove eventually
-
 
 class Output:
     def __getitem__(self, key):
@@ -29,6 +29,7 @@ IMAGE_ENCODERS = {
     "siglip_vision_model": clip_model.CLIPVisionModelProjection,
     "siglip2_vision_model": clip_model.CLIPVisionModelProjection,
     "dinov2": dino2.Dinov2Model,
+    "dinov3": dino3.DINOv3ViTModel,
 }
 
 
@@ -151,6 +152,8 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
         json_config = files.get_path_as_dict(None, "dino2_giant.json", package="comfy.image_encoders")
     elif 'encoder.layer.23.layer_scale2.lambda1' in sd:
         json_config = files.get_path_as_dict(None, "dino2_large.json", package="comfy.image_encoders")
+    elif 'layer.0.mlp.gate_proj.weight' in sd and 'layer.31.norm1.weight' in sd: # Dinov3 ViT-H/16+ (SwiGLU gated MLP, 32 layers)
+        json_config = dino3.DINOV3_VITH_CONFIG
     else:
         return None
 

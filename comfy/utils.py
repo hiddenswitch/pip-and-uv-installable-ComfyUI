@@ -148,9 +148,9 @@ if hasattr(torch, "uint16"):
 def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
     import comfy_aimdo.model_mmap
 
-    f = open(ckpt, "rb", buffering=0)
     file_lock = threading.Lock()
     model_mmap = comfy_aimdo.model_mmap.ModelMMAP(ckpt)
+    f = model_mmap.get_file_handle()
     file_size = os.path.getsize(ckpt)
     mv = memoryview((ctypes.c_uint8 * file_size).from_address(model_mmap.get()))
 
@@ -1734,7 +1734,6 @@ def deepcopy_list_dict(obj, memo=None):
     memo[obj_id] = res
     return res
 
-
 def normalize_image_embeddings(embeds, embeds_info, scale_factor):
     """Normalize image embeddings to match text embedding scale"""
     for info in embeds_info:
@@ -1742,3 +1741,11 @@ def normalize_image_embeddings(embeds, embeds_info, scale_factor):
             start_idx = info["index"]
             end_idx = start_idx + info["size"]
             embeds[:, start_idx:end_idx, :] /= scale_factor
+
+
+def bit_reverse_range(index, bits):
+    result = 0
+    for _ in range(bits):
+        result = (result << 1) | (index & 1)
+        index >>= 1
+    return result
