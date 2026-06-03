@@ -49,15 +49,8 @@ These are local snapshots of the vendor prompting guides referenced from `../../
 ## NewBie-AI
 - [NewBie Image Exp0.1 model card](newbie_image_exp01_model_card.md) ([source](https://huggingface.co/NewBie-AI/NewBie-image-Exp0.1))
 
-## Stability AI
-- [Stable Diffusion 3.5 prompt guide](stable_diffusion_3_5_prompt_guide.md) ([source](https://stability.ai/learning-hub/stable-diffusion-3-5-prompt-guide))
-
 ## Phantom-video
 - [HuMo README](humo_readme.md) ([source](https://github.com/Phantom-video/HuMo))
 
 ## ACE-Step
 - [ACE-Step 1.5 tutorial](ace_step_1_5_tutorial.md) ([source](https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/Tutorial.md))
-
-## Fetch Issues
-
-- Stable Diffusion 3.5 prompt guide: `<HTTPError 404: 'Not Found'>` while fetching https://stability.ai/learning-hub/stable-diffusion-3-5-prompt-guide

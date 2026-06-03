@@ -1523,10 +1523,6 @@ fetch failure.
 
 - https://huggingface.co/NewBie-AI/NewBie-image-Exp0.1 — XML prompt schema (`<character_1><name><gender><appearance><clothing>…`), general tags for style/background/atmosphere/quality; also accepts natural-language and tag inputs
 
-**Stable Diffusion 3.5 (Stability AI)**
-
-- https://stability.ai/learning-hub/stable-diffusion-3-5-prompt-guide — subject+action, composition/framing, lighting/color with worked examples. (Canonical URL; a `/guides/…` redirect occasionally 404s — if WebFetch fails, retry or fall back to search.)
-
 **HuMo (Phantom-video) — audio-conditioned video**
 
 - https://github.com/Phantom-video/HuMo — `scale_a` audio guidance vs `scale_t` text guidance trade-off, TA vs TIA mode, 97-frame target, 30-40 steps
