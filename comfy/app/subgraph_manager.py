@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TypedDict
+from importlib import resources
 import os
 from ..cmd import folder_paths
 import glob
@@ -12,6 +13,10 @@ class Source:
     custom_node = "custom_node"
     templates = "templates"
 
+
+BLUEPRINTS_PACKAGE = "comfy.blueprints"
+
+
 class SubgraphEntry(TypedDict):
     source: str
     """
@@ -21,6 +26,7 @@ class SubgraphEntry(TypedDict):
     """
     Relative path of the subgraph file.
     For custom nodes, will be the relative directory like <custom_node_dir>/subgraphs/<name>.json
+    For packaged blueprints, will be the package resource path like comfy.blueprints/<name>.json.
     """
     name: str
     """
@@ -36,10 +42,11 @@ class CustomNodeSubgraphEntryInfo(TypedDict):
     node_pack: str
     """Node pack name."""
 
+
 class SubgraphManager:
     def __init__(self):
         self.cached_custom_node_subgraphs: dict[str, SubgraphEntry] | None = None
-        self.cached_blueprint_subgraphs: dict[SubgraphEntry] | None = None
+        self.cached_blueprint_subgraphs: dict[str, SubgraphEntry] | None = None
 
     def _create_entry(self, file: str, source: str, node_pack: str) -> tuple[str, SubgraphEntry]:
         """Create a subgraph entry from a file path. Expects normalized path (forward slashes)."""
@@ -53,6 +60,11 @@ class SubgraphManager:
         return entry_id, entry
 
     async def load_entry_data(self, entry: SubgraphEntry):
+        if entry["source"] == Source.templates and entry["path"].startswith(f"{BLUEPRINTS_PACKAGE}/"):
+            blueprint_name = entry["path"].rsplit("/", 1)[-1]
+            entry["data"] = resources.files(BLUEPRINTS_PACKAGE).joinpath(blueprint_name).read_text(encoding="utf-8")
+            return entry
+
         with open(entry['path'], 'r', encoding='utf-8') as f:
             entry['data'] = f.read()
         return entry
@@ -90,16 +102,15 @@ class SubgraphManager:
         return subgraphs_dict
 
     async def get_blueprint_subgraphs(self, force_reload=False):
-        """Load subgraphs from the blueprints directory."""
+        """Load subgraphs from packaged blueprint resources."""
         if not force_reload and self.cached_blueprint_subgraphs is not None:
             return self.cached_blueprint_subgraphs
 
-        subgraphs_dict: dict[SubgraphEntry] = {}
-        blueprints_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'blueprints')
-
-        if os.path.exists(blueprints_dir):
-            for file in glob.glob(os.path.join(blueprints_dir, "*.json")):
-                file = file.replace('\\', '/')
+        subgraphs_dict: dict[str, SubgraphEntry] = {}
+        blueprints = resources.files(BLUEPRINTS_PACKAGE)
+        for blueprint in blueprints.iterdir():
+            if blueprint.is_file() and blueprint.name.endswith(".json"):
+                file = f"{BLUEPRINTS_PACKAGE}/{blueprint.name}"
                 entry_id, entry = self._create_entry(file, Source.templates, "comfyui")
                 subgraphs_dict[entry_id] = entry
 

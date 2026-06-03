@@ -1,0 +1,1 @@
+"""Packaged global subgraph blueprints."""
