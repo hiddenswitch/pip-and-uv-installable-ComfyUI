@@ -83,7 +83,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "ACEStep": ("audio-0.json",),
     "ACEStep15": ("audio-0.json",),
     "Omnigen2": ("omnigen2-0.json",),
-    "QwenImage": ("qwen-image-0.json", "qwen-image-1.json", "qwen-image-2.json", "qwen-image-edit-0.json"),
+    "QwenImage": ("qwen-image-0.json", "qwen-image-1.json", "qwen-image-2.json", "qwen-image-edit-0.json", "qwen-image-multigpu-cfg-0.json"),
     "Flux2": ("flux2-0.json", "flux2-klein-0.json", "flux2-template-text-to-image-0.json"),
     "Kandinsky5Image": ("qwen-image-edit-0.json",),
     "Kandinsky5": ("qwen-image-0.json",),
