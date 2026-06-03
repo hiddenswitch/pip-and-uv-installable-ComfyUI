@@ -303,6 +303,41 @@ Then commit in this order:
 
 Do not combine the merge and file moves into one commit. Keeping the move commit separate preserves useful history and makes later upstream merges less painful.
 
+### Packaged Blueprints
+
+This fork packages global blueprint subgraphs under `comfy.blueprints`, not the upstream root `blueprints/` directory. When upstream adds or updates root blueprints during a merge:
+
+1. Move new or changed blueprint assets into `comfy/blueprints/`.
+2. Preserve Git rename history for existing files by using `git mv` where possible.
+3. Leave blueprint loading code pointed at `importlib.resources.files("comfy.blueprints")`, not a repository-relative path.
+4. Verify the move commit appears as renames before committing or pushing.
+
+Example commands:
+
+```bash
+git mv blueprints/* comfy/blueprints/
+git mv blueprints/.glsl/* comfy/blueprints/.glsl/
+rmdir blueprints/.glsl blueprints
+
+git status --short
+git diff --stat --find-renames
+git diff --summary --find-renames
+```
+
+If shell globbing misses dotfiles or the upstream directory layout changes, inspect both directories manually before removing the root directory:
+
+```bash
+find blueprints comfy/blueprints -maxdepth 2 -type f | sort
+```
+
+The expected diff shape for existing blueprint files is `R100 blueprints/<name> comfy/blueprints/<name>`. New upstream blueprint files may appear as additions under `comfy/blueprints/`, but they should not remain under root `blueprints/`.
+
+After moving blueprints, run the package-data and subgraph-manager tests:
+
+```bash
+uv run python -m pytest -q tests/unit/test_blueprints_package_data.py
+```
+
 ## Common Follow-Up Fixes From Recent Merges
 
 The recent merge history shows recurring work that should be expected, not treated as surprising one-off cleanup.
