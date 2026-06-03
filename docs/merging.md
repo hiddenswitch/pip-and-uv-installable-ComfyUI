@@ -416,10 +416,12 @@ When upstream adds a model family, the merge is not complete until the fork can 
 
 1. Verify model-class registration in `comfy/model_base.py`, `comfy/supported_models.py`, `comfy/sd.py`, and related text encoder or latent-format files.
 2. Add import fixes for new model files under `comfy/ldm/*` and `comfy/text_encoders/*`.
-3. Register required downloadable filenames in `comfy/model_downloader.py`, including alternate filenames seen in workflow templates or custom-node examples.
-4. Add a small one-step workflow under `tests/inference/workflows/`.
-5. Add coverage in `tests/inference/test_supported_model_coverage.py`.
-6. Run the targeted workflow on a GPU and verify an output artifact, not just successful import.
+3. For every new class inheriting from `comfy.sd1_clip.SDClipModel`, make its `__init__` explicitly accept `textmodel_json_config=None` and pass a dict-compatible value to `super().__init__(..., textmodel_json_config=...)`. This fork's `SD1ClipModel` wrapper forwards `textmodel_json_config` to `clip_model(...)`; upstream classes often omit it because upstream does not use the same constructor plumbing. Missing this causes real workflow failures such as `TypeError: ... got an unexpected keyword argument 'textmodel_json_config'` during `CLIPLoader` execution.
+4. Run pylint after text-encoder merges and treat `sd-clip-model-missing-config` from `tests/sd_clip_model_init_checker.py` as a merge blocker. Do not silence it unless the class does not actually subclass `SDClipModel`.
+5. Register required downloadable filenames in `comfy/model_downloader.py`, including alternate filenames seen in workflow templates or custom-node examples.
+6. Add a small one-step workflow under `tests/inference/workflows/`, or a dedicated template-based inference test when the upstream workflow is packaged as a template/subgraph.
+7. Add coverage in `tests/inference/test_supported_model_coverage.py`.
+8. Run the targeted workflow on a GPU and verify an output artifact, not just successful import.
 
 Recent examples:
 
@@ -429,6 +431,7 @@ Recent examples:
 - StableAudio3 and Lens were added to supported-model coverage using existing or small representative workflows.
 - HiDream O1 required both model detection coverage and a one-step inference workflow. The detection test uses a small synthetic state dict to prove `HiDreamO1` is selected and visual-only keys are stripped; the workflow proves the sharded `model.safetensors.index.json` path, latent node, decode, and save output work together.
 - Flux2 FP8 work required both filename registration and operator behavior tests. The workflow exercises the template path, while the unit test proves disabled FP8 kernels still preserve `QuantizedTensor` weights and their scale metadata.
+- Ideogram 4 showed the `textmodel_json_config` failure mode directly: upstream's `Qwen3VL8BModel(sd1_clip.SDClipModel)` needed the fork constructor argument added and merged with the model-specific Qwen3-VL config before the `image_ideogram4_t2i` template could run through `CLIPLoader`.
 
 Use small workflows with one sampling step when possible. The purpose is smoke coverage that validates loading, conditioning, sampling, and output serialization. It is not image-quality benchmarking.
 

@@ -1,0 +1,394 @@
+{
+  "25": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "ideogram4",
+      "images": [
+        "98:13",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "37": {
+    "class_type": "ResolutionSelector",
+    "inputs": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "megapixels": 0.25
+    },
+    "_meta": {
+      "title": "ResolutionSelector"
+    }
+  },
+  "98:9": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "VAELoader"
+    }
+  },
+  "98:10": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "98:24",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "98:11": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "98:31",
+        1
+      ],
+      "height": [
+        "98:32",
+        1
+      ],
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "EmptyFlux2LatentImage"
+    }
+  },
+  "98:12": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "98:18",
+        0
+      ],
+      "guider": [
+        "98:155",
+        0
+      ],
+      "sampler": [
+        "98:16",
+        0
+      ],
+      "sigmas": [
+        "98:17",
+        0
+      ],
+      "latent_image": [
+        "98:11",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "98:13": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "98:12",
+        0
+      ],
+      "vae": [
+        "98:9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAEDecode"
+    }
+  },
+  "98:16": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    },
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "98:17": {
+    "class_type": "Ideogram4Scheduler",
+    "inputs": {
+      "steps": 1,
+      "width": 512,
+      "height": 512,
+      "mu": [
+        "98:144",
+        0
+      ],
+      "std": [
+        "98:146",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Ideogram4Scheduler"
+    }
+  },
+  "98:18": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 12345
+    },
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "98:23": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "ideogram4_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "UNETLoader"
+    }
+  },
+  "98:24": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "{\n  \"high_level_description\": \"A vintage 1990s skateboarding magazine poster featuring a dynamic, low-angle shot of a young male skateboarder suspended high in mid-air above a concrete skatepark ramp, overlaid with retro typography and zine-style graphics.\",\n  \"style_description\": {\n    \"aesthetics\": \"1990s skateboarding magazine zine aesthetic, strong graphic design layout, heavy film grain, distressed paper texture, washed-out retro color palette\",\n    \"lighting\": \"Bright, crisp outdoor sunlight with deep shadows, mimicking a harsh midday sun or strong low-angle flash typical of 90s skate photography\",\n    \"photo\": \"35mm film photography, low-angle fisheye lens perspective, heavy grain and slight chromatic aberration\",\n    \"medium\": \"mixed media photography and digital graphic design\",\n    \"color_palette\": [\n      \"#4A90E2\",\n      \"#D0021B\",\n      \"#F5F5F5\",\n      \"#7ED321\",\n      \"#9B9B9B\"\n    ]\n  },\n  \"compositional_deconstruction\": {\n    \"background\": \"A crisp, bright blue sky dominating the frame. In the lower distance, a few bare trees, a street light pole, and the steep edge of a concrete skatepark ramp are visible. The entire background has a distressed, washed-out vintage texture with heavy film grain.\",\n    \"elements\": [\n      {\n        \"type\": \"obj\",\n        \"bbox\": [50, 50, 950, 400],\n        \"desc\": \"Massive, soft, cloud-like white bubble letters spelling out the brand name 'COMFY'. The letters span across the upper half of the poster, situated behind the main subject in the sky.\",\n        \"color_palette\": [\n          \"#FFFFFF\",\n          \"#F5F5F5\",\n          \"#E0E0E0\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [250, 150, 750, 600],\n        \"desc\": \"A young male skateboarder suspended high in mid-air in a dynamic, limbs-extended pose. He is wearing a white t-shirt, loose-fitting light blue baggy jeans, and red and white retro skate shoes.\",\n        \"color_palette\": [\n          \"#7CA8D9\",\n          \"#FFFFFF\",\n          \"#D0021B\",\n          \"#2C2C2C\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [350, 620, 650, 750],\n        \"desc\": \"A skateboard detached from the skater, flipping mid-air horizontally below him. The underside of the deck is visible, featuring a brightly colored graphic with collage art and vibrant neon green accents.\",\n        \"color_palette\": [\n          \"#7ED321\",\n          \"#111111\",\n          \"#FF007F\",\n          \"#FFFFFF\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [40, 450, 240, 650],\n        \"desc\": \"Zine-style graphic overlays on the mid-left: bold white text reading 'EFFORTLESS GLIDE' stacked next to a small white graphic of a skater. The graphic is framed by red bracket crosshairs containing the word 'CHILL'.\",\n        \"color_palette\": [\n          \"#FFFFFF\",\n          \"#D0021B\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [760, 480, 960, 560],\n        \"desc\": \"Distressed white typographic overlay on the mid-right reading 'NO STRESS. 100%'.\",\n        \"color_palette\": [\n          \"#FFFFFF\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [100, 780, 900, 900],\n        \"desc\": \"A smooth, flowing tribal-style graphic sitting just above a large, bold white tagline reading 'EMBRACE THE FLOW, RIDING WITH EASE'. The word 'EASE' is highlighted by a rough, translucent red spray-paint circle.\",\n        \"color_palette\": [\n          \"#FFFFFF\",\n          \"#D0021B\"\n        ]\n      },\n      {\n        \"type\": \"obj\",\n        \"bbox\": [150, 910, 850, 960],\n        \"desc\": \"Smaller, distressed white text centered at the very bottom reading 'THE ULTIMATE RELAXED EXPERIENCE WHERE YOU SET THE PACE'.\",\n        \"color_palette\": [\n          \"#FFFFFF\"\n        ]\n      }\n    ]\n  }\n}",
+      "clip": [
+        "98:14",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "98:14": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_fp8_scaled.safetensors",
+      "type": "ideogram4",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "CLIPLoader"
+    }
+  },
+  "98:27": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": [
+        "37",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Int (Width)"
+    }
+  },
+  "98:28": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": [
+        "37",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Int (Height)"
+    }
+  },
+  "98:31": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "98:27",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ComfyMathExpression"
+    }
+  },
+  "98:32": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "98:28",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ComfyMathExpression"
+    }
+  },
+  "98:144": {
+    "class_type": "ComfyNumberConvert",
+    "inputs": {
+      "value": [
+        "98:145",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ComfyNumberConvert"
+    }
+  },
+  "98:145": {
+    "class_type": "JsonExtractString",
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "mu"
+    },
+    "_meta": {
+      "title": "JsonExtractString"
+    }
+  },
+  "98:146": {
+    "class_type": "ComfyNumberConvert",
+    "inputs": {
+      "value": [
+        "98:150",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ComfyNumberConvert"
+    }
+  },
+  "98:147": {
+    "class_type": "JsonExtractString",
+    "inputs": {
+      "json_string": "{\n  \"Quality\": {\n    \"num_steps\": 48,\n    \"mu\": 0.0,\n    \"std\": 1.5,\n    \"preset_id\": \"V4_QUALITY_48\"\n  },\n  \"Default\": {\n    \"num_steps\": 20,\n    \"mu\": 0.0,\n    \"std\": 1.75,\n    \"preset_id\": \"V4_DEFAULT_20\"\n  },\n  \"Turbo\": {\n    \"num_steps\": 12,\n    \"mu\": 0.5,\n    \"std\": 1.75,\n    \"preset_id\": \"V4_TURBO_12\"\n  }\n}",
+      "key": [
+        "98:156",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "JsonExtractString"
+    }
+  },
+  "98:148": {
+    "class_type": "StringReplace",
+    "inputs": {
+      "string": [
+        "98:147",
+        0
+      ],
+      "find": "'",
+      "replace": "\""
+    },
+    "_meta": {
+      "title": "StringReplace"
+    }
+  },
+  "98:149": {
+    "class_type": "JsonExtractString",
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "num_steps"
+    },
+    "_meta": {
+      "title": "JsonExtractString"
+    }
+  },
+  "98:150": {
+    "class_type": "JsonExtractString",
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "std"
+    },
+    "_meta": {
+      "title": "JsonExtractString"
+    }
+  },
+  "98:151": {
+    "class_type": "ComfyNumberConvert",
+    "inputs": {
+      "value": [
+        "98:149",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ComfyNumberConvert"
+    }
+  },
+  "98:154": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "ideogram4_unconditional_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "UNETLoader"
+    }
+  },
+  "98:155": {
+    "class_type": "DualModelGuider",
+    "inputs": {
+      "cfg": 7,
+      "model": [
+        "98:157",
+        0
+      ],
+      "positive": [
+        "98:24",
+        0
+      ],
+      "model_negative": [
+        "98:154",
+        0
+      ],
+      "negative": [
+        "98:10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "DualModelGuider"
+    }
+  },
+  "98:156": {
+    "class_type": "CustomCombo",
+    "inputs": {
+      "choice": "Turbo",
+      "index": 2,
+      "option1": "Quality",
+      "option2": "Default",
+      "option3": "Turbo",
+      "option4": ""
+    },
+    "_meta": {
+      "title": "CustomCombo"
+    }
+  },
+  "98:157": {
+    "class_type": "CFGOverride",
+    "inputs": {
+      "cfg": 3,
+      "start_percent": 0.9,
+      "end_percent": 1,
+      "model": [
+        "98:23",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CFGOverride"
+    }
+  }
+}

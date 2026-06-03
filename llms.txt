@@ -1434,6 +1434,47 @@ locally; re-fetch so you get the vendor's current guidance.
 - https://docs.bfl.ml/guides/prompting_guide_flux2 — FLUX.2 [pro]/[max]/[dev], JSON schemas, hex colors, multi-reference roles
 - https://docs.bfl.ml/guides/prompting_guide_flux2_klein — FLUX.2 [klein] 9B, scene-first prose, 10–300+ word length guidance
 
+**Ideogram 4 (Ideogram / Comfy-Org local template)**
+
+- https://huggingface.co/Comfy-Org/Ideogram-4 — local ComfyUI split model files for `image_ideogram4_t2i` (`ideogram4_fp8_scaled`, `ideogram4_unconditional_fp8_scaled`)
+- https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_ideogram4_t2i.json — bundled local workflow template; read its `MarkdownNote` before prompting
+- Prompting guide: Ideogram 4 is trained on structured JSON captions. Prefer JSON over plain prose when layout, palette, or text fidelity matters. Include scene summary, style, background, optional per-object descriptions, normalized boxes on a 0-1000 grid, and hex palettes. It uses asymmetric CFG, where the unconditional pass drops text tokens; do not treat it as a normal negative-prompt workflow.
+- Compact JSON schema to use when asking an LLM to build the prompt:
+
+```json
+{
+  "type": "object",
+  "required": ["summary", "style", "background"],
+  "properties": {
+    "summary": {"type": "string"},
+    "style": {"type": "string"},
+    "background": {"type": "string"},
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "bbox"],
+        "properties": {
+          "text": {"type": "string"},
+          "description": {"type": "string"},
+          "bbox": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number", "minimum": 0, "maximum": 1000},
+            "description": "[y_min, x_min, y_max, x_max] on a 0-1000 grid"
+          },
+          "palette": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}
+          }
+        }
+      }
+    }
+  }
+}
+```
+
 **Wan 2.1 / 2.2 / 2.5 / 2.6 (Alibaba Tongyi Wanxiang)**
 
 - https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt — covers both text-to-video and image-to-video: Entity+Scene+Motion formula, aesthetic/style extensions, sound formula for 2.5/2.6, reference-to-video, multi-shot
