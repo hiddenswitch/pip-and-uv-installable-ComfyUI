@@ -1438,7 +1438,8 @@ locally; re-fetch so you get the vendor's current guidance.
 
 - https://huggingface.co/Comfy-Org/Ideogram-4 — local ComfyUI split model files for `image_ideogram4_t2i` (`ideogram4_fp8_scaled`, `ideogram4_unconditional_fp8_scaled`)
 - https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_ideogram4_t2i.json — bundled local workflow template; read its `MarkdownNote` before prompting
-- Prompting guide: Ideogram 4 is trained on structured JSON captions. Prefer JSON over plain prose when layout, palette, or text fidelity matters. Include scene summary, style, background, optional per-object descriptions, normalized boxes on a 0-1000 grid, and hex palettes. It uses asymmetric CFG, where the unconditional pass drops text tokens; do not treat it as a normal negative-prompt workflow.
+- https://github.com/ideogram-oss/ideogram4/blob/main/docs/prompting.md — official Ideogram 4 prompting guide: structured JSON captions, schema/key-order rules, `V4_QUALITY_48`, magic prompt options, 0-1000 bounding boxes, and uppercase hex palettes
+- Prompting guide summary: Ideogram 4 is trained on structured JSON captions. Prefer JSON over plain prose when layout, palette, or text fidelity matters. Include `high_level_description`, `style_description`, `compositional_deconstruction.background`, and `compositional_deconstruction.elements`; keep required key order, use `[y_min, x_min, y_max, x_max]` boxes on a 0-1000 grid, and serialize compact JSON. It uses asymmetric CFG, where the unconditional pass drops text tokens; do not treat it as a normal negative-prompt workflow.
 - Compact JSON schema to use when asking an LLM to build the prompt:
 
 ```json
