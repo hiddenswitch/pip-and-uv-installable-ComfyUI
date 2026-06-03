@@ -874,6 +874,9 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
     # ChatterBox TTS (ComfyUI_Fill-ChatterBox)
     'ResembleAI/chatterbox',
     'ResembleAI/chatterbox-turbo',
+    # Ideogram 4 publishes complete Diffusers repos.
+    'ideogram-ai/ideogram-4-nf4',
+    'ideogram-ai/ideogram-4-fp8',
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
