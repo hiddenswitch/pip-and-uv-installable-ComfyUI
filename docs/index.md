@@ -8,6 +8,7 @@
 
 ## Features & Workflows
 - [Large Language Models](llm.md)
+- [Vendored Prompting Guides](prompting_guides/README.md)
 - [Video Workflows](video.md) (AnimateDiff, SageAttention, etc.)
 - [Other Features](other_features.md) (SVG, Ideogram)
 
