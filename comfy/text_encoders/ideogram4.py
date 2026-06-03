@@ -6,6 +6,9 @@ Qwen3-VL (layers 0,3,...,33,35), giving a 4096*13 = 53248-dim feature per token.
 
 import os
 
+from ..transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 from transformers import Qwen2Tokenizer
 
 from .. import sd1_clip

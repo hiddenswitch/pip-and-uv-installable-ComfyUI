@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Union, Optional, Protocol, runtime_checkable, Literal
 
 import torch
+
+from ..transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 from transformers import BatchEncoding, BatchFeature
 from typing_extensions import TypedDict, NotRequired
 

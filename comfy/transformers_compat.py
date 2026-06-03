@@ -1,3 +1,30 @@
+import sys
+import types
+
+
+def patch_transformers_finegrained_fp8_import(torch_module=None):
+    if torch_module is None:
+        import torch as torch_module
+
+    if hasattr(torch_module, "float8_e8m0fnu"):
+        return
+
+    module_name = "transformers.integrations.finegrained_fp8"
+    if module_name in sys.modules:
+        return
+
+    # transformers 5.10 imports integrations.finegrained_fp8 from
+    # modeling_utils and unconditionally reads torch.float8_e8m0fnu.
+    # NVIDIA's torch 2.7.0a0 nv25.03 build does not expose it. Leave
+    # torch untouched and disable the optional FP8 experts integration
+    # so ordinary transformers imports still work.
+    module = types.ModuleType(module_name)
+    module.ALL_FP8_EXPERTS_FUNCTIONS = {}
+    sys.modules[module_name] = module
+
+
+patch_transformers_finegrained_fp8_import()
+
 try:
     from transformers import T5TokenizerFast
 except (ImportError, ModuleNotFoundError):
@@ -54,4 +81,5 @@ __all__ = [
     "Qwen2Tokenizer",
     "Qwen2TokenizerFast",
     "ByT5Tokenizer",
+    "patch_transformers_finegrained_fp8_import",
 ]

@@ -8,6 +8,10 @@ from functools import reduce
 from typing import Optional, List
 
 import torch
+
+from comfy.transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 from transformers import AutoProcessor
 from transformers.models.m2m_100.tokenization_m2m_100 import \
     FAIRSEQ_LANGUAGE_CODES as tokenization_m2m_100_FAIRSEQ_LANGUAGE_CODES

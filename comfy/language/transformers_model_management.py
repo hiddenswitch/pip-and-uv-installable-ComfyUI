@@ -11,6 +11,10 @@ from functools import reduce
 from typing import Optional, Any, Callable
 
 import torch
+
+from ..transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 import transformers
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin, AutoProcessor, AutoTokenizer, \
     BatchFeature, AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoModel, \
