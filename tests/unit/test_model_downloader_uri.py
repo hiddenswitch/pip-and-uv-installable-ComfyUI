@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import patch
 
 from comfy.component_model.uris import is_hf_uri, is_uri
-from comfy.model_downloader import parse_hf_uri, get_or_download
+from comfy.model_downloader import parse_hf_uri, get_or_download, _destination_link_already_satisfied
 from comfy.model_downloader_types import HuggingFile
 
 
@@ -148,6 +148,38 @@ class TestGetOrDownloadWithHfUri:
 
         assert result == "/path/to/model.safetensors"
         mock_get_full_path.assert_called_once()
+
+
+class TestDestinationLinkAlreadySatisfied:
+    def test_symlink_to_downloaded_file_is_satisfied(self, tmp_path):
+        source = tmp_path / "cache" / "model.safetensors"
+        source.parent.mkdir()
+        source.write_bytes(b"model")
+        destination = tmp_path / "models" / "model.safetensors"
+        destination.parent.mkdir()
+        destination.symlink_to(source)
+
+        assert _destination_link_already_satisfied(source, destination, expected_size=5)
+
+    def test_existing_expected_size_file_is_satisfied(self, tmp_path):
+        source = tmp_path / "cache" / "model.safetensors"
+        destination = tmp_path / "models" / "model.safetensors"
+        source.parent.mkdir()
+        destination.parent.mkdir()
+        source.write_bytes(b"model")
+        destination.write_bytes(b"other")
+
+        assert _destination_link_already_satisfied(source, destination, expected_size=5)
+
+    def test_existing_wrong_size_file_is_not_satisfied(self, tmp_path):
+        source = tmp_path / "cache" / "model.safetensors"
+        destination = tmp_path / "models" / "model.safetensors"
+        source.parent.mkdir()
+        destination.parent.mkdir()
+        source.write_bytes(b"model")
+        destination.write_bytes(b"wrong-size")
+
+        assert not _destination_link_already_satisfied(source, destination, expected_size=5)
 
 
 class TestEdgeCases:
