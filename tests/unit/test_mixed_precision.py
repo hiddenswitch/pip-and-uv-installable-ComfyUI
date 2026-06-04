@@ -14,6 +14,7 @@ if not has_gpu():
 
 from comfy import ops
 from comfy import model_management
+from comfy.model_base import _format_quantized_storage_summary
 from comfy.quant_ops import QuantizedTensor
 import comfy.utils
 
@@ -201,6 +202,10 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertIsInstance(model.layer1.weight, QuantizedTensor)
         self.assertEqual(model.layer1.weight.dtype, torch.bfloat16)
         self.assertEqual(model.layer1.weight._qdata.dtype, torch.float8_e4m3fn)
+        self.assertEqual(
+            _format_quantized_storage_summary(model),
+            "torch.float8_e4m3fn=1",
+        )
 
         with torch.inference_mode():
             output = model(torch.randn(5, 10, dtype=torch.bfloat16))
