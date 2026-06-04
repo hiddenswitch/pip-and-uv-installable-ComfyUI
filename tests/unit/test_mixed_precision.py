@@ -4,6 +4,8 @@ from unittest import mock
 
 import torch
 
+from comfy.cli_args_types import Configuration
+
 
 def has_gpu():
     return torch.cuda.is_available()
@@ -217,6 +219,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
     def test_native_fp8_weight_storage_used_when_device_feature_test_passes(self):
         """Native fp8 checkpoints stay resident as fp8 when the device supports upcasted ops."""
         with (
+            mock.patch.object(model_management, "args", Configuration(fp8_storage=True)),
             mock.patch.object(model_management, "supports_fp8_storage", return_value=True),
             mock.patch.object(model_management, "should_use_fp16", return_value=False),
             mock.patch.object(model_management, "should_use_bf16", return_value=True),
@@ -253,7 +256,25 @@ class TestMixedPrecisionOps(unittest.TestCase):
     @unittest.skipUnless(hasattr(torch, "float8_e4m3fn"), "requires torch fp8 dtype")
     def test_native_fp8_weight_storage_falls_back_when_device_feature_test_fails(self):
         with (
+            mock.patch.object(model_management, "args", Configuration(fp8_storage=True)),
             mock.patch.object(model_management, "supports_fp8_storage", return_value=False),
+            mock.patch.object(model_management, "should_use_fp16", return_value=False),
+            mock.patch.object(model_management, "should_use_bf16", return_value=True),
+        ):
+            selected_dtype = model_management.unet_dtype(
+                device=torch.device("cpu"),
+                model_params=10,
+                supported_dtypes=(torch.bfloat16, torch.float32),
+                weight_dtype=torch.float8_e4m3fn,
+            )
+
+        self.assertEqual(selected_dtype, torch.bfloat16)
+
+    @unittest.skipUnless(hasattr(torch, "float8_e4m3fn"), "requires torch fp8 dtype")
+    def test_native_fp8_weight_storage_flag_can_disable_feature_detected_storage(self):
+        with (
+            mock.patch.object(model_management, "args", Configuration(fp8_storage=False)),
+            mock.patch.object(model_management, "supports_fp8_storage", return_value=True),
             mock.patch.object(model_management, "should_use_fp16", return_value=False),
             mock.patch.object(model_management, "should_use_bf16", return_value=True),
         ):

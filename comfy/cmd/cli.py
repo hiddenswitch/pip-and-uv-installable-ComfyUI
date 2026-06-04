@@ -132,6 +132,7 @@ _PRECISION_OPTS: list[tuple] = [
     ("fp8_e4m3fn_unet", bool, typer.Option(False, "--fp8_e4m3fn-unet/--no-fp8_e4m3fn-unet", help="Store unet weights in fp8_e4m3fn.")),
     ("fp8_e5m2_unet", bool, typer.Option(False, "--fp8_e5m2-unet/--no-fp8_e5m2-unet", help="Store unet weights in fp8_e5m2.")),
     ("fp8_e8m0fnu_unet", bool, typer.Option(False, "--fp8_e8m0fnu-unet/--no-fp8_e8m0fnu-unet", help="Store unet weights in fp8_e8m0fnu.")),
+    ("fp8_storage", bool, typer.Option(True, "--fp8-storage/--no-fp8-storage", help="Preserve native fp8 checkpoint weights as resident fp8 storage when the device supports fp8 storage with upcasted math.")),
 
     ("fp16_vae", bool, typer.Option(False, "--fp16-vae/--no-fp16-vae", help="Run the VAE in FP16 precision.")),
     ("fp32_vae", bool, typer.Option(False, "--fp32-vae/--no-fp32-vae", help="Run the VAE in full precision fp32.")),

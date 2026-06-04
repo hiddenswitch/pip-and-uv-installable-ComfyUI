@@ -1286,7 +1286,7 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=(torch.float16, tor
         fp8_dtype = weight_dtype
 
     if fp8_dtype is not None:
-        if supports_fp8_storage(device, fp8_dtype):
+        if args.fp8_storage and supports_fp8_storage(device, fp8_dtype):
             return fp8_dtype
 
     if PRIORITIZE_FP16 or weight_dtype == torch.float16:
