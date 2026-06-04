@@ -7,7 +7,7 @@ This document describes the custom linting rules used in ComfyUI and how to reso
 This project uses **two linters that run sequentially**:
 
 1. **ruff** — handles every standard Python lint rule (F-codes, E-codes, W-codes, B-codes from flake8-bugbear, T-codes from flake8-print, S307/S102 from flake8-bandit). This is the bulk of what used to be pylint's coverage. Configuration lives under `[tool.ruff]` in `pyproject.toml`.
-2. **pylint** — runs *only* the five custom checkers in `tests/*_checker.py` (W0001 absolute-import-used, W0002 main-pre-import-not-first, W8001 missing-init, W8002 root-comfy-extras-nodes-file, W9001 sd-clip-model-missing-config). The default pylint profile is disabled via `disable = ["all"]` so pylint does no built-in inference — it's a pure plugin host. This is much faster than full pylint.
+2. **pylint** — runs *only* custom checkers in `tests/*_checker.py`: import ordering, package-init coverage, root node placement, SD clip config forwarding, and merge hygiene rules for version sync, Transformers imports, model inference coverage, packaged blueprints, CUDA allocator defaults, and workflow conversion caches. The default pylint profile is disabled via `disable = ["all"]` so pylint does no built-in inference — it's a pure plugin host. This is much faster than full pylint.
 
 Always run **both**, in this order:
 

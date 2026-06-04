@@ -26,6 +26,19 @@ def patch_transformers_finegrained_fp8_import(torch_module=None):
 patch_transformers_finegrained_fp8_import()
 
 try:
+    from transformers import CLIPTokenizer
+except (ImportError, ModuleNotFoundError):
+    try:
+        from transformers import CLIPTokenizerFast as CLIPTokenizer
+    except (ImportError, ModuleNotFoundError):
+        CLIPTokenizer = object
+
+try:
+    from transformers import PreTrainedTokenizerBase
+except (ImportError, ModuleNotFoundError):
+    PreTrainedTokenizerBase = object
+
+try:
     from transformers import T5TokenizerFast
 except (ImportError, ModuleNotFoundError):
     from transformers import T5Tokenizer as T5TokenizerFast
@@ -75,7 +88,9 @@ ByT5Tokenizer = ByT5TokenizerFast
 __all__ = [
     "T5TokenizerFast",
     "LlamaTokenizerFast",
+    "CLIPTokenizer",
     "CLIPTokenizerFast",
+    "PreTrainedTokenizerBase",
     "GPT2TokenizerFast",
     "BertTokenizerFast",
     "Qwen2Tokenizer",

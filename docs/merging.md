@@ -49,7 +49,7 @@ ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/
 pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
 ```
 
-Ruff handles standard Python lint rules; pylint runs only the five custom checkers in `tests/*_checker.py`. Run them **raw** — never pipe through `head`, `tail`, or `grep`. Filtering hides the warnings CI will fail on. Both must exit 0 before the merge is complete.
+Ruff handles standard Python lint rules; pylint runs only the custom checkers in `tests/*_checker.py`, including merge hygiene checks for version sync, direct Transformers imports, text encoder config forwarding, model inference coverage, packaged blueprints, CUDA allocator defaults, and workflow conversion cache format. Run them **raw** — never pipe through `head`, `tail`, or `grep`. Filtering hides the warnings CI will fail on. Both must exit 0 before the merge is complete.
 
 See [Linting Guidelines](linting.md) for custom rules, the ruff/pylint split, and pragma-comment conventions.
 
