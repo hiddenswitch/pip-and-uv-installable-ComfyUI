@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest import mock
 
 import torch
 
@@ -12,6 +13,7 @@ if not has_gpu():
     args.cpu = True
 
 from comfy import ops
+from comfy import model_management
 from comfy.quant_ops import QuantizedTensor
 import comfy.utils
 
@@ -161,12 +163,103 @@ class TestMixedPrecisionOps(unittest.TestCase):
                 self.assertTrue(model.layer1._full_precision_mm)
                 self.assertIsInstance(model.layer1.weight, QuantizedTensor)
                 self.assertEqual(model.layer1.weight._params.scale.item(), 2.0)
+                self.assertEqual(model.layer1.weight._qdata.dtype, weight_dtype)
 
                 input_tensor = torch.randn(5, 10, dtype=torch.bfloat16)
                 with torch.inference_mode():
                     output = model(input_tensor)
 
                 self.assertEqual(output.shape, (5, 40))
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_quantized_layer_keeps_fp8_resident_storage_with_bf16_compute(self):
+        layer_quant_config = {
+            "layer1": {
+                "format": "float8_e4m3fn",
+                "params": {},
+            }
+        }
+        fp8_weight = torch.randn(20, 10, dtype=torch.float32).to(torch.float8_e4m3fn)
+        state_dict = {
+            "layer1.weight": fp8_weight,
+            "layer1.bias": torch.randn(20, dtype=torch.bfloat16),
+            "layer1.weight_scale": torch.tensor(1.0, dtype=torch.float32),
+            "layer2.weight": torch.randn(30, 20, dtype=torch.bfloat16),
+            "layer2.bias": torch.randn(30, dtype=torch.bfloat16),
+            "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
+            "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
+        }
+        state_dict, _ = comfy.utils.convert_old_quants(
+            state_dict,
+            metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
+        )
+
+        model = SimpleModel(operations=ops.mixed_precision_ops({}, compute_dtype=torch.bfloat16, disabled={"float8_e4m3fn"}))
+        model.load_state_dict(state_dict, strict=False)
+
+        self.assertTrue(model.layer1._full_precision_mm)
+        self.assertIsInstance(model.layer1.weight, QuantizedTensor)
+        self.assertEqual(model.layer1.weight.dtype, torch.bfloat16)
+        self.assertEqual(model.layer1.weight._qdata.dtype, torch.float8_e4m3fn)
+
+        with torch.inference_mode():
+            output = model(torch.randn(5, 10, dtype=torch.bfloat16))
+
+        self.assertEqual(output.shape, (5, 40))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+    @unittest.skipUnless(hasattr(torch, "float8_e4m3fn"), "requires torch fp8 dtype")
+    def test_native_fp8_weight_storage_used_when_device_feature_test_passes(self):
+        """Native fp8 checkpoints stay resident as fp8 when the device supports upcasted ops."""
+        with (
+            mock.patch.object(model_management, "supports_fp8_storage", return_value=True),
+            mock.patch.object(model_management, "should_use_fp16", return_value=False),
+            mock.patch.object(model_management, "should_use_bf16", return_value=True),
+        ):
+            selected_dtype = model_management.unet_dtype(
+                device=torch.device("cpu"),
+                model_params=10,
+                supported_dtypes=(torch.bfloat16, torch.float32),
+                weight_dtype=torch.float8_e4m3fn,
+            )
+            compute_dtype = model_management.unet_manual_cast(
+                selected_dtype,
+                torch.device("cpu"),
+                supported_dtypes=(torch.bfloat16, torch.float32),
+            )
+
+        self.assertEqual(selected_dtype, torch.float8_e4m3fn)
+        self.assertEqual(compute_dtype, torch.bfloat16)
+
+        layer = ops.manual_cast.Linear(10, 20, device="cpu", dtype=selected_dtype)
+        fp8_weight = torch.randn(20, 10, dtype=torch.float32).to(torch.float8_e4m3fn)
+        fp8_bias = torch.randn(20, dtype=torch.float32).to(torch.float8_e4m3fn)
+        layer.load_state_dict({"weight": fp8_weight, "bias": fp8_bias}, strict=False)
+
+        self.assertEqual(layer.weight.dtype, torch.float8_e4m3fn)
+        self.assertEqual(layer.bias.dtype, torch.float8_e4m3fn)
+
+        with torch.inference_mode():
+            output = layer(torch.randn(5, 10, dtype=compute_dtype))
+
+        self.assertEqual(output.shape, (5, 20))
+        self.assertEqual(output.dtype, compute_dtype)
+
+    @unittest.skipUnless(hasattr(torch, "float8_e4m3fn"), "requires torch fp8 dtype")
+    def test_native_fp8_weight_storage_falls_back_when_device_feature_test_fails(self):
+        with (
+            mock.patch.object(model_management, "supports_fp8_storage", return_value=False),
+            mock.patch.object(model_management, "should_use_fp16", return_value=False),
+            mock.patch.object(model_management, "should_use_bf16", return_value=True),
+        ):
+            selected_dtype = model_management.unet_dtype(
+                device=torch.device("cpu"),
+                model_params=10,
+                supported_dtypes=(torch.bfloat16, torch.float32),
+                weight_dtype=torch.float8_e4m3fn,
+            )
+
+        self.assertEqual(selected_dtype, torch.bfloat16)
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_state_dict_quantized_preserved(self):
