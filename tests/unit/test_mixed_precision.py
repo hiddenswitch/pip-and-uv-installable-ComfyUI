@@ -215,6 +215,47 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertEqual(output.shape, (5, 40))
         self.assertEqual(output.dtype, torch.bfloat16)
 
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_quantized_layer_can_disable_fp8_resident_storage_for_benchmarking(self):
+        layer_quant_config = {
+            "layer1": {
+                "format": "float8_e4m3fn",
+                "params": {},
+            }
+        }
+        state_dict = {
+            "layer1.weight": torch.randn(20, 10, dtype=torch.float32).to(torch.float8_e4m3fn),
+            "layer1.bias": torch.randn(20, dtype=torch.bfloat16),
+            "layer1.weight_scale": torch.tensor(1.0, dtype=torch.float32),
+            "layer2.weight": torch.randn(30, 20, dtype=torch.bfloat16),
+            "layer2.bias": torch.randn(30, dtype=torch.bfloat16),
+            "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
+            "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
+        }
+        state_dict, _ = comfy.utils.convert_old_quants(
+            state_dict,
+            metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
+        )
+
+        model = SimpleModel(
+            operations=ops.mixed_precision_ops(
+                {},
+                compute_dtype=torch.bfloat16,
+                disabled_storage={"float8_e4m3fn"},
+            )
+        )
+        model.load_state_dict(state_dict, strict=False)
+
+        self.assertNotIsInstance(model.layer1.weight, QuantizedTensor)
+        self.assertEqual(model.layer1.weight.dtype, torch.bfloat16)
+        self.assertEqual(_format_quantized_storage_summary(model), "")
+
+        with torch.inference_mode():
+            output = model(torch.randn(5, 10, dtype=torch.bfloat16))
+
+        self.assertEqual(output.shape, (5, 40))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
     @unittest.skipUnless(hasattr(torch, "float8_e4m3fn"), "requires torch fp8 dtype")
     def test_native_fp8_weight_storage_used_when_device_feature_test_passes(self):
         """Native fp8 checkpoints stay resident as fp8 when the device supports upcasted ops."""
