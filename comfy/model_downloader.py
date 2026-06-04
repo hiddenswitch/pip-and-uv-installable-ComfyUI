@@ -92,31 +92,6 @@ def parse_hf_uri(uri: str) -> HuggingFile:
     return HuggingFile(repo_id=repo_id, filename=filename, repo_type=repo_type)
 
 
-def _destination_link_already_satisfied(source: str | Path, destination: str | Path, expected_size: int | None = None) -> bool:
-    source = Path(source)
-    destination = Path(destination)
-    if not destination.is_file():
-        return False
-
-    try:
-        if os.path.samefile(source, destination):
-            return True
-    except OSError:
-        pass
-
-    try:
-        source_size = source.stat().st_size
-        destination_size = destination.stat().st_size
-    except OSError:
-        return False
-
-    if expected_size is not None:
-        return source_size == expected_size and destination_size == expected_size
-
-    return source_size == destination_size
-
-
-
 def get_filename_list(folder_name: str) -> Sequence[str]:
     return get_filename_list_with_downloadable(folder_name)
 
@@ -316,10 +291,7 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
 
                         destination_link = Path(this_model_directory) / linked_filename
                         if destination_link.is_file():
-                            if _destination_link_already_satisfied(path, destination_link, known_file.size):
-                                logger.debug(f"{known_file.repo_id}/{known_file.filename} already exists at {destination_link}")
-                            else:
-                                logger.warning(f"{known_file.repo_id}/{known_file.filename} could not link to {destination_link} because a different file already exists")
+                            logger.warning(f"{known_file.repo_id}/{known_file.filename} could not link to {destination_link} because the path already exists, which is unexpected")
                         else:
                             try:
                                 # sometimes, linked filename has a path in it, on purpose, such as with controlnet_aux nodes
@@ -1120,25 +1092,25 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_fp8_scaled.safetensors",
-        save_with_filename="ideogram4/ideogram4_fp8_scaled.safetensors",
+        save_with_filename="ideogram4_fp8_scaled.safetensors",
         alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_nvfp4_mixed.safetensors",
-        save_with_filename="ideogram4/ideogram4_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4_nvfp4_mixed.safetensors",
         alternate_filenames=("ideogram4_nvfp4_mixed.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors",
-        save_with_filename="ideogram4/ideogram4_unconditional_fp8_scaled.safetensors",
+        save_with_filename="ideogram4_unconditional_fp8_scaled.safetensors",
         alternate_filenames=("ideogram4_unconditional_fp8_scaled.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_unconditional_nvfp4_mixed.safetensors",
-        save_with_filename="ideogram4/ideogram4_unconditional_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4_unconditional_nvfp4_mixed.safetensors",
         alternate_filenames=("ideogram4_unconditional_nvfp4_mixed.safetensors",),
     ),
     # Void video inpainting

@@ -3,10 +3,10 @@ from comfy.nodes.base_nodes import DiffusersLoader
 
 
 IDEOGRAM4_MODEL_NAMES = {
-    "ideogram4/ideogram4_fp8_scaled.safetensors",
-    "ideogram4/ideogram4_nvfp4_mixed.safetensors",
-    "ideogram4/ideogram4_unconditional_fp8_scaled.safetensors",
-    "ideogram4/ideogram4_unconditional_nvfp4_mixed.safetensors",
+    "ideogram4_fp8_scaled.safetensors",
+    "ideogram4_nvfp4_mixed.safetensors",
+    "ideogram4_unconditional_fp8_scaled.safetensors",
+    "ideogram4_unconditional_nvfp4_mixed.safetensors",
     "qwen3vl_8b_fp8_scaled.safetensors",
 }
 

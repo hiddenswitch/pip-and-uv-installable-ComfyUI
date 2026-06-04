@@ -2,7 +2,6 @@
 import os
 import re
 import socket
-import subprocess
 import sys
 import time
 import urllib.error
@@ -148,6 +147,20 @@ def test_workflows_run_help():
     assert "--sampler" in out
     assert "--width" in out
     assert "--set" in out
+
+
+def test_workflows_run_warns_about_unknown_args(monkeypatch):
+    import comfy.cmd.sub_workflows as sub_workflows
+
+    calls = []
+    monkeypatch.setattr(sub_workflows, "_run_workflow_cli", lambda config, **kwargs: calls.append((config, kwargs)))
+
+    result = runner.invoke(app, ["workflows", "run", "workflow.json", "--definitely-unknown"])
+
+    assert result.exit_code == 0
+    assert "[WARNING] Ignoring unknown CLI argument(s): --definitely-unknown" in _plain(result.stderr)
+    assert len(calls) == 1
+    assert calls[0][0].workflows == ["workflow.json"]
 
 
 def test_workflows_convert_help():

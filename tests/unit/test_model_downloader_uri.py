@@ -10,8 +10,10 @@ import os
 import pytest
 from unittest.mock import patch
 
+from comfy.cmd import folder_paths
+from comfy.component_model.folder_path_types import FolderPathsTuple
 from comfy.component_model.uris import is_hf_uri, is_uri
-from comfy.model_downloader import parse_hf_uri, get_or_download, _destination_link_already_satisfied
+from comfy.model_downloader import parse_hf_uri, get_or_download
 from comfy.model_downloader_types import HuggingFile
 
 
@@ -149,37 +151,39 @@ class TestGetOrDownloadWithHfUri:
         assert result == "/path/to/model.safetensors"
         mock_get_full_path.assert_called_once()
 
+    def test_existing_ideogram_plain_filename_is_found_before_download(self, tmp_path):
+        models_dir = tmp_path / "diffusion_models"
+        models_dir.mkdir()
+        expected = models_dir / "ideogram4_fp8_scaled.safetensors"
+        expected.write_bytes(b"already here")
 
-class TestDestinationLinkAlreadySatisfied:
-    def test_symlink_to_downloaded_file_is_satisfied(self, tmp_path):
-        source = tmp_path / "cache" / "model.safetensors"
-        source.parent.mkdir()
-        source.write_bytes(b"model")
-        destination = tmp_path / "models" / "model.safetensors"
-        destination.parent.mkdir()
-        destination.symlink_to(source)
+        previous = folder_paths.folder_names_and_paths.get("diffusion_models")
+        folder_paths.folder_names_and_paths["diffusion_models"] = FolderPathsTuple(
+            "diffusion_models",
+            [str(models_dir)],
+            {".safetensors"},
+        )
+        known_file = HuggingFile(
+            "Comfy-Org/Ideogram-4",
+            "diffusion_models/ideogram4_fp8_scaled.safetensors",
+            save_with_filename="ideogram4_fp8_scaled.safetensors",
+            alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
+        )
+        try:
+            with patch("comfy.model_downloader.hf_hub_download") as hf_hub_download:
+                result = get_or_download(
+                    "diffusion_models",
+                    "ideogram4_fp8_scaled.safetensors",
+                    known_files=[known_file],
+                )
+        finally:
+            if previous is None:
+                del folder_paths.folder_names_and_paths["diffusion_models"]
+            else:
+                folder_paths.folder_names_and_paths["diffusion_models"] = previous
 
-        assert _destination_link_already_satisfied(source, destination, expected_size=5)
-
-    def test_existing_expected_size_file_is_satisfied(self, tmp_path):
-        source = tmp_path / "cache" / "model.safetensors"
-        destination = tmp_path / "models" / "model.safetensors"
-        source.parent.mkdir()
-        destination.parent.mkdir()
-        source.write_bytes(b"model")
-        destination.write_bytes(b"other")
-
-        assert _destination_link_already_satisfied(source, destination, expected_size=5)
-
-    def test_existing_wrong_size_file_is_not_satisfied(self, tmp_path):
-        source = tmp_path / "cache" / "model.safetensors"
-        destination = tmp_path / "models" / "model.safetensors"
-        source.parent.mkdir()
-        destination.parent.mkdir()
-        source.write_bytes(b"model")
-        destination.write_bytes(b"wrong-size")
-
-        assert not _destination_link_already_satisfied(source, destination, expected_size=5)
+        assert result == str(expected)
+        hf_hub_download.assert_not_called()
 
 
 class TestEdgeCases:
