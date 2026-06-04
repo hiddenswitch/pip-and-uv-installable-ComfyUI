@@ -9,6 +9,10 @@ and are built later in model_base.HiDreamO1.extra_conds.
 import os
 
 import torch
+
+from ..transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 from transformers import Qwen2Tokenizer
 
 from .. import sd1_clip

@@ -3,7 +3,7 @@
 comfyui-ollama
 comfyui-sam2
 comfyui-custom-scripts
-comfyui-kjnodes
+comfyui-kjnodes>=1.4.2
 comfyui-impact-pack
 comfyui-inspire-pack
 comfyui-ipadapter-plus

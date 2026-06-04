@@ -822,6 +822,8 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("VAST-AI/TripoSplat", "vae/triposplat_vae_decoder_fp16.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
+    # Void video inpainting
+    HuggingFile("Comfy-Org/void-model", "vae/cogvideox_vae.safetensors"),
     # Hunyuan Image
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/vae/hunyuan_image_2.1_vae_fp16.safetensors"),
     HuggingFile("Comfy-Org/HunyuanImage_2.1_ComfyUI", "split_files/vae/hunyuan_image_refiner_vae_fp16.safetensors"),
@@ -874,6 +876,9 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
     # ChatterBox TTS (ComfyUI_Fill-ChatterBox)
     'ResembleAI/chatterbox',
     'ResembleAI/chatterbox-turbo',
+    # Ideogram 4 publishes complete Diffusers repos.
+    'ideogram-ai/ideogram-4-nf4',
+    'ideogram-ai/ideogram-4-fp8',
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
@@ -1079,8 +1084,39 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
         ),
     ),
     # PixelDiT and PiD pixel-space models
+    HuggingFile("Comfy-Org/Lens", "diffusion_models/lens_bf16.safetensors"),
+    HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pixeldit_1300m_1024px_bf16.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pixeldit_1300m_1024px_mxfp8.safetensors"),
+    HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pid_flux1_1024_to_4096_4step_bf16.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pid_flux1_512_to_2048_4step_mxfp8.safetensors"),
+    # Ideogram 4 (Comfy-Org repack)
+    HuggingFile(
+        "Comfy-Org/Ideogram-4",
+        "diffusion_models/ideogram4_fp8_scaled.safetensors",
+        save_with_filename="ideogram4/ideogram4_fp8_scaled.safetensors",
+        alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
+    ),
+    HuggingFile(
+        "Comfy-Org/Ideogram-4",
+        "diffusion_models/ideogram4_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4/ideogram4_nvfp4_mixed.safetensors",
+        alternate_filenames=("ideogram4_nvfp4_mixed.safetensors",),
+    ),
+    HuggingFile(
+        "Comfy-Org/Ideogram-4",
+        "diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors",
+        save_with_filename="ideogram4/ideogram4_unconditional_fp8_scaled.safetensors",
+        alternate_filenames=("ideogram4_unconditional_fp8_scaled.safetensors",),
+    ),
+    HuggingFile(
+        "Comfy-Org/Ideogram-4",
+        "diffusion_models/ideogram4_unconditional_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4/ideogram4_unconditional_nvfp4_mixed.safetensors",
+        alternate_filenames=("ideogram4_unconditional_nvfp4_mixed.safetensors",),
+    ),
+    # Void video inpainting
+    HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass1.safetensors"),
+    HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass2.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?
@@ -1130,7 +1166,12 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # Anima (circlestone-labs) -- text encoder + VAE shared with the 2B anima diffusion models
     HuggingFile("circlestone-labs/Anima", "split_files/text_encoders/qwen_3_06b_base.safetensors"),
     # PixelDiT and PiD text encoder
+    HuggingFile("Comfy-Org/Lens", "text_encoders/gpt_oss_20b_nvfp4.safetensors"),
+    HuggingFile("Comfy-Org/PixelDiT", "text_encoders/gemma_2_2b_it_elm_bf16.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "text_encoders/gemma_2_2b_it_elm_fp8_scaled.safetensors"),
+    # Ideogram 4
+    HuggingFile("Comfy-Org/Qwen3-VL", "text_encoders/qwen3vl_8b_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
     # --- Models referenced by comfyui-workflow-templates (text_encoders) ---
@@ -1138,7 +1179,10 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ERNIE-Image", "text_encoders/ernie-image-prompt-enhancer.safetensors"),
     HuggingFile("Comfy-Org/ERNIE-Image", "text_encoders/ministral-3-3b.safetensors"),
     # Qwen 3.5 text encoder (Comfy-Org)
+    HuggingFile("Comfy-Org/Qwen3.5", "text_encoders/qwen3.5_2b_bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen3.5", "text_encoders/qwen3.5_4b_bf16.safetensors"),
+    # Stable Audio 3
+    HuggingFile("Comfy-Org/stable-audio-3", "text_encoders/t5gemma_b_b_ul2.safetensors"),
     # t5-base audio text encoder (ComfyUI-Wiki repack)
     HuggingFile("ComfyUI-Wiki/t5-base", "t5-base.safetensors"),
 ], folder_names=["clip", "text_encoders"])

@@ -1411,28 +1411,72 @@ your own handler, or just read stderr.
 
 ---
 
-## Vendor prompting guides (WebFetch these on demand)
+## Vendor prompting guides
 
-When a task uses one of these model families, WebFetch the matching
-vendor guide *before* rewriting the user's prompt — each documents its
-own prompt framework (Subject+Action+Style+Context, scene-first prose,
+Vendored snapshots live in `docs/prompting_guides/README.md`. When a
+task uses one of these model families, read the matching local snapshot
+before rewriting the user's prompt — each documents its own prompt
+framework (Subject+Action+Style+Context, scene-first prose,
 Entity+Scene+Motion, etc.) and the schemas / length budgets / negative
-prompt conventions the encoder is trained for. Do not cache these
-locally; re-fetch so you get the vendor's current guidance.
+prompt conventions the encoder is trained for. WebFetch the original
+vendor source when freshness matters or the local snapshot notes a
+fetch failure.
 
 **Flux.1 / Flux.1 Kontext (Black Forest Labs)** — `docs.bfl.ml`
 
 - https://docs.bfl.ml/guides/prompting_summary — quick reference across the FLUX.1 family
-- https://docs.bfl.ml/guides/prompting_guide_t2i_fundamentals — core framework for text-to-image
-- https://docs.bfl.ml/guides/prompting_guide_t2i_essentials — lighting / color / atmosphere
-- https://docs.bfl.ml/guides/prompting_guide_t2i_advanced — layering, typography, photo controls
+- https://docs.bfl.ml/guides/prompting_unified_basics — core framework for text-to-image; vendored as `docs/prompting_guides/bfl_flux_prompting_t2i_fundamentals.md`
+- https://docs.bfl.ml/guides/prompting_unified_style — lighting / color / atmosphere; vendored as `docs/prompting_guides/bfl_flux_prompting_t2i_essentials.md`
+- https://docs.bfl.ml/guides/prompting_unified_reference — layering, typography, photo controls; vendored as `docs/prompting_guides/bfl_flux_prompting_t2i_advanced.md`
 - https://docs.bfl.ml/guides/prompting_guide_t2i_negative — why FLUX.1 doesn't use negative prompts
-- https://docs.bfl.ml/guides/prompting_guide_kontext_i2i — image-edit (Kontext) quoted-string syntax, 512-token limit
+- https://docs.bfl.ml/guides/prompting_editing_overview — image-edit (Kontext / FLUX.2 editing) guidance; vendored as `docs/prompting_guides/bfl_flux_prompting_kontext_i2i.md`
 
 **Flux.2 (Black Forest Labs)** — `docs.bfl.ml`
 
 - https://docs.bfl.ml/guides/prompting_guide_flux2 — FLUX.2 [pro]/[max]/[dev], JSON schemas, hex colors, multi-reference roles
-- https://docs.bfl.ml/guides/prompting_guide_flux2_klein — FLUX.2 [klein] 9B, scene-first prose, 10–300+ word length guidance
+- https://docs.bfl.ml/flux_2/flux2_text_to_image — FLUX.2 [klein] text-to-image, scene-first prose, structured prompting; vendored as `docs/prompting_guides/bfl_flux2_klein_prompting.md`
+
+**Ideogram 4 (Ideogram / Comfy-Org local template)**
+
+- https://huggingface.co/Comfy-Org/Ideogram-4 — local ComfyUI split model files for `image_ideogram4_t2i` (`ideogram4_fp8_scaled`, `ideogram4_unconditional_fp8_scaled`)
+- https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_ideogram4_t2i.json — bundled local workflow template; read its `MarkdownNote` before prompting
+- https://github.com/ideogram-oss/ideogram4/blob/main/docs/prompting.md — official Ideogram 4 prompting guide: structured JSON captions, schema/key-order rules, `V4_QUALITY_48`, magic prompt options, 0-1000 bounding boxes, and uppercase hex palettes
+- Prompting guide summary: Ideogram 4 is trained on structured JSON captions. Prefer JSON over plain prose when layout, palette, or text fidelity matters. Include `high_level_description`, `style_description`, `compositional_deconstruction.background`, and `compositional_deconstruction.elements`; keep required key order, use `[y_min, x_min, y_max, x_max]` boxes on a 0-1000 grid, and serialize compact JSON. It uses asymmetric CFG, where the unconditional pass drops text tokens; do not treat it as a normal negative-prompt workflow.
+- Compact JSON schema to use when asking an LLM to build the prompt:
+
+```json
+{
+  "type": "object",
+  "required": ["summary", "style", "background"],
+  "properties": {
+    "summary": {"type": "string"},
+    "style": {"type": "string"},
+    "background": {"type": "string"},
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "bbox"],
+        "properties": {
+          "text": {"type": "string"},
+          "description": {"type": "string"},
+          "bbox": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number", "minimum": 0, "maximum": 1000},
+            "description": "[y_min, x_min, y_max, x_max] on a 0-1000 grid"
+          },
+          "palette": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 **Wan 2.1 / 2.2 / 2.5 / 2.6 (Alibaba Tongyi Wanxiang)**
 
@@ -1478,10 +1522,6 @@ locally; re-fetch so you get the vendor's current guidance.
 **NewBie-Image (NewBie-AI)**
 
 - https://huggingface.co/NewBie-AI/NewBie-image-Exp0.1 — XML prompt schema (`<character_1><name><gender><appearance><clothing>…`), general tags for style/background/atmosphere/quality; also accepts natural-language and tag inputs
-
-**Stable Diffusion 3.5 (Stability AI)**
-
-- https://stability.ai/learning-hub/stable-diffusion-3-5-prompt-guide — subject+action, composition/framing, lighting/color with worked examples. (Canonical URL; a `/guides/…` redirect occasionally 404s — if WebFetch fails, retry or fall back to search.)
 
 **HuMo (Phantom-video) — audio-conditioned video**
 

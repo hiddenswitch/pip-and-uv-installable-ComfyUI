@@ -82,6 +82,7 @@ from .text_encoders import ernie
 from .text_encoders import gemma4
 from .text_encoders import cogvideo
 from .text_encoders import gpt_oss
+from .text_encoders import ideogram4
 from .text_encoders import pixeldit
 from .text_encoders import sa3
 
@@ -1357,6 +1358,7 @@ class CLIPType(Enum):
     COGVIDEOX = 27
     LENS = 28
     PIXELDIT = 29
+    IDEOGRAM4 = 30
 
 
 @dataclasses.dataclass
@@ -1680,8 +1682,12 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = ovis.te(**llama_detect(clip_data))
             clip_target.tokenizer = ovis.OvisTokenizer
         elif te_model == TEModel.QWEN3_8B:
-            clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type="qwen3_8b")
-            clip_target.tokenizer = flux.KleinTokenizer8B
+            if clip_type == CLIPType.IDEOGRAM4:
+                clip_target.clip = ideogram4.te(**llama_detect(clip_data))
+                clip_target.tokenizer = ideogram4.Ideogram4Tokenizer
+            else:
+                clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type="qwen3_8b")
+                clip_target.tokenizer = flux.KleinTokenizer8B
         elif te_model == TEModel.JINA_CLIP_2:
             clip_target.clip = jina_clip_2.JinaClip2TextModelWrapper
             clip_target.tokenizer = jina_clip_2.JinaClip2TokenizerWrapper

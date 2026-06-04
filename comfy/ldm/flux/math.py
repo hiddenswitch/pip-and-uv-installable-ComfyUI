@@ -3,10 +3,7 @@ from einops import rearrange
 from torch import Tensor
 
 from ..modules.attention import optimized_attention
-from ... import model_management
-import logging
-
-logger = logging.getLogger(__name__)
+from ... import model_management, quant_ops
 
 
 def attention(q: Tensor, k: Tensor, v: Tensor, pe: Tensor, mask=None, transformer_options={}) -> Tensor:
@@ -47,22 +44,15 @@ def _apply_rope(xq: Tensor, xk: Tensor, freqs_cis: Tensor):
     return apply_rope1(xq, freqs_cis), apply_rope1(xk, freqs_cis)
 
 
-try:
-    from ... import quant_ops
+def apply_rope(xq, xk, freqs_cis):
+    if model_management.in_training:
+        return _apply_rope(xq, xk, freqs_cis)
+    else:
+        return quant_ops.ck.apply_rope(xq, xk, freqs_cis)
 
-    q_apply_rope = quant_ops.ck.apply_rope
-    q_apply_rope1 = quant_ops.ck.apply_rope1
-    def apply_rope(xq, xk, freqs_cis):
-        if model_management.in_training:
-            return _apply_rope(xq, xk, freqs_cis)
-        else:
-            return apply_rope1(xq, freqs_cis), apply_rope1(xk, freqs_cis)
-    def apply_rope1(x, freqs_cis):
-        if model_management.in_training:
-            return _apply_rope1(x, freqs_cis)
-        else:
-            return q_apply_rope1(x, freqs_cis)
-except:
-    logger.warning("No comfy kitchen, using old apply_rope functions.")
-    apply_rope = _apply_rope
-    apply_rope1 = _apply_rope1
+
+def apply_rope1(x, freqs_cis):
+    if model_management.in_training:
+        return _apply_rope1(x, freqs_cis)
+    else:
+        return quant_ops.ck.apply_rope1(x, freqs_cis)
