@@ -531,7 +531,16 @@ Place release tags on the finished, tested fork commit for that version, not mer
 
 Upstream uses `requirements.txt` at the repository root. We deleted this file and moved all dependencies to `pyproject.toml`.
 
-When merging, accept our deletion of `requirements.txt` and update version minimums in `pyproject.toml` instead. Key packages to watch:
+When merging, accept our deletion of `requirements.txt` and update version minimums in `pyproject.toml` instead. Do not only preserve the existing fork ranges. Read upstream's current `requirements.txt` and reconcile every pinned or minimum version into the package metadata:
+
+```bash
+git show comfyui/master:requirements.txt
+rg -n 'dependencies = |comfyui-frontend-package|comfyui-workflow-templates|comfyui-embedded-docs|comfy[_-]kitchen|comfy-aimdo|numpy|aiohttp|yarl|kornia|filelock|SQLAlchemy' pyproject.toml
+```
+
+For upstream pins such as `pkg==X.Y.Z`, use an equivalent fork minimum when this package intentionally carries a range, e.g. `pkg>=X.Y.Z,<next-compatible-bound>`. For ordinary lower bounds, make sure `pyproject.toml` is at least as high as upstream. If upstream adds a base dependency that this fork does not have, add it to `dependencies` unless it is deliberately excluded with a documented reason. Recent examples include `comfyui-frontend-package`, `comfyui-workflow-templates`, `comfy-aimdo`, `numpy`, `kornia`, and `filelock`.
+
+Key packages to watch:
 
 - `comfyui-frontend-package`
 - `comfyui-workflow-templates`
