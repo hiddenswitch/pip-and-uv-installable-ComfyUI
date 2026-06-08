@@ -9,8 +9,7 @@
 ## Features & Workflows
 - [Large Language Models](llm.md)
 - [Vendored Prompting Guides](prompting_guides/README.md)
-- [Video Workflows](video.md) (AnimateDiff, SageAttention, etc.)
-- [Other Features](other_features.md) (SVG, Ideogram)
+- [Other Features](other_features.md) (SVG)
 
 ## Extending ComfyUI
 - [Custom Nodes](custom_nodes.md) (Installing & Authoring)

@@ -92,7 +92,6 @@ def parse_hf_uri(uri: str) -> HuggingFile:
     return HuggingFile(repo_id=repo_id, filename=filename, repo_type=repo_type)
 
 
-
 def get_filename_list(folder_name: str) -> Sequence[str]:
     return get_filename_list_with_downloadable(folder_name)
 
@@ -1093,25 +1092,25 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_fp8_scaled.safetensors",
-        save_with_filename="ideogram4/ideogram4_fp8_scaled.safetensors",
+        save_with_filename="ideogram4_fp8_scaled.safetensors",
         alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_nvfp4_mixed.safetensors",
-        save_with_filename="ideogram4/ideogram4_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4_nvfp4_mixed.safetensors",
         alternate_filenames=("ideogram4_nvfp4_mixed.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors",
-        save_with_filename="ideogram4/ideogram4_unconditional_fp8_scaled.safetensors",
+        save_with_filename="ideogram4_unconditional_fp8_scaled.safetensors",
         alternate_filenames=("ideogram4_unconditional_fp8_scaled.safetensors",),
     ),
     HuggingFile(
         "Comfy-Org/Ideogram-4",
         "diffusion_models/ideogram4_unconditional_nvfp4_mixed.safetensors",
-        save_with_filename="ideogram4/ideogram4_unconditional_nvfp4_mixed.safetensors",
+        save_with_filename="ideogram4_unconditional_nvfp4_mixed.safetensors",
         alternate_filenames=("ideogram4_unconditional_nvfp4_mixed.safetensors",),
     ),
     # Void video inpainting

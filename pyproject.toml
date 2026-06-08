@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.24.0"
+version = "0.24.0.1"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -20,11 +20,11 @@ classifiers = [
 
 dependencies = [
     # todo: it looks like there are breaking frontend package changes, so this really does need to be pinned?
-    "comfyui-frontend-package>=1.44.19,<1.45",
-    "comfyui-workflow-templates>=0.9.94,<0.10",
+    "comfyui-frontend-package>=1.45.15,<1.46",
+    "comfyui-workflow-templates>=0.9.98,<0.10",
     "comfyui-embedded-docs>=0.5.2,<0.6",
     "comfy_kitchen>=0.2.10,<0.3",
-    "comfy-aimdo>=0.4.8,<0.5",
+    "comfy-aimdo>=0.4.9,<0.5",
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.1,<5",
     "torch",
@@ -62,7 +62,7 @@ dependencies = [
     "ConfigArgParse>=1.7.1",
     "aio-pika",
     "pyjwt[crypto]",
-    "kornia>=0.7.0",
+    "kornia>=0.7.1",
     "mpmath>=1.0,!=1.4.0a0",
     "huggingface_hub[hf_xet]>=0.32.0",
     "lazy-object-proxy",
@@ -94,7 +94,7 @@ dependencies = [
     "certifi",
     "spandrel>=0.3.4",
     # https://github.com/conda-forge/numba-feedstock/issues/158 until numba is released with support for a later version of numpy
-    "numpy>=1.24.4,<2.3; python_version < '3.14'",
+    "numpy>=1.25.0,<2.3; python_version < '3.14'",
     "numpy>=2.3; python_version >= '3.14'",
     "soundfile>=0.13 ; sys_platform != 'darwin'",
     "soundfile>=0.12,<0.13 ; sys_platform == 'darwin'",
@@ -128,6 +128,7 @@ dependencies = [
     "setuptools",
     "alembic",
     "SQLAlchemy>=2.0,<3",
+    "filelock",
     "gguf",
     "trimesh",
     "glfw",
@@ -305,6 +306,7 @@ init-hook = 'import sys; sys.path.insert(0, ".")'
 load-plugins = [
     "tests.absolute_import_checker",
     "tests.main_pre_import_checker",
+    "tests.merge_hygiene_checker",
     "tests.missing_init",
     "tests.root_comfy_extras_nodes_checker",
     "tests.sd_clip_model_init_checker",
@@ -321,4 +323,13 @@ enable = [
     "missing-init",                    # W8001 — tests/missing_init.py
     "root-comfy-extras-nodes-file",    # W8002 — tests/root_comfy_extras_nodes_checker.py
     "sd-clip-model-missing-config",    # W9001 — tests/sd_clip_model_init_checker.py
+    "comfy-version-mismatch",          # W9101 — tests/merge_hygiene_checker.py
+    "direct-transformers-import",      # W9102 — tests/merge_hygiene_checker.py
+    "textmodel-json-config-not-forwarded", # W9103 — tests/merge_hygiene_checker.py
+    "supported-model-missing-inference-coverage", # W9104 — tests/merge_hygiene_checker.py
+    "inference-coverage-missing-workflow", # W9105 — tests/merge_hygiene_checker.py
+    "blueprint-package-resource-broken", # W9106 — tests/merge_hygiene_checker.py
+    "dynamic-root-node-loader-import", # W9107 — tests/merge_hygiene_checker.py
+    "cuda-alloc-conf-default-broken",  # W9108 — tests/merge_hygiene_checker.py
+    "workflow-cache-contains-ui-format", # W9109 — tests/merge_hygiene_checker.py
 ]

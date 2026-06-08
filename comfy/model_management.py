@@ -25,6 +25,7 @@ import platform
 import sys
 import warnings
 import weakref
+from functools import lru_cache
 from contextlib import contextmanager, nullcontext
 from enum import Enum
 from threading import RLock
@@ -1285,11 +1286,7 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=(torch.float16, tor
         fp8_dtype = weight_dtype
 
     if fp8_dtype is not None:
-        if supports_fp8_compute(device):  # if fp8 compute is supported the casting is most likely not expensive
-            return fp8_dtype
-
-        free_model_memory = maximum_vram_for_weights(device)
-        if model_params * 2 > free_model_memory:
+        if args.fp8_storage and supports_fp8_storage(device, fp8_dtype):
             return fp8_dtype
 
     if PRIORITIZE_FP16 or weight_dtype == torch.float16:
@@ -1474,6 +1471,41 @@ def supports_cast(device, dtype):  # TODO
     if dtype == torch.float8_e5m2:
         return True
     return False
+
+
+def _device_cache_key(device):
+    device = torch.device(device) if device is not None else get_torch_device()
+    return (device.type, device.index)
+
+
+def supports_fp8_storage(device=None, dtype=None):
+    if dtype not in FLOAT8_TYPES:
+        return False
+    device_type, device_index = _device_cache_key(device)
+    return _supports_fp8_storage(device_type, device_index, dtype)
+
+
+@lru_cache(maxsize=None)
+def _supports_fp8_storage(device_type, device_index, dtype):
+    device = torch.device(device_type, device_index)
+    compute_dtype = torch.bfloat16 if should_use_bf16(device) else torch.float16
+
+    try:
+        class NoInitLinear(torch.nn.Linear):
+            def reset_parameters(self):
+                return None
+
+        layer = NoInitLinear(4, 4, device=device, dtype=dtype)
+        state_dict = {
+            "weight": torch.randn(4, 4, dtype=torch.float32).to(dtype).to(device),
+            "bias": torch.randn(4, dtype=torch.float32).to(dtype).to(device),
+        }
+        layer.load_state_dict(state_dict, strict=True)
+        x = torch.randn(2, 4, dtype=torch.float32, device=device).to(compute_dtype)
+        _ = torch.nn.functional.linear(x, layer.weight.to(dtype=compute_dtype), layer.bias.to(dtype=compute_dtype))
+        return True
+    except Exception:
+        return False
 
 
 def pick_weight_dtype(dtype, fallback_dtype, device=None):

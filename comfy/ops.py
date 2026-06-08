@@ -1145,6 +1145,7 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
     device = module.factory_kwargs["device"]
     compute_dtype = module.factory_kwargs["dtype"]
     disabled_formats = module._disabled_formats
+    disabled_storage_formats = module._disabled_storage_formats
     layer_name = prefix.rstrip('.')
 
     weight = state_dict.pop(f"{prefix}weight", None)
@@ -1202,10 +1203,12 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
             raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
         params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
-        module.weight = torch.nn.Parameter(
-            QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params),
-            requires_grad=False,
-        )
+        quantized_weight = QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params)
+        if module.quant_format in disabled_storage_formats:
+            module.layout_type = None
+            module.weight = torch.nn.Parameter(quantized_weight.dequantize().to(device=device, dtype=compute_dtype), requires_grad=False)
+        else:
+            module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
 
         if load_extra_params:
             for param_name in qconfig["parameters"]:
@@ -1252,15 +1255,17 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
     return sd
 
 
-def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_precision_mm=False, disabled=[]):
+def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_precision_mm=False, disabled=[], disabled_storage=[]):
     class MixedPrecisionOps(manual_cast):
         _quant_config = quant_config
         _compute_dtype = compute_dtype
         _full_precision_mm = full_precision_mm
         _disabled = disabled
+        _disabled_storage = disabled_storage
 
         class Linear(torch.nn.Module, CastWeightBiasOp):
             _disabled_formats = disabled
+            _disabled_storage_formats = disabled_storage
 
             def __init__(self, in_features: int, out_features: int, bias: bool = True, device=None, dtype=None):
                 super().__init__()
@@ -1398,6 +1403,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
             """
 
             _disabled_formats = disabled
+            _disabled_storage_formats = disabled_storage
 
             def __init__(self, num_experts: int, in_features: int, out_features: int, bias: bool = True, device=None, dtype=None):
                 super().__init__()
@@ -1496,6 +1502,8 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 return _quantized_weight_state_dict(self, sd, prefix, extra_quant_conf={"num_experts": self.num_experts})
 
         class Embedding(manual_cast.Embedding):
+            _disabled_storage_formats = disabled_storage
+
             def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
                 weight_key = f"{prefix}weight"
                 layer_conf = state_dict.pop(f"{prefix}comfy_quant", None)
@@ -1526,9 +1534,12 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         orig_dtype=MixedPrecisionOps._compute_dtype,
                         orig_shape=(self.num_embeddings, self.embedding_dim),
                     )
-                    self.weight = torch.nn.Parameter(
-                        QuantizedTensor(weight.to(dtype=qconfig["storage_t"]), qconfig["comfy_tensor_layout"], params),
-                        requires_grad=False)
+                    quantized_weight = QuantizedTensor(weight.to(dtype=qconfig["storage_t"]), qconfig["comfy_tensor_layout"], params)
+                    if quant_format in self._disabled_storage_formats:
+                        self.layout_type = None
+                        self.weight = torch.nn.Parameter(quantized_weight.dequantize().to(dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
+                    else:
+                        self.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
                 elif layer_conf is not None:
                     # Unsupported format — restore the marker so it round-trips; fall through to default load.
                     state_dict[f"{prefix}comfy_quant"] = torch.tensor(
@@ -1580,8 +1591,10 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")
         disabled = set()
+        disabled_storage = set()
         if not mixed_precision_quantization_available():
             disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4"})
+            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4"})
         if not nvfp4_compute:
             disabled.add("nvfp4")
         if not mxfp8_compute:
@@ -1589,7 +1602,9 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         if not fp8_compute:
             disabled.add("float8_e4m3fn")
             disabled.add("float8_e5m2")
-        return mixed_precision_ops(model_config.quant_config, compute_dtype, disabled=disabled)
+        if not args.fp8_storage:
+            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8"})
+        return mixed_precision_ops(model_config.quant_config, compute_dtype, disabled=disabled, disabled_storage=disabled_storage)
 
     if (
         fp8_compute and

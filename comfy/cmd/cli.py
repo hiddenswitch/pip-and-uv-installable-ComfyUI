@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import sys
 import warnings
 from pathlib import Path
@@ -132,6 +133,7 @@ _PRECISION_OPTS: list[tuple] = [
     ("fp8_e4m3fn_unet", bool, typer.Option(False, "--fp8_e4m3fn-unet/--no-fp8_e4m3fn-unet", help="Store unet weights in fp8_e4m3fn.")),
     ("fp8_e5m2_unet", bool, typer.Option(False, "--fp8_e5m2-unet/--no-fp8_e5m2-unet", help="Store unet weights in fp8_e5m2.")),
     ("fp8_e8m0fnu_unet", bool, typer.Option(False, "--fp8_e8m0fnu-unet/--no-fp8_e8m0fnu-unet", help="Store unet weights in fp8_e8m0fnu.")),
+    ("fp8_storage", bool, typer.Option(True, "--fp8-storage/--no-fp8-storage", help="Preserve native fp8 checkpoint weights as resident fp8 storage when the device supports fp8 storage with upcasted math.")),
 
     ("fp16_vae", bool, typer.Option(False, "--fp16-vae/--no-fp16-vae", help="Run the VAE in FP16 precision.")),
     ("fp32_vae", bool, typer.Option(False, "--fp32-vae/--no-fp32-vae", help="Run the VAE in full precision fp32.")),
@@ -437,6 +439,28 @@ def _find_default_config_file() -> Optional[str]:
     return None
 
 
+def _format_cli_args(args: list[str]) -> str:
+    return shlex.join(args)
+
+
+def _warn_unknown_cli_args(args: list[str]) -> None:
+    if not args:
+        return
+    typer.echo(
+        f"[WARNING] Ignoring unknown CLI argument(s): {_format_cli_args(args)}",
+        err=True,
+    )
+
+
+def _remove_unknown_option_args_from_workflows(workflows: list[str]) -> list[str]:
+    unknown_args = [w for w in workflows if w != "-" and w.startswith("-")]
+    _warn_unknown_cli_args(unknown_args)
+    if not unknown_args:
+        return workflows
+    unknown_set = set(unknown_args)
+    return [w for w in workflows if w not in unknown_set]
+
+
 def _parse_plugin_args(ctx: typer.Context, config: Configuration):
     """Load comfyui.custom_config entry points and parse their args from ctx.args."""
     from importlib.metadata import entry_points
@@ -450,9 +474,10 @@ def _parse_plugin_args(ctx: typer.Context, config: Configuration):
             parser = result
 
     if ctx.args:
-        plugin_args, _ = parser.parse_known_args(ctx.args)
+        plugin_args, unknown_args = parser.parse_known_args(ctx.args)
         for k, v in vars(plugin_args).items():
             setattr(config, k, v)
+        _warn_unknown_cli_args(unknown_args)
 
 
 def _collect_params(local_vars: dict, kwargs: dict) -> dict:
@@ -1419,6 +1444,7 @@ def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> No
 @app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows", cls=_RunWorkflowCommand)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
+    ctx: typer.Context,
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
     all: bool = typer.Option(False, "--all/--no-all", "-a", help="Install missing custom nodes and download missing models before running."),
     dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Print the execution plan (discovered models, folder-path registrations, missing downloads, disk free) and exit. Implies --all."),
@@ -1464,6 +1490,8 @@ def run_workflow(
       cat workflow.json | comfyui run-workflow -
       comfyui run-workflow workflow.json --novram --fast cublas_ops
     """
+    _warn_unknown_cli_args(ctx.args)
+    workflows = _remove_unknown_option_args_from_workflows(workflows)
     _all = all or dry_run
     _dry_run = dry_run
     params = _collect_params(locals(), kwargs)

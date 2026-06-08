@@ -10,6 +10,8 @@ import os
 import pytest
 from unittest.mock import patch
 
+from comfy.cmd import folder_paths
+from comfy.component_model.folder_path_types import FolderPathsTuple
 from comfy.component_model.uris import is_hf_uri, is_uri
 from comfy.model_downloader import parse_hf_uri, get_or_download
 from comfy.model_downloader_types import HuggingFile
@@ -148,6 +150,40 @@ class TestGetOrDownloadWithHfUri:
 
         assert result == "/path/to/model.safetensors"
         mock_get_full_path.assert_called_once()
+
+    def test_existing_ideogram_plain_filename_is_found_before_download(self, tmp_path):
+        models_dir = tmp_path / "diffusion_models"
+        models_dir.mkdir()
+        expected = models_dir / "ideogram4_fp8_scaled.safetensors"
+        expected.write_bytes(b"already here")
+
+        previous = folder_paths.folder_names_and_paths.get("diffusion_models")
+        folder_paths.folder_names_and_paths["diffusion_models"] = FolderPathsTuple(
+            "diffusion_models",
+            [str(models_dir)],
+            {".safetensors"},
+        )
+        known_file = HuggingFile(
+            "Comfy-Org/Ideogram-4",
+            "diffusion_models/ideogram4_fp8_scaled.safetensors",
+            save_with_filename="ideogram4_fp8_scaled.safetensors",
+            alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
+        )
+        try:
+            with patch("comfy.model_downloader.hf_hub_download") as hf_hub_download:
+                result = get_or_download(
+                    "diffusion_models",
+                    "ideogram4_fp8_scaled.safetensors",
+                    known_files=[known_file],
+                )
+        finally:
+            if previous is None:
+                del folder_paths.folder_names_and_paths["diffusion_models"]
+            else:
+                folder_paths.folder_names_and_paths["diffusion_models"] = previous
+
+        assert result == str(expected)
+        hf_hub_download.assert_not_called()
 
 
 class TestEdgeCases:

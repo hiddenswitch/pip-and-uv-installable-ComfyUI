@@ -12,6 +12,7 @@ cleanly because the stub silently accepts them. You must also:
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -86,6 +87,7 @@ fpunet_group.add_argument("--fp16-unet", action="store_true", help="Run the diff
 fpunet_group.add_argument("--fp8_e4m3fn-unet", action="store_true", help="Store unet weights in fp8_e4m3fn.")
 fpunet_group.add_argument("--fp8_e5m2-unet", action="store_true", help="Store unet weights in fp8_e5m2.")
 fpunet_group.add_argument("--fp8_e8m0fnu-unet", action="store_true", help="Store unet weights in fp8_e8m0fnu.")
+parser.add_argument("--fp8-storage", action=argparse.BooleanOptionalAction, default=True, help="Preserve native fp8 checkpoint weights as resident fp8 storage when the device supports fp8 storage with upcasted math.")
 
 fpvae_group = parser.add_mutually_exclusive_group()
 fpvae_group.add_argument("--fp16-vae", action="store_true", help="Run the VAE in fp16.")

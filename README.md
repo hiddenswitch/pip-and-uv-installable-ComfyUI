@@ -124,8 +124,7 @@ Full documentation is available in [docs/index.md](docs/index.md).
 
 ### Features & Workflows
 - [Large Language Models](docs/llm.md)
-- [Video Workflows](docs/video.md) (AnimateDiff, SageAttention, etc.)
-- [Other Features](docs/other_features.md) (SVG, Ideogram)
+- [Other Features](docs/other_features.md) (SVG)
 
 ### Extending ComfyUI
 - [Custom Nodes](docs/custom_nodes.md) (Installing & Authoring)

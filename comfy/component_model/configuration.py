@@ -52,6 +52,7 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "fp8_e4m3fn_unet",
     "fp8_e5m2_unet",
     "fp8_e8m0fnu_unet",
+    "fp8_storage",
     "fp8_e4m3fn_text_enc",
     "fp8_e5m2_text_enc",
     "fp16_text_enc",

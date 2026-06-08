@@ -162,6 +162,23 @@ def _format_gguf_storage_summary(model_config) -> str:
     return ""
 
 
+def _format_quantized_storage_summary(model) -> str:
+    qdata_counts = {}
+    for param in model.parameters():
+        qdata = getattr(param, "_qdata", None)
+        if qdata is None:
+            continue
+        qdata_counts[qdata.dtype] = qdata_counts.get(qdata.dtype, 0) + 1
+
+    if not qdata_counts:
+        return ""
+
+    return ", ".join(
+        "{}={}".format(dtype, count)
+        for dtype, count in sorted(qdata_counts.items(), key=lambda item: str(item[0]))
+    )
+
+
 def convert_tensor(extra, dtype, device):
     if hasattr(extra, "dtype"):
         if extra.dtype != torch.int and extra.dtype != torch.long:
@@ -196,9 +213,12 @@ class BaseModel(torch.nn.Module):
                 self.diffusion_model.to(memory_format=torch.channels_last)
                 logger.debug("using channels last mode for diffusion model")
             storage_suffix = _format_gguf_storage_summary(model_config)
+            quant_suffix = ""
+            if getattr(model_config, "quant_config", None):
+                quant_suffix = " (mixed precision storage pending weight load)"
             logger.info(
-                "model weight dtype {}, manual cast: {}{}".format(
-                    self.get_dtype(), self.manual_cast_dtype, storage_suffix
+                "model dtype {}, manual cast: {}{}{}".format(
+                    self.get_dtype(), self.manual_cast_dtype, storage_suffix, quant_suffix
                 )
             )
             model_management.archive_model_dtypes(self.diffusion_model)
@@ -387,6 +407,14 @@ class BaseModel(torch.nn.Module):
 
         if len(u) > 0:
             logger.warning("unet unexpected: {}".format(u))
+
+        quantized_storage_summary = _format_quantized_storage_summary(self.diffusion_model)
+        if quantized_storage_summary:
+            logger.info(
+                "model quantized weight storage: {}; compute dtype {}, manual cast: {}".format(
+                    quantized_storage_summary, self.get_dtype(), self.manual_cast_dtype
+                )
+            )
         del to_load
         return self
 

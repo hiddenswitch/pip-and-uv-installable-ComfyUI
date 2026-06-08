@@ -110,6 +110,7 @@ class Configuration(dict):
         fp64_unet (bool): Run the diffusion model in fp64.
         fp8_e4m3fn_unet (bool): Store unet weights in fp8_e4m3fn
         fp8_e5m2_unet (bool): Store unet weights in fp8_e5m2.
+        fp8_storage (bool): Preserve native fp8 checkpoint weights as resident fp8 storage when supported.
         fp16_vae (bool): Run the VAE in FP16 precision.
         fp32_vae (bool): Run the VAE in FP32 precision.
         bf16_vae (bool): Run the VAE in BF16 precision.
@@ -190,6 +191,7 @@ class Configuration(dict):
         guess_settings (bool): Auto-detect best settings for this machine (GPU type, RAM, attention backend, etc.). Explicit flags override guessed values.
         disable_pinned_memory (bool): Disable pinned memory use.
         fp8_e8m0fnu_unet (bool): Store unet weights in fp8_e8m0fnu.
+        fp8_storage (bool): Preserve native fp8 checkpoint weights as resident fp8 storage when supported.
         bf16_text_enc (bool): Store text encoder weights in bf16.
         supports_fp8_compute (bool): ComfyUI will act like if the device supports fp8 compute.
         cache_classic (bool): WARNING: Unused. Use the old style (aggressive) caching.
@@ -257,6 +259,7 @@ class Configuration(dict):
         self.fp64_unet: bool = False
         self.fp8_e4m3fn_unet: bool = False
         self.fp8_e5m2_unet: bool = False
+        self.fp8_storage: bool = True
         self.fp16_vae: bool = False
         self.fp32_vae: bool = False
         self.bf16_vae: bool = False
