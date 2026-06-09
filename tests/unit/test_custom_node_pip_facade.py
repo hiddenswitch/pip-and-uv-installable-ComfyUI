@@ -6,7 +6,10 @@ import types
 import zipfile
 from pathlib import Path
 
+from comfy.custom_node_facade import flash_attention_wheels
 from comfy.custom_node_facade.builder import FacadeWheelBuilder
+from comfy.custom_node_facade.builder import FlashAttentionProxySpec
+from comfy.custom_node_facade.builder import PYPI_PROXY_INDEX
 from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
 from comfy.cmd.node_info import node_info
 from comfy.nodes.package import _extract_vanilla_custom_node_roots
@@ -24,6 +27,19 @@ def _make_zip_bytes(files: dict[str, bytes]) -> bytes:
 from comfy.custom_node_facade.builder import _strip_url_dependency
 
 
+class _NoNetworkSession:
+    def get(self, url: str):
+        raise AssertionError(f"Flash Attention proxy should not fetch at request time: {url}")
+
+
+_FLASH_ATTENTION_WHEEL_URLS = (
+    "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.8.2/flash_attn-2.8.3+cu126torch2.8-cp39-abi3-linux_x86_64.whl",
+    "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.8.2/flash_attn-2.8.3+cu128torch2.8-cp39-abi3-linux_x86_64.whl",
+    "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.8.2/flash_attn_3-3.0.0+cu128torch2.8-cp39-abi3-linux_x86_64.whl",
+    "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.29/flash_attn_3-3.0.0+cu124torch2.5-cp39-abi3-linux_x86_64.whl",
+)
+
+
 def test_strip_url_dependency_rewrites_sam2():
     assert _strip_url_dependency("sam2 @ git+https://github.com/facebookresearch/sam2") == "sam2"
 
@@ -35,6 +51,69 @@ def test_strip_url_dependency_preserves_plain_requirement():
 def test_strip_url_dependency_preserves_extras_and_markers():
     result = _strip_url_dependency("pkg[extra1] @ https://example.com/pkg.tar.gz ; python_version >= '3.10'")
     assert result == 'pkg[extra1]; python_version >= "3.10"'
+
+
+async def test_flash_attention_proxy_filters_packages_by_cuda(monkeypatch):
+    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    session = _NoNetworkSession()
+    proxy = FlashAttentionProxySpec(name="flash-attn", wheel_project_prefix="flash_attn")
+
+    html = await proxy.render_index(session, "cu128")  # type: ignore[arg-type]
+
+    assert "flash_attn-2.8.3+cu128torch2.8" in html
+    assert "flash_attn-2.8.3+cu126torch2.8" not in html
+    assert "flash_attn_3-3.0.0+cu128torch2.8" not in html
+    assert "github.com/mjun0812/flash-attention-prebuild-wheels/releases/download" in html
+
+
+async def test_flash_attention_3_proxy_filters_packages_by_distribution(monkeypatch):
+    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    session = _NoNetworkSession()
+    proxy = FlashAttentionProxySpec(
+        name="flash-attn-3",
+        wheel_project_prefix="flash_attn_3",
+        cuda_variants=("cu124", "cu126", "cu128", "cu129", "cu130", "cu132"),
+    )
+
+    html = await proxy.render_index(session, "cu128")  # type: ignore[arg-type]
+
+    assert "flash_attn_3-3.0.0+cu128torch2.8" in html
+    assert "flash_attn-2.8.3+cu128torch2.8" not in html
+    assert "flash_attn_3-3.0.0+cu124torch2.5" not in html
+
+
+async def test_flash_attention_3_proxy_rejects_unsupported_cuda(monkeypatch):
+    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    session = _NoNetworkSession()
+    proxy = FlashAttentionProxySpec(
+        name="flash-attn-3",
+        wheel_project_prefix="flash_attn_3",
+        cuda_variants=("cu124", "cu126", "cu128", "cu129", "cu130", "cu132"),
+    )
+
+    html = await proxy.render_index(session, "cu121")  # type: ignore[arg-type]
+
+    assert ".whl" not in html
+
+
+def test_cuda_specific_proxy_support_matrix():
+    expected = {
+        "flash-attn": {"cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132"},
+        "flash-attn-3": {"cu124", "cu126", "cu128", "cu129", "cu130", "cu132"},
+        "sageattention": {"cu128", "cu130"},
+        "nunchaku": {"cu128", "cu130"},
+    }
+    checked_cuda_variants = {"cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132"}
+
+    for project_name, supported_cuda_variants in expected.items():
+        proxy = PYPI_PROXY_INDEX[project_name]
+        assert {
+            cuda
+            for cuda in checked_cuda_variants
+            if proxy.supports_cuda(cuda)
+        } == supported_cuda_variants
+
+    assert all(PYPI_PROXY_INDEX["insightface"].supports_cuda(cuda) for cuda in checked_cuda_variants)
 
 
 def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):
