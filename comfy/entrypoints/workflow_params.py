@@ -814,13 +814,69 @@ def _rank(params: list[Param]) -> list[Param]:
     return sorted(params, key=lambda p: (p.tier, p.node_id, p.widget_name))
 
 
+def _param_value_key(value: Any) -> str:
+    try:
+        return json_dumps_stable(value)
+    except TypeError:
+        return repr(value)
+
+
+def json_dumps_stable(value: Any) -> str:
+    import json
+
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _merge_equivalent_flag_params(params: list[Param]) -> list[Param]:
+    out: list[Param] = []
+    seen: dict[tuple[str, int, str, str], Param] = {}
+    for param in params:
+        if not param.flag_name:
+            out.append(param)
+            continue
+        key = (param.flag_name, param.tier, param.type, _param_value_key(param.value))
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = param
+            out.append(param)
+            continue
+        existing.roles |= param.roles
+        for source in param.source_predicates:
+            if source not in existing.source_predicates:
+                existing.source_predicates.append(source)
+        if existing.label is None and param.label is not None:
+            existing.label = param.label
+        if not existing.options and param.options:
+            existing.options = param.options
+    return out
+
+
+def _disambiguate_duplicate_flag_names(params: list[Param]) -> list[Param]:
+    by_flag: dict[str, list[Param]] = {}
+    for param in params:
+        if param.flag_name:
+            by_flag.setdefault(param.flag_name, []).append(param)
+
+    for flag_name, flagged in by_flag.items():
+        if len(flagged) <= 1:
+            continue
+        for idx, param in enumerate(flagged, start=1):
+            param.flag_name = f"{flag_name}-{idx}"
+    return params
+
+
+def _normalize_flag_names(params: list[Param]) -> list[Param]:
+    """Collapse equivalent generated flags and suffix non-equivalent collisions."""
+    return _disambiguate_duplicate_flag_names(_merge_equivalent_flag_params(params))
+
+
 def discover(workflow: dict, *, node_mappings=None) -> list[Param]:
     api, ui = _to_api(workflow, node_mappings=node_mappings)
     candidates: dict[tuple[str, str], Param] = {}
     for _name, predicate in _PREDICATES:
         for cand in predicate(api, ui):
             _merge(candidates, cand)
-    return _rank(list(candidates.values()))
+    return _normalize_flag_names(_rank(list(candidates.values())))
 
 
 def params_by_role(params: Iterable[Param], role: str) -> list[Param]:

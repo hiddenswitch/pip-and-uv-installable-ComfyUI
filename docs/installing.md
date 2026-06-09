@@ -2,160 +2,148 @@
 
 ## Installing
 
-Find your platform and GPU below and copy-paste the commands. Models used by workflows are downloaded automatically.
+Pick the block for your platform and accelerator and paste it into a terminal. Models used by workflows are downloaded automatically.
 
-### Prerequisites
+- The **workspace directory** is where ComfyUI stores the `.venv`, downloaded models, outputs, and `custom_nodes/`. You can move it anywhere; the examples use `ComfyUI_Workspace`.
+- The **virtual environment** (`.venv`) is an isolated Python install inside the workspace. Activate it before running `comfyui`.
+- **`uv`** is the Python package manager used here. It creates the venv and installs ComfyUI plus the correct PyTorch wheels.
+- **GPU settings** are chosen in two places: `uv pip install --torch-backend=...` selects the PyTorch wheel, and `comfyui serve --guess-settings` auto-detects runtime settings such as VRAM mode and attention backend. CUDA users should use `--torch-backend=auto`.
 
-Install `uv`, create a workspace, and activate a virtual environment:
+### Windows + CUDA
 
-**Linux / macOS:**
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+$env:Path = "$HOME\.local\bin;$env:Path"
+New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
+cd $HOME\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install triton-windows
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
+.\.venv\Scripts\Activate.ps1
+comfyui --help
+comfyui serve --guess-settings
+```
+
+### Windows + ROCm
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+$env:Path = "$HOME\.local\bin;$env:Path"
+New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
+cd $HOME\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=rocm7.2 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+.\.venv\Scripts\Activate.ps1
+comfyui --help
+comfyui serve --guess-settings --fp32-vae
+```
+
+### macOS
+
 ```shell
 curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p ~/ComfyUI_Workspace && cd ~/ComfyUI_Workspace
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/Documents/ComfyUI_Workspace"
+cd "$HOME/Documents/ComfyUI_Workspace"
 uv venv --python 3.12
-```
-
-**Windows (PowerShell):**
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-choco install -y uv
-mkdir ~\Documents\ComfyUI_Workspace
-cd ~\Documents\ComfyUI_Workspace
-uv venv --python 3.12
-```
-
-Then follow the GPU-specific instructions below.
-
-### NVIDIA (CUDA)
-
-```shell
 uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui
+source .venv/bin/activate
+comfyui --help
+comfyui serve --guess-settings
 ```
 
-### AMD RX 7000 (RDNA 3)
+Apple Silicon does not natively support FP8 tensor operations. The `fp4-fp8-for-torch-mps` package is installed automatically and provides software emulation of FP8 compute on MPS via Metal kernels, enabling FP8-quantized models to run on macOS.
 
-Requires the latest AMDGPU/Adrenaline driver. Pick the index that matches your card:
-
-| Card | gfx arch | Index |
-| --- | --- | --- |
-| RX 7900 XTX / 7900 XT / 7800 XT / 7700 XT | gfx1100 / gfx1101 | `https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/` |
-| RX 7700S / 7600 / 7600 XT (and Framework 16, 780M iGPU) | gfx1102 / gfx1103 | `https://rocm.nightlies.amd.com/v2/gfx110X-all/` |
-
-`gfx110X-dgpu` ships only gfx1100/1101 kernels and crashes with `HIP error: invalid device function` on gfx1102/1103. `gfx110X-all` bundles all four.
-
-For the dGPU class (gfx1100/1101):
+### Linux + CUDA
 
 ```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui --fp32-vae
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/ComfyUI_Workspace"
+cd "$HOME/ComfyUI_Workspace"
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
+source .venv/bin/activate
+comfyui --help
+comfyui serve --guess-settings
 ```
 
-For RX 7600 / Framework 16 / 780M (gfx1102/1103) — verified configuration:
+### Linux + ROCm
 
 ```shell
-# Container path (recommended): rocm/pytorch image with bundled torch
-docker run --rm -it --device /dev/kfd --device /dev/dri \
-    -e HSA_OVERRIDE_GFX_VERSION=11.0.0 \
-    rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0 bash
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui --fp32-vae
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/ComfyUI_Workspace"
+cd "$HOME/ComfyUI_Workspace"
+uv venv --python 3.12
+uv pip install --torch-backend=rocm7.2 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+source .venv/bin/activate
+comfyui --help
+comfyui serve --guess-settings --fp32-vae
 ```
 
-`HSA_OVERRIDE_GFX_VERSION=11.0.0` makes gfx1102 advertise gfx1100 ISA so torch's gfx1100 kernels run on it. ComfyUI sets this automatically when it detects a local gfx1102/gfx1103 GPU on a torch wheel that doesn't include those arches — set the variable yourself to override the auto-detection.
-
-### AMD RX 9000 (RDNA 4)
-
-Requires the latest AMDGPU/Adrenaline driver.
-
-```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui --fp32-vae
-```
-
-### Intel Arc / Max / iGPU (XPU, Linux)
-
-Use XPU when `torch.xpu.is_available()` is true. The host needs a recent Intel GPU kernel/firmware stack exposing `/dev/dri/renderD*` and the Intel userland compute stack.
-
-The easiest path is Intel's XPU PyTorch container:
-
-```shell
-docker run --rm -it --device /dev/dri intel/intel-extension-for-pytorch:2.8.10-xpu bash
-```
-
-For bare Ubuntu, install the Intel GPU runtime first:
-
-**Ubuntu 24.04+:**
-```shell
-sudo apt-get install -y software-properties-common
-sudo add-apt-repository -y ppa:kobuk-team/intel-graphics
-sudo apt-get update
-sudo apt-get install -y libze-intel-gpu1 libze1 intel-metrics-discovery intel-opencl-icd clinfo intel-gsc libze-dev intel-ocloc
-```
-
-**Ubuntu 22.04:**
-```shell
-wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
-  sudo gpg --yes --dearmor --output /usr/share/keyrings/intel-graphics.gpg
-echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu jammy unified" | \
-  sudo tee /etc/apt/sources.list.d/intel-gpu-jammy.list
-sudo apt update
-sudo apt-get install -y libze-intel-gpu1 libze1 intel-opencl-icd clinfo libze-dev intel-ocloc
-```
-
-Then install ComfyUI (use Python 3.11 for XPU):
-
-```shell
-uv venv --python 3.11
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-python -c "import torch; print(torch.xpu.is_available())"
-uv run comfyui
-```
-
-If `torch.xpu.is_available()` is false, fix the Intel driver/runtime stack first.
-
-### AMD ROCm (Ubuntu Host Setup)
-
-For bare Ubuntu with AMD GPUs, install the AMDGPU/ROCm stack before installing PyTorch. The host needs the AMDGPU kernel driver and ROCm userland matching your GPU architecture.
-
-```shell
-sudo apt update
-wget https://repo.radeon.com/amdgpu-install/6.4.1/ubuntu/noble/amdgpu-install_6.4.60401-1_all.deb
-sudo apt install ./amdgpu-install_6.4.60401-1_all.deb
-```
-
-Then follow the RDNA 3/RDNA 4 instructions above. The key rule: install the ROCm stack first, then install PyTorch from the matching architecture-specific index. Do not mix a generic CPU torch wheel with ROCm expectations. Verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI.
+For bare Ubuntu with AMD GPUs, install the AMDGPU/ROCm stack before installing PyTorch. Verify `/dev/kfd` and `/dev/dri/renderD*` exist before debugging ComfyUI.
 
 ```shell
 python -c "import torch; print(torch.cuda.is_available())"
 python -c "import torch; print(torch.version.hip)"
 ```
 
-If those checks fail, fix the ROCm driver/runtime installation first.
+### Linux + Lesser-Known ROCm Builds
 
-### macOS (Apple Silicon)
+Use this block when your AMD GPU needs one of AMD's architecture-specific nightly indexes, such as Strix Halo (`gfx1151`), MI300 (`gfx94X`), MI350 (`gfx950`), or consumer RDNA 3/4 indexes. This is the ROCm exception where you use `--index-url` instead of `--torch-backend`, because the wheel index is selected by GPU architecture. Set `ROCM_INDEX_URL` to the index for your GPU before running the rest.
 
-For the prerequisites, use Homebrew instead of `curl`:
+Common ROCm nightly indexes:
+
+| GPU family | gfx arch | `ROCM_INDEX_URL` |
+| --- | --- | --- |
+| RX 9000 / RDNA 4 | `gfx120X` | `https://rocm.nightlies.amd.com/v2/gfx120X-all/` |
+| RX 7900 / RDNA 3 dGPU | `gfx1100`, `gfx1101` | `https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/` |
+| RX 7600 / Framework 16 / 780M | `gfx1102`, `gfx1103` | `https://rocm.nightlies.amd.com/v2/gfx110X-all/` |
+| Strix Halo | `gfx1151` | `https://rocm.nightlies.amd.com/v2/gfx1151/` |
+| MI300A / MI300X | `gfx942` | `https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/` |
+| MI350X / MI355X | `gfx950` | `https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/` |
 
 ```shell
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
-mkdir -p ~/Documents/ComfyUI_Workspace && cd ~/Documents/ComfyUI_Workspace
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/ComfyUI_Workspace"
+cd "$HOME/ComfyUI_Workspace"
 uv venv --python 3.12
+export ROCM_INDEX_URL="https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+uv pip install --index-url "$ROCM_INDEX_URL" --pre torch torchaudio torchvision triton
+uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+source .venv/bin/activate
+comfyui --help
+comfyui serve --guess-settings --fp32-vae
 ```
 
-Then:
+`HSA_OVERRIDE_GFX_VERSION=11.0.0` can make gfx1102 advertise gfx1100 ISA so torch's gfx1100 kernels run on it. ComfyUI sets this automatically when it detects a local gfx1102/gfx1103 GPU on a torch wheel that does not include those arches; set the variable yourself only when you need to override the auto-detection.
+
+### Intel Arc / Max / iGPU (XPU, Linux)
+
+Use XPU when `torch.xpu.is_available()` is true. The host needs a recent Intel GPU kernel/firmware stack exposing `/dev/dri/renderD*` and the Intel userland compute stack. The recommended Linux path is Intel's XPU PyTorch container:
 
 ```shell
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-uv run comfyui
+docker run --rm -it --device /dev/dri intel/intel-extension-for-pytorch:2.8.10-xpu bash
 ```
 
-#### FP8 Support on MPS
+For bare Ubuntu, install the Intel GPU runtime first, then install ComfyUI with the XPU PyTorch backend:
 
-Apple Silicon does not natively support FP8 tensor operations. The `fp4-fp8-for-torch-mps` package is installed automatically and provides software emulation of FP8 compute on MPS via Metal kernels, enabling FP8-quantized models (e.g., `ltx-2.3-22b-dev-fp8.safetensors`) to run on macOS.
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/ComfyUI_Workspace"
+cd "$HOME/ComfyUI_Workspace"
+uv venv --python 3.11
+uv pip install --torch-backend=xpu "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+source .venv/bin/activate
+python -c "import torch; print(torch.xpu.is_available())"
+comfyui --help
+comfyui serve --guess-settings
+```
 
 ### Running Again Later
 
@@ -163,13 +151,15 @@ To start ComfyUI again after closing your terminal, `cd` into your workspace and
 
 ```shell
 cd ~/ComfyUI_Workspace
-uv run comfyui
+source .venv/bin/activate
+comfyui serve --guess-settings
 ```
 
 On Windows:
 ```powershell
 cd ~\Documents\ComfyUI_Workspace
-uv run comfyui
+.\.venv\Scripts\Activate.ps1
+comfyui serve --guess-settings
 ```
 
 ### Upgrading
@@ -182,30 +172,6 @@ For NVIDIA users who want to ensure the correct CUDA version is maintained:
 ```shell
 uv pip install --torch-backend=auto --upgrade "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
 ```
-
-### Other AMD GPUs (ROCm)
-
-The following architectures are also supported. Install PyTorch from the matching index, then install ComfyUI:
-
-**Strix Halo iGPU (RDNA 3.5, `gfx1151`):**
-```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-```
-
-**Instinct MI300A / MI300X (CDNA 3, `gfx942`):**
-```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-```
-
-**Instinct MI350X / MI355X (CDNA 4, `gfx950`):**
-```shell
-uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-```
-
-**RX 6000 (RDNA 2) and RX 5000 (RDNA 1):** These architectures are no longer well supported by AMD. There are no architecture-specific builds available.
 
 ## CUDA and PyTorch
 
@@ -230,7 +196,11 @@ The `--torch-backend` flag tells `uv` which PyTorch package index to use when re
 - `--torch-backend=auto` — automatically detects your platform and selects the appropriate CUDA version
 - `--torch-backend=cu128` — explicitly selects CUDA 12.8
 - `--torch-backend=cu130` — explicitly selects CUDA 13.0
+- `--torch-backend=rocm7.2` — selects ROCm 7.2 PyTorch wheels
+- `--torch-backend=xpu` — selects Intel XPU PyTorch wheels
 - `--torch-backend=cpu` — CPU-only (no GPU acceleration)
+
+For AMD architecture-specific ROCm nightlies such as `gfx120X-all`, `gfx1151`, `gfx94X-dcgpu`, or `gfx950-dcgpu`, use the `--index-url` block above instead of `--torch-backend`.
 
 This flag also works when installing prerelease (nightly) PyTorch builds:
 
@@ -490,66 +460,26 @@ uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre
 
 If you followed the ROCm installation steps above, Triton was already installed alongside PyTorch.
 
-## Stable ABI CUDA extensions
+## CUDA Extension Wheels
 
-AppMana publishes stable-ABI wheels for SageAttention and Nunchaku. These wheels use
-Python `abi3` and the PyTorch stable ABI, so they are the preferred install path for
-CUDA builds on PyTorch `>= 2.9`.
-
-Use `cu130` for new installations. That is the preferred choice for NVIDIA RTX 20xx
-and newer GPUs, including RTX 30xx, 40xx, and 50xx cards.
-
-Use `cu128` only when you specifically need CUDA 12.8 compatibility.
-
-These packages are not supported on macOS.
-
-### SageAttention (CUDA only)
-
-SageAttention accelerates attention computation in diffusion models.
-
-Install `triton-windows` first if you are on Windows, then install SageAttention from
-the matching AppMana stable-ABI index:
-
-**Recommended for new installs: CUDA 13.0 (`cu130`)**
+The Windows + CUDA and Linux + CUDA blocks install `sageattention` and `flash-attn` from the AppMana package facade. The default facade index serves CUDA 13.0 builds:
 
 ```shell
-uv pip install triton-windows
-uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu130
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
 ```
 
-**Fallback: CUDA 12.8 (`cu128`)**
+Use a CUDA segment when you need a specific build. For example:
 
 ```shell
-uv pip install triton-windows
-uv pip install --no-deps sageattention --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu128
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130/ sageattention flash-attn
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128/ sageattention flash-attn
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu126/ flash-attn
 ```
 
-Or build from source instead (requires CUDA Toolkit and build tools):
+`sageattention` is available for `cu128` and `cu130`. `flash-attn` has broader CUDA coverage through prebuilt wheels. These packages are CUDA-only and are not supported on macOS.
+
+To start with SageAttention explicitly enabled:
 
 ```shell
-sudo apt-get install -y build-essential nvidia-cuda-toolkit
-uv pip install --no-build-isolation "sageattention@git+https://github.com/woct0rdho/SageAttention.git"
-```
-
-#### Running with SageAttention
-
-```shell
-uv run comfyui --use-sage-attention
-```
-
-### Nunchaku (CUDA only)
-
-Nunchaku provides optimized 4-bit inference kernels. For PyTorch `>= 2.9`, install it
-from the matching AppMana stable-ABI index:
-
-**Recommended for new installs: CUDA 13.0 (`cu130`)**
-
-```shell
-uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu130
-```
-
-**Fallback: CUDA 12.8 (`cu128`)**
-
-```shell
-uv pip install --no-deps nunchaku --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu128
+comfyui serve --guess-settings --use-sage-attention
 ```

@@ -136,18 +136,24 @@ def get_full_path(folder_name: str, filename: str) -> Optional[str]:
     return get_or_download(folder_name, filename)
 
 
-def get_or_download(folder_name: str, filename: str, known_files: Optional[List[Downloadable] | KnownDownloadables] = None) -> Optional[str]:
+def get_or_download(
+    folder_name: str,
+    filename: str,
+    known_files: Optional[List[Downloadable] | KnownDownloadables] = None,
+    *,
+    offline: bool = False,
+) -> Optional[str]:
     if is_uri(filename):
         url = urlparse(filename)
         if url.protocol == "hf:":
             hf_file = parse_hf_uri(filename)
-            return get_or_download(folder_name, str(hf_file), known_files=[hf_file])
+            return get_or_download(folder_name, str(hf_file), known_files=[hf_file], offline=offline)
         elif url.protocol in ("http:", "https:"):
             url_file = UrlFile(filename)
-            return get_or_download(folder_name, str(url_file), known_files=[url_file])
+            return get_or_download(folder_name, str(url_file), known_files=[url_file], offline=offline)
         else:
             fsspec_file = FsspecFile(filename)
-            return get_or_download(folder_name, str(fsspec_file), known_files=[fsspec_file])
+            return get_or_download(folder_name, str(fsspec_file), known_files=[fsspec_file], offline=offline)
 
     if known_files is None:
         known_files = _get_known_models_for_folder_name(folder_name)
@@ -246,6 +252,8 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                             logger.debug(f"hf_hub_download cache hit for {known_file.repo_id}/{known_file.filename}")
                             cache_hit = True
                         except (LocalEntryNotFoundError, LocalTokenNotFoundError):
+                            if offline:
+                                return None
                             try:
                                 logger.debug(f"{folder_name}/{filename} is being downloaded from {known_file.repo_id}/{known_file.filename} candidate_str_match={candidate_str_match} candidate_filename_match={candidate_filename_match} candidate_alternate_filenames_match={candidate_alternate_filenames_match} candidate_save_filename_match={candidate_save_filename_match}")
                                 hf_hub_download_kwargs.pop("local_files_only", None)
@@ -286,6 +294,8 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                     link_successful = True
                     exc_info_link = {}
                     if path is not None:
+                        if offline:
+                            return path
                         if Path(linked_filename).is_absolute():
                             raise ValueError(f"{known_file.repo_id}/{known_file.filename} surprisingly was trying to link to an absolute path {linked_filename}, failing")
 
@@ -345,6 +355,8 @@ def get_or_download(folder_name: str, filename: str, known_files: Optional[List[
                             except Exception as comp_exc:
                                 logger.warning(f"Failed to download companion file {comp_filename}: {comp_exc}")
                 else:
+                    if offline:
+                        return path
                     save_filename = known_file.save_with_filename or known_file.filename
                     destination_with_filename = join(this_model_directory, save_filename)
                     os.makedirs(os.path.dirname(destination_with_filename), exist_ok=True)

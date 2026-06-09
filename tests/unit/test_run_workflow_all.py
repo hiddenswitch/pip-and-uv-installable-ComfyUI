@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -10,13 +9,9 @@ import pytest
 
 from comfy.cmd.cli import (
     _install_workflow_requirements,
-    _download_workflow_models,
     _load_core_class_types,
     _NODES_INDEX_URL,
 )
-
-# subprocess is imported inside _install_workflow_requirements, patch at module level
-import subprocess as _subprocess
 
 
 _SAMPLE_WORKFLOW = {
@@ -78,6 +73,28 @@ def test_install_workflow_requirements_skips_installed(workflow_file: str):
         _install_workflow_requirements([workflow_file])
 
     assert len(calls) == 0
+
+
+def test_install_workflow_requirements_dry_run_reports_missing_without_installing(workflow_file: str):
+    calls = []
+
+    def mock_run(cmd, **kwargs):
+        calls.append(cmd)
+        return MagicMock(returncode=0)
+
+    with (
+        patch("subprocess.run", side_effect=mock_run),
+        patch("importlib.metadata.distributions", return_value=[]),
+        patch("comfy.component_model.asyncio_files.load_workflow_json", return_value={}),
+        patch(
+            "comfy.component_model.workflow_dependencies.resolve_workflow_packages_versioned",
+            return_value=[("comfyui-test-node", None)],
+        ),
+    ):
+        missing = _install_workflow_requirements([workflow_file], dry_run=True)
+
+    assert missing == ["comfyui-test-node"]
+    assert calls == []
 
 
 def test_install_workflow_requirements_skips_stdin():

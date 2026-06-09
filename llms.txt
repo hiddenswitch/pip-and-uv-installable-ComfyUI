@@ -28,16 +28,24 @@ The user usually does **not** know which model, which workflow, or which
 LoRA. Your job is to figure that out by *searching*, not guessing.
 
 > **Whenever the next step uses a workflow, run `--help` on it first.**
-> `comfyui run-workflow WORKFLOW_FILE_OR_URL --help` (and the equivalent
-> `comfyui workflows run WORKFLOW_FILE_OR_URL --help`) **inspects the
+> `comfyui workflows run WORKFLOW_FILE_OR_URL --help` (or the equivalent
+> `comfyui run-workflow WORKFLOW_FILE_OR_URL --help`) **inspects the
 > actual workflow** and prints the per-workflow parameter table — the
 > prompts, dimensions, seed, LoRA strengths, etc. that *this specific*
 > workflow exposes — plus any author notes (`Note` / `MarkdownNote`
 > nodes) embedded in the file. The bare `comfyui run-workflow --help`
-> (no workflow argument) only shows the *generic* options; it cannot
-> know your workflow's parameters until you give it one. This works for
-> bundled template names, local files, civitai/HF URIs, https URLs,
-> stdin (`-`), and PNGs with embedded workflow JSON.
+> or `comfyui workflows run --help` (no workflow argument) only shows the
+> *generic* options; it cannot know your workflow's parameters until you
+> give it one. This works for bundled template names, local files,
+> civitai/HF URIs, https URLs, stdin (`-`), and PNGs with embedded
+> workflow JSON.
+
+`comfyui workflows run` and `comfyui run-workflow` are the same execution
+surface. They accept the same workflow positional, the same run options,
+the same dynamic per-workflow flags, and both support `--all` and
+`--dry-run`. Prefer `workflows run` in new shareable examples because it
+sits with the other workflow subcommands, but treat either spelling as
+equivalent.
 
 ## How the pieces fit
 
@@ -329,8 +337,8 @@ comfyui workflows list --format json | \
 
 | User ask | What you do |
 |---|---|
-| Single image / video / edit | `comfyui run-workflow <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
-| User hands you a workflow URL / civitai / HF link | **First** run `comfyui run-workflow <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
+| Single image / video / edit | `comfyui workflows run <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
+| User hands you a workflow URL / civitai / HF link | **First** run `comfyui workflows run <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
 | Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
 | Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
 
@@ -350,11 +358,9 @@ wants the output to depict.
    First, check whether a usable venv already exists in the working
    directory. **A venv only counts as "usable" if it satisfies the
    current requirements exactly:** Python 3.13 with `comfyui` already
-   importable. The point of this guide is to run the *latest* ComfyUI,
-   and upgrading an old venv in place is fragile (torch wheel pins,
-   accumulated `uv pip install` cruft, mismatched Python minor). The
-   default is to **recreate**, not reuse. Never touch the system Python
-   either way.
+   importable. The point of this guide is to run the *latest* ComfyUI:
+   upgrade usable current venvs in place, but recreate stale or broken
+   venvs. Never touch the system Python either way.
 
    A venv counts as usable when **all** of these hold:
 
@@ -364,13 +370,20 @@ wants the output to depict.
    - After sourcing it, `python -c "import comfy"` exits 0.
 
    If a venv exists but fails any of these checks, **delete it and
-   create a new one**. Don't try to upgrade in place. For an on-disk
-   `./.venv/` you discovered yourself, just `rm -rf .venv` and recreate
-   per step 1. If the venv is already active via `$VIRTUAL_ENV` (the
-   user's shell state), warn the user and ask before deleting.
+   create a new one**. Don't try to upgrade an unusable venv in place.
+   For an on-disk `./.venv/` you discovered yourself, just `rm -rf .venv`
+   and recreate per step 1. If the venv is already active via
+   `$VIRTUAL_ENV` (the user's shell state), warn the user and ask before
+   deleting.
 
    If a usable venv is found, `source .venv/bin/activate` (or the
-   equivalent for `venv/`) before doing anything else.
+   equivalent for `venv/`) before doing anything else, then upgrade this
+   ComfyUI package in place so the venv is not stale:
+
+   ```bash
+   uv pip install --upgrade --torch-backend=auto \
+     "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+   ```
 
    If no venv is present, install `uv` in the way that matches the
    host. **Don't prompt the user** — detect the platform and run the
@@ -504,11 +517,12 @@ wants the output to depict.
 
 ## Acquiring models
 
-`--all` on `comfyui run-workflow` is the surface. Discovery, registration,
-and download all happen as part of it; you don't invoke them separately.
+`--all` on `comfyui run-workflow` / `comfyui workflows run` is the normal
+surface. Discovery, registration, and download all happen as part of it.
 
 ```bash
 comfyui run-workflow workflow.json --all
+comfyui workflows run workflow.json --all
 ```
 
 What `--all` does, in order: install missing custom-node packages,
@@ -521,6 +535,16 @@ never touched.
 The bulk of this section explains the discovery mechanism so you know how
 the find-don't-download behavior works and how to debug it when it misses
 something.
+
+To inspect the same host-model discovery facility directly, run:
+
+```bash
+comfyui models find-local
+```
+
+It prints scan backend summaries, classifiable `(kind, parent_dir)` groups,
+and the literal `--add-model-folder-path KIND=PATH` flags that would make
+the discovered folders visible to ComfyUI.
 
 ### Stage 1 — HF-hosted resolution (`huggingface_hub`)
 
@@ -675,16 +699,28 @@ Prints the plan and exits without downloading or executing:
 
 ```bash
 comfyui run-workflow workflow.json --all --dry-run
+comfyui workflows run workflow.json --all --dry-run
 ```
 
-Output groups discovered files by `(kind, parent_dir)` with counts, lists
-the literal `--add-model-folder-path` entries that would be applied, lists
+`--dry-run` implies `--all`, so the explicit `--all` is optional:
+
+```bash
+comfyui workflows run workflow.json --dry-run
+```
+
+Output lists custom-node packages that `--all` would install, groups
+discovered model files by `(kind, parent_dir)` with counts, lists the
+literal `--add-model-folder-path` entries that would be applied, lists
 the missing files that would be downloaded with their target folder,
 summarizes each backend (which indexer ran, how long, how many matches per
 walked drive, which hit the timeout), and shows free disk on the output
-volume. Errors — permission denied on a scan dir, missing pywin32 on
-Windows, an unresolvable filename — propagate as Python tracebacks. There
-are no confirmation prompts, ever.
+volume. It uses the same local discovery implementation as
+`comfyui models find-local`, but registers the discovered folders
+in-memory before calculating which workflow models are still missing.
+It does not install custom nodes, download models, or execute the
+workflow. Errors — permission denied on a scan dir, missing pywin32 on
+Windows, an unresolvable filename — propagate as Python tracebacks.
+There are no confirmation prompts, ever.
 
 ### `--add-model-folder-path` (escape hatch)
 
@@ -709,14 +745,18 @@ process start, before any node executes.
 ### Inspecting state without `--all`
 
 ```bash
-comfyui models ls --folder loras           # files in registered loras dirs
-comfyui models paths --folder loras        # registered loras dirs
-comfyui models from-workflow <ref> --dry-run   # what models a template needs
+comfyui models ls --folder loras              # downloadable catalog entries
+comfyui models ls --local --folder loras      # files in registered loras dirs
+comfyui models paths --folder loras           # registered loras dirs
+comfyui models find-local                     # heuristic host scan/classification
+comfyui models from-workflow <ref> --dry-run  # what models a template needs
 ```
 
-These don't run discovery — they just show the current `folder_paths`
-state. Use `--all --dry-run` when you want the picture *with* discovery
-applied.
+`models ls --local` and `models paths` don't run discovery — they just
+show the current `folder_paths` state. Use `models find-local` to inspect
+host-wide scan/classification without a workflow, and use
+`run-workflow --dry-run` or `workflows run --dry-run` when you want the
+full picture with discovery plus the workflow's missing-download plan.
 
 ---
 
@@ -735,11 +775,12 @@ comfyui run-workflow image_flux2_klein_text_to_image --all --novram \
     --seed 42 --prompt "a ceramic teapot, studio lighting"
 ```
 
-The `run-workflow --help` output lists every override (`--width`,
+The workflow-specific help output (`comfyui workflows run <wf> --help`
+or `comfyui run-workflow <wf> --help`) lists every override (`--width`,
 `--height`, `--batch-size`, `--cfg`, `--sampler`, `--scheduler`,
 `--denoise`, `--checkpoint`, `--steps`, …). `--set
-node_id.inputs.field=value` lets you override anything not covered by
-a named flag (compound subgraph ids like `"75:72"` work).
+node_id.inputs.field=value` lets you override anything not covered by a
+named flag (compound subgraph ids like `"75:72"` work).
 
 ---
 
@@ -1195,6 +1236,9 @@ pasting. `from-workflow --dry-run` writes found-locally paths to
 stdout and would-be-downloaded sources to stderr:
 
 ```bash
+# What models does this build know how to download?
+comfyui models ls --folder checkpoints
+
 # What does this workflow load? Where does it come from?
 comfyui models from-workflow image_anima_preview --dry-run
 #   stdout → present locally (won't be re-fetched)
@@ -1207,6 +1251,9 @@ comfyui models from-workflow image_anima_preview --dry-run
 # Where would each class of asset land on a recipient's machine?
 comfyui models paths --folder loras
 comfyui models paths --folder checkpoints
+
+# What model folders can this machine discover heuristically?
+comfyui models find-local
 ```
 
 For a workflow that depends on a LoRA the template doesn't bundle, pass
@@ -1538,11 +1585,11 @@ fetch failure.
 ## What you (Claude) are expected to do when given a media task
 
 The user said "run / generate / make me <something>"? That's a
-`comfyui run-workflow` invocation. Don't write Python, don't start the
-daemon, don't open the UI — `run-workflow` is the verb. Reach for
-something else only when this guide explicitly tells you to (bulk
-processing → §Mass processing; non-trivial graph edits → embedded
-Python in §Task 7).
+`comfyui workflows run` invocation (`comfyui run-workflow` is the exact
+legacy alias). Don't write Python, don't start the daemon, don't open the
+UI — `workflows run` is the verb. Reach for something else only when this
+guide explicitly tells you to (bulk processing → §Mass processing;
+non-trivial graph edits → embedded Python in §Task 7).
 
 1. **Sanity-check the environment** before doing anything that runs
    code. If a venv is already activated (`$VIRTUAL_ENV` set) or
@@ -1561,7 +1608,7 @@ Python in §Task 7).
    generating — especially for edits, where what to *preserve* matters
    as much as what to *change*.
 3. **If the user gave you a workflow URL** (civitai / Hugging Face /
-   gist / arbitrary URL), run `comfyui run-workflow <URL> --help` first
+   gist / arbitrary URL), run `comfyui workflows run <URL> --help` first
    and read the rendered author notes. Those notes carry the canonical
    download URLs and place-in hints for every model — they're more
    reliable than guessing from the workflow's filename inputs.
@@ -1575,12 +1622,15 @@ Python in §Task 7).
 5. Otherwise, pick the right workflow from the §Picking the right base
    model / workflow table based on VRAM (visible in step 1's `env check`)
    and task type.
-6. Check `comfyui models from-workflow <template> --dry-run` and ask
-   before triggering large downloads.
+6. Check `comfyui workflows run <template> --dry-run` and ask before
+   triggering installs or large downloads. This is stronger than `models
+   from-workflow --dry-run` because it also shows missing custom-node
+   packages, runs host-wide local model discovery, and shows what `--all`
+   would download after discovered folders are registered.
 7. Rewrite the user's vague prompt into a specific one. For image
    edits, include explicit "keep" clauses. If you applied a LoRA in
    step 4, the LoRA's trigger words must appear in the prompt.
-8. Run with `comfyui run-workflow <wf> --all --seed N`. Set
+8. Run with `comfyui workflows run <wf> --all --seed N`. Set
    `CIVITAI_API_TOKEN` first if any input resolves through `civitai://`.
    Open the result for the user if they're on an interactive desktop:
    `open <path>` (macOS), `start "" "<path>"` (Windows),
@@ -1641,7 +1691,7 @@ from different runs do not mix.
 | Triton `fp8e4nv not supported` on Ampere | Auto-fixed at quant_ops import on sm < 8.9. If you still see it, run `comfyui env check` to confirm the triton backend is DISABLED. |
 | `UnsupportedWorkflowFormatError: workflow format 'swarmui'/'invokeai'/'krita-ai' is not a valid ComfyUI workflow` | The URL points at a non-ComfyUI workflow format. A1111/Forge `.txt` and Fooocus JSON auto-translate (lossy txt2img mapping); SwarmUI/InvokeAI/Krita-AI shapes have no equivalent and must be re-authored. Find a ComfyUI alternative with `comfyui workflows search "<topic>" --with-host civitai`. |
 | `401 Unauthorized` on a `civitai://` URI | Set `CIVITAI_API_TOKEN` in env. Get one at https://civitai.com/user/account → API Keys. The `civitai://` fsspec backend reads the same env var as `model_downloader`. |
-| Civitai workflow runs but a custom checkpoint is missing | Either (a) the workflow author forgot to put the model URL in their notes, or (b) the model is by a different author than the workflow. Run `comfyui run-workflow <URI> --help` and read the author's note section — if it lists URLs, those are now resolved automatically; if it doesn't, search civitai for the filename and pass the resolved URL via `--add-lora` or `--set <node_id>.inputs.ckpt_name=<URL>`. |
+| Civitai workflow runs but a custom checkpoint is missing | Either (a) the workflow author forgot to put the model URL in their notes, or (b) the model is by a different author than the workflow. Run `comfyui workflows run <URI> --help` and read the author's note section — if it lists URLs, those are now resolved automatically; if it doesn't, search civitai for the filename and pass the resolved URL via `--add-lora` or `--set <node_id>.inputs.ckpt_name=<URL>`. |
 | Custom node package not on `nodes.appmana.com/simple/` | `_install_workflow_requirements` falls back to building the facade wheel locally via `FacadeWheelBuilder` against the package's GitHub or GitLab archive URL (resolved via comfy.org's API or comfyui-manager's extension-node-map). The package still gets the `_appmana_facade_<name>` rename + stub-shim, so node registration works the same. If you see "Could not locate repo URL for: foo", the package isn't in either source — file an issue or install from source manually. |
 
 ---
@@ -1652,7 +1702,7 @@ Most "errors" you'll see are *not* catastrophic — they're missing
 files. A workflow that fails because a checkpoint isn't in
 `models/checkpoints/`, or because a `LoadImage` references an image
 the user didn't pass, is a resolution problem. Fix it the way the
-rest of this guide already shows: run `comfyui run-workflow <URI>
+rest of this guide already shows: run `comfyui workflows run <URI>
 --help` to read the author's notes, pass `--all` to mine note URLs +
 the author's Civitai uploads, pass `--image <path-or-URL>` for
 references, or `--add-lora`/`--set` for missing files the workflow

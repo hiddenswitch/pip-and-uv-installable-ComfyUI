@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Optional
 
 import typer
@@ -36,15 +37,38 @@ def _boot_paths(cwd: Optional[str] = None, base_directory: Optional[str] = None,
 def models_default(
     ctx: typer.Context,
     folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder (checkpoints, loras, vae, etc)."),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter downloadable catalog by source: known or manager."),
     format: str = typer.Option("table", "--format", help="Output format: table or json."),
+    check_exists: bool = typer.Option(False, "--check-exists", help="Check if downloadable models exist locally."),
+    local: bool = typer.Option(False, "--local", help="List files in registered local model folders instead of the downloadable catalog."),
     cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
     base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
 ):
-    """List locally downloaded models."""
+    """List downloadable models."""
     if ctx.invoked_subcommand is not None:
         return
+    _models_ls_impl(
+        folder=folder,
+        source=source,
+        format=format,
+        check_exists=check_exists,
+        local=local,
+        cwd=cwd,
+        base_directory=base_directory,
+        base_paths=base_paths,
+        extra_model_paths_config=extra_model_paths_config,
+    )
+
+
+def _local_model_rows(
+    folder: Optional[str] = None,
+    cwd: Optional[str] = None,
+    base_directory: Optional[str] = None,
+    base_paths: Optional[list[str]] = None,
+    extra_model_paths_config: Optional[list[str]] = None,
+) -> list[tuple[str, str, str]]:
     _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
                 extra_model_paths_config=extra_model_paths_config)
 
@@ -69,7 +93,10 @@ def models_default(
                         rows.append((name, filename, str(full) if full else ""))
                 except Exception:
                     pass
+    return rows
 
+
+def _print_local_models(rows: list[tuple[str, str, str]], format: str) -> None:
     if format == "json":
         records = [{"folder": r[0], "filename": r[1], "path": r[2]} for r in rows]
         Console().print_json(json.dumps(records))
@@ -88,37 +115,7 @@ def models_default(
     console.print(table, soft_wrap=True)
 
 
-@models_app.command(name="ls", context_settings=_COMFYUI_ENV)
-def models_ls(
-    ctx: typer.Context,
-    folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),
-    format: str = typer.Option("table", "--format", help="Output format: table or json."),
-    cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
-    base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
-    base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
-    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
-):
-    """List locally downloaded models."""
-    models_default(ctx, folder=folder, format=format, cwd=cwd, base_directory=base_directory,
-                   base_paths=base_paths, extra_model_paths_config=extra_model_paths_config)
-
-
-@models_app.command(name="available", context_settings=_COMFYUI_ENV)
-def models_available(
-    folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),
-    source: Optional[str] = typer.Option(None, "--source", help="Filter by source: known or manager."),
-    format: str = typer.Option("table", "--format", help="Output format: table or json."),
-    check_exists: bool = typer.Option(False, "--check-exists", help="Check if models exist locally."),
-    cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
-    base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
-    base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
-    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
-):
-    """List downloadable models from known sources and manager."""
-    if check_exists:
-        _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
-                    extra_model_paths_config=extra_model_paths_config)
-
+def _downloadable_models(source: Optional[str] = None, check_exists: bool = False):
     from .list_models import _models_from_known, _models_from_manager, _check_exists
 
     models = []
@@ -130,12 +127,11 @@ def models_available(
         for m in _models_from_manager():
             m.exists = _check_exists(m.folder, m.filename, m.uri) if check_exists else None
             models.append(("manager", m))
+    return models
 
-    if folder:
-        models = [(s, m) for s, m in models if m.folder == folder]
 
+def _print_downloadable_models(models, format: str, check_exists: bool) -> None:
     if format == "json":
-        from dataclasses import asdict
         records = [{**asdict(m), "source": s} for s, m in models]
         Console().print_json(json.dumps(records))
         return
@@ -157,6 +153,138 @@ def models_available(
             row.append("yes" if m.exists else "")
         table.add_row(*row)
     console.print(table, soft_wrap=True)
+
+
+def _models_ls_impl(
+    folder: Optional[str],
+    source: Optional[str],
+    format: str,
+    check_exists: bool,
+    local: bool,
+    cwd: Optional[str],
+    base_directory: Optional[str],
+    base_paths: Optional[list[str]],
+    extra_model_paths_config: Optional[list[str]],
+) -> None:
+    if local:
+        rows = _local_model_rows(
+            folder=folder,
+            cwd=cwd,
+            base_directory=base_directory,
+            base_paths=base_paths,
+            extra_model_paths_config=extra_model_paths_config,
+        )
+        _print_local_models(rows, format)
+        return
+
+    if check_exists:
+        _boot_paths(cwd=cwd, base_directory=base_directory, base_paths=base_paths,
+                    extra_model_paths_config=extra_model_paths_config)
+    models = _downloadable_models(source=source, check_exists=check_exists)
+    if folder:
+        models = [(s, m) for s, m in models if m.folder == folder]
+    _print_downloadable_models(models, format, check_exists)
+
+
+@models_app.command(name="ls", context_settings=_COMFYUI_ENV)
+def models_ls(
+    folder: Optional[str] = typer.Option(None, "--folder", help="Filter by model folder."),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter downloadable catalog by source: known or manager."),
+    format: str = typer.Option("table", "--format", help="Output format: table or json."),
+    check_exists: bool = typer.Option(False, "--check-exists", help="Check if downloadable models exist locally."),
+    local: bool = typer.Option(False, "--local", help="List files in registered local model folders instead of the downloadable catalog."),
+    cwd: Optional[str] = typer.Option(None, "-w", "--cwd", help="Working directory."),
+    base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
+    base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
+    extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
+):
+    """List downloadable models from known sources and manager.
+
+    Use --local for the older view of files currently visible through
+    registered model folders.
+    """
+    _models_ls_impl(
+        folder=folder,
+        source=source,
+        format=format,
+        check_exists=check_exists,
+        local=local,
+        cwd=cwd,
+        base_directory=base_directory,
+        base_paths=base_paths,
+        extra_model_paths_config=extra_model_paths_config,
+    )
+
+
+@models_app.command(name="find-local", context_settings=_COMFYUI_ENV)
+def models_find_local(
+    extensions: Optional[list[str]] = typer.Option(None, "--extension", "-e", help="Model file extension to scan for. Repeatable. Defaults to safetensors, ckpt, pt, gguf, onnx."),
+    scan_timeout: float = typer.Option(30.0, "--scan-timeout", help="Timeout in seconds for each OS index query and fallback walk root."),
+    no_walk: bool = typer.Option(False, "--no-walk", help="Disable fallback filesystem walks for indexer gaps."),
+    format: str = typer.Option("table", "--format", help="Output format: table or json."),
+):
+    """Find local model files and classify them into model folders.
+
+    This is the same heuristic facility used by `run-workflow --all` before
+    downloading: query the OS file index, walk likely roots when the index is
+    missing coverage, classify discovered files by directory/filename, and
+    print the `--add-model-folder-path` registrations that would make them
+    visible to ComfyUI.
+    """
+    from .local_model_discovery import find_local_model_paths
+    from .model_search import DEFAULT_EXTENSIONS
+
+    discovery = find_local_model_paths(
+        extensions=extensions or DEFAULT_EXTENSIONS,
+        scan_timeout=scan_timeout,
+        walk_uncovered=not no_walk,
+        register=False,
+    )
+
+    if format == "json":
+        records = {
+            "summary": discovery.scan_summary,
+            "registrations": [
+                {"kind": kind, "path": path, "count": len(items)}
+                for (kind, path), items in discovery.registrations.items()
+            ],
+            "files": [asdict(c) for c in discovery.classifications],
+        }
+        Console().print_json(json.dumps(records))
+        return
+
+    _print_discovery(discovery)
+
+
+def _print_discovery(discovery) -> None:
+    console = Console()
+    hf_cache = [item for item in discovery.classifications if item.is_hf_cache]
+    unclassified = [
+        item
+        for item in discovery.classifications
+        if item.kind is None and not item.is_hf_cache
+    ]
+
+    console.print("Scan summary", style="bold")
+    for line in discovery.scan_summary:
+        console.print(f"  {line}")
+
+    if discovery.registrations:
+        table = Table(title="Discovered model folders", show_edge=False, pad_edge=False, box=None, width=max(console.width, 160))
+        table.add_column("Kind", no_wrap=True)
+        table.add_column("Path", overflow="ellipsis", ratio=1)
+        table.add_column("Files", justify="right", no_wrap=True)
+        table.add_column("Flag", overflow="ellipsis", ratio=1)
+        for (kind, path), items in sorted(discovery.registrations.items()):
+            table.add_row(kind, path, str(len(items)), f"--add-model-folder-path {kind}={path}")
+        console.print(table)
+    else:
+        console.print("No classifiable model folders discovered.")
+
+    if hf_cache:
+        console.print(f"HF cache files skipped: {len(hf_cache)}")
+    if unclassified:
+        console.print(f"Unclassified model-like files: {len(unclassified)}")
 
 
 @models_app.command(name="download", context_settings=_COMFYUI_ENV)
