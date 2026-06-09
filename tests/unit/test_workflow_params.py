@@ -110,6 +110,15 @@ def test_frontend_widget_pool_treats_string_node_id_links_as_links():
     assert out == []
 
 
+def test_frontend_widget_pool_skips_unreferenced_typed_primitives():
+    api = {
+        "1": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "preset"}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "active prompt"}},
+    }
+    out = list(frontend_widget_pool(api, None))
+    assert {p.address for p in out} == {("2", "text")}
+
+
 # ── synthetic unit tests: discover() orchestration ────────────────────────────
 
 
@@ -174,13 +183,7 @@ def test_ideogram_default_workflow_has_unique_dynamic_flags():
     assert "unet" not in flags
     assert {"unet-1", "unet-2"}.issubset(flags)
     assert "primitivestringmultiline" not in flags
-    assert {
-        "primitivestringmultiline-1",
-        "primitivestringmultiline-2",
-        "primitivestringmultiline-3",
-        "primitivestringmultiline-4",
-        "primitivestringmultiline-5",
-    }.issubset(flags)
+    assert not any(flag.startswith("primitivestringmultiline-") for flag in flags)
 
 
 # ── synthetic unit tests: helpers ─────────────────────────────────────────────
@@ -560,6 +563,10 @@ def test_primitive_nodes_typed_primitive_int_tagged_at_headline():
             "inputs": {"value": 42},
             "_meta": {"title": "My Steps"},
         },
+        "2": {
+            "class_type": "KSampler",
+            "inputs": {"steps": ["1", 0]},
+        },
     }
     out = list(primitive_nodes(api, None))
     assert len(out) == 1
@@ -571,9 +578,20 @@ def test_primitive_nodes_typed_primitive_int_tagged_at_headline():
 
 
 def test_primitive_nodes_typed_primitive_uses_node_id_when_untitled():
-    api = {"5": {"class_type": "PrimitiveString", "inputs": {"value": "hi"}}}
+    api = {
+        "5": {"class_type": "PrimitiveString", "inputs": {"value": "hi"}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": ["5", 0]}},
+    }
     out = list(primitive_nodes(api, None))
     assert out[0].roles == {"primitive:node_5"}
+
+
+def test_primitive_nodes_skips_unreferenced_typed_primitive():
+    api = {
+        "1": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "preset"}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "active prompt"}},
+    }
+    assert list(primitive_nodes(api, None)) == []
 
 
 def test_primitive_nodes_legacy_primitivenode_tags_consumer_widget():
@@ -959,6 +977,18 @@ def test_discover_merges_roles_from_class_type_and_polarity():
     assert "class_type_roles" in text.source_predicates
     assert "prompt_polarity" in text.source_predicates
     assert "frontend_widget_pool" in text.source_predicates
+
+
+def test_discover_skips_unreferenced_typed_primitives():
+    api = {
+        "1": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "preset"}},
+        "2": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "used"}},
+        "3": {"class_type": "CLIPTextEncode", "inputs": {"text": ["2", 0]}},
+    }
+    params = discover(api)
+    addrs = {p.address for p in params}
+    assert ("1", "value") not in addrs
+    assert ("2", "value") in addrs
 
 
 def test_discover_lifts_tier_to_common_for_role_tagged_params():

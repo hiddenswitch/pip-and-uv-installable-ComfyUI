@@ -95,6 +95,21 @@ def _is_link(value: Any) -> bool:
     )
 
 
+def _referenced_node_ids(api: dict) -> set[str]:
+    referenced: set[str] = set()
+    for node in api.values():
+        if not isinstance(node, dict):
+            continue
+        for value in (node.get("inputs") or {}).values():
+            if _is_link(value):
+                referenced.add(str(value[0]))
+    return referenced
+
+
+def _is_unreferenced_typed_primitive(referenced: set[str], node_id: str, class_type: str) -> bool:
+    return class_type in _TYPED_PRIMITIVE_CLASSES and str(node_id) not in referenced
+
+
 def _infer_type(value: Any) -> str:
     if isinstance(value, bool):
         return "BOOLEAN"
@@ -173,10 +188,13 @@ def _resolve_linked_input_source(
 
 def frontend_widget_pool(api: dict, ui: dict | None) -> list[Param]:
     out: list[Param] = []
+    referenced = _referenced_node_ids(api)
     for node_id, node in api.items():
         if not isinstance(node, dict):
             continue
         class_type = node.get("class_type") or ""
+        if _is_unreferenced_typed_primitive(referenced, str(node_id), class_type):
+            continue
         title = ((node.get("_meta") or {}).get("title")) if isinstance(node.get("_meta"), dict) else None
         for widget_name, value in (node.get("inputs") or {}).items():
             if _is_link(value):
@@ -335,6 +353,7 @@ _TYPED_PRIMITIVE_CLASSES = frozenset({
 
 def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
     out: list[Param] = []
+    referenced = _referenced_node_ids(api)
 
     # Typed primitives via API (no UI required).
     for node_id, node in api.items():
@@ -342,6 +361,8 @@ def primitive_nodes(api: dict, ui: dict | None) -> list[Param]:
             continue
         class_type = node.get("class_type") or ""
         if class_type not in _TYPED_PRIMITIVE_CLASSES:
+            continue
+        if _is_unreferenced_typed_primitive(referenced, str(node_id), class_type):
             continue
         title = ((node.get("_meta") or {}).get("title")) if isinstance(node.get("_meta"), dict) else None
         slug = _slug(title) if title else f"node_{node_id}"
