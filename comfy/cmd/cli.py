@@ -7,8 +7,10 @@ and sub-apps: models, workflows, nodes, jobs, env.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import inspect
+import io
 import json
 import logging
 import os
@@ -36,6 +38,58 @@ logger = logging.getLogger(__name__)
 
 class _ComfyGroup(typer.core.TyperGroup):
     """Custom group that renders compact help for ``-h`` and full help for ``--help``."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if self._maybe_render_workflow_help(ctx, args):
+            ctx.exit()
+        return super().parse_args(ctx, args)
+
+    def _maybe_render_workflow_help(self, ctx: click.Context, args: list[str]) -> bool:
+        if "--help" not in args and "-h" not in args:
+            return False
+
+        command, command_ctx, workflow_args = self._workflow_help_command_context(ctx, args)
+        if command is None or command_ctx is None or workflow_args is None:
+            return False
+
+        ref = command._extract_workflow_ref(workflow_args, ctx=command_ctx)
+        if not ref:
+            return False
+
+        try:
+            params = _discover_from_ref(ref)
+            raw_workflow = _DISCOVER_RAW_CACHE.get(ref)
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(f"(Could not discover workflow parameters: {exc})", err=True)
+            typer.echo()
+            typer.echo(command.get_help(command_ctx))
+            return True
+
+        command._render_workflow_help(command_ctx, ref, params, raw_workflow)
+        return True
+
+    def _workflow_help_command_context(
+        self,
+        ctx: click.Context,
+        args: list[str],
+    ) -> tuple["_RunWorkflowCommand | None", click.Context | None, list[str] | None]:
+        command = self.get_command(ctx, "run-workflow")
+        if args and args[0] == "run-workflow" and isinstance(command, _RunWorkflowCommand):
+            command_ctx = click.Context(command, info_name="run-workflow", parent=ctx)
+            return command, command_ctx, args[1:]
+
+        if len(args) >= 2 and args[0] == "workflows" and args[1] == "run":
+            workflows = self.get_command(ctx, "workflows")
+            if not isinstance(workflows, click.Group):
+                return None, None, None
+            command = workflows.get_command(ctx, "run")
+            if not isinstance(command, _RunWorkflowCommand):
+                return None, None, None
+            workflows_ctx = click.Context(workflows, info_name="workflows", parent=ctx)
+            command_ctx = click.Context(command, info_name="run", parent=workflows_ctx)
+            return command, command_ctx, args[2:]
+
+        return None, None, None
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         if _short_help_requested():
@@ -266,6 +320,32 @@ _WORKFLOW_OVERRIDE_OPTS: list[tuple] = [
 _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT: list[tuple] = [
     opt for opt in _WORKFLOW_OVERRIDE_OPTS if opt[0] != "output"
 ]
+
+_RUN_WORKFLOWS_ARGUMENT = typer.Argument(
+    ...,
+    help="Workflow files, URIs, template names, '-' for stdin, or literal JSON.",
+)
+_RUN_ALL_OPTION = typer.Option(
+    False,
+    "--all/--no-all",
+    "-a",
+    help="Install missing custom nodes and download missing models before running.",
+)
+_RUN_DRY_RUN_OPTION = typer.Option(
+    False,
+    "--dry-run/--no-dry-run",
+    help="Print the execution plan (discovered models, folder-path registrations, missing downloads, disk free) and exit. Implies --all.",
+)
+_RUN_DISABLE_PROGRESS_OPTION = typer.Option(
+    False,
+    "--disable-progress",
+    help="Disable CLI progress bars.",
+)
+_RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION = typer.Option(
+    False,
+    "--block-runtime-package-installation/--no-block-runtime-package-installation",
+    help="Block runtime package installations.",
+)
 
 _COMPUTE_OPTS = (
     _DEVICE_OPTS + _VRAM_OPTS + _PRECISION_OPTS + _ATTENTION_OPTS +
@@ -682,7 +762,7 @@ def worker(
 _NODES_INDEX_URL = "https://nodes.appmana.com/simple/"
 
 
-def _install_workflow_requirements(workflow_sources: list[str]) -> None:
+def _install_workflow_requirements(workflow_sources: list[str], *, dry_run: bool = False) -> list[str]:
     """Install missing custom node packages for the given workflows.
 
     Two-tier resolution: (1) try the pip facade index at nodes.appmana.com
@@ -696,11 +776,6 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
 
     from ..component_model.asyncio_files import load_workflow_json
     from ..component_model.workflow_dependencies import resolve_workflow_packages_versioned
-
-    uv = shutil.which("uv")
-    if uv is None:
-        logger.warning("uv not found, skipping custom node installation")
-        return
 
     packages: set[str] = set()
     for source in workflow_sources:
@@ -716,7 +791,7 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
             packages.add(name)
 
     if not packages:
-        return
+        return []
 
     # Filter out already-installed packages
     from importlib.metadata import distributions
@@ -727,7 +802,15 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
             installed.add(name.lower().replace("_", "-"))
     missing = sorted(p for p in packages if p not in installed)
     if not missing:
-        return
+        return []
+
+    if dry_run:
+        return missing
+
+    uv = shutil.which("uv")
+    if uv is None:
+        logger.warning("uv not found, skipping custom node installation")
+        return missing
 
     logger.info("Installing custom nodes: %s", ", ".join(missing))
     cmd = [uv, "pip", "install", "--python", sys.executable,
@@ -735,7 +818,7 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
     result = subprocess.run(cmd, check=False)
 
     if result.returncode == 0:
-        return
+        return missing
 
     # Some packages don't have wheels on the pip facade — build a facade
     # wheel locally for each missing one (still goes through the same
@@ -750,7 +833,7 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
             refreshed_installed.add(n.lower().replace("_", "-"))
     still_missing = [p for p in missing if p not in refreshed_installed]
     if not still_missing:
-        return
+        return missing
 
     wheel_paths: list[str] = []
     unresolved: list[str] = []
@@ -771,6 +854,7 @@ def _install_workflow_requirements(workflow_sources: list[str]) -> None:
 
     if unresolved:
         logger.warning("Could not locate repo URL for: %s", ", ".join(unresolved))
+    return missing
 
 
 # Pre-built stable-ABI wheel indexes for binary CUDA extensions that we ship.
@@ -895,22 +979,10 @@ def _auto_register_existing_models() -> tuple[list, list[str]]:
 
     Returns ``(classifications, scan_summary)`` for use by ``--dry-run``.
     """
-    from .model_search import find_files
-    from .model_classifier import classify_many
-    from . import folder_paths
+    from .local_model_discovery import find_local_model_paths
 
-    scan = find_files()
-    classifications = classify_many(scan.paths)
-    registered: set[tuple[str, str]] = set()
-    for c in classifications:
-        if c.kind is None or c.register_dir is None:
-            continue
-        key = (c.kind, c.register_dir)
-        if key in registered:
-            continue
-        registered.add(key)
-        folder_paths.add_model_folder_path(c.kind, c.register_dir)
-    return classifications, scan.summary
+    discovery = find_local_model_paths(register=True)
+    return discovery.classifications, discovery.scan_summary
 
 
 def _print_dry_run_plan(
@@ -918,6 +990,7 @@ def _print_dry_run_plan(
     classifications: list,
     scan_summary: list[str],
     planned_downloads: list[tuple[str, str]],
+    custom_node_packages: list[str],
 ) -> None:
     """Pretty-print what ``--all`` would do."""
     import shutil
@@ -952,6 +1025,15 @@ def _print_dry_run_plan(
         print("folder paths to register")
         for (kind, d), _n in sorted(by_kind_dir.items()):
             print(f"  --add-model-folder-path {kind}={d}")
+        print()
+
+    if custom_node_packages:
+        print(f"custom nodes to install ({len(custom_node_packages)})")
+        for package in custom_node_packages:
+            print(f"  ↓ {package}")
+        print()
+    else:
+        print("custom nodes to install: 0 (all required packages installed)")
         print()
 
     # Models to download
@@ -1059,11 +1141,17 @@ def _download_workflow_models(workflow_sources: list[str], dry_run: bool = False
                 matches = filename_index.get(key)
                 if matches:
                     folder_name = matches[0][0]
-                    if not folder_paths.get_full_path(folder_name, value):
+                    known_file = matches[0][1]
+                    found = (
+                        get_or_download(folder_name, value, known_files=[known_file], offline=True)
+                        if dry_run
+                        else folder_paths.get_full_path(folder_name, value)
+                    )
+                    if not found:
                         planned.append((folder_name, value))
                         if not dry_run:
                             logger.info("Downloading %s/%s", folder_name, value)
-                            get_or_download(folder_name, value)
+                            get_or_download(folder_name, value, known_files=[known_file])
     return planned
 
 
@@ -1233,6 +1321,8 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
                     return
                 self._render_workflow_help(ctx, ref, params, raw_workflow)
                 ctx.exit()
+            typer.echo(self.get_help(ctx))
+            ctx.exit()
         return super().parse_args(ctx, self._rewrite_workflow_param_args(args, ctx=ctx))
 
     def _render_workflow_help(self, ctx, ref: str, params, raw_workflow: dict | None = None) -> None:
@@ -1390,8 +1480,45 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
         if footer_lines:
             rendered.append(Panel("\n".join(footer_lines), border_style="cyan", box=box.ROUNDED))
 
-        console.print(Group(*rendered))
-        typer.echo(self.get_help(ctx))
+        generic_help = self._get_help_text(ctx)
+        before_params, after_params = self._split_help_before_default_params(generic_help)
+        typer.echo(before_params.rstrip())
+        if rendered:
+            console.print(Group(*rendered))
+        if after_params:
+            typer.echo(after_params.lstrip("\n"))
+
+    @staticmethod
+    def _get_help_text(ctx: click.Context) -> str:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            help_text = ctx.command.get_help(ctx)
+        captured = stdout.getvalue()
+        return help_text or captured
+
+    @staticmethod
+    def _split_help_before_default_params(help_text: str) -> tuple[str, str]:
+        """Split rich Typer help before the standard Arguments/Options panels."""
+        plain_help = re.sub(r"\x1b\[[0-9;]*m", "", help_text)
+        match = re.search(r"(?m)^\s*╭─ (Arguments|Options) ", plain_help)
+        if match is None:
+            return help_text, ""
+        split_at = _plain_index_to_raw_index(help_text, match.start())
+        return help_text[:split_at], help_text[split_at:]
+
+
+def _plain_index_to_raw_index(text: str, plain_index: int) -> int:
+    plain_pos = 0
+    raw_pos = 0
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    while raw_pos < len(text) and plain_pos < plain_index:
+        match = ansi_re.match(text, raw_pos)
+        if match is not None:
+            raw_pos = match.end()
+            continue
+        raw_pos += 1
+        plain_pos += 1
+    return raw_pos
 
 
 def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> None:
@@ -1406,7 +1533,9 @@ def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> No
     _set_config_context(config)
 
     if all:
-        _install_workflow_requirements(config.workflows)
+        custom_node_packages = _install_workflow_requirements(config.workflows, dry_run=dry_run)
+    else:
+        custom_node_packages = []
 
     setup_pre_torch(config)
     setup_post_torch(config)
@@ -1426,7 +1555,7 @@ def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> No
         classifications, scan_summary = _auto_register_existing_models()
         planned = _download_workflow_models(config.workflows, dry_run=dry_run)
         if dry_run:
-            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned)
+            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned, custom_node_packages)
             return
 
     from ..execution_context import context_configuration
@@ -1441,15 +1570,49 @@ def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> No
         pass
 
 
-@app.command(name="run-workflow", context_settings=_COMFYUI_ENV, rich_help_panel="Workflows", cls=_RunWorkflowCommand)
+def _run_workflow_command(
+    ctx: typer.Context,
+    workflows: list[str],
+    all: bool,
+    dry_run: bool,
+    local_vars: dict,
+    kwargs: dict,
+) -> None:
+    _warn_unknown_cli_args(ctx.args)
+    workflows = _remove_unknown_option_args_from_workflows(workflows)
+    _all = all or dry_run
+    _dry_run = dry_run
+    params = _collect_params({**local_vars, "workflows": workflows}, kwargs)
+    params.pop("all", None)
+    params.pop("_all", None)
+    params.pop("dry_run", None)
+    params.pop("_dry_run", None)
+
+    if params.get("output") is not None:
+        params["output_directory"] = params["output"]
+
+    if params.get("otel_service_version") is None:
+        from .. import __version__
+        params["otel_service_version"] = __version__
+
+    config = _build_config(params)
+    _run_workflow_cli(config, all=_all, dry_run=_dry_run)
+
+
+@app.command(
+    name="run-workflow",
+    context_settings=_COMFYUI_ENV,
+    rich_help_panel="Workflows",
+    cls=_RunWorkflowCommand,
+)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def run_workflow(
     ctx: typer.Context,
-    workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, '-' for stdin, or literal JSON."),
-    all: bool = typer.Option(False, "--all/--no-all", "-a", help="Install missing custom nodes and download missing models before running."),
-    dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Print the execution plan (discovered models, folder-path registrations, missing downloads, disk free) and exit. Implies --all."),
-    disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
-    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation/--no-block-runtime-package-installation", help="Block runtime package installations."),
+    workflows: list[str] = _RUN_WORKFLOWS_ARGUMENT,
+    all: bool = _RUN_ALL_OPTION,
+    dry_run: bool = _RUN_DRY_RUN_OPTION,
+    disable_progress: bool = _RUN_DISABLE_PROGRESS_OPTION,
+    block_runtime_package_installation: bool = _RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION,
     **kwargs,
 ):
     """Execute workflow(s) and exit.
@@ -1490,25 +1653,7 @@ def run_workflow(
       cat workflow.json | comfyui run-workflow -
       comfyui run-workflow workflow.json --novram --fast cublas_ops
     """
-    _warn_unknown_cli_args(ctx.args)
-    workflows = _remove_unknown_option_args_from_workflows(workflows)
-    _all = all or dry_run
-    _dry_run = dry_run
-    params = _collect_params(locals(), kwargs)
-    params.pop("all", None)
-    params.pop("_all", None)
-    params.pop("dry_run", None)
-    params.pop("_dry_run", None)
-
-    if params.get("output") is not None:
-        params["output_directory"] = params["output"]
-
-    if params.get("otel_service_version") is None:
-        from .. import __version__
-        params["otel_service_version"] = __version__
-
-    config = _build_config(params)
-    _run_workflow_cli(config, all=_all, dry_run=_dry_run)
+    _run_workflow_command(ctx, workflows, all, dry_run, locals(), kwargs)
 
 
 

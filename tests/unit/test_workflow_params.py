@@ -140,6 +140,49 @@ def test_discover_sorted_stably_by_node_then_widget():
     assert addrs == [("10", "a"), ("10", "b"), ("2", "a"), ("2", "b")]
 
 
+def test_discover_collapses_equivalent_flags_and_suffixes_distinct_collisions():
+    api = dict(
+        [
+            _api("1", "UNETLoader", unet_name="same.safetensors"),
+            _api("2", "UNETLoader", unet_name="same.safetensors"),
+            _api("3", "UNETLoader", unet_name="other.safetensors"),
+        ]
+    )
+
+    params = [
+        p
+        for p in discover(api)
+        if p.class_type == "UNETLoader" and p.widget_name == "unet_name"
+    ]
+
+    assert [(p.node_id, p.value, p.flag_name) for p in params] == [
+        ("1", "same.safetensors", "unet-1"),
+        ("3", "other.safetensors", "unet-2"),
+    ]
+
+
+def test_ideogram_default_workflow_has_unique_dynamic_flags():
+    workflow_path = Path("/home/administrator/Downloads/Ideogram-4-Default-WF-With-Sigma-Node.json")
+    if not workflow_path.exists():
+        pytest.skip(f"{workflow_path} is not available on this machine")
+
+    workflow = json.loads(workflow_path.read_text())
+    params = discover(workflow)
+    flags = [p.flag_name for p in params if p.flag_name is not None]
+
+    assert len(flags) == len(set(flags))
+    assert "unet" not in flags
+    assert {"unet-1", "unet-2"}.issubset(flags)
+    assert "primitivestringmultiline" not in flags
+    assert {
+        "primitivestringmultiline-1",
+        "primitivestringmultiline-2",
+        "primitivestringmultiline-3",
+        "primitivestringmultiline-4",
+        "primitivestringmultiline-5",
+    }.issubset(flags)
+
+
 # ── synthetic unit tests: helpers ─────────────────────────────────────────────
 
 

@@ -226,6 +226,7 @@ async def stream_json_objects(source_path_or_stdin: str | Literal["-"]) -> Async
             for obj in ijson.items(stream, '', multiple_values=True, use_float=True):
                 yield obj
         else:
-            async with aiofiles.open(source_path_or_stdin, mode='rb') as f:
-                async for obj in ijson.items_async(f, '', multiple_values=True, use_float=True):
-                    yield obj
+            data = Path(source_path_or_stdin).read_bytes()
+            stream = _maybe_extract_workflow_json(data, source=str(source_path_or_stdin))
+            for obj in ijson.items(stream, '', multiple_values=True, use_float=True):
+                yield obj

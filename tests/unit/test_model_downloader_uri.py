@@ -185,6 +185,43 @@ class TestGetOrDownloadWithHfUri:
         assert result == str(expected)
         hf_hub_download.assert_not_called()
 
+    def test_offline_uses_hf_cache_without_linking(self, tmp_path):
+        models_dir = tmp_path / "checkpoints"
+        models_dir.mkdir()
+        cached = tmp_path / "hf-cache" / "ideogram4_fp8_scaled.safetensors"
+        cached.parent.mkdir()
+        cached.write_bytes(b"cached")
+
+        previous = folder_paths.folder_names_and_paths.get("checkpoints")
+        folder_paths.folder_names_and_paths["checkpoints"] = FolderPathsTuple(
+            "checkpoints",
+            [str(models_dir)],
+            {".safetensors"},
+        )
+        known_file = HuggingFile(
+            "Comfy-Org/Ideogram-4",
+            "diffusion_models/ideogram4_fp8_scaled.safetensors",
+            save_with_filename="ideogram4_fp8_scaled.safetensors",
+            alternate_filenames=("ideogram4_fp8_scaled.safetensors",),
+        )
+        try:
+            with patch("comfy.model_downloader.hf_hub_download", return_value=str(cached)) as hf_hub_download:
+                result = get_or_download(
+                    "checkpoints",
+                    "ideogram4_fp8_scaled.safetensors",
+                    known_files=[known_file],
+                    offline=True,
+                )
+        finally:
+            if previous is None:
+                del folder_paths.folder_names_and_paths["checkpoints"]
+            else:
+                folder_paths.folder_names_and_paths["checkpoints"] = previous
+
+        assert result == str(cached)
+        assert not (models_dir / "ideogram4_fp8_scaled.safetensors").exists()
+        hf_hub_download.assert_called_once()
+
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

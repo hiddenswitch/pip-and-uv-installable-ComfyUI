@@ -11,10 +11,11 @@ import typer
 from .cli import (
     _with_options, _ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS,
     _WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT,
-    _COMFYUI_ENV, _collect_params, _build_config,
-    _discover_from_ref, _RunWorkflowCommand, _run_workflow_cli,
-    _remove_unknown_option_args_from_workflows,
-    _warn_unknown_cli_args,
+    _COMFYUI_ENV, _build_config,
+    _discover_from_ref, _RunWorkflowCommand,
+    _run_workflow_command,
+    _RUN_ALL_OPTION, _RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION,
+    _RUN_DISABLE_PROGRESS_OPTION, _RUN_DRY_RUN_OPTION, _RUN_WORKFLOWS_ARGUMENT,
 )
 
 workflows_app = typer.Typer(name="workflows", no_args_is_help=False, add_completion=False)
@@ -57,14 +58,23 @@ def workflows_list(
     )
 
 
-@workflows_app.command(name="run", context_settings={**_COMFYUI_ENV, "allow_extra_args": True, "ignore_unknown_options": True}, cls=_RunWorkflowCommand)
+@workflows_app.command(
+    name="run",
+    context_settings={
+        **_COMFYUI_ENV,
+        "allow_extra_args": True,
+        "ignore_unknown_options": True,
+    },
+    cls=_RunWorkflowCommand,
+)
 @_with_options(_ALL_SHARED_OPTS, _WORKFLOW_OVERRIDE_OPTS)
 def workflows_run(
     ctx: typer.Context,
-    workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, '-' for stdin, or literal JSON."),
-    all: bool = typer.Option(False, "--all", "-a", help="Install missing custom nodes and download missing models before running."),
-    disable_progress: bool = typer.Option(False, "--disable-progress", help="Disable CLI progress bars."),
-    block_runtime_package_installation: bool = typer.Option(False, "--block-runtime-package-installation", help="Block runtime package installations."),
+    workflows: list[str] = _RUN_WORKFLOWS_ARGUMENT,
+    all: bool = _RUN_ALL_OPTION,
+    dry_run: bool = _RUN_DRY_RUN_OPTION,
+    disable_progress: bool = _RUN_DISABLE_PROGRESS_OPTION,
+    block_runtime_package_installation: bool = _RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION,
     **kwargs,
 ):
     """Execute workflow(s) locally and exit.
@@ -72,22 +82,7 @@ def workflows_run(
     With --all, automatically install missing custom nodes from
     nodes.appmana.com and download missing models before running.
     """
-    _warn_unknown_cli_args(ctx.args)
-    workflows = _remove_unknown_option_args_from_workflows(workflows)
-    _all = all
-    params = _collect_params(locals(), kwargs)
-    params.pop("all", None)
-    params.pop("_all", None)
-
-    if params.get("output") is not None:
-        params["output_directory"] = params["output"]
-
-    if params.get("otel_service_version") is None:
-        from .. import __version__
-        params["otel_service_version"] = __version__
-
-    config = _build_config(params)
-    _run_workflow_cli(config, all=_all, dry_run=False)
+    _run_workflow_command(ctx, workflows, all, dry_run, locals(), kwargs)
 
 
 @workflows_app.command(name="submit")

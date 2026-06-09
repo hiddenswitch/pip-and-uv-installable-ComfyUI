@@ -32,69 +32,32 @@ This LTS fork adds development, embedding, automated testing, LLM and distribute
 - **API and Configuration:** Enhanced API endpoints and extensive configuration options via CLI args, env vars, and config files.
 - **Tests:** Automated test suite ensuring stability for new features.
 
-## Quickstart (Windows & Linux, One Line)
+## Install
 
-Install `uv`, then:
+Pick the block for your platform and accelerator and paste it into a terminal.
 
-```shell
-uvx --python 3.12 --torch-backend=auto --from "git+https://github.com/hiddenswitch/ComfyUI.git" comfyui run-workflow https://raw.githubusercontent.com/hiddenswitch/pip-and-uv-installable-ComfyUI/refs/heads/master/tests/inference/workflows/z_image-0.json --guess-settings --prompt "a girl with red hair" --steps 9
+- The **workspace directory** is where ComfyUI stores the `.venv`, downloaded models, outputs, and `custom_nodes/`. You can move it anywhere; the examples use `ComfyUI_Workspace`.
+- The **virtual environment** (`.venv`) is an isolated Python install inside the workspace. Activate it before running `comfyui`.
+- **`uv`** is the Python package manager used here. It creates the venv and installs ComfyUI plus the correct PyTorch wheels.
+- **GPU settings** are chosen in two places: `uv pip install --torch-backend=...` selects the PyTorch wheel, and `comfyui serve --guess-settings` auto-detects runtime settings such as VRAM mode and attention backend. CUDA users should use `--torch-backend=auto`.
+
+### Windows + CUDA
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+$env:Path = "$HOME\.local\bin;$env:Path"
+New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
+cd $HOME\Documents\ComfyUI_Workspace
+uv venv --python 3.12
+uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install triton-windows
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
+.\.venv\Scripts\Activate.ps1
+comfyui --help
+comfyui serve --guess-settings
 ```
 
-## Quickstart (Linux)
-
-### UI Users
-
-For users who want to run ComfyUI for generating images and videos.
-
-1.  **Install `uv`**:
-    ```bash
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    ```
-
-2.  **Create a Workspace**:
-    ```bash
-    mkdir comfyui-workspace
-    cd comfyui-workspace
-    ```
-
-3.  **Install and Run**:
-    ```bash
-    # Create a virtual environment
-    uv venv --python 3.12
-    
-    # Install ComfyUI LTS
-    # --torch-backend=auto installs the correct torch, torchvision and torchaudio for your platform.
-    # Omit --torch-backend if you want to keep your currently installed PyTorch.
-    uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
-    
-    # Run (--guess-settings auto-detects GPU type, VRAM mode, attention backend)
-    uv run --no-sync comfyui --guess-settings
-    ```
-
-### Developers
-
-For developers contributing to the codebase or building on top of it.
-
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/hiddenswitch/ComfyUI.git
-    cd ComfyUI
-    ```
-
-2.  **Setup Environment**:
-    ```bash
-    # Create virtual environment
-    uv venv --python 3.12
-    source .venv/bin/activate
-
-    # Install in editable mode with dev dependencies
-    uv pip install -e .[dev]
-    ```
-
-3.  **Run**:
-    ```bash
-    uv run --no-sync comfyui --guess-settings
-    ```
+For Windows + ROCm, macOS, Linux + CUDA, Linux + ROCm, and lesser-known ROCm builds, see [Installation & Getting Started](docs/installing.md).
 
 ### Using ComfyUI as a Library
 

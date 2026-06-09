@@ -1,4 +1,5 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
+import json
 import os
 import re
 import socket
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import typer
 from typer.testing import CliRunner
 import comfy.cmd.cli as cli_module
 from comfy.cmd.cli import app, _register_sub_apps
@@ -53,6 +55,29 @@ def test_run_workflow_help():
     out = _plain(result.output)
     assert "--prompt" in out
     assert "--seed" in out
+
+
+def test_run_workflow_and_workflows_run_have_identical_params():
+    root = typer.main.get_command(app)
+    run_workflow_cmd = root.commands["run-workflow"]
+    workflows_run_cmd = root.commands["workflows"].commands["run"]
+
+    def param_signature(command):
+        return [
+            (
+                param.name,
+                tuple(getattr(param, "opts", ())),
+                tuple(getattr(param, "secondary_opts", ())),
+                getattr(param, "help", None),
+                getattr(param, "default", None),
+                getattr(param, "nargs", None),
+                getattr(param, "multiple", None),
+                type(param).__name__,
+            )
+            for param in command.params
+        ]
+
+    assert param_signature(workflows_run_cmd) == param_signature(run_workflow_cmd)
 
 
 def test_create_directories_help():
@@ -106,7 +131,11 @@ def test_models_help():
     result = runner.invoke(app, ["models", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    assert "ls" in out or "available" in out or "download" in out or "paths" in out
+    assert "ls" in out
+    assert "find-local" in out
+    assert "download" in out
+    assert "paths" in out
+    assert "available" not in out
 
 
 def test_workflows_help():
@@ -141,6 +170,7 @@ def test_workflows_run_help():
     result = runner.invoke(app, ["workflows", "run", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
+    assert "--dry-run" in out
     assert "--prompt" in out
     assert "--seed" in out
     assert "--cfg" in out
@@ -149,11 +179,53 @@ def test_workflows_run_help():
     assert "--set" in out
 
 
-def test_workflows_run_warns_about_unknown_args(monkeypatch):
-    import comfy.cmd.sub_workflows as sub_workflows
+def test_workflows_run_workflow_specific_help_order():
+    workflow = "tests/inference/workflows/z_image-0.json"
+    result = runner.invoke(app, ["workflows", "run", workflow, "--help"], env={"COLUMNS": "220"})
+    assert result.exit_code == 0
+    out = _plain(result.output)
 
+    explanation = out.index("Execute workflow(s) locally and exit.")
+    workflow_params = out.index("Common parameters")
+    default_params = out.index("Arguments")
+
+    assert explanation < workflow_params < default_params
+
+
+def test_workflows_run_workflow_specific_help_accepts_png_workflow(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    PngImagePlugin = pytest.importorskip("PIL.PngImagePlugin")
+    workflow = {
+        "1": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 123,
+                "steps": 4,
+                "cfg": 1.5,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "denoise": 1.0,
+            },
+        }
+    }
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("prompt", json.dumps(workflow))
+    path = tmp_path / "workflow.png"
+    Image.new("RGB", (1, 1), color=(0, 0, 0)).save(path, pnginfo=metadata)
+
+    result = runner.invoke(app, ["workflows", "run", str(path), "--help"], env={"COLUMNS": "220"})
+
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "Common parameters" in out
+    assert "--seed" in out
+    assert "--steps" in out
+    assert "--cfg" in out
+
+
+def test_workflows_run_warns_about_unknown_args(monkeypatch):
     calls = []
-    monkeypatch.setattr(sub_workflows, "_run_workflow_cli", lambda config, **kwargs: calls.append((config, kwargs)))
+    monkeypatch.setattr(cli_module, "_run_workflow_cli", lambda config, **kwargs: calls.append((config, kwargs)))
 
     result = runner.invoke(app, ["workflows", "run", "workflow.json", "--definitely-unknown"])
 
@@ -161,6 +233,18 @@ def test_workflows_run_warns_about_unknown_args(monkeypatch):
     assert "[WARNING] Ignoring unknown CLI argument(s): --definitely-unknown" in _plain(result.stderr)
     assert len(calls) == 1
     assert calls[0][0].workflows == ["workflow.json"]
+
+
+def test_workflows_run_dry_run_implies_all(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli_module, "_run_workflow_cli", lambda config, **kwargs: calls.append((config, kwargs)))
+
+    result = runner.invoke(app, ["workflows", "run", "workflow.json", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0][0].workflows == ["workflow.json"]
+    assert calls[0][1] == {"all": True, "dry_run": True}
 
 
 def test_workflows_convert_help():
