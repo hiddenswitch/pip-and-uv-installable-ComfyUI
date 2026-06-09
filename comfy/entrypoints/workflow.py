@@ -234,7 +234,7 @@ def _resolve_workflow(workflow: str) -> str:
     workflow = canonicalize_uri(workflow)
     if is_uri(workflow):
         return workflow
-    if os.sep in workflow or workflow.endswith(".json"):
+    if os.sep in workflow or os.path.exists(workflow) or workflow.lower().endswith((".json", ".png")):
         return workflow
     from ..cmd.workflow_templates import resolve_template
     return resolve_template(workflow)

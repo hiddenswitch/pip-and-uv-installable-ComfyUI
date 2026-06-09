@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from comfy.component_model.asyncio_files import stream_json_objects
+from comfy.entrypoints.workflow import _resolve_workflow
 from comfy.api.components.schema.prompt import Prompt
 from tests.inference import workflows
 
@@ -53,6 +54,51 @@ class TestStreamJsonObjectsFile:
         # z_image-0.json has cfg: 1.0 and denoise: 1.0 in node "3"
         assert isinstance(prompt["3"]["inputs"]["cfg"], float)
         assert isinstance(prompt["3"]["inputs"]["denoise"], float)
+
+    def test_png_with_embedded_prompt_metadata(self, tmp_path):
+        Image = pytest.importorskip("PIL.Image")
+        PngImagePlugin = pytest.importorskip("PIL.PngImagePlugin")
+        workflow = {
+            "1": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "seed": 123,
+                    "steps": 4,
+                    "cfg": 1.5,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0,
+                },
+            }
+        }
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("prompt", json.dumps(workflow))
+        path = tmp_path / "embedded-prompt.png"
+        Image.new("RGB", (1, 1), color=(0, 0, 0)).save(path, pnginfo=metadata)
+
+        results = asyncio.run(_collect(str(path)))
+
+        assert results == [workflow]
+
+    def test_png_with_embedded_ui_workflow_metadata(self, tmp_path):
+        Image = pytest.importorskip("PIL.Image")
+        PngImagePlugin = pytest.importorskip("PIL.PngImagePlugin")
+        workflow = {"nodes": [], "links": [], "version": 0.4}
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("workflow", json.dumps(workflow))
+        path = tmp_path / "embedded-ui-workflow.png"
+        Image.new("RGB", (1, 1), color=(0, 0, 0)).save(path, pnginfo=metadata)
+
+        results = asyncio.run(_collect(str(path)))
+
+        assert results == [workflow]
+
+    def test_bare_png_filename_resolves_as_workflow_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "embedded-prompt.png"
+        path.write_bytes(b"not used")
+        monkeypatch.chdir(tmp_path)
+
+        assert _resolve_workflow(path.name) == path.name
 
 
 class TestStreamJsonObjectsLiteral:

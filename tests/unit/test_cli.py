@@ -1,4 +1,5 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
+import json
 import os
 import re
 import socket
@@ -189,6 +190,37 @@ def test_workflows_run_workflow_specific_help_order():
     default_params = out.index("Arguments")
 
     assert explanation < workflow_params < default_params
+
+
+def test_workflows_run_workflow_specific_help_accepts_png_workflow(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    PngImagePlugin = pytest.importorskip("PIL.PngImagePlugin")
+    workflow = {
+        "1": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 123,
+                "steps": 4,
+                "cfg": 1.5,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "denoise": 1.0,
+            },
+        }
+    }
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("prompt", json.dumps(workflow))
+    path = tmp_path / "workflow.png"
+    Image.new("RGB", (1, 1), color=(0, 0, 0)).save(path, pnginfo=metadata)
+
+    result = runner.invoke(app, ["workflows", "run", str(path), "--help"], env={"COLUMNS": "220"})
+
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    assert "Common parameters" in out
+    assert "--seed" in out
+    assert "--steps" in out
+    assert "--cfg" in out
 
 
 def test_workflows_run_warns_about_unknown_args(monkeypatch):
