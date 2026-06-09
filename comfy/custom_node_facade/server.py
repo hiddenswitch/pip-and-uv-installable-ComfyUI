@@ -80,7 +80,12 @@ def create_facade_app(
             registry: FacadeRegistryProtocol = app["facade_registry"]
             projects = await registry.list_projects()
             span.set_attribute("facade.project_count", len(projects))
-            names = sorted({project.canonical_name for project in projects} | set(PYPI_PROXY_INDEX.keys()))
+            proxy_names = {
+                name
+                for name, proxy in PYPI_PROXY_INDEX.items()
+                if proxy.supports_cuda(cuda)
+            }
+            names = sorted({project.canonical_name for project in projects} | proxy_names)
             prefix = f"/simple/{cuda}" if cuda != DEFAULT_CUDA_VARIANT else "/simple"
             links = "\n".join(
                 f'<a href="{prefix}/{name}/">{html.escape(name)}</a><br/>'
@@ -97,12 +102,11 @@ def create_facade_app(
             project_name = canonicalize_project_name(request.match_info["project"])
             proxy = PYPI_PROXY_INDEX.get(project_name)
             if proxy is not None:
-                upstream_url = proxy.upstream_index_url(cuda)
-                span.set_attribute("facade.proxy_upstream", upstream_url)
+                if not proxy.supports_cuda(cuda):
+                    raise web.HTTPNotFound(text=f"{project_name} does not support CUDA variant: {cuda}")
+                span.set_attribute("facade.proxy_project", project_name)
                 session: aiohttp.ClientSession = app["facade_session"]
-                async with session.get(upstream_url) as upstream:
-                    upstream.raise_for_status()
-                    body = await upstream.text()
+                body = await proxy.render_index(session, cuda)
                 return web.Response(text=body, content_type="text/html")
 
             registry: FacadeRegistryProtocol = app["facade_registry"]

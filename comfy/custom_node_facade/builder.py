@@ -5,6 +5,7 @@ from ..cmd.main_pre import tracer
 import asyncio
 import base64
 import csv
+import html
 import io
 import ntpath
 import os
@@ -60,7 +61,10 @@ _PYPI_REWRITE_INDEX: dict[str, PyPIRewriteSpec] = {
 
 
 DEFAULT_CUDA_VARIANT = "cu130"
-SUPPORTED_CUDA_VARIANTS = ("cu128", "cu130")
+FLASH_ATTENTION_CUDA_VARIANTS = ("cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132")
+FLASH_ATTENTION_3_CUDA_VARIANTS = ("cu124", "cu126", "cu128", "cu129", "cu130", "cu132")
+STABLE_ABI_CUDA_VARIANTS = ("cu128", "cu130")
+SUPPORTED_CUDA_VARIANTS = tuple(sorted(set(FLASH_ATTENTION_CUDA_VARIANTS) | set(STABLE_ABI_CUDA_VARIANTS)))
 
 
 @dataclass(frozen=True)
@@ -72,18 +76,74 @@ class PyPIProxySpec:
     """
     name: str
     upstream_index_url_template: str
+    cuda_variants: tuple[str, ...] | None = None
 
     def upstream_index_url(self, cuda: str = DEFAULT_CUDA_VARIANT) -> str:
         return self.upstream_index_url_template.format(cuda=cuda)
 
-PYPI_PROXY_PACKAGES: list[PyPIProxySpec] = [
+    def supports_cuda(self, cuda: str) -> bool:
+        return self.cuda_variants is None or cuda in self.cuda_variants
+
+    async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
+        async with session.get(self.upstream_index_url(cuda)) as upstream:
+            upstream.raise_for_status()
+            return await upstream.text()
+
+
+@dataclass(frozen=True)
+class FlashAttentionProxySpec:
+    """Serve flash-attention-prebuild-wheels as CUDA-scoped PEP 503 pages.
+
+    The upstream project documents wheels in a Markdown table instead of a
+    simple-package index. The wheel links are snapshotted into
+    flash_attention_wheels.py by scripts/snapshot_flash_attention_wheels.py.
+    """
+    name: str
+    wheel_project_prefix: str
+    cuda_variants: tuple[str, ...] = FLASH_ATTENTION_CUDA_VARIANTS
+
+    def supports_cuda(self, cuda: str) -> bool:
+        return cuda in self.cuda_variants
+
+    async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
+        del session
+        from .flash_attention_wheels import FLASH_ATTENTION_WHEEL_URLS
+
+        if not self.supports_cuda(cuda):
+            return _simple_package_html(self.name, "")
+        links = []
+        for url in FLASH_ATTENTION_WHEEL_URLS:
+            filename = url.rsplit("/", 1)[-1]
+            if not filename.startswith(f"{self.wheel_project_prefix}-"):
+                continue
+            if f"+{cuda}" not in filename:
+                continue
+            links.append((filename, url))
+        body = "\n".join(
+            f'<a href="{html.escape(url, quote=True)}">{html.escape(filename)}</a><br/>'
+            for filename, url in sorted(set(links))
+        )
+        return _simple_package_html(self.name, body)
+
+
+def _simple_package_html(project_name: str, body: str) -> str:
+    title = f"Simple Index for {project_name}"
+    return f"<!DOCTYPE html><html><head><title>{html.escape(title)}</title></head><body>{body}</body></html>"
+
+
+PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec
+
+
+PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
     PyPIProxySpec(
         name="sageattention",
         upstream_index_url_template="https://appmana.github.io/forks-sageattention-stable-abi/{cuda}/sageattention/",
+        cuda_variants=STABLE_ABI_CUDA_VARIANTS,
     ),
     PyPIProxySpec(
         name="nunchaku",
         upstream_index_url_template="https://appmana.github.io/forks-nunchaku-stable-abi/{cuda}/nunchaku/",
+        cuda_variants=STABLE_ABI_CUDA_VARIANTS,
     ),
     # insightface has no CUDA dependency (onnxruntime backend) so it serves
     # one wheel set from a flat URL — the {cuda} placeholder is intentionally
@@ -92,9 +152,18 @@ PYPI_PROXY_PACKAGES: list[PyPIProxySpec] = [
         name="insightface",
         upstream_index_url_template="https://appmana.github.io/forks-insightface-stable-abi/insightface/",
     ),
+    FlashAttentionProxySpec(
+        name="flash-attn",
+        wheel_project_prefix="flash_attn",
+    ),
+    FlashAttentionProxySpec(
+        name="flash-attn-3",
+        wheel_project_prefix="flash_attn_3",
+        cuda_variants=FLASH_ATTENTION_3_CUDA_VARIANTS,
+    ),
 ]
 
-PYPI_PROXY_INDEX: dict[str, PyPIProxySpec] = {
+PYPI_PROXY_INDEX: dict[str, PyPIProxy] = {
     canonicalize_project_name(spec.name): spec for spec in PYPI_PROXY_PACKAGES
 }
 
