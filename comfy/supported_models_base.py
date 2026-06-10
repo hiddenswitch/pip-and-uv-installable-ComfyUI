@@ -55,6 +55,10 @@ class BASE:
     manual_cast_dtype: Optional[torch.dtype] = None
     custom_operations: Optional[torch.dtype] = None
     quant_config = None  # quantization configuration for mixed precision
+    # Substrings of layer names too sensitive for ad-hoc int8 quantize-on-load
+    # (embedders, modulation/adaLN, final projections). Empty means every
+    # eligible Linear quantizes.
+    int8_quant_exclude: tuple = ()
     optimizations = {"fp8": False}
 
     @classmethod
