@@ -253,12 +253,38 @@ def test_set_torch_compile_wrapper_uses_weight_cast_strategy_for_cast_capable_mo
         patcher,
         keys=["diffusion_model"],
         backend="inductor",
-        mode="reduce-overhead",
     )
 
     assert len(calls) == 1
     assert callable(calls[0][1]["backend"])
     assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module_weight_cast"}
+
+
+def test_set_torch_compile_wrapper_honors_cudagraph_mode_on_resident_model(monkeypatch):
+    # A cudagraph compile mode requested on a non-dynamic (resident-weight)
+    # model must not be silently stripped: the plain strategy preserves it.
+    from comfy import ops
+
+    calls = []
+
+    def fake_compile(*, model, **kwargs):
+        calls.append((model, kwargs))
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    patcher = _FakePatcher()
+    patcher.module = ops.disable_weight_init.Linear(1, 1)
+
+    set_torch_compile_wrapper(
+        patcher,
+        keys=["diffusion_model"],
+        backend="inductor",
+        mode="reduce-overhead",
+    )
+
+    assert len(calls) == 1
+    assert calls[0][1].get("mode") == "reduce-overhead"
+    assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {"diffusion_model": "module"}
 
 
 def test_dynamic_vbar_compile_forces_all_cast_capable_layers_graph_visible(monkeypatch):

@@ -302,3 +302,15 @@ def gemm(
 @gemm.register_fake
 def _(x_q, x_scale, w_q, w_scale, bias, out_dtype):
     return torch.empty((x_q.shape[0], w_q.shape[0]), device=x_q.device, dtype=out_dtype)
+
+
+# These ops are inference-only. Registering an explicitly raising backward lets
+# torch.compile build graphs when an input accidentally carries requires_grad
+# (e.g. a freshly constructed norm Parameter); the error only fires if someone
+# actually calls backward through them. Training uses QuantLinearFunc instead.
+def _no_backward(ctx, *grads):
+    raise NotImplementedError("comfy_int8 ops are inference-only and have no gradient")
+
+
+quantize_rowwise.register_autograd(_no_backward, setup_context=lambda ctx, inputs, output: None)
+gemm.register_autograd(_no_backward, setup_context=lambda ctx, inputs, output: None)

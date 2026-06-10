@@ -74,6 +74,17 @@ def _compile_kwargs(
     return compile_kwargs
 
 
+_CUDAGRAPH_MODES = ("reduce-overhead", "max-autotune")
+
+
+def _mode_wants_cudagraphs(mode: Optional[str]) -> bool:
+    if not mode:
+        return False
+    if "no-cudagraphs" in mode:
+        return False
+    return any(mode.startswith(prefix) for prefix in _CUDAGRAPH_MODES)
+
+
 def _without_cudagraphs(compile_kwargs: dict[str, Any]) -> dict[str, Any]:
     graph_kwargs = dict(compile_kwargs)
     options = dict(graph_kwargs.pop("options", {}) or {})
@@ -338,7 +349,21 @@ def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Option
     for key in keys:
         module = model.get_model_object(key)
         _stabilize_comfy_weight_cast_attrs(module)
-        if _model_needs_graph_visible_weight_cast(model, module):
+        use_graph_visible = _model_needs_graph_visible_weight_cast(model, module)
+        if (
+            use_graph_visible
+            and _mode_wants_cudagraphs(mode)
+            and not _model_uses_dynamic_vram(model, module)
+        ):
+            # The user explicitly asked for a cudagraph compile mode and the
+            # model's weights are resident (no dynamic VRAM prefetch to
+            # schedule). Honor the requested mode with the plain strategy
+            # instead of silently stripping cudagraphs: resident quantized
+            # layers (int8 inline path) and cast-at-use layers both run
+            # correctly under cudagraph trees.
+            logger.info("Using plain compile strategy for %s to honor mode=%s on resident weights", key, mode)
+            use_graph_visible = False
+        if use_graph_visible:
             compiled_modules[key] = _CompiledModel(
                 module,
                 _with_weight_prefetch_scheduler(_without_cudagraphs(compile_kwargs)),
