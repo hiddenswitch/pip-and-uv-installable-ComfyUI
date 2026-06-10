@@ -1804,17 +1804,11 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 layout_cls = get_layout_class(self.layout_type)
                 group_size = getattr(layout_cls, "GROUP_SIZE", None)
 
-                if x2d.shape[0] > 16:
-                    if group_size is not None:
-                        x2d = rotate_groups(x2d, group_size, compute_dtype=None)
-                    x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
-                    out = torch.ops.comfy_int8.gemm(
-                        x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
-                else:
-                    w = weight._qdata.to(torch.float32) * weight._params.scale
-                    if group_size is not None:
-                        w = rotate_groups(w, group_size)
-                    out = torch.nn.functional.linear(x2d, w.to(input.dtype), bias)
+                if group_size is not None:
+                    x2d = rotate_groups(x2d, group_size, compute_dtype=None)
+                x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
+                out = torch.ops.comfy_int8.gemm(
+                    x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
 
                 if input.ndim != 2:
                     out = out.reshape(input_shape[:-1] + (out_features,))

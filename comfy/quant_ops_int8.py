@@ -211,13 +211,6 @@ class Int8RowwiseLayout(QuantizedLayout):
         """Extra keys merged into the per-layer comfy_quant JSON on save."""
         return {}
 
-    @classmethod
-    def should_quantize_input(cls, input_2d: torch.Tensor) -> bool:
-        # Small batches (modulation vectors etc.) are faster and more accurate
-        # through the dequantized-weight float path; int8 GEMM needs M > 16
-        # anyway.
-        return input_2d.shape[0] > 16
-
 
 class Int8ConvRotLayout(Int8RowwiseLayout):
     """Int8 rowwise with block-diagonal regular-Hadamard rotation (ConvRot)."""

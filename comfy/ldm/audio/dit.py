@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from ..modules.attention import optimized_attention
 from ... import ops
+from ... import rmsnorm
 from .embedders import ExpoFourierFeatures
 
 
@@ -62,7 +63,10 @@ class RMSNorm(nn.Module):
         self.gamma = nn.Parameter(torch.empty(dim, dtype=dtype, device=device))
 
     def forward(self, x):
-        return F.rms_norm(x, x.shape[-1:], weight=ops.cast_to_input(self.gamma, x))
+        # rmsnorm.rms_norm selects the fused torch op on torch >= 2.4 and falls
+        # back to the manual implementation on the torch 2.3 lane. The eps
+        # matches F.rms_norm's eps=None default (dtype eps).
+        return rmsnorm.rms_norm(x, ops.cast_to_input(self.gamma, x), eps=torch.finfo(x.dtype).eps)
 
 
 class GLU(nn.Module):

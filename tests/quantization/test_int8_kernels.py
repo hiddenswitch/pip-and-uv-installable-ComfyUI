@@ -38,16 +38,18 @@ class TestInt8Kernels(unittest.TestCase):
             self.assertLessEqual((q.int() - qe.int()).abs().max().item(), 1, f"k={k}")
 
     def test_gemm_matches_reference(self):
-        m, k, n = 128, 512, 384
-        x = torch.randn(m, k, device=self.device, dtype=torch.bfloat16)
-        w = torch.randn(n, k, device=self.device, dtype=torch.bfloat16)
-        bias = torch.randn(n, device=self.device, dtype=torch.bfloat16)
-        x_q, x_s = torch.ops.comfy_int8.quantize_rowwise(x)
-        w_q, w_s = torch.ops.comfy_int8.quantize_rowwise(w)
-        out = torch.ops.comfy_int8.gemm(x_q, x_s, w_q, w_s, bias, torch.bfloat16)
-        ref = torch.nn.functional.linear(x, w, bias)
-        rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
-        self.assertLess(rel.item(), 0.05)
+        # Includes tiny and non-divisible M to exercise the wrapped-offset
+        # tiles; the triton path must handle any batch size including M=1.
+        for m, k, n in ((128, 512, 384), (1, 512, 384), (4, 512, 384), (777, 512, 336)):
+            x = torch.randn(m, k, device=self.device, dtype=torch.bfloat16)
+            w = torch.randn(n, k, device=self.device, dtype=torch.bfloat16)
+            bias = torch.randn(n, device=self.device, dtype=torch.bfloat16)
+            x_q, x_s = torch.ops.comfy_int8.quantize_rowwise(x)
+            w_q, w_s = torch.ops.comfy_int8.quantize_rowwise(w)
+            out = torch.ops.comfy_int8.gemm(x_q, x_s, w_q, w_s, bias, torch.bfloat16)
+            ref = torch.nn.functional.linear(x, w, bias)
+            rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
+            self.assertLess(rel.item(), 0.05, f"m={m} k={k} n={n}")
 
     def test_gemm_scalar_weight_scale(self):
         m, k, n = 64, 256, 128

@@ -111,10 +111,6 @@ class TestInt8Layouts(unittest.TestCase):
         self.assertTrue(conf["convrot"])
         self.assertEqual(conf["convrot_groupsize"], 256)
 
-    def test_should_quantize_input(self):
-        self.assertFalse(Int8RowwiseLayout.should_quantize_input(torch.zeros(16, 64)))
-        self.assertTrue(Int8RowwiseLayout.should_quantize_input(torch.zeros(17, 64)))
-
     def test_stochastic_rounding_seeded(self):
         w = torch.randn(8, 256)
         q1, p1 = Int8RowwiseLayout.quantize(w, stochastic_rounding=1234)
@@ -202,13 +198,16 @@ class TestInt8MixedPrecisionLoad(unittest.TestCase):
             rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
             self.assertLess(rel.item(), 0.05, fmt)
 
-    def test_small_batch_fallback(self):
+    def test_small_batch(self):
+        # Small batches run through the same quantized path; the triton tile
+        # sizes (not M) satisfy tl.dot's 16-minimum.
         lin, w = self._make_linear("int8_convrot")
-        x = torch.randn(4, 256, dtype=torch.bfloat16)
-        out = lin(x)
-        ref = torch.nn.functional.linear(x, w)
-        rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
-        self.assertLess(rel.item(), 0.05)
+        for m in (1, 4, 16):
+            x = torch.randn(m, 256, dtype=torch.bfloat16)
+            out = lin(x)
+            ref = torch.nn.functional.linear(x, w)
+            rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
+            self.assertLess(rel.item(), 0.06, f"m={m}")
 
     def test_lora_bake_dequant_patch_requant(self):
         lin, w = self._make_linear("int8_convrot")

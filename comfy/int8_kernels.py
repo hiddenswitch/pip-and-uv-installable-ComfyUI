@@ -97,17 +97,19 @@ if TRITON_AVAILABLE:
             mask = offs < K
             x = tl.load(x_row + offs * stride_xk, mask=mask, other=0.0).to(tl.float32)
             q = x * inv_scale
-            # round half away from zero, matching torch.round semantics closely
-            # enough for symmetric absmax quantization
-            q = tl.where(q >= 0, tl.math.floor(q + 0.5), tl.math.ceil(q - 0.5))
+            # round half up via floor(q + 0.5): portable across triton builds
+            # (CUDA and ROCm), unlike libdevice.rint / tl.math intrinsics
+            q = tl.floor(q + 0.5)
             q = tl.minimum(tl.maximum(q, -128.0), 127.0)
             tl.store(q_row + offs * stride_qk, q.to(tl.int8), mask=mask)
 
     _GEMM_CONFIGS = [
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 64}, num_stages=3, num_warps=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 64}, num_stages=3, num_warps=8),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64, "BLOCK_K": 128}, num_stages=4, num_warps=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "BLOCK_K": 64}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=8),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=8),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=4),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64, "BLOCK_K": 128, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=4, num_warps=4),
     ]
 
     @triton.autotune(configs=_GEMM_CONFIGS, key=["M", "N", "K"])
@@ -122,14 +124,27 @@ if TRITON_AVAILABLE:
         HAS_BIAS: tl.constexpr,
         OUT_DTYPE: tl.constexpr,
         BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+        GROUP_M: tl.constexpr,
     ):
         # C[m, n] = (sum_k A[m, k] * W[n, k]) * x_scale[m] * w_scale[n] + bias[n]
         # W is [N, K] and read transposed through its strides.
-        pid_m = tl.program_id(0)
-        pid_n = tl.program_id(1)
+        # Grouped (swizzled) program ordering keeps tiles that share weight
+        # columns resident in L2 together.
+        pid = tl.program_id(0)
+        num_pid_m = tl.cdiv(M, BLOCK_M)
+        num_pid_n = tl.cdiv(N, BLOCK_N)
+        num_pid_in_group = GROUP_M * num_pid_n
+        group_id = pid // num_pid_in_group
+        first_pid_m = group_id * GROUP_M
+        group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+        pid_m = first_pid_m + (pid % group_size_m)
+        pid_n = (pid % num_pid_in_group) // group_size_m
 
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        # Row/col offsets wrap modulo M/N so the inner-loop loads never need
+        # m/n bounds masks (only the K mask); duplicated rows are discarded by
+        # the store mask.
+        offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)) % M
+        offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)) % N
         offs_k = tl.arange(0, BLOCK_K)
 
         x_ptrs = x_ptr + offs_m[:, None] * stride_xm + offs_k[None, :] * stride_xk
@@ -138,21 +153,23 @@ if TRITON_AVAILABLE:
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
         for k0 in range(0, K, BLOCK_K):
             k_mask = (k0 + offs_k) < K
-            a = tl.load(x_ptrs, mask=(offs_m[:, None] < M) & k_mask[None, :], other=0)
-            b = tl.load(w_ptrs, mask=k_mask[:, None] & (offs_n[None, :] < N), other=0)
+            a = tl.load(x_ptrs, mask=k_mask[None, :], other=0)
+            b = tl.load(w_ptrs, mask=k_mask[:, None], other=0)
             acc = tl.dot(a, b, acc, out_dtype=tl.int32)
             x_ptrs += BLOCK_K * stride_xk
             w_ptrs += BLOCK_K * stride_wk
 
-        x_scale = tl.load(x_scale_ptr + offs_m, mask=offs_m < M, other=0.0).to(tl.float32)
-        w_scale = tl.load(w_scale_ptr + offs_n, mask=offs_n < N, other=0.0).to(tl.float32)
+        x_scale = tl.load(x_scale_ptr + offs_m).to(tl.float32)
+        w_scale = tl.load(w_scale_ptr + offs_n).to(tl.float32)
         out = acc.to(tl.float32) * x_scale[:, None] * w_scale[None, :]
         if HAS_BIAS:
-            bias = tl.load(bias_ptr + offs_n, mask=offs_n < N, other=0.0).to(tl.float32)
+            bias = tl.load(bias_ptr + offs_n).to(tl.float32)
             out += bias[None, :]
 
-        out_ptrs = out_ptr + offs_m[:, None] * stride_om + offs_n[None, :] * stride_on
-        out_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
+        out_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        out_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        out_ptrs = out_ptr + out_m[:, None] * stride_om + out_n[None, :] * stride_on
+        out_mask = (out_m[:, None] < M) & (out_n[None, :] < N)
         tl.store(out_ptrs, out.to(OUT_DTYPE), mask=out_mask)
 
     _TL_OUT_DTYPES = {
@@ -251,14 +268,14 @@ def gemm(
 
     if TRITON_AVAILABLE and x_q.is_cuda and m > 0:
         tl_out_dtype = _TL_OUT_DTYPES.get(out_dtype)
-        # tl.dot needs every tile dimension >= 16
-        if tl_out_dtype is not None and m >= 16 and n >= 16 and k >= 16:
+        # tl.dot's 16-minimum applies to the constexpr tile sizes, not M/N/K:
+        # masked loads make any actual shape work, including M=1.
+        if tl_out_dtype is not None:
             out = torch.empty((m, n), device=x_q.device, dtype=out_dtype)
             x_c = x_q.contiguous()
             w_c = w_q.contiguous()
             grid = lambda meta: (  # noqa: E731
-                triton.cdiv(m, meta["BLOCK_M"]),
-                triton.cdiv(n, meta["BLOCK_N"]),
+                triton.cdiv(m, meta["BLOCK_M"]) * triton.cdiv(n, meta["BLOCK_N"]),
             )
             _int8_gemm_dequant_kernel[grid](
                 x_c, w_c, out,
