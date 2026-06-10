@@ -5,12 +5,15 @@ import torch
 from sageattention import sageattn_qk_int8_pv_fp16_cuda, sageattn_qk_int8_pv_fp8_cuda, sageattn_qk_int8_pv_fp8_cuda_sm90
 
 
-def get_cuda_arch_versions():
+def get_cuda_arch_versions() -> tuple[str, ...]:
     cuda_archs = []
     for i in range(torch.cuda.device_count()):
         major, minor = torch.cuda.get_device_capability(i)
         cuda_archs.append(f"sm{major}{minor}")
-    return cuda_archs
+    return tuple(cuda_archs)
+
+
+CUDA_ARCH_VERSIONS = get_cuda_arch_versions()
 
 
 def sageattn(
@@ -77,7 +80,8 @@ def sageattn(
     - All tensors must be on the same cuda device.
     """
 
-    arch = get_cuda_arch_versions()[q.device.index]
+    device_index = q.device.index if q.device.index is not None else torch.cuda.current_device()
+    arch = CUDA_ARCH_VERSIONS[device_index]
     if arch in ("sm80", "sm86"):
         return sageattn_qk_int8_pv_fp16_cuda(q, k, v, tensor_layout=tensor_layout, is_causal=is_causal, sm_scale=sm_scale, return_lse=return_lse, pv_accum_dtype="fp32", **kwargs)
     # todo: the triton kernel is broken on ampere, so disable it

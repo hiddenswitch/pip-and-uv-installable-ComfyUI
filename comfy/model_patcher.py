@@ -33,7 +33,7 @@ from humanize import naturalsize
 from natsort import natsorted
 import tqdm
 
-from . import model_management, lora
+from . import model_management, lora, weight_cast
 from . import patcher_extension
 from . import utils
 from .comfy_types import UnetWrapperFunction
@@ -219,6 +219,41 @@ def key_param_name_to_key(key, param):
     if len(key) == 0:
         return param
     return "{}.{}".format(key, param)
+
+
+def should_bake_lowvram_patch(module, weight, set_func=None) -> bool:
+    if isinstance(weight, QuantizedTensor):
+        return True
+    if getattr(module, "layout_type", None) is None or getattr(module, "_full_precision_mm", False):
+        return False
+    return set_func is not None
+
+
+def lowvram_materialization_geometry(module, param_key, tensor, model_dtype, function_count=0):
+    if tensor is None:
+        return None
+    if not isinstance(tensor, QuantizedTensor):
+        return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
+
+    if param_key != "weight":
+        return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
+
+    if function_count > 0:
+        return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
+
+    if ops.should_keep_quantized_vbar(module, tensor):
+        return model_management.tensor_materialization_geometry(tensor)
+
+    return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
+
+
+def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvram_patch=False):
+    final_bytes = memory_management.vram_aligned_size(geometry)
+    if final_bytes == 0:
+        return 0
+    if function_count <= 0 and not has_lowvram_patch:
+        return final_bytes
+    return final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
 
 
 class AutoPatcherEjector:
@@ -942,6 +977,9 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
         inplace_update = self.weight_inplace_update or inplace_update
 
+        if key not in self.backup and not return_weight:
+            self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
+
         if is_quantized(weight):
             out_weight = weight.to(device_to)
             patches = move_patch_to_device(self.patches[key], self.load_device if self.gguf.patch_on_device else self.offload_device)
@@ -951,9 +989,6 @@ class ModelPatcher(ModelManageable, PatchSupport):
             else:
                 utils.set_attr_param(self.model, key, out_weight)
             return
-
-        if key not in self.backup and not return_weight:
-            self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
         temp_dtype = lora_compute_dtype(device_to) if key in self.patches else None
         if device_to is not None:
@@ -1092,16 +1127,22 @@ class ModelPatcher(ModelManageable, PatchSupport):
                         if force_patch_weights:
                             self.patch_weight_to_device(weight_key)
                         else:
-                            _, set_func, convert_func = get_key_weight(self.model, weight_key)
-                            m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
-                            patch_counter += 1
+                            weight, set_func, convert_func = get_key_weight(self.model, weight_key)
+                            if should_bake_lowvram_patch(m, weight, set_func):
+                                self.patch_weight_to_device(weight_key)
+                            else:
+                                m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
+                                patch_counter += 1
                     if bias_key in self.patches:
                         if force_patch_weights:
                             self.patch_weight_to_device(bias_key)
                         else:
-                            _, set_func, convert_func = get_key_weight(self.model, bias_key)
-                            m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
-                            patch_counter += 1
+                            weight, set_func, convert_func = get_key_weight(self.model, bias_key)
+                            if should_bake_lowvram_patch(m, weight, set_func):
+                                self.patch_weight_to_device(bias_key)
+                            else:
+                                m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
+                                patch_counter += 1
 
                     cast_weight = True
                     offloaded.append(LoadingListItem(None, 0, module_mem, n, m, params))
@@ -1327,16 +1368,22 @@ class ModelPatcher(ModelManageable, PatchSupport):
                                 if force_patch_weights:
                                     self.patch_weight_to_device(weight_key)
                                 else:
-                                    _, set_func, convert_func = get_key_weight(self.model, weight_key)
-                                    m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
-                                    patch_counter += 1
+                                    weight, set_func, convert_func = get_key_weight(self.model, weight_key)
+                                    if should_bake_lowvram_patch(m, weight, set_func):
+                                        self.patch_weight_to_device(weight_key)
+                                    else:
+                                        m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
+                                        patch_counter += 1
                             if bias_key in self.patches:
                                 if force_patch_weights:
                                     self.patch_weight_to_device(bias_key)
                                 else:
-                                    _, set_func, convert_func = get_key_weight(self.model, bias_key)
-                                    m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
-                                    patch_counter += 1
+                                    weight, set_func, convert_func = get_key_weight(self.model, bias_key)
+                                    if should_bake_lowvram_patch(m, weight, set_func):
+                                        self.patch_weight_to_device(bias_key)
+                                    else:
+                                        m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
+                                        patch_counter += 1
                             cast_weight = True
 
                         if cast_weight and hasattr(m, "comfy_cast_weights"):
@@ -1934,7 +1981,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
     def loaded_size(self):
         vbar = self._vbar_get()
-        return (vbar.loaded_size() if vbar is not None else 0) + self.model.model_loaded_weight_memory
+        return (vbar.loaded_size() if vbar is not None else 0) + getattr(self.model, "model_loaded_weight_memory", 0)
 
     # Pinning is deferred to ops time. Assert against this API to avoid pin leaks.
 
@@ -2003,7 +2050,7 @@ class ModelPatcherDynamic(ModelPatcher):
                 *_, module_mem, n, m, params = x
 
                 def set_dirty(item, dirty):
-                    if dirty or not hasattr(item, "_v_signature"):
+                    if dirty:
                         item._v_signature = None
 
                 def setup_param(self, m, n, param_key):
@@ -2012,28 +2059,56 @@ class ModelPatcherDynamic(ModelPatcher):
 
                     weight_function = []
 
-                    weight, _, _ = get_key_weight(self.model, key)
+                    weight, set_func, _ = get_key_weight(self.model, key)
                     if weight is None:
                         return (False, 0)
                     if key in self.patches:
                         if lora.calculate_shape(self.patches[key], weight, key) != weight.shape:
                             return (True, 0)
-                        lowvram_patch = LowVramPatch(key, self.patches)
-                        lowvram_patch._pin_state = pin_state
-                        setattr(m, param_key + "_lowvram_function", lowvram_patch)
-                        num_patches += 1
+                        if should_bake_lowvram_patch(m, weight, set_func):
+                            self.patch_weight_to_device(key)
+                            weight, _, _ = get_key_weight(self.model, key)
+                            setattr(m, param_key + "_lowvram_function", None)
+                        else:
+                            lowvram_patch = LowVramPatch(key, self.patches)
+                            lowvram_patch._pin_state = pin_state
+                            setattr(m, param_key + "_lowvram_function", lowvram_patch)
+                            num_patches += 1
                     else:
                         setattr(m, param_key + "_lowvram_function", None)
 
                     if key in self.weight_wrapper_patches:
                         weight_function.extend(self.weight_wrapper_patches[key])
                     setattr(m, param_key + "_function", weight_function)
-                    geometry = weight
+                    storage_model_dtype = getattr(m, param_key + "_comfy_model_dtype", None)
+                    model_dtype = getattr(self.model, "manual_cast_dtype", None) or storage_model_dtype
                     if not isinstance(weight, QuantizedTensor):
-                        model_dtype = getattr(m, param_key + "_comfy_model_dtype", None) or weight.dtype
+                        model_dtype = model_dtype or weight.dtype
                         weight._model_dtype = model_dtype
-                        geometry = memory_management.TensorGeometry(shape=weight.shape, dtype=model_dtype)
-                    return (False, memory_management.vram_aligned_size(geometry))
+                    vram_geometry = lowvram_materialization_geometry(
+                        m,
+                        param_key,
+                        weight,
+                        model_dtype,
+                        function_count=len(weight_function),
+                    )
+                    has_lowvram_patch = key in self.patches
+                    vram_bytes = lowvram_materialization_vram_bytes(
+                        vram_geometry,
+                        function_count=len(weight_function),
+                        has_lowvram_patch=has_lowvram_patch,
+                    )
+                    weight_cast.set_materialization_param(
+                        m,
+                        param_key,
+                        key=key,
+                        tensor=weight,
+                        model_dtype=model_dtype,
+                        vram_bytes=vram_bytes,
+                        has_lowvram_patch=has_lowvram_patch,
+                        function_count=len(weight_function),
+                    )
+                    return (False, vram_bytes)
 
                 def force_load_param(self, param_key, device_to):
                     key = key_param_name_to_key(n, param_key)
@@ -2047,7 +2122,7 @@ class ModelPatcherDynamic(ModelPatcher):
                     if weight is not None:
                         self.model.model_loaded_weight_memory += weight.numel() * weight.element_size()
 
-                if hasattr(m, "comfy_cast_weights"):
+                if isinstance(m, ops.CastWeightBiasOp):
                     m.comfy_cast_weights = True
                     m.seed_key = n
                     m._pin_state = pin_state
@@ -2070,10 +2145,12 @@ class ModelPatcherDynamic(ModelPatcher):
                             comfy_aimdo.model_vbar.vbar_unpin(m._v)
                             delattr(m, "_v")
                         logger.info(f"Module {n} has resizing Lora - force loading")
+                        weight_cast.set_materialization_force_loaded(m, True)
                         force_load_param(self, "weight", device_to)
                         force_load_param(self, "bias", device_to)
                     else:
-                        if vbar is not None and not hasattr(m, "_v"):
+                        weight_cast.set_materialization_force_loaded(m, False)
+                        if vbar is not None and m._v is None and v_weight_size > 0:
                             m._v = vbar.alloc(v_weight_size)
                         allocated_size += v_weight_size
 
@@ -2206,7 +2283,8 @@ class ModelPatcherDynamic(ModelPatcher):
     def partially_load(self, device_to, extra_memory=0, force_patch_weights=False):
         assert not force_patch_weights  # See above
         with self.use_ejected(skip_and_inject_on_exit_only=True):
-            dirty = self.model.current_weight_patches_uuid is not None and (self.model.current_weight_patches_uuid != self.patches_uuid)
+            current_weight_patches_uuid = getattr(self.model, "current_weight_patches_uuid", None)
+            dirty = current_weight_patches_uuid is not None and (current_weight_patches_uuid != self.patches_uuid)
 
             self.unpatch_model(self.offload_device, unpatch_weights=False)
             self.patch_model(load_weights=False)

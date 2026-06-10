@@ -1,11 +1,139 @@
 from dataclasses import dataclass
 import logging
+import os
 import torch
 
 from .cli_args import args
 from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block, stochastic_round_quantize_mxfp8_by_block
 
 logger = logging.getLogger(__name__)
+
+_OUTPUT_DTYPE_CODES = {
+    0: torch.float32,
+    1: torch.float16,
+    2: torch.bfloat16,
+}
+_OUTPUT_DTYPE_TO_CODE = {dtype: code for code, dtype in _OUTPUT_DTYPE_CODES.items()}
+_FP8_MATERIALIZATION_CODES = {
+    "auto": 0,
+    "torch": 1,
+    "comfy_kitchen": 2,
+}
+
+
+def _output_dtype_code(dtype: torch.dtype) -> int:
+    try:
+        return _OUTPUT_DTYPE_TO_CODE[dtype]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported FP8 dequant output dtype: {dtype}") from exc
+
+
+def _fp8_materialization_code() -> int:
+    mode = os.environ.get("COMFYUI_FP8_MATERIALIZATION", None) or getattr(args, "fp8_materialization", "auto")
+    try:
+        return _FP8_MATERIALIZATION_CODES[str(mode)]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported FP8 materialization mode: {mode}") from exc
+
+
+@torch.library.custom_op(
+    "comfy_quant::dequantize_per_tensor_fp8",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def _safe_dequantize_per_tensor_fp8(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int) -> torch.Tensor:
+    output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
+    return qdata.to(dtype=output_dtype) * scale.to(dtype=output_dtype)
+
+
+@_safe_dequantize_per_tensor_fp8.register_fake
+def _safe_dequantize_per_tensor_fp8_fake(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int) -> torch.Tensor:
+    return qdata.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
+
+
+@torch.library.custom_op(
+    "comfy_quant::materialize_per_tensor_fp8",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def _materialize_per_tensor_fp8(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int, mode_code: int) -> torch.Tensor:
+    output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
+    if mode_code == _FP8_MATERIALIZATION_CODES["torch"]:
+        return qdata.to(dtype=output_dtype) * scale.to(dtype=output_dtype)
+    if mode_code == _FP8_MATERIALIZATION_CODES["comfy_kitchen"] and _CK_AVAILABLE:
+        return ck.dequantize_per_tensor_fp8(qdata, scale, output_dtype)
+    if _CK_AVAILABLE:
+        return ck.dequantize_per_tensor_fp8(qdata, scale, output_dtype)
+    return qdata.to(dtype=output_dtype) * scale.to(dtype=output_dtype)
+
+
+@_materialize_per_tensor_fp8.register_fake
+def _materialize_per_tensor_fp8_fake(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int, mode_code: int) -> torch.Tensor:
+    return qdata.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
+
+
+@torch.library.custom_op(
+    "comfy_quant::materialize_per_tensor_fp8_after",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def _materialize_per_tensor_fp8_after(
+    memory_token: torch.Tensor,
+    qdata: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype_code: int,
+    mode_code: int,
+) -> torch.Tensor:
+    return _materialize_per_tensor_fp8(qdata, scale, output_dtype_code, mode_code)
+
+
+@_materialize_per_tensor_fp8_after.register_fake
+def _materialize_per_tensor_fp8_after_fake(
+    memory_token: torch.Tensor,
+    qdata: torch.Tensor,
+    scale: torch.Tensor,
+    output_dtype_code: int,
+    mode_code: int,
+) -> torch.Tensor:
+    return qdata.new_empty(tuple(qdata.shape), dtype=_OUTPUT_DTYPE_CODES[output_dtype_code])
+
+
+@torch.library.custom_op(
+    "comfy_quant::release_materialization_",
+    mutates_args=(),
+    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+)
+def _release_materialization_(output: torch.Tensor, materialized: torch.Tensor, memory_token: torch.Tensor) -> torch.Tensor:
+    return memory_token.new_empty((), dtype=torch.int64)
+
+
+@_release_materialization_.register_fake
+def _release_materialization_fake(output: torch.Tensor, materialized: torch.Tensor, memory_token: torch.Tensor) -> torch.Tensor:
+    return memory_token.new_empty((), dtype=torch.int64)
+
+
+def materialize_per_tensor_fp8(qdata: torch.Tensor, scale: torch.Tensor, output_dtype: torch.dtype) -> torch.Tensor:
+    return torch.ops.comfy_quant.materialize_per_tensor_fp8(
+        qdata,
+        scale,
+        _output_dtype_code(output_dtype),
+        _fp8_materialization_code(),
+    )
+
+
+def _fp8e4m3fn_triton_unsupported(device: torch.device | None) -> bool:
+    if device is None or device.type != "cuda" or not torch.cuda.is_available():
+        return False
+    try:
+        capability = torch.cuda.get_device_capability(device)
+    except (RuntimeError, AssertionError):
+        return False
+    return capability < (8, 9)
+
+
+@torch.compiler.disable
+def _dequantize_per_tensor_fp8_eager(qdata: torch.Tensor, scale: torch.Tensor, output_dtype: torch.dtype) -> torch.Tensor:
+    return qdata.to(dtype=output_dtype) * scale.to(dtype=output_dtype)
 
 try:
     import comfy_kitchen as ck
@@ -71,6 +199,25 @@ try:
         ck.registry.disable("triton")
     for k, v in ck.list_backends().items():
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
+
+    _CK_QUANTIZED_TENSOR_DEQUANTIZE = QuantizedTensor.dequantize
+
+    @torch.compiler.disable
+    def _quantized_tensor_dequantize_eager(qtensor: QuantizedTensor) -> torch.Tensor:
+        return _CK_QUANTIZED_TENSOR_DEQUANTIZE(qtensor)
+
+    def _quantized_tensor_dequantize_compile_safe(qtensor: QuantizedTensor) -> torch.Tensor:
+        qdata = getattr(qtensor, "_qdata", None)
+        if (
+            torch.compiler.is_compiling()
+            and isinstance(qdata, torch.Tensor)
+            and qdata.dtype == torch.float8_e4m3fn
+            and _fp8e4m3fn_triton_unsupported(qdata.device)
+        ):
+            return _quantized_tensor_dequantize_eager(qtensor)
+        return _CK_QUANTIZED_TENSOR_DEQUANTIZE(qtensor)
+
+    QuantizedTensor.dequantize = _quantized_tensor_dequantize_compile_safe
 except Exception as e:
     logger.debug(f"Failed to import comfy_kitchen, Error: {e}, fp8 and fp4 support will not be available.")
     _CK_AVAILABLE = False
@@ -152,6 +299,19 @@ class _TensorCoreFP8LayoutBase(_CKFp8Layout):
 
         params = cls.Params(scale=scale.float(), orig_dtype=orig_dtype, orig_shape=orig_shape)
         return qdata, params
+
+    @classmethod
+    def dequantize(cls, qdata, params):
+        if not torch.compiler.is_compiling():
+            return super(_TensorCoreFP8LayoutBase, cls).dequantize(qdata, params)
+        if _fp8_materialization_code() == _FP8_MATERIALIZATION_CODES["torch"]:
+            return materialize_per_tensor_fp8(qdata, params.scale, params.orig_dtype)
+        if (
+            qdata.dtype == torch.float8_e4m3fn
+            and _fp8e4m3fn_triton_unsupported(qdata.device)
+        ):
+            return _dequantize_per_tensor_fp8_eager(qdata, params.scale, params.orig_dtype)
+        return materialize_per_tensor_fp8(qdata, params.scale, params.orig_dtype)
 
 
 class TensorCoreMXFP8Layout(_CKMxfp8Layout):
@@ -245,6 +405,89 @@ if not hasattr(TensorCoreNVFP4Layout, "Params"):
         block_scale: torch.Tensor | None = None
 
     TensorCoreNVFP4Layout.Params = _NVFP4Params
+
+
+if _CK_AVAILABLE:
+    try:
+        from comfy_kitchen.tensor.fp8 import (
+            _handle_fp8_addmm as _ck_handle_fp8_addmm,
+            _handle_fp8_linear as _ck_handle_fp8_linear,
+            _handle_fp8_mm as _ck_handle_fp8_mm,
+        )
+    except Exception:
+        _ck_handle_fp8_addmm = None
+        _ck_handle_fp8_linear = None
+        _ck_handle_fp8_mm = None
+
+    def _compile_unsupported_fp8_qtensor(value) -> bool:
+        qdata = getattr(value, "_qdata", None)
+        return (
+            isinstance(value, QuantizedTensor)
+            and isinstance(qdata, torch.Tensor)
+            and qdata.dtype == torch.float8_e4m3fn
+            and _fp8e4m3fn_triton_unsupported(qdata.device)
+        )
+
+    def _dequantize_qtensor_arg(value):
+        if isinstance(value, QuantizedTensor):
+            return value.dequantize()
+        return value
+
+    @torch.compiler.disable
+    def _fp8_linear_dequant_eager(input_tensor, weight, bias):
+        return torch.nn.functional.linear(
+            _dequantize_qtensor_arg(input_tensor),
+            _dequantize_qtensor_arg(weight),
+            bias,
+        )
+
+    @torch.compiler.disable
+    def _fp8_mm_dequant_eager(a, b):
+        return torch.mm(_dequantize_qtensor_arg(a), _dequantize_qtensor_arg(b))
+
+    @torch.compiler.disable
+    def _fp8_addmm_dequant_eager(bias, input_tensor, weight):
+        return torch.addmm(
+            bias,
+            _dequantize_qtensor_arg(input_tensor),
+            _dequantize_qtensor_arg(weight),
+        )
+
+    @register_layout_op(torch.ops.aten.linear.default, TensorCoreFP8E4M3Layout)
+    def _handle_fp8_e4m3_linear(qt, args, kwargs):
+        input_tensor, weight = args[0], args[1]
+        bias = args[2] if len(args) > 2 else None
+        if _compile_unsupported_fp8_qtensor(input_tensor) or _compile_unsupported_fp8_qtensor(weight):
+            return _fp8_linear_dequant_eager(input_tensor, weight, bias)
+        if _ck_handle_fp8_linear is not None:
+            return _ck_handle_fp8_linear(qt, args, kwargs)
+        return torch.nn.functional.linear(
+            _dequantize_qtensor_arg(input_tensor),
+            _dequantize_qtensor_arg(weight),
+            bias,
+        )
+
+    @register_layout_op(torch.ops.aten.mm.default, TensorCoreFP8E4M3Layout)
+    def _handle_fp8_e4m3_mm(qt, args, kwargs):
+        a, b = args[0], args[1]
+        if _compile_unsupported_fp8_qtensor(a) or _compile_unsupported_fp8_qtensor(b):
+            return _fp8_mm_dequant_eager(a, b)
+        if _ck_handle_fp8_mm is not None:
+            return _ck_handle_fp8_mm(qt, args, kwargs)
+        return torch.mm(_dequantize_qtensor_arg(a), _dequantize_qtensor_arg(b))
+
+    @register_layout_op(torch.ops.aten.addmm.default, TensorCoreFP8E4M3Layout)
+    def _handle_fp8_e4m3_addmm(qt, args, kwargs):
+        bias, input_tensor, weight = args[0], args[1], args[2]
+        if _compile_unsupported_fp8_qtensor(input_tensor) or _compile_unsupported_fp8_qtensor(weight):
+            return _fp8_addmm_dequant_eager(bias, input_tensor, weight)
+        if _ck_handle_fp8_addmm is not None:
+            return _ck_handle_fp8_addmm(qt, args, kwargs)
+        return torch.addmm(
+            bias,
+            _dequantize_qtensor_arg(input_tensor),
+            _dequantize_qtensor_arg(weight),
+        )
 
 # ==============================================================================
 # Registry

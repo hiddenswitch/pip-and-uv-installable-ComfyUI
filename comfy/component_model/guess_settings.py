@@ -60,7 +60,10 @@ def _has_amd_gpu() -> bool:
     return False
 
 
-_BENIGN_PROCESS_RE = re.compile(r"^(python|nv)", re.IGNORECASE)
+_BENIGN_PROCESS_RE = re.compile(
+    r"^(python|uv|comfyui|nv|nvidia-smi|gnome-remote-desktop-daemon|xorg|xwayland|kwin|mutter)",
+    re.IGNORECASE,
+)
 _BENIGN_GPU_PROCESS_NAMES = frozenset({
     "gnome-remote-desktop-daemon",
     "steamwebhelper",
@@ -75,28 +78,54 @@ def _parse_nvidia_smi_memory_mib(value: str) -> int | None:
     return int(m.group(1))
 
 
+def _current_process_family() -> set[int]:
+    pids = {os.getpid()}
+    try:
+        import psutil
+
+        current = psutil.Process()
+        pids.update(parent.pid for parent in current.parents())
+        pids.update(child.pid for child in current.children(recursive=True))
+    except Exception:
+        pass
+    return pids
+
+
 def _competing_gpu_processes() -> list[str]:
-    """Return names of material non-Comfy processes using the NVIDIA GPU.
+    """Return names of material, unrelated processes using the NVIDIA GPU.
 
     Returns an empty list when ``nvidia-smi`` is unavailable or fails.
     """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=process_name,used_gpu_memory", "--format=csv,noheader"],
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if result.returncode != 0:
             return []
+        current_family = _current_process_family()
         names: list[str] = []
         for line in result.stdout.strip().splitlines():
             # Handle both Unix and Windows paths (nvidia-smi may return
             # full paths like C:\Program Files\Discord\Discord.exe)
-            parts = [part.strip() for part in line.split(",", 1)]
-            raw = parts[0].replace("\\", "/")
+            fields = [field.strip() for field in line.split(",", maxsplit=2)]
+            if len(fields) == 3:
+                pid_field, name_field, mem_field = fields
+            elif len(fields) == 2:
+                pid_field, name_field, mem_field = fields[0], fields[1], None
+            else:
+                pid_field, name_field, mem_field = None, fields[0], None
+            if pid_field is not None:
+                try:
+                    if int(pid_field) in current_family:
+                        continue
+                except ValueError:
+                    pass
+            raw = name_field.replace("\\", "/")
             proc = os.path.basename(raw)
-            used_mib = _parse_nvidia_smi_memory_mib(parts[1]) if len(parts) > 1 else None
+            used_mib = _parse_nvidia_smi_memory_mib(mem_field) if mem_field is not None else None
             is_small = used_mib is not None and used_mib < _COMPETING_GPU_PROCESS_MIN_MEMORY_MIB
             if (
                 proc

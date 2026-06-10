@@ -89,7 +89,6 @@ from .text_encoders import sa3
 from .utils import ProgressBar, FileMetadata, state_dict_prefix_replace
 from .taesd.taehv import TAEHV
 from .latent_formats import HunyuanVideo15, HunyuanVideo
-from .weight_adapter import WeightAdapterBase, BypassInjectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +225,7 @@ def load_bypass_lora_for_models(model, clip, lora, strength_model, strength_clip
             logger.warning(f"NOT LOADED: {x} (type={patch_type})")
 
     return (new_modelpatcher, new_clip)
+
 
 
 class CLIP:

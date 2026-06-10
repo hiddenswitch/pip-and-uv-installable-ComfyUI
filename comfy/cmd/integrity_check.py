@@ -706,6 +706,32 @@ def _section_comfy_kitchen_capabilities(console: Console):
     console.print(table)
 
 
+def _section_weight_cast_backends(console: Console):
+    try:
+        from .. import weight_cast
+    except ImportError as exc:
+        console.print(f"  Weight-cast runtime unavailable: {exc}")
+        return
+
+    table = Table(show_edge=False, pad_edge=False, box=None,
+                  title="compiler-visible weight-cast backends")
+    table.add_column("Backend", no_wrap=True)
+    table.add_column("Available", no_wrap=True)
+    table.add_column("Disabled", no_wrap=True)
+    table.add_column("Capabilities")
+    table.add_column("Reason")
+
+    for name, info in sorted(weight_cast.list_weight_cast_backends().items()):
+        table.add_row(
+            name,
+            "yes" if info.get("available") else "no",
+            "yes" if info.get("disabled") else "no",
+            ", ".join(info.get("capabilities") or ()),
+            info.get("unavailable_reason") or "",
+        )
+    console.print(table)
+
+
 def _comfy_kitchen_capability_cases() -> list[tuple[str, str, "callable"]]:
     """Return ``(op_name, dtype_label, kwargs_factory)`` test cases.
 
@@ -827,4 +853,8 @@ def run_integrity_check(config: Configuration):
 
     console.rule("comfy_kitchen Backend Capabilities")
     _section_comfy_kitchen_capabilities(console)
+    console.print()
+
+    console.rule("Weight-Cast Backend Capabilities")
+    _section_weight_cast_backends(console)
     console.print()

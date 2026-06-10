@@ -975,9 +975,8 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
             memory_to_free = 0 if device is None else memory_required - get_free_memory(device)
             pins_to_free = pins_required - get_free_ram()
             if current_loaded_models[i].model.is_dynamic() and for_dynamic:
-                # don't actually unload dynamic models for the sake of other dynamic models
-                # as that works on-demand.
-                memory_required -= current_loaded_models[i].model.loaded_size()
+                freed = current_loaded_models[i].model.partially_unload(current_loaded_models[i].model.offload_device, memory_to_free)
+                memory_required -= freed
                 memory_to_free = 0
         if memory_to_free > 0 and current_loaded_models[i].model_unload(memory_to_free):
             logger.debug(f"Unloading {current_loaded_models[i].model.model.__class__.__name__}")
@@ -1551,7 +1550,7 @@ if args.async_offload is not None:
 else:
     #  Enable by default on Nvidia and AMD
     if is_nvidia() or is_amd():
-        NUM_STREAMS = 2
+        NUM_STREAMS = 4
 
 if args.disable_async_offload:
     NUM_STREAMS = 0
@@ -1666,7 +1665,8 @@ def get_offload_stream(device):
 
     if device in STREAMS:
         ss = STREAMS[device]
-        # Sync the oldest stream in the queue with the current
+        # Sync the oldest stream in the queue with the current stream, then
+        # return the next stream so offload copies can run ahead of compute.
         ss[stream_counter].wait_stream(current_stream(device))
         stream_counter = (stream_counter + 1) % len(ss)
         stream_counters[device] = stream_counter
@@ -1700,29 +1700,78 @@ def sync_stream(device, stream):
     current_stream(device).wait_stream(stream)
 
 
-def cast_to_gathered(tensors, r, non_blocking=False, stream=None, r2=None):
+def record_stream_for_tensor(tensor, stream):
+    if tensor is None or stream is None:
+        return
+    if isinstance(tensor, quant_ops.QuantizedTensor):
+        record_stream_for_tensor(tensor._qdata, stream)
+        return
+    if not isinstance(tensor, torch.Tensor):
+        return
+    if tensor.device.type not in ("cuda", "xpu"):
+        return
+    record_stream = getattr(tensor, "record_stream", None)
+    if record_stream is None:
+        return
+    record_stream(stream)
+
+
+def cast_to_gathered(tensors, r, non_blocking=False, stream=None, r2=None, target_geometries=None):
     wf_context = nullcontext()
     if stream is not None:
         wf_context = stream
         if hasattr(wf_context, "as_context"):
             wf_context = wf_context.as_context(stream)
 
-    dest_views = memory_management.interpret_gathered_like(tensors, r) if r is not None else [None] * len(tensors)
-    dest2_views = memory_management.interpret_gathered_like(tensors, r2) if r2 is not None else None
+    geometries = target_geometries if target_geometries is not None else tensors
+    dest_views = memory_management.interpret_gathered_like(geometries, r) if r is not None else [None] * len(tensors)
+    dest2_views = memory_management.interpret_gathered_like(geometries, r2) if r2 is not None else None
     with wf_context:
         for tensor in tensors:
             dest_view = dest_views.pop(0)
             dest2_view = dest2_views.pop(0) if dest2_views is not None else None
             if tensor is None:
                 continue
-            if memory_management.read_tensor_file_slice_into(tensor, dest_view, stream=stream, destination2=dest2_view):
+            probe_view = dest_view if dest_view is not None else dest2_view
+            if probe_view is None:
+                can_raw_read = False
+            elif isinstance(tensor, quant_ops.QuantizedTensor):
+                can_raw_read = isinstance(probe_view, quant_ops.QuantizedTensor)
+            else:
+                can_raw_read = tensor.shape == probe_view.shape and tensor.dtype == probe_view.dtype
+            if can_raw_read and memory_management.read_tensor_file_slice_into(tensor, dest_view, stream=stream, destination2=dest2_view):
+                record_stream_for_tensor(dest_view, stream)
+                record_stream_for_tensor(dest2_view, stream)
                 continue
             storage = tensor._qdata.untyped_storage() if isinstance(tensor, quant_ops.QuantizedTensor) else tensor.untyped_storage()
             mark_mmap_dirty(storage)
+            copy_src = tensor
+            if isinstance(copy_src, quant_ops.QuantizedTensor) and probe_view is not None and not isinstance(probe_view, quant_ops.QuantizedTensor):
+                copy_src = copy_src.dequantize().to(dtype=probe_view.dtype)
             if dest_view is not None:
-                dest_view.copy_(tensor, non_blocking=non_blocking)
+                dest_view.copy_(copy_src, non_blocking=non_blocking)
             if dest2_view is not None:
-                dest2_view.copy_(tensor if dest_view is None else dest_view, non_blocking=non_blocking)
+                dest2_view.copy_(copy_src if dest_view is None else dest_view, non_blocking=non_blocking)
+            record_stream_for_tensor(copy_src, stream)
+            record_stream_for_tensor(dest_view, stream)
+            record_stream_for_tensor(dest2_view, stream)
+
+
+def tensor_materialization_geometry(tensor, dtype=None):
+    if tensor is None:
+        return None
+    if isinstance(tensor, quant_ops.QuantizedTensor):
+        if dtype is not None:
+            return memory_management.TensorGeometry(shape=tensor.shape, dtype=dtype)
+        return tensor
+    return memory_management.TensorGeometry(shape=tensor.shape, dtype=dtype or tensor.dtype)
+
+
+def tensor_materialization_size(tensor, dtype=None) -> int:
+    geometry = tensor_materialization_geometry(tensor, dtype=dtype)
+    if geometry is None:
+        return 0
+    return memory_management.vram_aligned_size(geometry)
 
 
 def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
@@ -1735,7 +1784,10 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
             if hasattr(wf_context, "as_context"):
                 wf_context = wf_context.as_context(stream)
             with wf_context:
-                return weight.to(dtype=dtype, copy=copy)
+                result = weight.to(dtype=dtype, copy=copy)
+            record_stream_for_tensor(weight, stream)
+            record_stream_for_tensor(result, stream)
+            return result
         return weight.to(dtype=dtype, copy=copy)
 
     if stream is not None:
@@ -1746,6 +1798,8 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
             if r is None:
                 r = torch.empty_like(weight, dtype=dtype, device=device)
             r.copy_(weight, non_blocking=non_blocking)
+        record_stream_for_tensor(weight, stream)
+        record_stream_for_tensor(r, stream)
     else:
         if r is None:
             r = torch.empty_like(weight, dtype=dtype, device=device)
