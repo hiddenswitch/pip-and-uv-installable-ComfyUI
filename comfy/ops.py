@@ -1386,6 +1386,7 @@ from .quant_ops import (
     QUANT_ALGOS,
     TensorCoreFP8Layout,
     get_layout_class,
+    int8_quantization_available,
     mixed_precision_quantization_available,
 )
 
@@ -1540,6 +1541,35 @@ def _quantized_apply(module, fn, recurse=True):
     return module
 
 
+def _quantize_on_load_conf(module, layer_name, weight):
+    """Synthesize a per-layer quant conf for ad-hoc quantize-on-load.
+
+    Returns a comfy_quant-style dict when the module was built with a
+    _quantize_on_load format and this layer is eligible, otherwise None.
+    Eligibility mirrors the sensitive-layer rules: 2D weights only, both dims
+    larger than 1, layer name not matching the architecture's exclusion
+    substrings, and for convrot the input dim must divide into rotation groups.
+    """
+    fmt = getattr(module, "_quantize_on_load", None)
+    if fmt is None or not weight.is_floating_point():
+        return None
+    if weight.ndim != 2:
+        return None
+    out_features, in_features = weight.shape
+    if min(out_features, in_features) <= 1:
+        return None
+    for pattern in getattr(module, "_quantize_on_load_exclude", ()) or ():
+        if pattern in layer_name:
+            return None
+    qconfig = QUANT_ALGOS.get(fmt)
+    if qconfig is None:
+        return None
+    group_size = qconfig.get("group_size")
+    if group_size is not None and in_features % group_size != 0:
+        return None
+    return {"format": fmt}
+
+
 def _load_quantized_module(module, super_load, state_dict, prefix, local_metadata, strict,
                             missing_keys, unexpected_keys, error_msgs, load_extra_params=False):
     """Shared _load_from_state_dict body for quantized-weight modules.
@@ -1576,6 +1606,15 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
     if layer_conf is not None:
         layer_conf = json.loads(layer_conf.numpy().tobytes())
 
+    quantize_on_load = False
+    if layer_conf is None:
+        layer_conf = _quantize_on_load_conf(module, layer_name, weight)
+        if layer_conf is not None and (layer_conf["format"] in disabled_formats or layer_conf["format"] in disabled_storage_formats):
+            # No int8 compute (or storage) on this device: keep high precision
+            # instead of quantizing into a format we would only dequantize.
+            layer_conf = None
+        quantize_on_load = layer_conf is not None
+
     if layer_conf is None:
         module.weight = torch.nn.Parameter(weight.to(device=device, dtype=compute_dtype), requires_grad=False)
     else:
@@ -1592,25 +1631,48 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
         module.layout_type = qconfig["comfy_tensor_layout"]
         layout_cls = get_layout_class(module.layout_type)
 
-        # Per-format scales; fp8 dtype views handle both legacy uint8-on-disk and native fp8.
-        if module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
-            scales = {"scale": pop_scale("weight_scale")}
-        elif module.quant_format == "mxfp8":
-            bs = pop_scale("weight_scale", torch.float8_e8m0fnu)
-            if bs is None:
-                raise ValueError(f"Missing MXFP8 block scales for layer {layer_name}")
-            scales = {"scale": bs}
-        elif module.quant_format == "nvfp4":
-            ts = pop_scale("weight_scale_2")
-            bs = pop_scale("weight_scale", torch.float8_e4m3fn)
-            if ts is None or bs is None:
-                raise ValueError(f"Missing NVFP4 scales for layer {layer_name}")
-            scales = {"scale": ts, "block_scale": bs}
+        if quantize_on_load:
+            # Ad-hoc quantization of a high-precision checkpoint weight.
+            # Quantize on the GPU when one is available; the per-layer
+            # transient is just this weight in its source dtype.
+            quant_device = device
+            if (quant_device is None or torch.device(quant_device).type == "cpu") and torch.cuda.is_available():
+                quant_device = model_management.get_torch_device()
+            quantized_weight = QuantizedTensor.from_float(
+                weight.to(device=quant_device), module.layout_type
+            ).to(device=device, dtype=compute_dtype)
         else:
-            raise ValueError(f"Unsupported quantization format: {module.quant_format}")
+            # Per-format scales; fp8 dtype views handle both legacy uint8-on-disk and native fp8.
+            if module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
+                scales = {"scale": pop_scale("weight_scale")}
+            elif module.quant_format in ("int8", "int8_convrot"):
+                ws = pop_scale("weight_scale")
+                if ws is None:
+                    raise ValueError(f"Missing INT8 weight scale for layer {layer_name}")
+                if module.quant_format == "int8_convrot":
+                    groupsize = layer_conf.get("convrot_groupsize", 256)
+                    expected = getattr(layout_cls, "GROUP_SIZE", 256)
+                    if groupsize != expected:
+                        raise ValueError(
+                            f"Unsupported convrot group size {groupsize} for layer {layer_name}; "
+                            f"only {expected} is supported")
+                scales = {"scale": ws.float()}
+            elif module.quant_format == "mxfp8":
+                bs = pop_scale("weight_scale", torch.float8_e8m0fnu)
+                if bs is None:
+                    raise ValueError(f"Missing MXFP8 block scales for layer {layer_name}")
+                scales = {"scale": bs}
+            elif module.quant_format == "nvfp4":
+                ts = pop_scale("weight_scale_2")
+                bs = pop_scale("weight_scale", torch.float8_e4m3fn)
+                if ts is None or bs is None:
+                    raise ValueError(f"Missing NVFP4 scales for layer {layer_name}")
+                scales = {"scale": ts, "block_scale": bs}
+            else:
+                raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
-        params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
-        quantized_weight = QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params)
+            params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
+            quantized_weight = QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params)
         if module.quant_format in disabled_storage_formats:
             module.layout_type = None
             module.weight = torch.nn.Parameter(quantized_weight.dequantize().to(device=device, dtype=compute_dtype), requires_grad=False)
@@ -1648,6 +1710,9 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
     if isinstance(module.weight, QuantizedTensor):
         sd.update(module.weight.state_dict(f"{prefix}weight"))
         quant_conf = {"format": module.quant_format}
+        extra_layout_conf = getattr(module.weight.layout_cls, "extra_state_dict_conf", None)
+        if extra_layout_conf is not None:
+            quant_conf.update(extra_layout_conf())
         if getattr(module, '_full_precision_mm_config', False):
             quant_conf["full_precision_matrix_mult"] = True
         if extra_quant_conf:
@@ -1673,6 +1738,8 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
         class Linear(torch.nn.Module, CastWeightBiasOp):
             _disabled_formats = disabled
             _disabled_storage_formats = disabled_storage
+            _quantize_on_load = (quant_config or {}).get("quantize_on_load")
+            _quantize_on_load_exclude = tuple((quant_config or {}).get("exclude_layers", ()))
 
             def __init__(self, in_features: int, out_features: int, bias: bool = True, device=None, dtype=None):
                 super().__init__()
@@ -1768,12 +1835,17 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
 
                     # Fall back to non-quantized for non-2D tensors
                     if input_reshaped.ndim == 2:
-                        reshaped_3d = input.ndim == 3
-                        # dtype is now implicit in the layout class
-                        scale = getattr(self, 'input_scale', None)
-                        if scale is not None:
-                            scale = model_management.cast_to_device(scale, input.device, None)
-                        input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
+                        # Layouts can decline small batches (e.g. int8 GEMM
+                        # needs M > 16); the plain-input path dequantizes the
+                        # weight and runs a float linear instead.
+                        layout_gate = getattr(get_layout_class(self.layout_type), "should_quantize_input", None)
+                        if layout_gate is None or layout_gate(input_reshaped):
+                            reshaped_3d = input.ndim == 3
+                            # dtype is now implicit in the layout class
+                            scale = getattr(self, 'input_scale', None)
+                            if scale is not None:
+                                scale = model_management.cast_to_device(scale, input.device, None)
+                            input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
 
                 output = self.forward_comfy_cast_weights(input, compute_dtype, want_requant=isinstance(input, QuantizedTensor))
 
@@ -1960,6 +2032,30 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         self.weight = torch.nn.Parameter(quantized_weight.dequantize().to(dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
                     else:
                         self.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+                elif quant_format in ("int8", "int8_convrot") and weight_key in state_dict:
+                    # INT8 embeddings always dequantize at load: the per-row
+                    # int8 GEMM path doesn't apply to embedding lookups, and
+                    # loading the raw int8 codes without scales would corrupt
+                    # the values.
+                    qconfig = QUANT_ALGOS[quant_format]
+                    layout_cls = get_layout_class(qconfig["comfy_tensor_layout"])
+                    weight = state_dict.pop(weight_key)
+                    manually_loaded_keys.append(weight_key)
+
+                    scale_key = f"{prefix}weight_scale"
+                    scale = state_dict.pop(scale_key, None)
+                    if scale is None:
+                        raise ValueError(f"Missing INT8 weight scale for embedding {prefix.rstrip('.')}")
+                    manually_loaded_keys.append(scale_key)
+
+                    params = layout_cls.Params(
+                        scale=scale.float(),
+                        orig_dtype=MixedPrecisionOps._compute_dtype,
+                        orig_shape=(self.num_embeddings, self.embedding_dim),
+                    )
+                    quantized_weight = QuantizedTensor(weight.to(dtype=qconfig["storage_t"]), qconfig["comfy_tensor_layout"], params)
+                    self.layout_type = None
+                    self.weight = torch.nn.Parameter(quantized_weight.dequantize().to(dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
                 elif layer_conf is not None:
                     # Unsupported format — restore the marker so it round-trips; fall through to default load.
                     state_dict[f"{prefix}comfy_quant"] = torch.tensor(
@@ -2007,14 +2103,18 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
     fp8_compute = model_management.supports_fp8_compute(load_device) # TODO: if we support more ops this needs to be more granular
     nvfp4_compute = model_management.supports_nvfp4_compute(load_device)
     mxfp8_compute = model_management.supports_mxfp8_compute(load_device)
+    int8_compute = model_management.supports_int8_compute(load_device)
 
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")
         disabled = set()
         disabled_storage = set()
         if not mixed_precision_quantization_available():
-            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4"})
-            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4"})
+            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4", "int8", "int8_convrot"})
+            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4", "int8", "int8_convrot"})
+        if not int8_quantization_available():
+            disabled.update({"int8", "int8_convrot"})
+            disabled_storage.update({"int8", "int8_convrot"})
         if not nvfp4_compute:
             disabled.add("nvfp4")
         if not mxfp8_compute:
@@ -2022,6 +2122,10 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         if not fp8_compute:
             disabled.add("float8_e4m3fn")
             disabled.add("float8_e5m2")
+        if not int8_compute:
+            # int8 storage stays enabled: the dequantizing math fallback works
+            # on every device, halving weight memory either way.
+            disabled.update({"int8", "int8_convrot"})
         if not args.fp8_storage:
             disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8"})
         return mixed_precision_ops(model_config.quant_config, compute_dtype, disabled=disabled, disabled_storage=disabled_storage)

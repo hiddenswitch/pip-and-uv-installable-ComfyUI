@@ -2290,6 +2290,23 @@ def supports_mxfp8_compute(device=None):
 
     return True
 
+
+def supports_int8_compute(device=None):
+    """INT8 tensor-core matmul support: NVIDIA sm_75 (Turing) and newer.
+
+    Unlike fp8, this includes all of Ampere (sm_80/sm_86), where the int8
+    triton kernels in comfy.int8_kernels run at full rate.
+    """
+    if not is_nvidia():
+        return False
+
+    try:
+        props = torch.cuda.get_device_properties(device)
+    except (RuntimeError, ValueError, AssertionError):
+        return False
+
+    return (props.major, props.minor) >= (7, 5)
+
 def supports_fp64(device=None):
     if is_device_mps(device):
         return False
