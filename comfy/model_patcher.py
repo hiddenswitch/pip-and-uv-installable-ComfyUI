@@ -2032,7 +2032,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
             vbar = self._vbar_get(create=True)
             pin_state = self.model.dynamic_pins[self.load_device]
-            if not pin_state["hostbufs_initialized"]:
+            if not pin_state["hostbufs_initialized"] and comfy_aimdo.host_buffer.lib is not None:
                 hostbuf_size = model_management.pinned_hostbuf_size(self.model_size())
                 pin_state["weights"] = (comfy_aimdo.host_buffer.HostBuffer(0, 64 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
                 pin_state["patches"] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
@@ -2141,9 +2141,9 @@ class ModelPatcherDynamic(ModelPatcher):
                         force_load=True
 
                     if force_load:
-                        if hasattr(m, "_v"):
+                        if getattr(m, "_v", None) is not None:
                             comfy_aimdo.model_vbar.vbar_unpin(m._v)
-                            delattr(m, "_v")
+                            m._v = None
                         logger.info(f"Module {n} has resizing Lora - force loading")
                         weight_cast.set_materialization_force_loaded(m, True)
                         force_load_param(self, "weight", device_to)

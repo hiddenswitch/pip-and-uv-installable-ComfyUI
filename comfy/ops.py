@@ -33,6 +33,7 @@ from . import float as comfy_float
 from . import memory_management
 from . import model_management
 from . import pinned_memory
+from . import rmsnorm
 from . import weight_cast
 from . import weight_cast_ops
 from . import utils
@@ -1103,7 +1104,8 @@ class disable_weight_init:
                 weight = None
                 bias = None
                 cast_state = None
-            x = torch.nn.functional.rms_norm(input, self.normalized_shape, weight, self.eps)
+            x = rmsnorm.rms_norm(input, weight, self.eps)  # TODO: switch to commented out line when old torch is deprecated
+            # x = torch.nn.functional.rms_norm(input, self.normalized_shape, weight, self.eps)
             return _release_weight_bias(self, x, cast_state) if cast_state is not None else x
 
         def forward(self, *args, **kwargs):

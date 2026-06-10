@@ -1063,7 +1063,9 @@ def test_model_patcher_dynamic_records_weight_materialization_spec(monkeypatch):
     from comfy import ops, weight_cast
     from comfy.model_patcher import ModelPatcherDynamic
 
-    model = torch.nn.Sequential(ops.manual_cast.Linear(3, 2))
+    # Above the 16KB tiny-module threshold so the dynamic loader stages it
+    # instead of force-loading it.
+    model = torch.nn.Sequential(ops.manual_cast.Linear(128, 64))
     monkeypatch.setattr(ModelPatcherDynamic, "_vbar_get", lambda self, create=False: None)
     patcher = ModelPatcherDynamic(model, torch.device("cuda:0"), torch.device("cpu"))
 
@@ -1077,6 +1079,22 @@ def test_model_patcher_dynamic_records_weight_materialization_spec(monkeypatch):
     assert spec.weight_vram_bytes > 0
     assert spec.bias_vram_bytes > 0
     assert spec.force_loaded is False
+
+
+def test_model_patcher_dynamic_force_loads_tiny_modules(monkeypatch):
+    from comfy import ops, weight_cast
+    from comfy.model_patcher import ModelPatcherDynamic
+
+    # Modules under the 16KB threshold are force-loaded to keep the offload
+    # stream buffers from rotating lopsidedly.
+    model = torch.nn.Sequential(ops.manual_cast.Linear(3, 2))
+    monkeypatch.setattr(ModelPatcherDynamic, "_vbar_get", lambda self, create=False: None)
+    patcher = ModelPatcherDynamic(model, torch.device("cuda:0"), torch.device("cpu"))
+
+    patcher.load(device_to=torch.device("cuda:0"))
+
+    spec = weight_cast.get_materialization_spec(model[0])
+    assert spec.force_loaded is True
 
 
 def test_lowvram_materialization_vram_bytes_reserves_patch_scratch():
