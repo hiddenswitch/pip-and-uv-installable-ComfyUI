@@ -44,6 +44,7 @@ from .ldm.wan import vae2_2 as wan_vae2_2
 from .ldm.cogvideo.vae import AutoencoderKLCogVideoX
 from .lora import load_lora, model_lora_keys_unet, model_lora_keys_clip
 from .lora_convert import convert_lora
+from .weight_adapter import WeightAdapterBase, BypassInjectionManager
 from .model_management import load_models_gpu, module_size
 from .model_management_types import ModelManageable
 from .model_patcher import ModelPatcher, get_model_patcher_class

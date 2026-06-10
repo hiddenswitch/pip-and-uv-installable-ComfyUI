@@ -1128,6 +1128,29 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # Void video inpainting
     HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass1.safetensors"),
     HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass2.safetensors"),
+    # INT8 w8a8 quantized transformers (ModelOpt int8 row-wise)
+    HuggingFile("vistralis/FLUX.2-klein-base-9b-INT8-transformer", "flux-2-klein-base-9b-int8.safetensors"),
+    HuggingFile("vistralis/FLUX.2-klein-base-4b-INT8-transformer", "flux-2-klein-base-4b-int8.safetensors"),
+    HuggingFile("vistralis/FLUX.2-klein-9b-INT8-transformer", "flux-2-klein-9b-int8.safetensors"),
+    HuggingFile("vistralis/FLUX.2-klein-4b-INT8-transformer", "flux-2-klein-4b-int8.safetensors"),
+    # INT8 w8a8 + ConvRot quantized transformers
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "Chroma1-HD-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "Ernie-Image-Base-int8-convrot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "anima-preview3-base-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "flux-2-klein-base-9b-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "hidream-o1-image-base-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "ltx-2.3-22b-dev-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "ltx-2.3-22b-distilled-1.1-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "qwen-image-2512-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "wan2.2_t2v_high_int8_ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "wan2.2_t2v_low_int8_ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "wan_i2v_high_int8_ConvRot.safetensors"),
+    HuggingFile("bertbobson/ComfyUI-INT8_ConvRot", "wan_i2v_low_int8_ConvRot.safetensors"),
+    HuggingFile("bertbobson/Ideogram-4-INT8-ConvRot", "ideogram4-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/Ideogram-4-INT8-ConvRot", "ideogram4-unconditional-int8-ConvRot.safetensors"),
+    HuggingFile("bertbobson/LTX2.3-10Eros-INT8-ConvRot", "10Eros_v1_bf16-int8.ConvRot.safetensors"),
+    HuggingFile("bertbobson/Sulphur-2-base-INT8-ConvRot", "sulphur_dev_INT8_ConvRot.safetensors"),
+    HuggingFile("bertbobson/Sulphur-2-base-INT8-ConvRot", "sulphur_distil_INT8_ConvRot.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # todo: is this correct?

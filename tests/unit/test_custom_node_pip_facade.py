@@ -300,6 +300,33 @@ def test_injected_project_has_github_archive_version():
     assert versions[0].download_url == "https://api.github.com/repos/TestOrg/TestRepo/zipball/main"
 
 
+async def test_int8_fast_is_served_as_injected_facade_project(monkeypatch):
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def empty_manager_registry(_session):
+        return []
+
+    async def empty_cnr_nodes(_self):
+        return []
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", empty_manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", empty_cnr_nodes)
+
+    registry = FacadeRegistry(session=None, only_known_nodes=True)  # type: ignore[arg-type]
+    project = await registry.get_project("comfyui-int8-fast")
+
+    assert project is not None
+    assert project.canonical_name == "comfyui-int8-fast"
+    assert project.repo_url == "https://github.com/BobJohnson24/ComfyUI-INT8-Fast"
+    assert "comfyui-int8-fast" in project.aliases
+
+    versions = await registry.list_versions(project)
+    assert len(versions) == 1
+    assert versions[0].version == "0.1.0"
+    assert versions[0].download_url == "https://api.github.com/repos/BobJohnson24/ComfyUI-INT8-Fast/zipball"
+
+
 def test_github_archive_url_uses_zipball_for_default_branch():
     from comfy.custom_node_facade.registry import FacadeRegistry
 

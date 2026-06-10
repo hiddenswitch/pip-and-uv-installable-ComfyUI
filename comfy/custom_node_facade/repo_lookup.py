@@ -35,6 +35,7 @@ _MANAGER_EXTENSION_MAP_URL = (
 # missing or outdated. Keep this short — the runtime resolvers should cover
 # almost everything.
 _HARDCODED: dict[str, str] = {
+    "comfyui-int8-fast": "https://github.com/BobJohnson24/ComfyUI-INT8-Fast",
     "comfyui-swwan": "https://github.com/swwan/ComfyUI_swwan",
 }
 

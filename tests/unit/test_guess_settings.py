@@ -2,7 +2,6 @@ import collections
 import subprocess
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from comfy.cli_args_types import Configuration, PerformanceFeature
 from comfy.component_model.guess_settings import (
@@ -11,7 +10,6 @@ from comfy.component_model.guess_settings import (
     _has_nvidia_gpu,
     _has_amd_gpu,
     _competing_gpu_processes,
-    _has_package,
 )
 
 

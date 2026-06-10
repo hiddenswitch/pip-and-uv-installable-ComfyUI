@@ -196,6 +196,12 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         display_name="ComfyUI-GGUF",
     ),
     CustomNodeSpec(
+        node_id="ComfyUI-INT8-Fast",
+        repo_url="https://github.com/BobJohnson24/ComfyUI-INT8-Fast",
+        display_name="ComfyUI-INT8-Fast",
+        inject_version="0.1.0",
+    ),
+    CustomNodeSpec(
         node_id="ComfyUI_UltimateSDUpscale",
         repo_url="https://github.com/ssitu/ComfyUI_UltimateSDUpscale",
         display_name="ComfyUI_UltimateSDUpscale",
