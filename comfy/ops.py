@@ -1784,6 +1784,42 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 x = self._forward(input, weight, bias)
                 return _release_weight_bias(self, x, cast_state)
 
+            def _int8_inline_forward(self, input):
+                """Compiled int8 fast path on plain tensors and custom ops.
+
+                The graph-visible weight cast materializes weights densely at
+                the input dtype, which would silently dequantize int8 and lose
+                the w8a8 speedup inside compiled blocks. When the quantized
+                weight is already resident on the input device, run the int8
+                math directly: optional convrot rotation, per-token quant, and
+                the fused GEMM, all opaque custom ops dynamo traces cleanly.
+                """
+                from .quant_ops_int8 import rotate_groups
+
+                input_shape = input.shape
+                x2d = input.reshape(-1, input_shape[-1]) if input.ndim != 2 else input
+                weight = self.weight
+                bias = self.bias
+                out_features = weight.shape[0]
+                layout_cls = get_layout_class(self.layout_type)
+                group_size = getattr(layout_cls, "GROUP_SIZE", None)
+
+                if x2d.shape[0] > 16:
+                    if group_size is not None:
+                        x2d = rotate_groups(x2d, group_size)
+                    x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
+                    out = torch.ops.comfy_int8.gemm(
+                        x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
+                else:
+                    w = weight._qdata.to(torch.float32) * weight._params.scale
+                    if group_size is not None:
+                        w = rotate_groups(w, group_size)
+                    out = torch.nn.functional.linear(x2d, w.to(input.dtype), bias)
+
+                if input.ndim != 2:
+                    out = out.reshape(input_shape[:-1] + (out_features,))
+                return out
+
             def forward(self, input, *args, **kwargs):
                 run_every_op()
 
@@ -1792,6 +1828,15 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                     and weight_cast.graph_visible_backend_unavailable_reason() is None
                     and not model_management.is_device_cpu(input.device)
                 ):
+                    int8_inline = (
+                        getattr(self, 'layout_type', None) in ("Int8RowwiseLayout", "Int8ConvRotLayout")
+                        and isinstance(self.weight, QuantizedTensor)
+                        and self.weight.device == input.device
+                        and not self._full_precision_mm
+                        and len(self.weight_function) == 0 and len(self.bias_function) == 0
+                    )
+                    if int8_inline:
+                        return self._int8_inline_forward(input)
                     return self.forward_comfy_cast_weights(input, input.dtype, want_requant=False)
 
                 input_shape = input.shape

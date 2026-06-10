@@ -96,6 +96,21 @@ def _is_unsupported_fp8e4nv_compile_error(exc: BaseException) -> bool:
     return _FP8E4NV_UNSUPPORTED in str(exc)
 
 
+_INT8_COMPILE_ERROR_MARKERS = ("comfy_int8", "int8_kernels")
+
+
+def _is_int8_kernel_compile_error(exc: BaseException) -> bool:
+    """INT8 triton/kernel failures disable compilation gracefully like fp8e4nv:
+    the eager int8 path keeps working, so a kernel-specific compile failure
+    should degrade rather than crash sampling."""
+    message = str(exc)
+    return any(marker in message for marker in _INT8_COMPILE_ERROR_MARKERS)
+
+
+def _is_graceful_compile_disable_error(exc: BaseException) -> bool:
+    return _is_unsupported_fp8e4nv_compile_error(exc) or _is_int8_kernel_compile_error(exc)
+
+
 def _make_module_tensors_contiguous(module: torch.nn.Module) -> None:
     with torch.no_grad():
         for param in module.parameters():
@@ -234,6 +249,7 @@ class _CompiledModel(torch.nn.Module):
         self.compiled = torch.compile(model=module, **compile_kwargs)
         object.__setattr__(self, "_original", module)
         self._compile_disabled_reason: str | None = None
+        self._logged_bypass_reasons: set = set()
 
     def __getattr__(self, name: str):
         try:
@@ -262,6 +278,14 @@ class _CompiledModel(torch.nn.Module):
             self._compile_disabled_reason is not None
             or has_dynamic_model_options
         ):
+            bypass_key = (self._compile_disabled_reason is not None, tuple(dynamic_reasons))
+            if bypass_key not in self._logged_bypass_reasons:
+                self._logged_bypass_reasons.add(bypass_key)
+                logger.info(
+                    "Bypassing torch.compile wrapper (running eager): disabled=%s dynamic_reasons=%s",
+                    self._compile_disabled_reason is not None,
+                    dynamic_reasons,
+                )
             logger.debug(
                 "Bypassing torch.compile wrapper: disabled=%s dynamic_reasons=%s transformer_option_keys=%s",
                 self._compile_disabled_reason is not None,
@@ -275,8 +299,9 @@ class _CompiledModel(torch.nn.Module):
         try:
             return self.compiled(*args, **kwargs)
         except Exception as exc:
-            if not _is_unsupported_fp8e4nv_compile_error(exc):
+            if not _is_graceful_compile_disable_error(exc):
                 raise
+            logger.warning("Disabling torch.compile for this module after kernel-specific failure: %s", exc)
             self._compile_disabled_reason = str(exc)
             return self._original(*args, **kwargs)
 
