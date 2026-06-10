@@ -1806,7 +1806,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
 
                 if x2d.shape[0] > 16:
                     if group_size is not None:
-                        x2d = rotate_groups(x2d, group_size)
+                        x2d = rotate_groups(x2d, group_size, compute_dtype=None)
                     x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
                     out = torch.ops.comfy_int8.gemm(
                         x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
@@ -1883,14 +1883,19 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         # Layouts can decline small batches (e.g. int8 GEMM
                         # needs M > 16); the plain-input path dequantizes the
                         # weight and runs a float linear instead.
-                        layout_gate = getattr(get_layout_class(self.layout_type), "should_quantize_input", None)
+                        layout_cls = get_layout_class(self.layout_type)
+                        layout_gate = getattr(layout_cls, "should_quantize_input", None)
                         if layout_gate is None or layout_gate(input_reshaped):
                             reshaped_3d = input.ndim == 3
-                            # dtype is now implicit in the layout class
-                            scale = getattr(self, 'input_scale', None)
-                            if scale is not None:
-                                scale = model_management.cast_to_device(scale, input.device, None)
-                            input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
+                            quantize_activation = getattr(layout_cls, "quantize_activation", None)
+                            if quantize_activation is not None:
+                                input = quantize_activation(input_reshaped)
+                            else:
+                                # dtype is now implicit in the layout class
+                                scale = getattr(self, 'input_scale', None)
+                                if scale is not None:
+                                    scale = model_management.cast_to_device(scale, input.device, None)
+                                input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
 
                 output = self.forward_comfy_cast_weights(input, compute_dtype, want_requant=isinstance(input, QuantizedTensor))
 
