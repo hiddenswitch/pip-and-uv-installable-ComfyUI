@@ -165,6 +165,8 @@ try:
     # comfy_kitchen's triton fp8 kernels use fp8e4nv, which fails to compile
     # on Ampere (sm < 8.9). Force-disable triton on those GPUs unless the
     # user re-enables it via --enable-comfy-kitchen-backends triton.
+    # This disable is fp8-specific: the INT8 w8a8 triton kernels live in
+    # comfy/int8_kernels.py outside this registry and stay enabled on Ampere.
     if torch.cuda.is_available():
         try:
             min_cap = min(
@@ -508,6 +510,21 @@ _LAYOUT_CLASS_FALLBACKS = {
     "TensorCoreNVFP4Layout": TensorCoreNVFP4Layout,
 }
 
+_INT8_AVAILABLE = False
+if _CK_AVAILABLE:
+    try:
+        from .quant_ops_int8 import Int8ConvRotLayout, Int8RowwiseLayout
+
+        _INT8_AVAILABLE = True
+        _LAYOUT_CLASS_FALLBACKS["Int8RowwiseLayout"] = Int8RowwiseLayout
+        _LAYOUT_CLASS_FALLBACKS["Int8ConvRotLayout"] = Int8ConvRotLayout
+    except Exception as e:
+        logger.debug(f"Failed to load int8 quantized layouts, Error: {e}")
+
+
+def int8_quantization_available() -> bool:
+    return _INT8_AVAILABLE
+
 
 def get_layout_class(name):
     layout_cls = _ck_get_layout_class(name)
@@ -520,6 +537,17 @@ def mixed_precision_quantization_available() -> bool:
     return _CK_AVAILABLE
 
 QUANT_ALGOS = {
+    "int8": {
+        "storage_t": torch.int8,
+        "parameters": {"weight_scale", "input_scale"},
+        "comfy_tensor_layout": "Int8RowwiseLayout",
+    },
+    "int8_convrot": {
+        "storage_t": torch.int8,
+        "parameters": {"weight_scale", "input_scale"},
+        "comfy_tensor_layout": "Int8ConvRotLayout",
+        "group_size": 256,
+    },
     "float8_e4m3fn": {
         "storage_t": torch.float8_e4m3fn,
         "parameters": {"weight_scale", "input_scale"},
@@ -563,4 +591,5 @@ __all__ = [
     "QUANT_ALGOS",
     "register_layout_op",
     "mixed_precision_quantization_available",
+    "int8_quantization_available",
 ]
