@@ -2,6 +2,17 @@
 
 Custom Nodes can be added to ComfyUI by copying and pasting Python files into your `./custom_nodes` directory.
 
+## Installing ComfyUI
+
+This fork is installed from the same index as the `comfyui` package:
+
+```bash
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui
+```
+
+The wheel is built and attached to each GitHub release by
+`.github/workflows/build-wheel.yml`, and the index serves those release assets.
+
 ## Installing Custom Nodes with `pip` or `uv`
 
 Install custom nodes from the package index at `nodes.appmana.com`:

@@ -677,3 +677,73 @@ def test_gguf_stripped_from_wheel_metadata(tmp_path: Path):
         metadata = wheel.read("comfyui_gguf-1.1.7.dist-info/METADATA").decode("utf-8")
         requires = [line for line in metadata.splitlines() if line.startswith("Requires-Dist:")]
         assert requires == ["Requires-Dist: sentencepiece"]
+
+
+# ---------------------------------------------------------------------------
+# GithubReleaseWheelProxySpec (the `comfyui` package served from GH releases)
+# ---------------------------------------------------------------------------
+class _GithubResp:
+    def __init__(self, obj):
+        self._obj = obj
+        self.headers_seen = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    async def json(self):
+        return self._obj
+
+
+class _GithubSession:
+    def __init__(self, obj):
+        self._obj = obj
+        self.last_headers = None
+        self.last_url = None
+
+    def get(self, url, headers=None):
+        self.last_url = url
+        self.last_headers = headers
+        return _GithubResp(self._obj)
+
+
+async def test_comfyui_proxy_lists_release_wheels():
+    from comfy.custom_node_facade.builder import GithubReleaseWheelProxySpec, PYPI_PROXY_INDEX
+
+    # registered as a default proxy project
+    assert "comfyui" in PYPI_PROXY_INDEX
+
+    releases = [
+        {"assets": [
+            {"name": "comfyui-0.24.0.4-py3-none-any.whl",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4-py3-none-any.whl"},
+            {"name": "comfyui-0.24.0.4.tar.gz",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4.tar.gz"},
+            {"name": "some-other-thing.zip",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/some-other-thing.zip"},
+        ]},
+        {"assets": [
+            {"name": "comfyui-0.24.0.3-py3-none-any.whl",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.3/comfyui-0.24.0.3-py3-none-any.whl"},
+        ]},
+    ]
+    proxy = GithubReleaseWheelProxySpec(name="comfyui", repo="o/r", asset_prefix="comfyui-")
+    session = _GithubSession(releases)
+
+    # CUDA-agnostic: in every plain index, not the flash-attn torch indexes
+    assert proxy.supports_cuda("cu130")
+    assert not proxy.supports_cuda("cu130torch2.12")
+
+    body = await proxy.render_index(session, "cu130")
+    assert "comfyui-0.24.0.4-py3-none-any.whl" in body
+    assert "comfyui-0.24.0.4.tar.gz" in body
+    assert "comfyui-0.24.0.3-py3-none-any.whl" in body
+    # non-comfyui asset filtered out
+    assert "some-other-thing.zip" not in body
+    # queries the configured repo
+    assert "/repos/o/r/releases" in session.last_url

@@ -175,12 +175,60 @@ def _simple_package_html(project_name: str, body: str) -> str:
     return f"<!DOCTYPE html><html><head><title>{html.escape(title)}</title></head><body>{body}</body></html>"
 
 
+@dataclass(frozen=True)
+class GithubReleaseWheelProxySpec:
+    """Serve a project's wheels/sdists from a GitHub repository's releases.
+
+    Used for the fork's own ``comfyui`` package: a GitHub Actions workflow builds
+    the wheel on each release and uploads it as a release asset; this lists those
+    assets as a PEP 503 page. CUDA-agnostic (pure-python wheel)."""
+    name: str
+    repo: str
+    asset_prefix: str
+
+    def supports_cuda(self, cuda: str) -> bool:
+        # Pure-python: appears in every plain-CUDA index but not the
+        # flash-attn-specific cuXXXtorchY.Z indexes.
+        return "torch" not in cuda
+
+    async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
+        del cuda
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        links: list[tuple[str, str]] = []
+        url = f"https://api.github.com/repos/{self.repo}/releases?per_page=100"
+        async with session.get(url, headers=headers) as resp:
+            resp.raise_for_status()
+            releases = await resp.json()
+        for release in releases:
+            for asset in release.get("assets", []):
+                filename = asset.get("name", "")
+                if not filename.startswith(self.asset_prefix):
+                    continue
+                if not (filename.endswith(".whl") or filename.endswith(".tar.gz")):
+                    continue
+                links.append((filename, asset["browser_download_url"]))
+        body = "\n".join(
+            f'<a href="{html.escape(target, quote=True)}">{html.escape(filename)}</a><br/>'
+            for filename, target in sorted(set(links))
+        )
+        return _simple_package_html(self.name, body)
+
+
 from .triton_wheels import TritonProxySpec  # noqa: E402
 
-PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec | TritonProxySpec
+PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec | TritonProxySpec | GithubReleaseWheelProxySpec
+
+# The fork repo whose releases host the built `comfyui` wheels.
+COMFYUI_RELEASE_REPO = "hiddenswitch/pip-and-uv-installable-ComfyUI"
 
 
 PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
+    # The fork's own package: `pip install comfyui --extra-index-url=.../simple/`.
+    # Wheels are built and attached to GitHub releases by .github/workflows/build-wheel.yml.
+    GithubReleaseWheelProxySpec(name="comfyui", repo=COMFYUI_RELEASE_REPO, asset_prefix="comfyui-"),
     # triton: Linux serves PyPI manylinux triton; Windows serves woct0rdho
     # triton-windows wheels renamed to `triton` (CUDA-13 patched on the fly).
     TritonProxySpec(name="triton", rename_to_triton=True),
