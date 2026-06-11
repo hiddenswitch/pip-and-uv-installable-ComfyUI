@@ -1060,11 +1060,14 @@ def test_manual_cast_compile_tracks_replaced_parameters(monkeypatch):
 
 
 def test_model_patcher_dynamic_records_weight_materialization_spec(monkeypatch):
-    from comfy import ops, weight_cast
+    from comfy import ops, weight_cast, model_management
     from comfy.model_patcher import ModelPatcherDynamic
 
     # Above the 16KB tiny-module threshold so the dynamic loader stages it
-    # instead of force-loading it.
+    # instead of force-loading it. Force the not-fit (streaming) path the spec
+    # bookkeeping is part of: report no free VRAM so the model can't stay
+    # resident and is staged with vbars.
+    monkeypatch.setattr(model_management, "get_free_memory", lambda *a, **k: 0)
     model = torch.nn.Sequential(ops.manual_cast.Linear(128, 64))
     monkeypatch.setattr(ModelPatcherDynamic, "_vbar_get", lambda self, create=False: None)
     patcher = ModelPatcherDynamic(model, torch.device("cuda:0"), torch.device("cpu"))

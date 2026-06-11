@@ -2046,6 +2046,23 @@ class ModelPatcherDynamic(ModelPatcher):
             loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 
+            # When the whole model fits in VRAM, keep every weight fully
+            # resident (no vbar) so it pays zero per-forward vbar overhead —
+            # identical perf to the legacy ModelPatcher. This is the common
+            # case the user cares about: "small enough to fit should just fit".
+            # When it does not fit, fall back to the original behavior (stage
+            # weights with vbars for streaming), which is robust and never
+            # OOMs. We deliberately do not mix partial-resident + partial-vbar:
+            # that is fragile under memory pressure. The budget is the real
+            # free VRAM (minus an inference reserve), capped by an explicit
+            # positive lowvram_model_memory when one is given (legacy
+            # convention: 0 means "no lowvram cap / full load").
+            free_vram = model_management.get_free_memory(device_to)
+            resident_budget = max(0, free_vram - model_management.minimum_inference_memory())
+            if lowvram_model_memory > 0:
+                resident_budget = min(lowvram_model_memory, resident_budget)
+            model_fits_resident = self.model_size() <= resident_budget
+
             for x in loading:
                 *_, module_mem, n, m, params = x
 
@@ -2137,6 +2154,11 @@ class ModelPatcherDynamic(ModelPatcher):
                         v_weight_size += v_weight_bias
                         if force_load:
                             logging.info(f"Module {n} has resizing Lora - force loading")
+                        # Whole model fits: keep this weight resident (legacy
+                        # perf, no per-forward vbar fault). Otherwise it falls
+                        # through to vbar staging for streaming.
+                        elif model_fits_resident:
+                            force_load = True
                     else:
                         force_load=True
 
@@ -2144,7 +2166,6 @@ class ModelPatcherDynamic(ModelPatcher):
                         if getattr(m, "_v", None) is not None:
                             comfy_aimdo.model_vbar.vbar_unpin(m._v)
                             m._v = None
-                        logger.info(f"Module {n} has resizing Lora - force loading")
                         weight_cast.set_materialization_force_loaded(m, True)
                         force_load_param(self, "weight", device_to)
                         force_load_param(self, "bias", device_to)
