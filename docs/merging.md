@@ -533,6 +533,31 @@ CUDA_VISIBLE_DEVICES=1 uv run comfyui run-workflow --all tests/inference/workflo
 
 The inference test asserts `SaveImage` output paths. If you run the CLI manually, inspect the JSON output and confirm a real image file was produced.
 
+#### Frontend conversion parity (`graphToPrompt`) and its cache
+
+`tests/unit/test_workflow_convert_playwright.py::TestFrontendParity` is the authoritative cross-check: it runs the **real** compiled frontend in headless Chromium, calls `app.graphToPrompt()` for each template, and asserts `comfy/component_model/workflow_convert.py::convert_ui_to_api` produces the same API graph. `convert_ui_to_api` is a line-for-line translation of the frontend; when it drifts, port the TS rather than guessing. Key correspondences (frontend `~/Documents/ComfyUI_frontend`, checked out at the **installed** `comfyui-frontend-package` version — `git checkout v$(python -c 'import importlib.metadata as m;print(m.version("comfyui-frontend-package"))')`):
+
+| Behaviour | Frontend (TS) | Fork (Python) |
+| --- | --- | --- |
+| Top-level conversion loop, widget/link serialization, drop muted (`NEVER`/`BYPASS`) and virtual nodes, prune links to removed nodes | `src/utils/executionUtil.ts` `graphToPrompt` | `convert_ui_to_api` |
+| Subgraph flattening / execution-id assignment | `src/lib/litegraph/src/subgraph/SubgraphNode.ts` `getInnerNodes` (recurses `subgraphInstanceIdPath = [...path, this.id]`) | `_expand_subgraph` |
+| Flattened execution id | `ExecutableNodeDTO.ts`: `this._id = [...this.subgraphNodePath, this.node.id].join(':')` | `workflow_convert.py:866`: `self.exec_id = ':'.join(str(x) for x in [*subgraph_node_path, nid])` |
+| Bypass/Reroute input resolution | `ExecutableNodeDTO.resolveInput` / `resolveOutput` | `_resolve_source` / `_get_bypass_slot_index` |
+| Promoted subgraph-widget lookup | `resolveConcretePromotedWidget.ts` | `_get_inner_widget_value` |
+
+So a top-level subgraph instance node `267` emits its inner nodes as `267:<inner-id>`, and a subgraph nested one level deeper emits `267:<mid>:<leaf>` — exactly matching the frontend's colon-joined `subgraphNodePath`.
+
+**Cache staleness gotcha.** Frontend outputs are cached under `tests/unit/playwright_cache/<frontend-version>+t<templates-versions>/<template_id>.json` and only regenerated via Playwright when the file is **missing**. The key encodes package *versions*, not template *content*, and `invalidate_stale_cache()` only deletes caches containing `class_type: null` (i.e. newly-added node types). So when a packaged template is **restructured** without that signal (e.g. `video_ltx2_3_t2v` changed from an image-to-video+MoGe-depth graph to a 51-node text-to-video subgraph), the old cache survives and the parity test fails with a structural diff (different node ids/prefixes) even though `convert_ui_to_api` is correct. The tell is that the cached frontend output references nodes that do not exist in the current template asset. Fix by regenerating the stale entries (requires `pip install playwright && python -m playwright install chromium`):
+
+```bash
+# delete the stale entries, then the test regenerates them from the real frontend
+rm tests/unit/playwright_cache/<version-dir>/<template_id>.json
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest \
+  "tests/unit/test_workflow_convert_playwright.py::TestFrontendParity" -k "<template_id>"
+```
+
+Only treat a parity failure as a converter bug after confirming the regenerated cache still disagrees with Python.
+
 ### Asset Routes, Database, And Seeder
 
 Upstream asset work often touches route handlers, service names, Alembic migrations, background scanning, and tests at the same time. This fork keeps asset code under `comfy/app/assets`, stores Alembic under `comfy/alembic_db`, and runs most request-facing tests through the fork's configuration object.
