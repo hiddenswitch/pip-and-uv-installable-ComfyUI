@@ -2,13 +2,14 @@
 
 The dynamic patcher (ModelPatcherDynamic) loads weights with
 ``load_state_dict(assign=True)`` so the vbar streamer can take ownership of the
-tensors. ``assign=True`` *replaces* each param instead of ``copy_``-casting the
-incoming tensor into it, so a weight stored at a different dtype than the
-model's storage dtype (e.g. a bf16 layer inside an fp8 "mixed" checkpoint) would
-silently keep its file dtype. That made models loaded under dynamic VRAM use
-bf16 weights where the non-dynamic path used fp8, diverging ~17% in the forward
-output. ``BaseModel.load_model_weights`` now pre-casts mismatched floating
-weights to the param dtype when ``assign=True``; these tests pin that behaviour.
+tensors. ``assign=True`` *replaces* each param with the incoming tensor instead
+of ``copy_``-casting it into the fp8 placeholder. For a mixed-precision
+checkpoint (e.g. ``flux2_dev_fp8mixed``, whose ``_quantization_metadata`` only
+lists the fp8 layers) this **preserves** the higher-precision (bf16) layers the
+author stored for quality — which is the whole point of mixed precision. These
+tests pin that: dynamic load must NOT coerce a bf16 weight down to the model's
+fp8 storage dtype, and quantized/fp8-stored weights must keep their native
+layout across the vbar so their scale survives.
 """
 import contextlib
 import os
@@ -62,8 +63,14 @@ def limit_free_vram(free_bytes):
         yield
 
 
-class TestDynamicLoadDtype(unittest.TestCase):
-    def test_assign_true_casts_bf16_weight_into_fp8_param(self):
+class TestDynamicLoadPreservesMixedPrecision(unittest.TestCase):
+    """Dynamic VRAM (assign=True) must preserve the precision the checkpoint
+    stored. A mixed checkpoint deliberately keeps some layers in higher
+    precision (bf16) for quality; coercing them to the model's fp8 storage dtype
+    would silently regress that. fp8-stored layers must stay fp8."""
+
+    def test_assign_true_preserves_higher_precision_bf16_layer(self):
+        # An fp8 model with a bf16-stored layer (the mixed-precision case).
         model = _tiny_fp8_linear()
         src = torch.randn(20, 10, dtype=torch.bfloat16)
 
@@ -71,31 +78,10 @@ class TestDynamicLoadDtype(unittest.TestCase):
             _fake_basemodel_self(model), {"weight": src.clone()}, assign=True
         )
 
-        self.assertEqual(model.weight.dtype, torch.float8_e4m3fn)
-        torch.testing.assert_close(
-            model.weight.float(), src.to(torch.float8_e4m3fn).float()
-        )
+        self.assertEqual(model.weight.dtype, torch.bfloat16)
+        torch.testing.assert_close(model.weight, src)
 
-    def test_assign_true_matches_legacy_copy_path(self):
-        """Dynamic (assign=True) and legacy (assign=False) must load a
-        dtype-mismatched weight to bit-identical params."""
-        src = torch.randn(20, 10, dtype=torch.bfloat16)
-
-        dynamic = _tiny_fp8_linear()
-        model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(dynamic), {"weight": src.clone()}, assign=True
-        )
-
-        legacy = _tiny_fp8_linear()
-        model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(legacy), {"weight": src.clone()}, assign=False
-        )
-
-        self.assertEqual(dynamic.weight.dtype, legacy.weight.dtype)
-        torch.testing.assert_close(dynamic.weight.float(), legacy.weight.float())
-
-    def test_assign_true_preserves_matching_dtype_weight(self):
-        """A weight already at the param dtype is assigned as-is, no needless cast."""
+    def test_assign_true_preserves_fp8_stored_layer(self):
         model = _tiny_fp8_linear()
         src = torch.randn(20, 10).to(torch.float8_e4m3fn)
 
@@ -107,7 +93,6 @@ class TestDynamicLoadDtype(unittest.TestCase):
         torch.testing.assert_close(model.weight.float(), src.float())
 
     def test_assign_true_leaves_bf16_model_weights_untouched(self):
-        """A bf16 weight for a bf16 param is not perturbed."""
         layer = torch.nn.Linear(10, 20, bias=False).to(torch.bfloat16)
         src = torch.randn(20, 10, dtype=torch.bfloat16)
 
@@ -117,6 +102,19 @@ class TestDynamicLoadDtype(unittest.TestCase):
 
         self.assertEqual(layer.weight.dtype, torch.bfloat16)
         torch.testing.assert_close(layer.weight, src)
+
+    def test_legacy_load_still_coerces_to_param_dtype(self):
+        """The non-dynamic path (assign=False) copies into the fp8 placeholder,
+        so it coerces to fp8 — documenting the legacy fp8-unet asymmetry that
+        dynamic VRAM deliberately avoids."""
+        model = _tiny_fp8_linear()
+        src = torch.randn(20, 10, dtype=torch.bfloat16)
+
+        model_base.BaseModel.load_model_weights(
+            _fake_basemodel_self(model), {"weight": src.clone()}, assign=False
+        )
+
+        self.assertEqual(model.weight.dtype, torch.float8_e4m3fn)
 
 
 class TestStreamsInNativeDtype(unittest.TestCase):

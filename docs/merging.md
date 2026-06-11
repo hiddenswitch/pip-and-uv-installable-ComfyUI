@@ -451,30 +451,40 @@ git diff --cc -- comfy/model_management.py comfy/model_patcher.py comfy/ops.py
 
 Check for protocol drift too. If upstream adds required model-patcher attributes or methods, update `comfy/model_management_types.py`, `ModelManageableStub`, dynamic patchers, and tests.
 
-#### Dynamic VRAM streaming of quantized weights
+#### Dynamic VRAM and mixed precision
 
-Dynamic VRAM (ModelPatcherDynamic) must produce **bit-identical** forward output
-to the legacy ModelPatcher. Two invariants are easy to break during a merge, and
-neither shows up in a single hunk — both manifest only as a silent ~10-20% output
-divergence on quantized/mixed models that stream:
+Two things commonly look like a "dynamic VRAM regression" on mixed/quantized
+checkpoints that stream. Only one is a bug.
 
-1. **Load dtype.** The dynamic patcher loads weights with
+1. **Load dtype — NOT a bug; do not "fix" it.** The dynamic patcher loads with
    `load_state_dict(assign=True)` so the vbar can own the tensors. `assign=True`
-   *replaces* each param instead of `copy_`-casting into it, so a weight stored
-   at a different dtype than the model's storage dtype (e.g. a bf16 layer inside
-   an fp8 "mixed" checkpoint like `flux2_dev_fp8mixed`) keeps its file dtype and
-   diverges from the legacy path, which casts via `param.copy_()`.
-   `BaseModel.load_model_weights` pre-casts mismatched floating weights to the
-   param dtype when `assign=True`. Regression test:
-   `tests/unit/test_aimdo_dynamic_load.py::TestDynamicLoadDtype`.
+   *replaces* each param with the incoming tensor instead of `copy_`-casting it
+   into the model's fp8 placeholder. For a mixed checkpoint (e.g.
+   `flux2_dev_fp8mixed`, whose `_quantization_metadata` lists only the fp8
+   layers) this **preserves** the higher-precision (bf16) layers the author
+   stored for quality. The non-dynamic path coerces those layers to fp8 via
+   `param.copy_()` (the legacy fp8-unet behaviour), so dynamic VRAM and legacy
+   produce *different* output — but dynamic is the more faithful one, and that
+   asymmetry must not be removed. Do **not** add a cast in
+   `BaseModel.load_model_weights` to make them match: that silently down-converts
+   the bf16 layers and defeats mixed precision. Pinned by
+   `tests/unit/test_aimdo_dynamic_load.py::TestDynamicLoadPreservesMixedPrecision`.
+   (Making *legacy* also preserve mixed precision would mean loading the model
+   per-layer from `_quantization_metadata` instead of as a blanket fp8 unet — a
+   larger, separate feature.)
 
-2. **Streaming geometry.** A scale-carrying weight (comfy_kitchen
-   `QuantizedTensor`, or plain scaled-fp8) must cross the vbar in its **native**
-   low-precision layout, not be densely cast to the compute dtype mid-stream. The
-   dense-materialize transfer (`cast_to_gathered` with `target_geometries`) drops
-   the per-tensor scale. `ops._streams_in_native_dtype()` gates this in
-   `cast_modules_with_vbar.target_geometry_for` and the streaming/accounting
-   geometries (`model_patcher.lowvram_materialization_geometry`).
+2. **Streaming geometry — a real bug, fixed.** A scale-carrying weight
+   (comfy_kitchen `QuantizedTensor`, or plain scaled-fp8) must cross the vbar in
+   its **native** low-precision layout, not be densely cast to the compute dtype
+   mid-stream. The dense-materialize transfer (`cast_to_gathered` with
+   `target_geometries`) drops the per-tensor scale and diverges the streamed
+   result from the resident one. `ops._streams_in_native_dtype()` gates this in
+   `cast_modules_with_vbar.target_geometry_for`, the `direct_materialize`
+   override, and the streaming/accounting geometries
+   (`model_patcher.lowvram_materialization_geometry`).
+
+The correctness target for streaming is therefore **streamed == resident under
+the same patcher**, not dynamic == legacy.
 
 To reproduce, force a fitting fp8 model to stream and compare to the resident
 result (this is what `tests/unit/test_aimdo_dynamic_load.py` does via the
