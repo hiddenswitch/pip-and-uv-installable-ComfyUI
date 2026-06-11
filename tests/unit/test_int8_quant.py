@@ -371,7 +371,8 @@ class TestSVDQuantAWQWiring(unittest.TestCase):
             "bias", "comfy_quant", "weight", "weight_scale",
             "weight_proj_down", "weight_proj_up", "weight_smooth_factor"]))
 
-    @unittest.skipUnless(has_gpu(), "requires CUDA for the w4a4 kernel")
+    @unittest.skipUnless(has_gpu() and torch.version.hip is None,
+                         "requires the CUDA w4a4 kernel (comfy_kitchen ships no ROCm build)")
     def test_svdquant_forward(self):
         lin = ops.mixed_precision_ops({"mixed_ops": True}, torch.bfloat16).Linear(self.K, self.N, device="cuda")
         lin.load_state_dict(self._svdq_sd(), strict=False)
