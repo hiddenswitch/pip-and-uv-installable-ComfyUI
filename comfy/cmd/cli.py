@@ -1821,6 +1821,12 @@ def serve_pip(
 
     params = _collect_params(locals(), kwargs)
     config = _build_config(params)
+    # The pip facade is a headless, CPU-only package index: it never loads a
+    # model. Force CPU and disable GPU/dynamic-VRAM initialization so it runs
+    # cleanly on CPU-only hosts (dynamic VRAM / comfy-aimdo is CUDA-only and
+    # would otherwise crash at startup).
+    config.cpu = True
+    config.disable_dynamic_vram = True
     setup_pre_torch(config)
     _set_config_context(config)
     setup_post_torch(config)
