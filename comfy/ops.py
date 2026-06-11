@@ -728,13 +728,13 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
 def uncast_bias_weight(s, weight, bias, offload_stream):
     if offload_stream is None:
         return
-    os, weight_a, bias_a = offload_stream
+    stream, weight_a, bias_a = offload_stream
     device=None
     #FIXME: This is really bad RTTI
     if weight_a is not None and not isinstance(weight_a, torch.Tensor):
         device = weight_a
         _defer_vbar_unpin(s._v, device)
-    if os is None:
+    if stream is None:
         return
     if device is None:
         if weight_a is not None:
@@ -743,7 +743,7 @@ def uncast_bias_weight(s, weight, bias, offload_stream):
             if bias_a is None:
                 return
             device = bias_a.device
-    os.wait_stream(model_management.current_stream(device))
+    stream.wait_stream(model_management.current_stream(device))
 
 
 def _legacy_weight_cast_prefetch(module, device, dtype, bias_dtype, compute_dtype, want_requant):
