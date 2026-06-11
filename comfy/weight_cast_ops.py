@@ -141,16 +141,33 @@ def module_invocation_tensor(module: torch.nn.Module) -> torch.Tensor:
 
 def module_weight_shape(module: torch.nn.Module) -> list[int]:
     weight = getattr(module, "weight", None)
-    if weight is None:
-        raise RuntimeError(f"Module {type(module).__name__} has no weight")
-    return [int(dim) for dim in weight.shape]
+    if weight is not None:
+        return [int(dim) for dim in weight.shape]
+    # The live weight may be offloaded to None (dynamic VRAM / aimdo). Fall
+    # back to the shape recorded when the weight was resident: the
+    # stabilized cache first, then the materialization spec.
+    cached = getattr(module, "_comfy_weight_cast_weight_shape", None)
+    if cached is not None:
+        return [int(dim) for dim in cached]
+    spec = getattr(module, "_comfy_weight_materialization_spec", None)
+    spec_shape = getattr(spec, "weight_shape", None) if spec is not None else None
+    if spec_shape is not None:
+        return [int(dim) for dim in spec_shape]
+    raise RuntimeError(f"Module {type(module).__name__} has no weight")
 
 
 def module_bias_shape(module: torch.nn.Module) -> list[int] | None:
     bias = getattr(module, "bias", None)
-    if bias is None:
-        return None
-    return [int(dim) for dim in bias.shape]
+    if bias is not None:
+        return [int(dim) for dim in bias.shape]
+    cached = getattr(module, "_comfy_weight_cast_bias_shape", None)
+    if cached is not None:
+        return [int(dim) for dim in cached]
+    spec = getattr(module, "_comfy_weight_materialization_spec", None)
+    spec_shape = getattr(spec, "bias_shape", None) if spec is not None else None
+    if spec_shape is not None:
+        return [int(dim) for dim in spec_shape]
+    return None
 
 
 @torch.compiler.assume_constant_result

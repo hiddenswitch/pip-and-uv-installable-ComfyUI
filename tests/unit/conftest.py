@@ -12,6 +12,59 @@ import os
 import pytest
 
 
+# These tests exercise the *software* graph-visible weight-cast fallback: the
+# prefetch scheduler and graph-visible weight resolution that simulate weight
+# offload by setting ``module.weight = None`` and rely on shapes recorded in
+# the materialization spec. That fallback is what runs when the Aimdo dynamic
+# VRAM allocator is unavailable (Linux CI, most setups). When the real Aimdo
+# allocator is active (Windows dynamic VRAM), weight residency is managed by
+# the allocator and the live runtime expects a resident weight, so these
+# null-the-weight simulations don't apply and are skipped.
+_GRAPH_VISIBLE_FALLBACK_TESTS = frozenset({
+    "test_comfy_weight_custom_ops_are_present_in_fx_graph",
+    "test_comfy_weight_custom_ops_compile_with_eager_backend",
+    "test_comfy_weight_custom_ops_track_overlapping_invocations",
+    "test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve",
+    "test_compiled_manual_cast_uses_graph_visible_op_even_when_resident",
+    "test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile",
+    "test_dynamic_vbar_prefetch_fallback_release_tracks_materialized_tensors",
+    "test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module",
+    "test_graph_visible_runtime_uses_recorded_materialization_shape",
+    "test_manual_cast_compile_tracks_replaced_parameters",
+    "test_manual_cast_compile_uses_graph_visible_weight_resolution",
+    "test_manual_cast_linear_preserves_eager_output",
+    "test_model_patcher_dynamic_records_weight_materialization_spec",
+    "test_non_vbar_offload_falls_back_when_shared_cast_buffer_is_unavailable",
+    "test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses",
+    "test_weight_prefetch_scheduler_can_cross_exemplar_dependency",
+    "test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve",
+    "test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path",
+    "test_weight_prefetch_scheduler_lookahead_zero_leaves_demand_resolves",
+    "test_weight_prefetch_scheduler_respects_byte_budget",
+    "test_weight_prefetch_scheduler_respects_live_lookahead_window",
+    "test_weight_prefetch_scheduler_respects_per_weight_prefetch_cap",
+    "test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph",
+    "test_weight_prefetch_scheduler_uses_materialization_spec_budget",
+})
+
+
+def pytest_collection_modifyitems(config, items):
+    try:
+        from comfy import memory_management
+        aimdo_active = memory_management.aimdo_allocator is not None
+    except Exception:
+        aimdo_active = False
+    if not aimdo_active:
+        return
+    skip = pytest.mark.skip(
+        reason="graph-visible weight-cast fallback test; the live Aimdo dynamic VRAM "
+               "allocator manages residency on this platform"
+    )
+    for item in items:
+        if getattr(item, "originalname", None) in _GRAPH_VISIBLE_FALLBACK_TESTS or item.name in _GRAPH_VISIBLE_FALLBACK_TESTS:
+            item.add_marker(skip)
+
+
 @pytest.fixture(scope="session")
 def _preloaded_nodes():
     """Full snapshot of all importable nodes, frozen at session start.
