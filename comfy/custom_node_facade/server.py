@@ -12,7 +12,7 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, SUPPORTED_CUDA_VARIANTS
+from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, is_index_variant
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
@@ -167,7 +167,7 @@ def create_facade_app(
     async def simple_one_segment(request: web.Request) -> web.Response:
         """Handles /simple/{segment}/ — either a CUDA variant index or a project page."""
         segment = request.match_info["segment"]
-        if segment in SUPPORTED_CUDA_VARIANTS:
+        if is_index_variant(segment):
             return await _build_index(segment)
         # Treat as project name with default CUDA
         request.match_info["project"] = segment
@@ -176,7 +176,7 @@ def create_facade_app(
     async def simple_two_segments(request: web.Request) -> web.Response:
         """Handles /simple/{first}/{second}/ — CUDA variant + project."""
         first = request.match_info["first"]
-        if first not in SUPPORTED_CUDA_VARIANTS:
+        if not is_index_variant(first):
             raise web.HTTPNotFound(text=f"Unsupported CUDA variant: {first}")
         request.match_info["project"] = request.match_info["second"]
         return await _build_project_page(request, first)

@@ -5,6 +5,7 @@ from ..cmd.main_pre import tracer
 import asyncio
 import base64
 import csv
+import functools
 import html
 import io
 import ntpath
@@ -71,6 +72,40 @@ FLASH_ATTENTION_3_CUDA_VARIANTS = ("cu124", "cu126", "cu128", "cu129", "cu130", 
 STABLE_ABI_CUDA_VARIANTS = ("cu128", "cu130")
 SUPPORTED_CUDA_VARIANTS = tuple(sorted(set(FLASH_ATTENTION_CUDA_VARIANTS) | set(STABLE_ABI_CUDA_VARIANTS)))
 
+# flash-attn / flash-attn-3 wheels are tagged with the CUDA *and* torch ABI
+# (e.g. ``+cu130torch2.12``). We expose those combined tokens as additional
+# index variants so a client can pin both with one extra-index-url, e.g.
+# ``--extra-index-url=https://nodes.appmana.com/simple/cu130torch2.12/`` filters
+# flash-attn to exactly the wheels matching that CUDA and torch version.
+_CUDA_TORCH_RE = re.compile(r"\+(cu\d+torch[0-9.]+)")
+
+
+@functools.lru_cache(maxsize=None)
+def _project_cuda_torch_variants(wheel_project_prefix: str) -> frozenset[str]:
+    from .flash_attention_wheels import FLASH_ATTENTION_WHEEL_URLS
+
+    out: set[str] = set()
+    for url in FLASH_ATTENTION_WHEEL_URLS:
+        filename = url.rsplit("/", 1)[-1]
+        if not filename.startswith(f"{wheel_project_prefix}-"):
+            continue
+        match = _CUDA_TORCH_RE.search(filename)
+        if match:
+            out.add(match.group(1))
+    return frozenset(out)
+
+
+@functools.lru_cache(maxsize=1)
+def cuda_torch_variants() -> frozenset[str]:
+    """All ``cuXXXtorchY.Z`` index variants served (union across flash-attn wheels)."""
+    return _project_cuda_torch_variants("flash_attn") | _project_cuda_torch_variants("flash_attn_3")
+
+
+def is_index_variant(segment: str) -> bool:
+    """True if a ``/simple/{segment}/`` path segment selects a CUDA (or
+    CUDA+torch) variant index rather than a project name."""
+    return segment in SUPPORTED_CUDA_VARIANTS or segment in cuda_torch_variants()
+
 
 @dataclass(frozen=True)
 class PyPIProxySpec:
@@ -108,6 +143,10 @@ class FlashAttentionProxySpec:
     cuda_variants: tuple[str, ...] = FLASH_ATTENTION_CUDA_VARIANTS
 
     def supports_cuda(self, cuda: str) -> bool:
+        if "torch" in cuda:
+            # Combined cuXXXtorchY.Z variant: serve only if this project has a
+            # wheel for that exact CUDA+torch token.
+            return cuda in _project_cuda_torch_variants(self.wheel_project_prefix)
         return cuda in self.cuda_variants
 
     async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
