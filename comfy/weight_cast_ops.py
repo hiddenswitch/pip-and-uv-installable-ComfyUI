@@ -6,6 +6,7 @@ import hashlib
 import weakref
 from typing import Callable
 
+import inspect
 import torch
 
 _TORCH_OP_TAGS = tuple(
@@ -15,6 +16,11 @@ _TORCH_OP_TAGS = tuple(
     )
     if tag is not None
 )
+# torch.library.custom_op only accepts ``tags`` on newer torch builds; older
+# ones (e.g. the ROCm 2.7 lane) reject the keyword entirely.
+_CUSTOM_OP_SUPPORTS_TAGS = "tags" in inspect.signature(torch.library.custom_op).parameters
+_TORCH_OP_TAG_KWARGS = {"tags": _TORCH_OP_TAGS} if (_CUSTOM_OP_SUPPORTS_TAGS and _TORCH_OP_TAGS) else {}
+_TORCH_OP_TAG_KWARGS_SINGLE = {"tags": _TORCH_OP_TAGS[:1]} if (_CUSTOM_OP_SUPPORTS_TAGS and _TORCH_OP_TAGS) else {}
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +240,7 @@ def _prefetch(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight(
     module_key: int,
@@ -252,7 +258,7 @@ def prefetch_weight(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_after",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight_after(
     memory_token: torch.Tensor,
@@ -300,7 +306,7 @@ def _prefetch_weight_after_fake(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight_bias(
     module_key: int,
@@ -318,7 +324,7 @@ def prefetch_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias_after",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight_bias_after(
     memory_token: torch.Tensor,
@@ -370,7 +376,7 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 @torch.library.custom_op(
     "comfy_weight::resolve_weight",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def resolve_weight(
     exemplar: torch.Tensor,
@@ -405,7 +411,7 @@ def resolve_weight(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
@@ -475,7 +481,7 @@ def _resolve_weight_fake(
 @torch.library.custom_op(
     "comfy_weight::resolve_weight_bias",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
@@ -514,7 +520,7 @@ def resolve_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight_bias",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
@@ -596,23 +602,23 @@ def _resolve_weight_bias_fake(
 _LIB = torch.library.Library("comfy_weight", "FRAGMENT")
 _LIB.define(
     "prefetch_anchor(Tensor input, Tensor token) -> Tensor",
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(
     "memory_seed(Tensor input) -> Tensor",
-    tags=_TORCH_OP_TAGS[:1],
+    **_TORCH_OP_TAG_KWARGS_SINGLE,
 )
 _LIB.define(
     "memory_join(Tensor left, Tensor right) -> Tensor",
-    tags=_TORCH_OP_TAGS[:1],
+    **_TORCH_OP_TAG_KWARGS_SINGLE,
 )
 _LIB.define(
     "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(
     "release_memory_(Tensor output, Tensor memory_token, int module_key, int invocation_id) -> Tensor",
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 
 

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import logging
 import os
+import inspect
 import torch
 
 _TORCH_OP_TAGS = tuple(
@@ -10,6 +11,11 @@ _TORCH_OP_TAGS = tuple(
     )
     if tag is not None
 )
+# torch.library.custom_op only accepts ``tags`` on newer torch builds; older
+# ones (e.g. the ROCm 2.7 lane) reject the keyword entirely.
+_CUSTOM_OP_SUPPORTS_TAGS = "tags" in inspect.signature(torch.library.custom_op).parameters
+_TORCH_OP_TAG_KWARGS = {"tags": _TORCH_OP_TAGS} if (_CUSTOM_OP_SUPPORTS_TAGS and _TORCH_OP_TAGS) else {}
+_TORCH_OP_TAG_KWARGS_SINGLE = {"tags": _TORCH_OP_TAGS[:1]} if (_CUSTOM_OP_SUPPORTS_TAGS and _TORCH_OP_TAGS) else {}
 
 from .cli_args import args
 from .float import stochastic_rounding as stochastic_rounding_fn, stochastic_round_quantize_nvfp4_by_block, stochastic_round_quantize_mxfp8_by_block
@@ -47,7 +53,7 @@ def _fp8_materialization_code() -> int:
 @torch.library.custom_op(
     "comfy_quant::dequantize_per_tensor_fp8",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def _safe_dequantize_per_tensor_fp8(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int) -> torch.Tensor:
     output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
@@ -62,7 +68,7 @@ def _safe_dequantize_per_tensor_fp8_fake(qdata: torch.Tensor, scale: torch.Tenso
 @torch.library.custom_op(
     "comfy_quant::materialize_per_tensor_fp8",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def _materialize_per_tensor_fp8(qdata: torch.Tensor, scale: torch.Tensor, output_dtype_code: int, mode_code: int) -> torch.Tensor:
     output_dtype = _OUTPUT_DTYPE_CODES[output_dtype_code]
@@ -83,7 +89,7 @@ def _materialize_per_tensor_fp8_fake(qdata: torch.Tensor, scale: torch.Tensor, o
 @torch.library.custom_op(
     "comfy_quant::materialize_per_tensor_fp8_after",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def _materialize_per_tensor_fp8_after(
     memory_token: torch.Tensor,
@@ -109,7 +115,7 @@ def _materialize_per_tensor_fp8_after_fake(
 @torch.library.custom_op(
     "comfy_quant::release_materialization_",
     mutates_args=(),
-    tags=_TORCH_OP_TAGS,
+    **_TORCH_OP_TAG_KWARGS,
 )
 def _release_materialization_(output: torch.Tensor, materialized: torch.Tensor, memory_token: torch.Tensor) -> torch.Tensor:
     return memory_token.new_empty((), dtype=torch.int64)
