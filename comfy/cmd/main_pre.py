@@ -30,6 +30,8 @@ os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
 os.environ['DO_NOT_TRACK'] = '1'
+from ..component_model.torch_cache import setup_torch_compile_cache_dirs
+setup_torch_compile_cache_dirs()
 if os.name == "nt":
     os.environ['MIMALLOC_PURGE_DELAY'] = '0'
 

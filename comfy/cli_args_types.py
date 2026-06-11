@@ -64,6 +64,7 @@ class PerformanceFeature(enum.Enum):
 
 
 COMFY_KITCHEN_BACKENDS = ("eager", "cuda", "triton")
+FP8_MATERIALIZATION_MODES = ("auto", "torch", "comfy_kitchen")
 
 VRAM_MODES = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu")
 PRECISION_MODES = ("force_fp32", "force_fp16", "force_bf16")
@@ -194,6 +195,7 @@ class Configuration(dict):
         fp8_storage (bool): Preserve native fp8 checkpoint weights as resident fp8 storage when supported.
         bf16_text_enc (bool): Store text encoder weights in bf16.
         supports_fp8_compute (bool): ComfyUI will act like if the device supports fp8 compute.
+        fp8_materialization (str): Select how FP8 weights are materialized to bf16/fp16/fp32. auto leaves room for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.
         cache_classic (bool): WARNING: Unused. Use the old style (aggressive) caching.
         cache_none (bool): Reduced RAM/VRAM usage at the expense of executing every node for each run.
         async_offload (Optional[int]): Use async weight offloading. An optional argument controls the amount of offload streams.
@@ -286,6 +288,7 @@ class Configuration(dict):
         self.fast: set[PerformanceFeature] = set()
         self.enable_comfy_kitchen_backends: list[str] = []
         self.disable_comfy_kitchen_backends: list[str] = []
+        self.fp8_materialization: str = "auto"
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: float = 0.0
         self.disable_dynamic_vram: bool = False

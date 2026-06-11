@@ -53,6 +53,11 @@ def test_hardcoded_swwan_resolves():
     assert "swwan" in repo.lower()
 
 
+def test_hardcoded_int8_fast_resolves():
+    repo = repo_lookup.resolve_package_repo_url("ComfyUI-INT8-Fast")
+    assert repo == "https://github.com/BobJohnson24/ComfyUI-INT8-Fast"
+
+
 def test_unknown_package_returns_none(monkeypatch):
     # Force the manager map to be empty + comfy.org to fail-fast.
     monkeypatch.setattr(repo_lookup, "_resolve_via_comfy_org", lambda c: None)

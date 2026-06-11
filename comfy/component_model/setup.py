@@ -25,6 +25,8 @@ def setup_environment():
     os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
     os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
     os.environ['DO_NOT_TRACK'] = '1'
+    from .torch_cache import setup_torch_compile_cache_dirs
+    setup_torch_compile_cache_dirs()
     if os.name == "nt":
         os.environ['MIMALLOC_PURGE_DELAY'] = '0'
 
@@ -248,4 +250,11 @@ def setup_post_torch(config: Configuration):
     setup_fsspec()
     fix_pytorch_240()
     from .. import torchvision_compat  # noqa: F401
+    # Activate dynamic VRAM (comfy-aimdo). Upstream activates this in root
+    # main.py, but the fork's real startup runs through here, so the import
+    # must live here or dynamic VRAM stays dormant (see docs/merging.md,
+    # "Entrypoint / main.py startup side effects"). The module self-gates on
+    # torch >= 2.8 and --disable-dynamic-vram, so this is a no-op when
+    # unsupported or disabled.
+    from .. import aimdo_integration  # noqa: F401
     setup_tracing(config)

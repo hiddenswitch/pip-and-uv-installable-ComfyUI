@@ -1032,6 +1032,11 @@ def get_model_options_for_dtype(weight_dtype):
     elif weight_dtype == "fp8_e4m3fn_fast":
         model_options["dtype"] = torch.float8_e4m3fn
         model_options["fp8_optimizations"] = True
+    elif weight_dtype in ("int8", "int8_convrot"):
+        # Quantize-on-load: not a plain dtype cast; eligible Linear weights
+        # are absmax-quantized per row (with Hadamard rotation for convrot)
+        # while the model loads.
+        model_options["quantize_on_load"] = weight_dtype
     return model_options
 
 

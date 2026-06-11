@@ -153,10 +153,6 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
     if not has_gpu:
         pytest.skip("requires gpu")
 
-    if "compile" in workflow_name:
-        pytest.skip("compilation has regressed in 0.4.0 and later because upcast weights are now permitted to be compiled, causing OOM errors in most cases")
-        return
-
     workflow = json.loads(workflow_file.read_text(encoding="utf8"))
 
     _replace_remote_media_inputs(workflow)

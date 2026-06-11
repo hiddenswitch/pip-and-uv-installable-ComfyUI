@@ -2,6 +2,17 @@
 
 Custom Nodes can be added to ComfyUI by copying and pasting Python files into your `./custom_nodes` directory.
 
+## Installing ComfyUI
+
+This fork is installed from the same index as the `comfyui` package:
+
+```bash
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui
+```
+
+The wheel is built and attached to each GitHub release by
+`.github/workflows/build-wheel.yml`, and the index serves those release assets.
+
 ## Installing Custom Nodes with `pip` or `uv`
 
 Install custom nodes from the package index at `nodes.appmana.com`:
@@ -38,6 +49,35 @@ uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128 comfyui-
 ```
 
 All other packages (custom nodes, patched dependencies) are identical across CUDA variants.
+
+#### Triton
+
+`triton` and `triton-windows` are served directly from the index:
+
+```bash
+# Linux gets PyPI manylinux triton; Windows gets woct0rdho triton-windows
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130 triton
+# Same Windows wheels under their own name
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130 triton-windows
+```
+
+On Windows, `triton` resolves to the `triton-windows` wheels (rewritten to the
+`triton` distribution name). For CUDA 13 variants (`cu130`/`cu131`/`cu132`), the
+index swaps the wheel's bundled CUDA 12.x compiler binaries
+(`ptxas.exe`, `cuda.h`, `cuda.lib`) for the matching CUDA 13.x redistributables —
+woct0rdho's wheels ship 12.x regardless of target, which breaks `ptxas` on the
+CUDA 13 toolchain.
+
+#### Selecting a CUDA *and* torch ABI (flash-attn)
+
+`flash-attn` / `flash-attn-3` wheels are tagged with both the CUDA and torch
+version. Use a combined `cuXXXtorchY.Z` index to filter to exactly the matching
+wheel:
+
+```bash
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu130torch2.12 flash-attn
+uv pip install --extra-index-url https://nodes.appmana.com/simple/cu128torch2.11 flash-attn-3
+```
 
 To find and install the packages a workflow needs:
 

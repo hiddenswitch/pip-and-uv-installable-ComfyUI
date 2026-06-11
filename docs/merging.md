@@ -127,6 +127,47 @@ grep -oP '(?<=typer\.Option\()[^)]+' comfy/cmd/cli.py | sort > /tmp/typer_args.t
 diff /tmp/stub_args.txt /tmp/types.txt
 ```
 
+## Entrypoint / `main.py` startup side effects
+
+Upstream's real entrypoint is the root `main.py`: it runs module-level startup
+code (device init, allocator setup, monkeypatches) as a side effect of import,
+before the server starts. **Our root `main.py` is a thin shim** — it only calls
+`comfy.cmd.main._start_comfyui`. The fork's actual startup runs through
+`comfy/cmd/main_pre.py` and `comfy/component_model/setup.py::setup_post_torch`,
+invoked by the Typer CLI.
+
+This means: **any startup side effect upstream adds to or changes in root
+`main.py` must be mirrored into `setup_post_torch` (or `main_pre.py`).** A git
+merge of `main.py` will look clean — the lines apply or our shim absorbs them —
+but the behavior is silently lost because our process never executes upstream's
+`main.py` body.
+
+This already bit us once, expensively: upstream PR #14116 (`e154da83`,
+"Threaded Loader performance fixes (+ Aimdo 0.4.6)") reworked how `main.py`
+activates dynamic VRAM (comfy-aimdo). The activation moved into
+`comfy/aimdo_integration.py`, which only takes effect when something imports it.
+Upstream's `main.py` imported it; our `setup_post_torch` did not. So from
+**v0.23.0 onward dynamic VRAM was silently dormant** — `aimdo_allocator` stayed
+`None`, `get_model_patcher_class()` always returned the legacy `ModelPatcher`,
+and every release ran without streaming/offload. It was active through v0.22.x
+(when `main.py` still called `comfy_aimdo.control.init()` directly) and went dark
+at the merge, undetected because nothing tests `setup_post_torch`'s effects.
+
+When merging `main.py`, check for module-level startup behavior and mirror it:
+
+```bash
+# What runs at import in upstream main.py (side-effecting calls before server start)
+git show <upstream>:main.py | grep -nE "^\s*(import comfy_aimdo|comfy_aimdo\.|.*\.init\(|from .* import .*integration|set_per_process|cuda\.init)"
+
+# What our startup path actually runs
+grep -nE "aimdo_integration|comfy_aimdo|\.init\(|cuda\.init" comfy/cmd/main_pre.py comfy/component_model/setup.py
+```
+
+Specifically, dynamic VRAM must be activated by importing `comfy.aimdo_integration`
+from `setup_post_torch` (the module self-gates on torch >= 2.8 and
+`--disable-dynamic-vram`). If that import is missing, dynamic VRAM is off no
+matter what `main.py` says.
+
 ## Git Merge Configuration
 
 This fork frequently moves upstream top-level paths into `comfy/`, so plain Git defaults produce too much rename noise during upstream merges.
@@ -410,6 +451,54 @@ git diff --cc -- comfy/model_management.py comfy/model_patcher.py comfy/ops.py
 
 Check for protocol drift too. If upstream adds required model-patcher attributes or methods, update `comfy/model_management_types.py`, `ModelManageableStub`, dynamic patchers, and tests.
 
+#### Dynamic VRAM and mixed precision
+
+Two things commonly look like a "dynamic VRAM regression" on mixed/quantized
+checkpoints that stream. Only one is a bug.
+
+1. **Load dtype — mixed precision is preserved in BOTH load paths.** The model
+   is built with a single blanket storage dtype: the fork's `unet_dtype` returns
+   fp8 whenever `--fp8_storage` (default on) is set and the device supports fp8
+   *storage* — unlike upstream, which only picks fp8 on fp8-*compute* GPUs
+   (Hopper/Ada) and otherwise upcasts the whole checkpoint to bf16. So on Ampere
+   the fork builds an fp8 unet where upstream would build bf16. A *mixed*
+   checkpoint (e.g. `flux2_dev_fp8mixed`: 128 fp8 layers + 171 bf16 layers the
+   author kept in higher precision) must not have those bf16 layers coerced into
+   the fp8 placeholder. `BaseModel._preserve_mixed_precision_storage` retargets,
+   before `load_state_dict`, any placeholder param whose incoming checkpoint
+   dtype is **wider** (higher precision) than the placeholder, so neither the
+   legacy `copy_` path nor the dynamic `assign` path down-converts it. Layers
+   stored at equal-or-lower precision are untouched (an fp8 layer still upcasts
+   to bf16 when fp8 storage is off; uniform checkpoints are unaffected). Result:
+   legacy and dynamic load **identically** (verified bit-identical on
+   `flux2_dev_fp8mixed`), each keeping fp8-where-fp8 and bf16-where-bf16. The
+   Windows lazy loader already preserved the stored dtype; this brings the stock
+   `torch.nn.Linear` (Linux) load to parity. Pinned by
+   `tests/unit/test_aimdo_dynamic_load.py::TestMixedPrecisionStoragePreserved`.
+
+2. **Streaming geometry — a real bug, fixed.** A scale-carrying weight
+   (comfy_kitchen `QuantizedTensor`, or plain scaled-fp8) must cross the vbar in
+   its **native** low-precision layout, not be densely cast to the compute dtype
+   mid-stream. The dense-materialize transfer (`cast_to_gathered` with
+   `target_geometries`) drops the per-tensor scale and diverges the streamed
+   result from the resident one. `ops._streams_in_native_dtype()` gates this in
+   `cast_modules_with_vbar.target_geometry_for`, the `direct_materialize`
+   override, and the streaming/accounting geometries
+   (`model_patcher.lowvram_materialization_geometry`).
+
+The correctness targets are therefore: **legacy == dynamic** at load (mixed
+precision preserved both ways) and **streamed == resident** under the same
+patcher.
+
+To reproduce, force a fitting fp8 model to stream and compare to the resident
+result (this is what `tests/unit/test_aimdo_dynamic_load.py` does via the
+`limit_free_vram` helper, which patches `model_management.get_free_memory`):
+
+```bash
+COMFY_TEST_FP8_MODEL=models/diffusion_models/flux1-dev-fp8.safetensors \
+  python -m pytest tests/unit/test_aimdo_dynamic_load.py -q
+```
+
 ### New Model Family Support
 
 When upstream adds a model family, the merge is not complete until the fork can load it through the packaged workflow path. Do all of the following:
@@ -457,6 +546,31 @@ CUDA_VISIBLE_DEVICES=1 uv run comfyui run-workflow --all tests/inference/workflo
 ```
 
 The inference test asserts `SaveImage` output paths. If you run the CLI manually, inspect the JSON output and confirm a real image file was produced.
+
+#### Frontend conversion parity (`graphToPrompt`) and its cache
+
+`tests/unit/test_workflow_convert_playwright.py::TestFrontendParity` is the authoritative cross-check: it runs the **real** compiled frontend in headless Chromium, calls `app.graphToPrompt()` for each template, and asserts `comfy/component_model/workflow_convert.py::convert_ui_to_api` produces the same API graph. `convert_ui_to_api` is a line-for-line translation of the frontend; when it drifts, port the TS rather than guessing. Key correspondences (frontend `~/Documents/ComfyUI_frontend`, checked out at the **installed** `comfyui-frontend-package` version — `git checkout v$(python -c 'import importlib.metadata as m;print(m.version("comfyui-frontend-package"))')`):
+
+| Behaviour | Frontend (TS) | Fork (Python) |
+| --- | --- | --- |
+| Top-level conversion loop, widget/link serialization, drop muted (`NEVER`/`BYPASS`) and virtual nodes, prune links to removed nodes | `src/utils/executionUtil.ts` `graphToPrompt` | `convert_ui_to_api` |
+| Subgraph flattening / execution-id assignment | `src/lib/litegraph/src/subgraph/SubgraphNode.ts` `getInnerNodes` (recurses `subgraphInstanceIdPath = [...path, this.id]`) | `_expand_subgraph` |
+| Flattened execution id | `ExecutableNodeDTO.ts`: `this._id = [...this.subgraphNodePath, this.node.id].join(':')` | `workflow_convert.py:866`: `self.exec_id = ':'.join(str(x) for x in [*subgraph_node_path, nid])` |
+| Bypass/Reroute input resolution | `ExecutableNodeDTO.resolveInput` / `resolveOutput` | `_resolve_source` / `_get_bypass_slot_index` |
+| Promoted subgraph-widget lookup | `resolveConcretePromotedWidget.ts` | `_get_inner_widget_value` |
+
+So a top-level subgraph instance node `267` emits its inner nodes as `267:<inner-id>`, and a subgraph nested one level deeper emits `267:<mid>:<leaf>` — exactly matching the frontend's colon-joined `subgraphNodePath`.
+
+**Cache staleness gotcha.** Frontend outputs are cached under `tests/unit/playwright_cache/<frontend-version>+t<templates-versions>/<template_id>.json` and only regenerated via Playwright when the file is **missing**. The key encodes package *versions*, not template *content*, and `invalidate_stale_cache()` only deletes caches containing `class_type: null` (i.e. newly-added node types). So when a packaged template is **restructured** without that signal (e.g. `video_ltx2_3_t2v` changed from an image-to-video+MoGe-depth graph to a 51-node text-to-video subgraph), the old cache survives and the parity test fails with a structural diff (different node ids/prefixes) even though `convert_ui_to_api` is correct. The tell is that the cached frontend output references nodes that do not exist in the current template asset. Fix by regenerating the stale entries (requires `pip install playwright && python -m playwright install chromium`):
+
+```bash
+# delete the stale entries, then the test regenerates them from the real frontend
+rm tests/unit/playwright_cache/<version-dir>/<template_id>.json
+CUDA_VISIBLE_DEVICES=1 uv run python -m pytest \
+  "tests/unit/test_workflow_convert_playwright.py::TestFrontendParity" -k "<template_id>"
+```
+
+Only treat a parity failure as a converter bug after confirming the regenerated cache still disagrees with Python.
 
 ### Asset Routes, Database, And Seeder
 

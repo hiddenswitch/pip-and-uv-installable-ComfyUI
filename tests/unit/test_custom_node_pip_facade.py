@@ -300,6 +300,33 @@ def test_injected_project_has_github_archive_version():
     assert versions[0].download_url == "https://api.github.com/repos/TestOrg/TestRepo/zipball/main"
 
 
+async def test_int8_fast_is_served_as_injected_facade_project(monkeypatch):
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def empty_manager_registry(_session):
+        return []
+
+    async def empty_cnr_nodes(_self):
+        return []
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", empty_manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", empty_cnr_nodes)
+
+    registry = FacadeRegistry(session=None, only_known_nodes=True)  # type: ignore[arg-type]
+    project = await registry.get_project("comfyui-int8-fast")
+
+    assert project is not None
+    assert project.canonical_name == "comfyui-int8-fast"
+    assert project.repo_url == "https://github.com/BobJohnson24/ComfyUI-INT8-Fast"
+    assert "comfyui-int8-fast" in project.aliases
+
+    versions = await registry.list_versions(project)
+    assert len(versions) == 1
+    assert versions[0].version == "0.1.0"
+    assert versions[0].download_url == "https://api.github.com/repos/BobJohnson24/ComfyUI-INT8-Fast/zipball"
+
+
 def test_github_archive_url_uses_zipball_for_default_branch():
     from comfy.custom_node_facade.registry import FacadeRegistry
 
@@ -487,3 +514,236 @@ def test_node_info_python_module_falls_back_to_class_module():
 
     assert info["python_module"] == "vendor.custom_scripts.nodes"
     assert info["essentials_category"] == "Tests"
+
+
+async def test_cnr_only_node_becomes_facade_project(monkeypatch):
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def empty_manager_registry(_session):
+        return []
+
+    async def cnr_nodes(_self):
+        return [
+            {
+                "id": "qwen-whitebg-detector",
+                "name": "qwen-whitebg-detector",
+                "repository": "https://github.com/Holonica-Development-Team/QwenWhiteBgDetector",
+                "description": "White background detector",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "1.0.0"},
+            },
+            {
+                "id": "banned-node",
+                "repository": "https://github.com/example/banned",
+                "status": "NodeStatusBanned",
+            },
+            {
+                "id": "gguf",
+                "repository": "https://github.com/calcuis/gguf",
+                "status": "NodeStatusActive",
+            },
+        ]
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", empty_manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", cnr_nodes)
+
+    registry = FacadeRegistry(session=None)  # type: ignore[arg-type]
+
+    project = await registry.get_project("qwen-whitebg-detector")
+    assert project is not None
+    assert project.canonical_name == "qwen-whitebg-detector"
+    assert project.node_id == "qwen-whitebg-detector"
+    assert project.repo_url == "https://github.com/Holonica-Development-Team/QwenWhiteBgDetector"
+    assert project.latest_version == "1.0.0"
+    assert "qwenwhitebgdetector" in project.aliases
+
+    assert await registry.get_project("banned-node") is None
+    assert await registry.get_project("gguf") is None
+
+
+async def test_registry_id_wins_name_collision_and_displaced_project_rekeys(monkeypatch):
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def manager_registry(_session):
+        return [
+            {
+                "title": "LongCat Avatar (smthemex)",
+                "reference": "https://github.com/smthemex/ComfyUI_LongCat_Avatar",
+                "description": "",
+            }
+        ]
+
+    async def cnr_nodes(_self):
+        return [
+            {
+                "id": "longcat_avatar",
+                "name": "longcat_avatar",
+                "repository": "https://github.com/smthemex/ComfyUI_LongCat_Avatar",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "0.2.0"},
+            },
+            {
+                "id": "comfyui-longcat-avatar",
+                "name": "comfyui-longcat-avatar",
+                "repository": "https://github.com/rookiestar28/ComfyUI-LongCat-Avatar",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "0.2.0"},
+            },
+        ]
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", cnr_nodes)
+
+    registry = FacadeRegistry(session=None)  # type: ignore[arg-type]
+
+    # The registry node with this exact id owns the name.
+    winner = await registry.get_project("comfyui-longcat-avatar")
+    assert winner is not None
+    assert winner.repo_url == "https://github.com/rookiestar28/ComfyUI-LongCat-Avatar"
+    assert winner.node_id == "comfyui-longcat-avatar"
+
+    # The manager-derived project is re-keyed to its own registry id.
+    displaced = await registry.get_project("longcat-avatar")
+    assert displaced is not None
+    assert displaced.repo_url == "https://github.com/smthemex/ComfyUI_LongCat_Avatar"
+    assert displaced.node_id == "longcat_avatar"
+    assert "comfyui-longcat-avatar" not in displaced.aliases
+
+
+async def test_manager_only_gitlab_project_served(monkeypatch):
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def manager_registry(_session):
+        return [
+            {
+                "title": "Pixaroma",
+                "reference": "https://gitlab.com/pixaroma/comfyui-pixaroma",
+                "description": "Pixaroma nodes",
+            }
+        ]
+
+    async def empty_cnr_nodes(_self):
+        return []
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", empty_cnr_nodes)
+
+    registry = FacadeRegistry(session=None)  # type: ignore[arg-type]
+
+    project = await registry.get_project("comfyui-pixaroma")
+    assert project is not None
+    assert project.repo_url == "https://gitlab.com/pixaroma/comfyui-pixaroma"
+
+    versions = await registry.list_versions(project)
+    assert len(versions) == 1
+    assert versions[0].download_url == (
+        "https://gitlab.com/api/v4/projects/pixaroma%2Fcomfyui-pixaroma/repository/archive.zip?sha=HEAD"
+    )
+
+
+def test_gguf_stripped_from_wheel_metadata(tmp_path: Path):
+    project = FacadeProject(
+        canonical_name="comfyui-gguf",
+        display_name="ComfyUI-GGUF",
+        node_id="comfyui-gguf",
+        repo_url="https://github.com/city96/ComfyUI-GGUF",
+        repo_name="ComfyUI-GGUF",
+        description="GGUF loaders",
+        aliases=(),
+        extra_requirements=(),
+        skip_requirements=frozenset({"torch", "comfyui"}),
+        depends_on=(),
+        latest_version="1.1.7",
+    )
+    version = FacadeVersion(
+        version="1.1.7",
+        download_url="https://example.invalid/node.zip",
+        dependencies=("gguf>=0.13.0", "sentencepiece"),
+        deprecated=False,
+    )
+    archive_bytes = _make_zip_bytes(
+        {"ComfyUI-GGUF/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"}
+    )
+
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    wheel_path = str(tmp_path / "comfyui-gguf" / "comfyui_gguf-1.1.7-py3-none-any.whl")
+
+    builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        metadata = wheel.read("comfyui_gguf-1.1.7.dist-info/METADATA").decode("utf-8")
+        requires = [line for line in metadata.splitlines() if line.startswith("Requires-Dist:")]
+        assert requires == ["Requires-Dist: sentencepiece"]
+
+
+# ---------------------------------------------------------------------------
+# GithubReleaseWheelProxySpec (the `comfyui` package served from GH releases)
+# ---------------------------------------------------------------------------
+class _GithubResp:
+    def __init__(self, obj):
+        self._obj = obj
+        self.headers_seen = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    async def json(self):
+        return self._obj
+
+
+class _GithubSession:
+    def __init__(self, obj):
+        self._obj = obj
+        self.last_headers = None
+        self.last_url = None
+
+    def get(self, url, headers=None):
+        self.last_url = url
+        self.last_headers = headers
+        return _GithubResp(self._obj)
+
+
+async def test_comfyui_proxy_lists_release_wheels():
+    from comfy.custom_node_facade.builder import GithubReleaseWheelProxySpec, PYPI_PROXY_INDEX
+
+    # registered as a default proxy project
+    assert "comfyui" in PYPI_PROXY_INDEX
+
+    releases = [
+        {"assets": [
+            {"name": "comfyui-0.24.0.4-py3-none-any.whl",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4-py3-none-any.whl"},
+            {"name": "comfyui-0.24.0.4.tar.gz",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4.tar.gz"},
+            {"name": "some-other-thing.zip",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/some-other-thing.zip"},
+        ]},
+        {"assets": [
+            {"name": "comfyui-0.24.0.3-py3-none-any.whl",
+             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.3/comfyui-0.24.0.3-py3-none-any.whl"},
+        ]},
+    ]
+    proxy = GithubReleaseWheelProxySpec(name="comfyui", repo="o/r", asset_prefix="comfyui-")
+    session = _GithubSession(releases)
+
+    # CUDA-agnostic: in every plain index, not the flash-attn torch indexes
+    assert proxy.supports_cuda("cu130")
+    assert not proxy.supports_cuda("cu130torch2.12")
+
+    body = await proxy.render_index(session, "cu130")
+    assert "comfyui-0.24.0.4-py3-none-any.whl" in body
+    assert "comfyui-0.24.0.4.tar.gz" in body
+    assert "comfyui-0.24.0.3-py3-none-any.whl" in body
+    # non-comfyui asset filtered out
+    assert "some-other-thing.zip" not in body
+    # queries the configured repo
+    assert "/repos/o/r/releases" in session.last_url

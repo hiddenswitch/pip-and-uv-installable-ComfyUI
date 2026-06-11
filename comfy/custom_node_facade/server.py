@@ -12,7 +12,8 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, SUPPORTED_CUDA_VARIANTS
+from .builder import FacadeCacheStore, FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, is_index_variant
+from .triton_wheels import TritonWheelBuilder, prewarm_targets as triton_prewarm_targets
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
@@ -55,13 +56,49 @@ def create_facade_app(
             application["facade_session"] = session
             application["facade_registry"] = registry
             application["facade_builder"] = builder
+            application["facade_triton_builder"] = TritonWheelBuilder(session)
+            application["facade_triton_cache"] = FacadeCacheStore(cache_prefix)
+            application["facade_triton_locks"] = {}
             with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
                 projects = await registry.list_projects()
                 warmup_span.set_attribute("facade.project_count", len(projects))
             application["facade_ready"] = True
+            # Build the triton / triton-windows wheels in the background so the
+            # first request for a patched cu13x wheel is served from cache.
+            # Readiness is already reported, so this does not block startup.
+            application["facade_triton_prewarm"] = asyncio.create_task(_prewarm_triton(application))
+
+    async def _prewarm_triton(application: web.Application) -> None:
+        session: aiohttp.ClientSession = application["facade_session"]
+        builder: TritonWheelBuilder = application["facade_triton_builder"]
+        cache: FacadeCacheStore = application["facade_triton_cache"]
+        built = 0
+        try:
+            async for served, cuda in triton_prewarm_targets(session):
+                path = cache.custom_path("triton", cuda, served)
+                if cache.exists(path):
+                    continue
+                try:
+                    data = await builder.build(served_filename=served, cuda=cuda)
+                    cache.write_bytes(path, data)
+                    built += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    logger.warning("triton prewarm failed for %s/%s: %s", cuda, served, exc)
+            logger.info("triton prewarm complete (%d wheel(s) built)", built)
+        except asyncio.CancelledError:
+            logger.debug("triton prewarm cancelled after %d wheel(s)", built)
 
     async def on_cleanup(application: web.Application) -> None:
         application["facade_ready"] = False
+        prewarm: asyncio.Task | None = application.get("facade_triton_prewarm")
+        if prewarm is not None and not prewarm.done():
+            prewarm.cancel()
+            try:
+                await prewarm
+            except asyncio.CancelledError:
+                pass
         session: aiohttp.ClientSession | None = application.get("facade_session")
         if session is not None:
             await session.close()
@@ -158,6 +195,35 @@ def create_facade_app(
                 headers={"Content-Disposition": f'attachment; filename="{expected_name}"'},
             )
 
+    async def triton_package_download(request: web.Request) -> web.StreamResponse:
+        with tracer.start_as_current_span("Serve Triton Wheel") as span:
+            cuda = request.match_info["cuda"]
+            filename = request.match_info["filename"]
+            span.set_attribute("facade.cuda", cuda)
+            span.set_attribute("facade.filename", filename)
+            if not filename.endswith(".whl") or "/" in filename:
+                raise web.HTTPNotFound(text="Not a wheel")
+            if not (filename.startswith("triton-") or filename.startswith("triton_windows-")):
+                raise web.HTTPNotFound(text="Unknown triton wheel")
+
+            cache: FacadeCacheStore = app["facade_triton_cache"]
+            builder: TritonWheelBuilder = app["facade_triton_builder"]
+            path = cache.custom_path("triton", cuda, filename)
+            locks: dict = app["facade_triton_locks"]
+            lock = locks.setdefault((cuda, filename), asyncio.Lock())
+            async with lock:
+                if not cache.exists(path):
+                    data = await builder.build(served_filename=filename, cuda=cuda)
+                    cache.write_bytes(path, data)
+                cached = cache.cached_wheel(path)
+            if cached.local_path is not None:
+                return web.FileResponse(path=cached.local_path)
+            return web.Response(
+                body=cache.read_bytes(path),
+                content_type="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/", index)
@@ -167,7 +233,7 @@ def create_facade_app(
     async def simple_one_segment(request: web.Request) -> web.Response:
         """Handles /simple/{segment}/ — either a CUDA variant index or a project page."""
         segment = request.match_info["segment"]
-        if segment in SUPPORTED_CUDA_VARIANTS:
+        if is_index_variant(segment):
             return await _build_index(segment)
         # Treat as project name with default CUDA
         request.match_info["project"] = segment
@@ -176,7 +242,7 @@ def create_facade_app(
     async def simple_two_segments(request: web.Request) -> web.Response:
         """Handles /simple/{first}/{second}/ — CUDA variant + project."""
         first = request.match_info["first"]
-        if first not in SUPPORTED_CUDA_VARIANTS:
+        if not is_index_variant(first):
             raise web.HTTPNotFound(text=f"Unsupported CUDA variant: {first}")
         request.match_info["project"] = request.match_info["second"]
         return await _build_project_page(request, first)
@@ -185,6 +251,7 @@ def create_facade_app(
     app.router.add_get("/simple/", index)
     app.router.add_get("/simple/{first}/{second}/", simple_two_segments)
     app.router.add_get("/simple/{segment}/", simple_one_segment)
+    app.router.add_get("/packages/triton/{cuda}/{filename}", triton_package_download)
     app.router.add_get("/packages/{project}/{version}/{filename}", package_download)
     app.router.add_get("/{segment}/", simple_one_segment)
     return app

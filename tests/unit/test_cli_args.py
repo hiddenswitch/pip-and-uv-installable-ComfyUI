@@ -303,10 +303,17 @@ def test_cli_args_cli_args_configuration():
 
 
 def test_cli_args_enables_dynamic_vram():
+    from comfy.cli_args import dynamic_vram_supported, enables_dynamic_vram
+    # PyTorch 2.8+ enables dynamic VRAM by default.
+    assert enables_dynamic_vram() is dynamic_vram_supported()
+
+
+def test_cli_args_enables_dynamic_vram_respects_highvram():
     from comfy.cli_args import enables_dynamic_vram
-    # With default config (no fast features), should return False
-    result = enables_dynamic_vram()
-    assert result is False
+    from comfy.execution_context import context_configuration
+
+    with context_configuration(Configuration(highvram=True)):
+        assert enables_dynamic_vram() is False
 
 
 def test_cli_args_enables_dynamic_vram_respects_disable_flag():

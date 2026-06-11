@@ -5,6 +5,7 @@ from ..cmd.main_pre import tracer
 import asyncio
 import base64
 import csv
+import functools
 import html
 import io
 import ntpath
@@ -26,7 +27,12 @@ from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, cano
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
 _FACADE_BUILD_REVISION = 4
-_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset()
+# Dependencies stripped from every generated wheel. gguf is a runtime
+# dependency of this fork itself (pyproject.toml), and the registry node with
+# the same name vendors an unrelated repo that breaks `import gguf`.
+_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset({
+    "gguf",
+})
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,40 @@ FLASH_ATTENTION_3_CUDA_VARIANTS = ("cu124", "cu126", "cu128", "cu129", "cu130", 
 STABLE_ABI_CUDA_VARIANTS = ("cu128", "cu130")
 SUPPORTED_CUDA_VARIANTS = tuple(sorted(set(FLASH_ATTENTION_CUDA_VARIANTS) | set(STABLE_ABI_CUDA_VARIANTS)))
 
+# flash-attn / flash-attn-3 wheels are tagged with the CUDA *and* torch ABI
+# (e.g. ``+cu130torch2.12``). We expose those combined tokens as additional
+# index variants so a client can pin both with one extra-index-url, e.g.
+# ``--extra-index-url=https://nodes.appmana.com/simple/cu130torch2.12/`` filters
+# flash-attn to exactly the wheels matching that CUDA and torch version.
+_CUDA_TORCH_RE = re.compile(r"\+(cu\d+torch[0-9.]+)")
+
+
+@functools.lru_cache(maxsize=None)
+def _project_cuda_torch_variants(wheel_project_prefix: str) -> frozenset[str]:
+    from .flash_attention_wheels import FLASH_ATTENTION_WHEEL_URLS
+
+    out: set[str] = set()
+    for url in FLASH_ATTENTION_WHEEL_URLS:
+        filename = url.rsplit("/", 1)[-1]
+        if not filename.startswith(f"{wheel_project_prefix}-"):
+            continue
+        match = _CUDA_TORCH_RE.search(filename)
+        if match:
+            out.add(match.group(1))
+    return frozenset(out)
+
+
+@functools.lru_cache(maxsize=1)
+def cuda_torch_variants() -> frozenset[str]:
+    """All ``cuXXXtorchY.Z`` index variants served (union across flash-attn wheels)."""
+    return _project_cuda_torch_variants("flash_attn") | _project_cuda_torch_variants("flash_attn_3")
+
+
+def is_index_variant(segment: str) -> bool:
+    """True if a ``/simple/{segment}/`` path segment selects a CUDA (or
+    CUDA+torch) variant index rather than a project name."""
+    return segment in SUPPORTED_CUDA_VARIANTS or segment in cuda_torch_variants()
+
 
 @dataclass(frozen=True)
 class PyPIProxySpec:
@@ -103,6 +143,10 @@ class FlashAttentionProxySpec:
     cuda_variants: tuple[str, ...] = FLASH_ATTENTION_CUDA_VARIANTS
 
     def supports_cuda(self, cuda: str) -> bool:
+        if "torch" in cuda:
+            # Combined cuXXXtorchY.Z variant: serve only if this project has a
+            # wheel for that exact CUDA+torch token.
+            return cuda in _project_cuda_torch_variants(self.wheel_project_prefix)
         return cuda in self.cuda_variants
 
     async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
@@ -131,10 +175,65 @@ def _simple_package_html(project_name: str, body: str) -> str:
     return f"<!DOCTYPE html><html><head><title>{html.escape(title)}</title></head><body>{body}</body></html>"
 
 
-PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec
+@dataclass(frozen=True)
+class GithubReleaseWheelProxySpec:
+    """Serve a project's wheels/sdists from a GitHub repository's releases.
+
+    Used for the fork's own ``comfyui`` package: a GitHub Actions workflow builds
+    the wheel on each release and uploads it as a release asset; this lists those
+    assets as a PEP 503 page. CUDA-agnostic (pure-python wheel)."""
+    name: str
+    repo: str
+    asset_prefix: str
+
+    def supports_cuda(self, cuda: str) -> bool:
+        # Pure-python: appears in every plain-CUDA index but not the
+        # flash-attn-specific cuXXXtorchY.Z indexes.
+        return "torch" not in cuda
+
+    async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
+        del cuda
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        links: list[tuple[str, str]] = []
+        url = f"https://api.github.com/repos/{self.repo}/releases?per_page=100"
+        async with session.get(url, headers=headers) as resp:
+            resp.raise_for_status()
+            releases = await resp.json()
+        for release in releases:
+            for asset in release.get("assets", []):
+                filename = asset.get("name", "")
+                if not filename.startswith(self.asset_prefix):
+                    continue
+                if not (filename.endswith(".whl") or filename.endswith(".tar.gz")):
+                    continue
+                links.append((filename, asset["browser_download_url"]))
+        body = "\n".join(
+            f'<a href="{html.escape(target, quote=True)}">{html.escape(filename)}</a><br/>'
+            for filename, target in sorted(set(links))
+        )
+        return _simple_package_html(self.name, body)
+
+
+from .triton_wheels import TritonProxySpec  # noqa: E402
+
+PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec | TritonProxySpec | GithubReleaseWheelProxySpec
+
+# The fork repo whose releases host the built `comfyui` wheels.
+COMFYUI_RELEASE_REPO = "hiddenswitch/pip-and-uv-installable-ComfyUI"
 
 
 PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
+    # The fork's own package: `pip install comfyui --extra-index-url=.../simple/`.
+    # Wheels are built and attached to GitHub releases by .github/workflows/build-wheel.yml.
+    GithubReleaseWheelProxySpec(name="comfyui", repo=COMFYUI_RELEASE_REPO, asset_prefix="comfyui-"),
+    # triton: Linux serves PyPI manylinux triton; Windows serves woct0rdho
+    # triton-windows wheels renamed to `triton` (CUDA-13 patched on the fly).
+    TritonProxySpec(name="triton", rename_to_triton=True),
+    # triton-windows: same Windows wheels under their real name.
+    TritonProxySpec(name="triton-windows", rename_to_triton=False),
     PyPIProxySpec(
         name="sageattention",
         upstream_index_url_template="https://appmana.github.io/forks-sageattention-stable-abi/{cuda}/sageattention/",
@@ -399,6 +498,10 @@ class FacadeCacheStore:
 
     def cached_wheel(self, path: str) -> CachedWheel:
         return CachedWheel(cache_path=path, local_path=self._local_path(path))
+
+    def custom_path(self, *parts: str) -> str:
+        """Cache path for non-registry artifacts (e.g. patched triton wheels)."""
+        return self._join(*parts)
 
     def _join(self, *parts: str) -> str:
         clean_parts = [part.strip("/") for part in parts if part]

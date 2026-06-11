@@ -11,8 +11,10 @@ from comfy import model_management
 from comfy.model_management_types import HooksSupport
 from comfy.model_patcher import ModelPatcher
 from comfy.nodes.package_typing import CustomNode, InputTypes
+from comfy.patcher_extension import WrappersMP
 from comfy.sd import VAE
 from comfy_api.torch_helpers import set_torch_compile_wrapper
+from comfy_api.torch_helpers.torch_compile import COMPILE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,7 @@ class TorchCompileModel(CustomNode):
     EXPERIMENTAL = True
 
     def patch(self, model: ModelPatcher | VAE | torch.nn.Module, object_patch: str | None = "", fullgraph: bool = False, dynamic: bool = False, backend: str = "inductor", mode: str = "max-autotune", torch_tensorrt_optimization_level: int = 3) -> tuple[Callable]:
+        logger.debug("TorchCompileModel.patch called for %s object_patch=%s backend=%s mode=%s", type(model).__name__, object_patch, backend, mode)
         compile_kwargs = {
             "fullgraph": fullgraph,
             "dynamic": dynamic,
@@ -104,7 +107,8 @@ class TorchCompileModel(CustomNode):
                 del compile_kwargs["mode"]
 
             if isinstance(model, HooksSupport):
-                to_return = model.clone()
+                preserve_dynamic = isinstance(model, ModelPatcher) and model.is_dynamic()
+                to_return = model.clone(disable_dynamic=not preserve_dynamic)
                 object_patches = [p.strip() for p in object_patch.split(",")]
                 patcher: ModelPatcher
                 if isinstance(to_return, VAE):
@@ -114,7 +118,25 @@ class TorchCompileModel(CustomNode):
                     patcher = to_return
                 if object_patch is None or len(object_patches) == 0 or len(object_patches) == 1 and object_patches[0].strip() == "":
                     object_patches = [DIFFUSION_MODEL]
-                set_torch_compile_wrapper(patcher, keys=object_patches, options={"guard_filter_fn": skip_torch_compile_dict}, **compile_kwargs)
+                compiled_apply_wrapper = None
+
+                def lazy_compile_apply_model(executor, *args, **kwargs):
+                    nonlocal compiled_apply_wrapper
+                    if compiled_apply_wrapper is None:
+                        set_torch_compile_wrapper(
+                            patcher,
+                            keys=object_patches,
+                            options={"guard_filter_fn": skip_torch_compile_dict},
+                            **compile_kwargs,
+                        )
+                        wrappers = patcher.get_wrappers(WrappersMP.APPLY_MODEL, COMPILE_KEY)
+                        if len(wrappers) != 1:
+                            raise RuntimeError("Torch compile wrapper was not installed")
+                        compiled_apply_wrapper = wrappers[0]
+                    return compiled_apply_wrapper(executor, *args, **kwargs)
+
+                patcher.remove_wrappers_with_key(WrappersMP.APPLY_MODEL, COMPILE_KEY)
+                patcher.add_wrapper_with_key(WrappersMP.APPLY_MODEL, COMPILE_KEY, lazy_compile_apply_model)
                 return to_return,
             elif isinstance(model, torch.nn.Module):
                 model_management.unload_all_models()
@@ -136,8 +158,8 @@ class TorchCompileModel(CustomNode):
                 torch._inductor.utils.clear_inductor_caches()
             except Exception:
                 pass
-            logger.error(f"An exception occurred while trying to compile {str(model)}, gracefully skipping compilation", exc_info=exc_info)
-            return model,
+            logger.error(f"An exception occurred while trying to compile {str(model)}", exc_info=exc_info)
+            raise
 
 
 _QUANTIZATION_STRATEGIES = [

@@ -1699,7 +1699,57 @@ def convert_old_quants(state_dict, model_prefix="", metadata={}):
         layers = quant_metadata["layers"]
         for k, v in layers.items():
             state_dict["{}.comfy_quant".format(k)] = torch.tensor(list(json.dumps(v).encode('utf-8')), dtype=torch.uint8)
+
+    state_dict = _normalize_int8_quants(state_dict, model_prefix)
     return state_dict, metadata
+
+
+def _normalize_int8_quants(state_dict, model_prefix=""):
+    """Normalize foreign INT8 checkpoints onto the comfy_quant format keys.
+
+    Covers two shapes produced outside this codebase:
+    - ComfyUI-INT8-Fast style: per-layer ``comfy_quant`` JSON without a
+      ``"format"`` key (e.g. ``{"convrot": true, "convrot_groupsize": 256}``).
+    - ModelOpt-style int8 row-wise exports: int8 ``.weight`` with a sibling
+      ``.weight_scale`` and no ``comfy_quant`` marker at all.
+
+    Both are mapped to ``{"format": "int8"}`` or ``{"format": "int8_convrot"}``
+    so detect_layer_quantization and the mixed-precision loader handle them
+    natively. Layers already carrying a ``"format"`` are left untouched.
+    """
+    updates = {}
+    for k in state_dict:
+        if not k.startswith(model_prefix) or not k.endswith(".weight"):
+            continue
+        weight = state_dict[k]
+        if not isinstance(weight, torch.Tensor) or weight.dtype != torch.int8:
+            continue
+        layer = k[:-len(".weight")]
+        if f"{layer}.weight_scale" not in state_dict:
+            continue
+
+        conf_key = f"{layer}.comfy_quant"
+        conf = {}
+        existing = state_dict.get(conf_key)
+        if existing is not None:
+            try:
+                conf = json.loads(existing.numpy().tobytes())
+            except (ValueError, AttributeError):
+                conf = {}
+            if conf.get("format") is not None:
+                continue
+
+        if conf.get("convrot"):
+            conf["format"] = "int8_convrot"
+            conf.setdefault("convrot_groupsize", 256)
+        else:
+            conf["format"] = "int8"
+        updates[conf_key] = torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
+
+    if updates:
+        logger.debug("Normalized %d foreign int8 quantized layers", len(updates))
+        state_dict.update(updates)
+    return state_dict
 
 
 def string_to_seed(data):

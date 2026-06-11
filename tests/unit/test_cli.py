@@ -183,7 +183,9 @@ def test_workflows_run_workflow_specific_help_order():
     workflow = "tests/inference/workflows/z_image-0.json"
     result = runner.invoke(app, ["workflows", "run", workflow, "--help"], env={"COLUMNS": "220"})
     assert result.exit_code == 0
-    out = _plain(result.output)
+    # Collapse all whitespace so narrower consoles (the Windows runner wraps
+    # regardless of COLUMNS) can't split a marker phrase across lines.
+    out = " ".join(_plain(result.output).split())
 
     explanation = out.index("Execute workflow(s) locally and exit.")
     workflow_params = out.index("Common parameters")

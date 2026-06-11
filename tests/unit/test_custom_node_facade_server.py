@@ -158,6 +158,136 @@ async def test_cuda_project_pages_reject_unsupported_proxy_cuda(monkeypatch):
         await client.close()
 
 
+def test_cuda_torch_variants_recognized_and_filter_flash_attention():
+    from comfy.custom_node_facade.builder import (
+        PYPI_PROXY_INDEX,
+        is_index_variant,
+    )
+
+    # Combined cuXXXtorchY.Z tokens from the flash-attn snapshot are index
+    # variants; a nonexistent torch token and a project name are not.
+    assert is_index_variant("cu126torch2.12")
+    assert is_index_variant("cu130")
+    assert not is_index_variant("cu126torch9.9")
+    assert not is_index_variant("flash-attn")
+
+    flash_attn = PYPI_PROXY_INDEX["flash-attn"]
+    flash_attn_3 = PYPI_PROXY_INDEX["flash-attn-3"]
+    # Only projects that actually have a wheel for the exact CUDA+torch token
+    # serve it.
+    assert flash_attn.supports_cuda("cu126torch2.12")
+    assert not flash_attn_3.supports_cuda("cu118torch2.0")
+
+    body = await_render(flash_attn, "cu126torch2.12")
+    wheels = [line for line in body.split("\n") if ".whl" in line]
+    assert wheels, "expected wheels for cu126torch2.12"
+    assert all("+cu126torch2.12-" in line for line in wheels)
+
+
+def await_render(proxy, cuda):
+    import asyncio
+
+    return asyncio.new_event_loop().run_until_complete(proxy.render_index(None, cuda))
+
+
+async def test_server_routes_cuda_torch_variant_segment(monkeypatch):
+    _FakeRegistry.calls = 0
+    flash_attn = _FakeProxy("cu126torch2.12")
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {"flash-attn": flash_attn})
+
+    app = facade_server.create_facade_app(configuration=Configuration())
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        # A real combined variant routes to the project page.
+        assert (await client.get("/simple/cu126torch2.12/flash-attn/")).status == 200
+        assert flash_attn.render_calls == ["cu126torch2.12"]
+        # The combined-variant index lists the project under the variant prefix.
+        index = await (await client.get("/simple/cu126torch2.12/")).text()
+        assert "/simple/cu126torch2.12/flash-attn/" in index
+    finally:
+        await client.close()
+
+
+class _FakeTritonBuilder:
+    calls: list = []
+
+    def __init__(self, *args, **kwargs):
+        del args, kwargs
+
+    async def build(self, *, served_filename, cuda):
+        type(self).calls.append((served_filename, cuda))
+        return b"PATCHED_WHEEL_BYTES"
+
+
+async def test_triton_package_route_builds_and_caches(monkeypatch, tmp_path):
+    _FakeRegistry.calls = 0
+    _FakeTritonBuilder.calls = []
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(facade_server, "TritonWheelBuilder", _FakeTritonBuilder)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {})
+
+    config = Configuration()
+    config.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=config)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        url = "/packages/triton/cu130/triton-3.7.0.post26-cp312-cp312-win_amd64.whl"
+        first = await client.get(url)
+        assert first.status == 200
+        assert await first.read() == b"PATCHED_WHEEL_BYTES"
+        # second request is served from cache; the builder is not invoked again
+        second = await client.get(url)
+        assert await second.read() == b"PATCHED_WHEEL_BYTES"
+        assert _FakeTritonBuilder.calls == [
+            ("triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130")
+        ]
+        # non-triton filenames are rejected
+        assert (await client.get("/packages/triton/cu130/evil-1.0.whl")).status == 404
+    finally:
+        await client.close()
+
+
+async def test_triton_prewarm_builds_into_cache(monkeypatch, tmp_path):
+    _FakeRegistry.calls = 0
+    _FakeTritonBuilder.calls = []
+
+    async def fake_targets(session, **kwargs):
+        del session, kwargs
+        yield "triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"
+        yield "triton_windows-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"
+
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(facade_server, "TritonWheelBuilder", _FakeTritonBuilder)
+    monkeypatch.setattr(facade_server, "triton_prewarm_targets", fake_targets)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {})
+
+    config = Configuration()
+    config.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=config)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        await app["facade_triton_prewarm"]  # let the background prewarm finish
+        assert sorted(_FakeTritonBuilder.calls) == [
+            ("triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"),
+            ("triton_windows-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"),
+        ]
+        # a request is now served from the prewarmed cache without rebuilding
+        _FakeTritonBuilder.calls = []
+        resp = await client.get("/packages/triton/cu130/triton-3.7.0.post26-cp312-cp312-win_amd64.whl")
+        assert resp.status == 200
+        assert await resp.read() == b"PATCHED_WHEEL_BYTES"
+        assert _FakeTritonBuilder.calls == []
+    finally:
+        await client.close()
+
+
 async def test_serve_pip_uses_snapshot_registry_when_configured(monkeypatch):
     _FakeRegistry.calls = 0
     _FakeSnapshotRegistry.calls = 0

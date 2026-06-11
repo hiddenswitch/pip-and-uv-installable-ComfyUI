@@ -2,7 +2,6 @@ import collections
 import subprocess
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from comfy.cli_args_types import Configuration, PerformanceFeature
 from comfy.component_model.guess_settings import (
@@ -11,7 +10,6 @@ from comfy.component_model.guess_settings import (
     _has_nvidia_gpu,
     _has_amd_gpu,
     _competing_gpu_processes,
-    _has_package,
 )
 
 
@@ -79,17 +77,17 @@ class TestCompetingGpuProcesses:
             assert _competing_gpu_processes() == []
 
     def test_only_python(self):
-        result = MagicMock(returncode=0, stdout="python3, 2048 MiB\n")
+        result = MagicMock(returncode=0, stdout="123, python3, 2048 MiB\n")
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_only_nvidia(self):
-        result = MagicMock(returncode=0, stdout="nvtop, 2048 MiB\nnvidia-smi, 2048 MiB\n")
+        result = MagicMock(returncode=0, stdout="123, nvtop, 2048 MiB\n124, nvidia-smi, 2048 MiB\n")
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_competing_processes(self):
-        result = MagicMock(returncode=0, stdout="python3, 2048 MiB\nDiscord, 1536 MiB\nfirefox, 2048 MiB\n")
+        result = MagicMock(returncode=0, stdout="123, python3, 2048 MiB\n124, Discord, 1536 MiB\n125, firefox, 2048 MiB\n")
         with patch("subprocess.run", return_value=result):
             procs = _competing_gpu_processes()
             assert "Discord" in procs
@@ -99,20 +97,31 @@ class TestCompetingGpuProcesses:
     def test_ignores_small_desktop_helper_processes(self):
         result = MagicMock(
             returncode=0,
-            stdout="gnome-remote-desktop-daemon, 32 MiB\nsteamwebhelper, 128 MiB\n",
+            stdout="123, gnome-remote-desktop-daemon, 32 MiB\n124, steamwebhelper, 128 MiB\n",
         )
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_ignores_small_processes(self):
-        result = MagicMock(returncode=0, stdout="Discord, 256 MiB\n")
+        result = MagicMock(returncode=0, stdout="123, Discord, 256 MiB\n")
+        with patch("subprocess.run", return_value=result):
+            assert _competing_gpu_processes() == []
+
+    def test_current_process_family_is_not_competing(self):
+        result = MagicMock(returncode=0, stdout="123, /usr/bin/comfyui, 2048 MiB\n124, /usr/bin/Discord, 2048 MiB\n")
+        with patch("subprocess.run", return_value=result), \
+             patch("comfy.component_model.guess_settings._current_process_family", return_value={123}):
+            assert _competing_gpu_processes() == ["Discord"]
+
+    def test_remote_desktop_process_is_not_competing(self):
+        result = MagicMock(returncode=0, stdout="123, /usr/libexec/gnome-remote-desktop-daemon, 2048 MiB\n")
         with patch("subprocess.run", return_value=result):
             assert _competing_gpu_processes() == []
 
     def test_windows_paths(self):
         result = MagicMock(
             returncode=0,
-            stdout="C:\\Program Files\\Discord\\Discord.exe, 2048 MiB\nC:\\Python312\\python.exe, 2048 MiB\n",
+            stdout="123, C:\\Program Files\\Discord\\Discord.exe, 2048 MiB\n124, C:\\Python312\\python.exe, 2048 MiB\n",
         )
         with patch("subprocess.run", return_value=result):
             procs = _competing_gpu_processes()

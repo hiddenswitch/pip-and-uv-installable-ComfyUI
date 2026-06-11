@@ -850,6 +850,8 @@ class Flux2(Flux):
         "image_model": "flux2",
     }
 
+    int8_quant_exclude = ('img_in', 'time_in', 'guidance_in', 'txt_in', 'double_stream_modulation_img', 'double_stream_modulation_txt', 'single_stream_modulation')
+
     sampling_settings = {
         "shift": 2.02,
     }
@@ -971,6 +973,8 @@ class LTXV(supported_models_base.BASE):
     unet_config = {
         "image_model": "ltxv",
     }
+
+    int8_quant_exclude = ('adaln', 'embedding', 'patchify', 'to_gate_logits', 'proj_out', 'model.audio', 'model.video', 'model.av', 'model.patch', 'model.proj', 'shift')
 
     sampling_settings = {
         "shift": 2.37,
@@ -1178,6 +1182,8 @@ class Anima(supported_models_base.BASE):
         "image_model": "anima",
     }
 
+    int8_quant_exclude = ('embed', 'llm', 'adaln')
+
     sampling_settings = {
         "multiplier": 1.0,
         "shift": 3.0,
@@ -1254,6 +1260,8 @@ class ZImage(Lumina2):
         "image_model": "lumina2",
         "dim": 3840,
     }
+
+    int8_quant_exclude = ('cap_embedder', 't_embedder', 'x_embedder', 'cap_pad_token', 'context_refiner', 'final_layer', 'noise_refiner', 'adaLN', 'x_pad_token', 'layers.0.')
 
     sampling_settings = {
         "multiplier": 1.0,
@@ -1361,6 +1369,8 @@ class WAN21_T2V(supported_models_base.BASE):
         "image_model": "wan2.1",
         "model_type": "t2v",
     }
+
+    int8_quant_exclude = ('patch_embedding', 'text_embedding', 'time_embedding', 'time_projection', 'head', 'img_emb')
 
     sampling_settings = {
         "shift": 8.0,
@@ -1702,6 +1712,8 @@ class HiDreamO1(supported_models_base.BASE):
         "image_model": "hidream_o1",
     }
 
+    int8_quant_exclude = ('embed', 'language_model.layers.35.mlp')
+
     sampling_settings = {
         "shift": 3.0,
         "noise_scale": 8.0,
@@ -1745,6 +1757,8 @@ class Chroma(supported_models_base.BASE):
     unet_config = {
         "image_model": "chroma",
     }
+
+    int8_quant_exclude = ('distilled_guidance_layer', 'final_layer', 'img_in', 'txt_in', 'nerf_image_embedder', 'nerf_blocks', 'nerf_final_layer_conv', '__x0__')
 
     unet_extra_config = {
     }
@@ -1865,6 +1879,8 @@ class QwenImage(supported_models_base.BASE):
         "image_model": "qwen_image",
     }
 
+    int8_quant_exclude = ('time_text_embed', 'img_in', 'norm_out', 'proj_out', 'txt_in')
+
     sampling_settings = {
         "multiplier": 1.0,
         "shift": 1.15,
@@ -1894,6 +1910,8 @@ class Ideogram4(supported_models_base.BASE):
     unet_config = {
         "image_model": "ideogram4",
     }
+
+    int8_quant_exclude = ('embed_image_indicator', 't_embedding', 'proj')
 
     sampling_settings = {
         "multiplier": 1.0,
@@ -2167,6 +2185,8 @@ class ErnieImage(supported_models_base.BASE):
     unet_config = {
         "image_model": "ernie",
     }
+
+    int8_quant_exclude = ('time', 'x_embedder', 'text_proj', 'adaLN')
 
     sampling_settings = {
         "multiplier": 1000.0,

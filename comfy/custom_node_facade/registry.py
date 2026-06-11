@@ -11,7 +11,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Protocol
@@ -119,6 +119,20 @@ async def _load_manager_registry(session: aiohttp.ClientSession) -> list[dict[st
     except Exception:
         logger.debug("Failed to fetch live custom-node-list.json, using bundled fallback")
         return _load_bundled_manager_registry()
+
+
+def _build_alias_cache(projects: list["FacadeProject"]) -> dict[str, str]:
+    """Map alias -> canonical name, never letting an alias shadow another
+    project's canonical name; ambiguous aliases go to the first project in
+    canonical-name order."""
+    canonical_names = {project.canonical_name for project in projects}
+    aliases: dict[str, str] = {}
+    for project in sorted(projects, key=lambda item: item.canonical_name):
+        for alias in project.aliases:
+            if alias != project.canonical_name and alias in canonical_names:
+                continue
+            aliases.setdefault(alias, project.canonical_name)
+    return aliases
 
 
 @dataclass(frozen=True)
@@ -303,10 +317,7 @@ class SnapshotFacadeRegistry:
         for node_id, rv in rewrite_versions.items():
             versions_cache.setdefault(node_id, []).extend(rv)
 
-        aliases: dict[str, str] = {}
-        for project in projects:
-            for alias in project.aliases:
-                aliases[alias] = project.canonical_name
+        aliases = _build_alias_cache(projects)
         return projects, aliases, versions_cache
 
     def _materialize_snapshot(self) -> str:
@@ -507,7 +518,7 @@ class FacadeRegistry:
                 project = self._build_project(item, cnr, repo_url)
                 if project is not None:
                     projects_by_name[project.canonical_name] = project
-            elif "github.com" in repo_url:
+            elif self._is_supported_archive_host(repo_url):
                 project = self._build_manager_only_project(item, repo_url)
                 if project is not None:
                     projects_by_name.setdefault(project.canonical_name, project)
@@ -529,6 +540,8 @@ class FacadeRegistry:
                 project = self._build_injected_project(spec)
                 projects_by_name.setdefault(project.canonical_name, project)
 
+        self._ingest_cnr_only_nodes(projects_by_name, cnr_nodes)
+
         rewrite_projects, rewrite_versions = _rewrite_projects_and_versions()
         for rp in rewrite_projects:
             projects_by_name.setdefault(rp.canonical_name, rp)
@@ -536,11 +549,98 @@ class FacadeRegistry:
             self._versions_cache.setdefault(node_id, []).extend(rv)
 
         projects = sorted(projects_by_name.values(), key=lambda project: project.canonical_name)
-        self._alias_cache = {}
-        for project in projects:
-            for alias in project.aliases:
-                self._alias_cache[alias] = project.canonical_name
+        self._alias_cache = _build_alias_cache(projects)
         return projects
+
+    def _ingest_cnr_only_nodes(
+        self,
+        projects_by_name: dict[str, FacadeProject],
+        cnr_nodes: list[dict[str, Any]],
+    ) -> None:
+        """Create projects for registry nodes not reachable through the manager list.
+
+        The registry is the authoritative namespace for its own node ids: when a
+        node's id collides with a name another repo claimed via its repo
+        basename, the registry node takes the name and the other project is
+        re-keyed to its own registry id.
+        """
+        if self._only_known_nodes:
+            return
+        represented_node_ids = {
+            canonicalize_project_name(project.node_id)
+            for project in projects_by_name.values()
+        }
+        for cnr in cnr_nodes:
+            node_id = cnr.get("id")
+            if not node_id:
+                continue
+            canonical_id = canonicalize_project_name(node_id)
+            if canonical_id in represented_node_ids:
+                continue
+            if is_excluded_facade_project(node_id):
+                continue
+            if cnr.get("status") in ("NodeStatusBanned", "NodeStatusDeleted"):
+                continue
+            project = self._build_cnr_only_project(cnr)
+            existing = projects_by_name.get(project.canonical_name)
+            projects_by_name[project.canonical_name] = project
+            represented_node_ids.add(canonical_id)
+            if existing is not None:
+                self._rekey_displaced_project(projects_by_name, existing, project.canonical_name)
+
+    @staticmethod
+    def _rekey_displaced_project(
+        projects_by_name: dict[str, FacadeProject],
+        displaced: FacadeProject,
+        lost_name: str,
+    ) -> None:
+        fallback = canonicalize_project_name(displaced.node_id)
+        if fallback == lost_name or fallback in projects_by_name:
+            logger.warning(
+                "Dropping facade project for %s: registry node owns the name %s and no free fallback name exists",
+                displaced.repo_url or displaced.node_id,
+                lost_name,
+            )
+            return
+        aliases = {alias for alias in displaced.aliases if alias != lost_name}
+        aliases.add(fallback)
+        projects_by_name[fallback] = replace(
+            displaced,
+            canonical_name=fallback,
+            aliases=tuple(sorted(aliases)),
+        )
+        logger.info(
+            "Re-keyed facade project %s -> %s: registry node owns the name",
+            lost_name,
+            fallback,
+        )
+
+    def _build_cnr_only_project(self, cnr: dict[str, Any]) -> FacadeProject:
+        node_id = cnr["id"]
+        canonical_name = canonicalize_project_name(node_id)
+        repo_url = cnr.get("repository") or ""
+        repo_name = repo_basename(repo_url) if repo_url else canonical_name
+        display_name = cnr.get("name") or node_id
+        aliases = {
+            canonical_name,
+            canonicalize_project_name(repo_name),
+            canonicalize_project_name(display_name),
+        }
+        latest = cnr.get("latest_version")
+        latest_version = latest.get("version") if isinstance(latest, dict) else None
+        return FacadeProject(
+            canonical_name=canonical_name,
+            display_name=display_name,
+            node_id=node_id,
+            repo_url=repo_url,
+            repo_name=repo_name,
+            description=cnr.get("description") or "",
+            aliases=tuple(sorted(aliases)),
+            extra_requirements=tuple(self._runtime_dependencies(None, node_id, repo_name)),
+            skip_requirements=frozenset(CustomNodeManager.DEFAULT_SKIP),
+            depends_on=(),
+            latest_version=latest_version,
+        )
 
     async def _fetch_cnr_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
@@ -667,9 +767,14 @@ class FacadeRegistry:
         )
 
     @staticmethod
+    def _is_supported_archive_host(repo_url: str) -> bool:
+        host = (urlparse(repo_url).hostname or "").lower()
+        return host in ("github.com", "gitlab.com")
+
+    @staticmethod
     def _fallback_version_from_repo(project: FacadeProject) -> FacadeVersion | None:
         url = project.repo_url.rstrip("/")
-        if "github.com" not in url:
+        if not FacadeRegistry._is_supported_archive_host(url):
             return None
         download_url = FacadeRegistry._github_archive_url(url)
         return FacadeVersion(
