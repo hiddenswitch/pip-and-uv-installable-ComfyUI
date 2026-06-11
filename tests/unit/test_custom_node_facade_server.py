@@ -211,6 +211,47 @@ async def test_server_routes_cuda_torch_variant_segment(monkeypatch):
         await client.close()
 
 
+class _FakeTritonBuilder:
+    calls: list = []
+
+    def __init__(self, *args, **kwargs):
+        del args, kwargs
+
+    async def build(self, *, served_filename, cuda):
+        type(self).calls.append((served_filename, cuda))
+        return b"PATCHED_WHEEL_BYTES"
+
+
+async def test_triton_package_route_builds_and_caches(monkeypatch, tmp_path):
+    _FakeRegistry.calls = 0
+    _FakeTritonBuilder.calls = []
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(facade_server, "TritonWheelBuilder", _FakeTritonBuilder)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {})
+
+    config = Configuration()
+    config.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=config)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        url = "/packages/triton/cu130/triton-3.7.0.post26-cp312-cp312-win_amd64.whl"
+        first = await client.get(url)
+        assert first.status == 200
+        assert await first.read() == b"PATCHED_WHEEL_BYTES"
+        # second request is served from cache; the builder is not invoked again
+        second = await client.get(url)
+        assert await second.read() == b"PATCHED_WHEEL_BYTES"
+        assert _FakeTritonBuilder.calls == [
+            ("triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130")
+        ]
+        # non-triton filenames are rejected
+        assert (await client.get("/packages/triton/cu130/evil-1.0.whl")).status == 404
+    finally:
+        await client.close()
+
+
 async def test_serve_pip_uses_snapshot_registry_when_configured(monkeypatch):
     _FakeRegistry.calls = 0
     _FakeSnapshotRegistry.calls = 0

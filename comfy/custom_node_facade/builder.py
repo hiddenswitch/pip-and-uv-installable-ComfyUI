@@ -175,10 +175,17 @@ def _simple_package_html(project_name: str, body: str) -> str:
     return f"<!DOCTYPE html><html><head><title>{html.escape(title)}</title></head><body>{body}</body></html>"
 
 
-PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec
+from .triton_wheels import TritonProxySpec  # noqa: E402
+
+PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec | TritonProxySpec
 
 
 PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
+    # triton: Linux serves PyPI manylinux triton; Windows serves woct0rdho
+    # triton-windows wheels renamed to `triton` (CUDA-13 patched on the fly).
+    TritonProxySpec(name="triton", rename_to_triton=True),
+    # triton-windows: same Windows wheels under their real name.
+    TritonProxySpec(name="triton-windows", rename_to_triton=False),
     PyPIProxySpec(
         name="sageattention",
         upstream_index_url_template="https://appmana.github.io/forks-sageattention-stable-abi/{cuda}/sageattention/",
@@ -443,6 +450,10 @@ class FacadeCacheStore:
 
     def cached_wheel(self, path: str) -> CachedWheel:
         return CachedWheel(cache_path=path, local_path=self._local_path(path))
+
+    def custom_path(self, *parts: str) -> str:
+        """Cache path for non-registry artifacts (e.g. patched triton wheels)."""
+        return self._join(*parts)
 
     def _join(self, *parts: str) -> str:
         clean_parts = [part.strip("/") for part in parts if part]

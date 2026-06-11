@@ -12,7 +12,8 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, is_index_variant
+from .builder import FacadeCacheStore, FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, is_index_variant
+from .triton_wheels import TritonWheelBuilder
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,9 @@ def create_facade_app(
             application["facade_session"] = session
             application["facade_registry"] = registry
             application["facade_builder"] = builder
+            application["facade_triton_builder"] = TritonWheelBuilder(session)
+            application["facade_triton_cache"] = FacadeCacheStore(cache_prefix)
+            application["facade_triton_locks"] = {}
             with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
                 projects = await registry.list_projects()
                 warmup_span.set_attribute("facade.project_count", len(projects))
@@ -158,6 +162,35 @@ def create_facade_app(
                 headers={"Content-Disposition": f'attachment; filename="{expected_name}"'},
             )
 
+    async def triton_package_download(request: web.Request) -> web.StreamResponse:
+        with tracer.start_as_current_span("Serve Triton Wheel") as span:
+            cuda = request.match_info["cuda"]
+            filename = request.match_info["filename"]
+            span.set_attribute("facade.cuda", cuda)
+            span.set_attribute("facade.filename", filename)
+            if not filename.endswith(".whl") or "/" in filename:
+                raise web.HTTPNotFound(text="Not a wheel")
+            if not (filename.startswith("triton-") or filename.startswith("triton_windows-")):
+                raise web.HTTPNotFound(text="Unknown triton wheel")
+
+            cache: FacadeCacheStore = app["facade_triton_cache"]
+            builder: TritonWheelBuilder = app["facade_triton_builder"]
+            path = cache.custom_path("triton", cuda, filename)
+            locks: dict = app["facade_triton_locks"]
+            lock = locks.setdefault((cuda, filename), asyncio.Lock())
+            async with lock:
+                if not cache.exists(path):
+                    data = await builder.build(served_filename=filename, cuda=cuda)
+                    cache.write_bytes(path, data)
+                cached = cache.cached_wheel(path)
+            if cached.local_path is not None:
+                return web.FileResponse(path=cached.local_path)
+            return web.Response(
+                body=cache.read_bytes(path),
+                content_type="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/", index)
@@ -185,6 +218,7 @@ def create_facade_app(
     app.router.add_get("/simple/", index)
     app.router.add_get("/simple/{first}/{second}/", simple_two_segments)
     app.router.add_get("/simple/{segment}/", simple_one_segment)
+    app.router.add_get("/packages/triton/{cuda}/{filename}", triton_package_download)
     app.router.add_get("/packages/{project}/{version}/{filename}", package_download)
     app.router.add_get("/{segment}/", simple_one_segment)
     return app
