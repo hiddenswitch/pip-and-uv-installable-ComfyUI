@@ -1081,6 +1081,7 @@ def test_model_patcher_dynamic_records_weight_materialization_spec(monkeypatch):
     assert spec.force_loaded is False
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="force-load moves weights to the CUDA load device")
 def test_model_patcher_dynamic_force_loads_tiny_modules(monkeypatch):
     from comfy import ops, weight_cast
     from comfy.model_patcher import ModelPatcherDynamic

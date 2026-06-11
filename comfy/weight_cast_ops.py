@@ -8,6 +8,14 @@ from typing import Callable
 
 import torch
 
+_TORCH_OP_TAGS = tuple(
+    tag for tag in (
+        getattr(torch.Tag, "cudagraph_unsafe", None),
+        getattr(torch.Tag, "maybe_aliasing_or_mutating", None),
+    )
+    if tag is not None
+)
+
 logger = logging.getLogger(__name__)
 
 _MODULES: weakref.WeakValueDictionary[int, torch.nn.Module] = weakref.WeakValueDictionary()
@@ -226,7 +234,7 @@ def _prefetch(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def prefetch_weight(
     module_key: int,
@@ -244,7 +252,7 @@ def prefetch_weight(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_after",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def prefetch_weight_after(
     memory_token: torch.Tensor,
@@ -292,7 +300,7 @@ def _prefetch_weight_after_fake(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def prefetch_weight_bias(
     module_key: int,
@@ -310,7 +318,7 @@ def prefetch_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::prefetch_weight_bias_after",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def prefetch_weight_bias_after(
     memory_token: torch.Tensor,
@@ -362,7 +370,7 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 @torch.library.custom_op(
     "comfy_weight::resolve_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def resolve_weight(
     exemplar: torch.Tensor,
@@ -397,7 +405,7 @@ def resolve_weight(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
@@ -467,7 +475,7 @@ def _resolve_weight_fake(
 @torch.library.custom_op(
     "comfy_weight::resolve_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
@@ -506,7 +514,7 @@ def resolve_weight_bias(
 @torch.library.custom_op(
     "comfy_weight::resolve_prefetched_weight_bias",
     mutates_args=(),
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
@@ -588,23 +596,23 @@ def _resolve_weight_bias_fake(
 _LIB = torch.library.Library("comfy_weight", "FRAGMENT")
 _LIB.define(
     "prefetch_anchor(Tensor input, Tensor token) -> Tensor",
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 _LIB.define(
     "memory_seed(Tensor input) -> Tensor",
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=_TORCH_OP_TAGS[:1],
 )
 _LIB.define(
     "memory_join(Tensor left, Tensor right) -> Tensor",
-    tags=(torch.Tag.cudagraph_unsafe,),
+    tags=_TORCH_OP_TAGS[:1],
 )
 _LIB.define(
     "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 _LIB.define(
     "release_memory_(Tensor output, Tensor memory_token, int module_key, int invocation_id) -> Tensor",
-    tags=(torch.Tag.cudagraph_unsafe, torch.Tag.maybe_aliasing_or_mutating),
+    tags=_TORCH_OP_TAGS,
 )
 
 

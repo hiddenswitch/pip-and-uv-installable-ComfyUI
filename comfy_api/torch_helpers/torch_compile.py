@@ -206,8 +206,9 @@ def _stabilize_compile_parameter_residency(
     *,
     max_resident_bytes: int = 64 * 1024 * 1024,
 ) -> None:
-    if device is None or device.type == "cpu":
-        return
+    # Stable module keys keep compiled-graph caches deterministic on every
+    # device; only the small-parameter relocation below needs an accelerator.
+    move_params = device is not None and device.type != "cpu"
     with torch.no_grad():
         for module_name, child in module.named_modules():
             if not (
@@ -222,6 +223,8 @@ def _stabilize_compile_parameter_residency(
                 child,
                 _compile_module_identity(module_name, child),
             )
+            if not move_params:
+                continue
             for name in ("weight", "bias"):
                 param = getattr(child, name, None)
                 if param is None or not isinstance(param, torch.nn.Parameter):
