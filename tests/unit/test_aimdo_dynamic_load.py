@@ -63,58 +63,56 @@ def limit_free_vram(free_bytes):
         yield
 
 
-class TestDynamicLoadPreservesMixedPrecision(unittest.TestCase):
-    """Dynamic VRAM (assign=True) must preserve the precision the checkpoint
-    stored. A mixed checkpoint deliberately keeps some layers in higher
-    precision (bf16) for quality; coercing them to the model's fp8 storage dtype
-    would silently regress that. fp8-stored layers must stay fp8."""
+class TestMixedPrecisionStoragePreserved(unittest.TestCase):
+    """A mixed checkpoint deliberately keeps some layers in higher precision
+    (bf16) for quality; loading them into the model's fp8 storage placeholder
+    must not silently down-convert them. This must hold for BOTH the legacy
+    ``copy_`` path (assign=False) and the dynamic VRAM ``assign`` path
+    (assign=True). Layers stored at equal-or-lower precision still load normally
+    (so an fp8 layer upcasts to bf16 when the model dtype is bf16)."""
 
-    def test_assign_true_preserves_higher_precision_bf16_layer(self):
-        # An fp8 model with a bf16-stored layer (the mixed-precision case).
-        model = _tiny_fp8_linear()
-        src = torch.randn(20, 10, dtype=torch.bfloat16)
-
+    def _load(self, model, src, assign):
         model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(model), {"weight": src.clone()}, assign=True
+            _fake_basemodel_self(model), {"weight": src.clone()}, assign=assign
         )
 
-        self.assertEqual(model.weight.dtype, torch.bfloat16)
-        torch.testing.assert_close(model.weight, src)
+    def test_higher_precision_bf16_layer_preserved_both_paths(self):
+        src = torch.randn(20, 10, dtype=torch.bfloat16)
+        for assign in (True, False):
+            with self.subTest(assign=assign):
+                model = _tiny_fp8_linear()
+                self._load(model, src, assign)
+                self.assertEqual(model.weight.dtype, torch.bfloat16)
+                torch.testing.assert_close(model.weight, src)
 
-    def test_assign_true_preserves_fp8_stored_layer(self):
-        model = _tiny_fp8_linear()
+    def test_fp8_stored_layer_stays_fp8_both_paths(self):
         src = torch.randn(20, 10).to(torch.float8_e4m3fn)
+        for assign in (True, False):
+            with self.subTest(assign=assign):
+                model = _tiny_fp8_linear()
+                self._load(model, src, assign)
+                self.assertEqual(model.weight.dtype, torch.float8_e4m3fn)
+                torch.testing.assert_close(model.weight.float(), src.float())
 
-        model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(model), {"weight": src.clone()}, assign=True
-        )
-
-        self.assertEqual(model.weight.dtype, torch.float8_e4m3fn)
-        torch.testing.assert_close(model.weight.float(), src.float())
-
-    def test_assign_true_leaves_bf16_model_weights_untouched(self):
+    def test_lower_precision_weight_upcasts_to_param_dtype(self):
+        """fp8-stored weight into a bf16 placeholder (e.g. --fp8_storage off):
+        not retargeted, so it upcasts to bf16 — never preserve a *lower*
+        precision than the model asked for."""
         layer = torch.nn.Linear(10, 20, bias=False).to(torch.bfloat16)
+        src = torch.randn(20, 10).to(torch.float8_e4m3fn)
+        for assign in (False,):  # copy_ path upcasts; assign would replace as fp8
+            with self.subTest(assign=assign):
+                self._load(layer, src, assign)
+                self.assertEqual(layer.weight.dtype, torch.bfloat16)
+
+    def test_matching_dtype_untouched_both_paths(self):
         src = torch.randn(20, 10, dtype=torch.bfloat16)
-
-        model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(layer), {"weight": src.clone()}, assign=True
-        )
-
-        self.assertEqual(layer.weight.dtype, torch.bfloat16)
-        torch.testing.assert_close(layer.weight, src)
-
-    def test_legacy_load_still_coerces_to_param_dtype(self):
-        """The non-dynamic path (assign=False) copies into the fp8 placeholder,
-        so it coerces to fp8 — documenting the legacy fp8-unet asymmetry that
-        dynamic VRAM deliberately avoids."""
-        model = _tiny_fp8_linear()
-        src = torch.randn(20, 10, dtype=torch.bfloat16)
-
-        model_base.BaseModel.load_model_weights(
-            _fake_basemodel_self(model), {"weight": src.clone()}, assign=False
-        )
-
-        self.assertEqual(model.weight.dtype, torch.float8_e4m3fn)
+        for assign in (True, False):
+            with self.subTest(assign=assign):
+                layer = torch.nn.Linear(10, 20, bias=False).to(torch.bfloat16)
+                self._load(layer, src, assign)
+                self.assertEqual(layer.weight.dtype, torch.bfloat16)
+                torch.testing.assert_close(layer.weight, src)
 
 
 class TestStreamsInNativeDtype(unittest.TestCase):

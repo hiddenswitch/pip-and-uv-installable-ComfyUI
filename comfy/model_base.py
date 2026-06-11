@@ -162,6 +162,48 @@ def _format_gguf_storage_summary(model_config) -> str:
     return ""
 
 
+def _preserve_mixed_precision_storage(diffusion_model, to_load):
+    """Keep each layer at the precision the checkpoint stored it at.
+
+    The model is built with a single blanket storage dtype (e.g. fp8 when
+    ``--fp8_storage`` keeps native fp8 checkpoints resident). For a *mixed*
+    checkpoint the author deliberately stores some layers in higher precision
+    (bf16) because they matter for quality; loading them into an fp8 placeholder
+    via ``param.copy_()`` would silently down-convert them. Retarget any
+    placeholder param whose incoming checkpoint dtype is **wider** (higher
+    precision) than the placeholder so neither the legacy ``copy_`` path nor the
+    dynamic ``assign`` path degrades it. Layers stored at equal-or-lower
+    precision are left alone, so an fp8 layer still upcasts to bf16 when fp8
+    storage is off, and uniform checkpoints are unaffected. The Windows lazy
+    loader already preserves the stored dtype; this brings the stock
+    ``torch.nn.Linear`` (Linux) load path to parity. See docs/merging.md,
+    "Dynamic VRAM and mixed precision".
+    """
+    quantized_cls = getattr(ops, "QuantizedTensor", ())
+    modules = None
+    for name, incoming in to_load.items():
+        if not torch.is_tensor(incoming) or not incoming.is_floating_point():
+            continue
+        if isinstance(incoming, quantized_cls):
+            continue
+        if modules is None:
+            modules = dict(diffusion_model.named_modules())
+        module = modules.get(name.rpartition(".")[0])
+        if module is None:
+            continue
+        attr = name.rpartition(".")[2]
+        cur = getattr(module, attr, None)
+        if (isinstance(cur, torch.nn.Parameter)
+                and not isinstance(cur, quantized_cls)
+                and cur.is_floating_point()
+                and incoming.dtype != cur.dtype
+                and incoming.element_size() > cur.element_size()):
+            setattr(module, attr, torch.nn.Parameter(
+                torch.empty(cur.shape, dtype=incoming.dtype, device=cur.device),
+                requires_grad=cur.requires_grad,
+            ))
+
+
 def _format_quantized_storage_summary(model) -> str:
     qdata_counts = {}
     for param in model.parameters():
@@ -401,15 +443,7 @@ class BaseModel(torch.nn.Module):
                 to_load[k[len(unet_prefix):]] = sd.pop(k)
 
         to_load = self.model_config.process_unet_state_dict(to_load)
-        # NB: dynamic VRAM (ModelPatcherDynamic) loads with assign=True, which
-        # *replaces* each param with the incoming tensor instead of copy_-casting
-        # into the fp8 placeholder. For a mixed-precision checkpoint (e.g.
-        # flux2_dev_fp8mixed, whose _quantization_metadata only lists the fp8
-        # layers) this deliberately PRESERVES the higher-precision (bf16) layers
-        # the author stored for quality — do NOT coerce them to the model's fp8
-        # storage dtype here. See docs/merging.md, "Dynamic VRAM and mixed
-        # precision". The non-dynamic path coerces to fp8 via copy_(); that
-        # asymmetry is the legacy fp8-unet behaviour, not a dynamic-VRAM bug.
+        _preserve_mixed_precision_storage(self.diffusion_model, to_load)
         m, u = self.diffusion_model.load_state_dict(to_load, strict=False, assign=assign)
         if len(m) > 0:
             logger.warning("unet missing: {}".format(m))

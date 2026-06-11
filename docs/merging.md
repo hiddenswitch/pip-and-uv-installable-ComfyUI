@@ -456,22 +456,25 @@ Check for protocol drift too. If upstream adds required model-patcher attributes
 Two things commonly look like a "dynamic VRAM regression" on mixed/quantized
 checkpoints that stream. Only one is a bug.
 
-1. **Load dtype — NOT a bug; do not "fix" it.** The dynamic patcher loads with
-   `load_state_dict(assign=True)` so the vbar can own the tensors. `assign=True`
-   *replaces* each param with the incoming tensor instead of `copy_`-casting it
-   into the model's fp8 placeholder. For a mixed checkpoint (e.g.
-   `flux2_dev_fp8mixed`, whose `_quantization_metadata` lists only the fp8
-   layers) this **preserves** the higher-precision (bf16) layers the author
-   stored for quality. The non-dynamic path coerces those layers to fp8 via
-   `param.copy_()` (the legacy fp8-unet behaviour), so dynamic VRAM and legacy
-   produce *different* output — but dynamic is the more faithful one, and that
-   asymmetry must not be removed. Do **not** add a cast in
-   `BaseModel.load_model_weights` to make them match: that silently down-converts
-   the bf16 layers and defeats mixed precision. Pinned by
-   `tests/unit/test_aimdo_dynamic_load.py::TestDynamicLoadPreservesMixedPrecision`.
-   (Making *legacy* also preserve mixed precision would mean loading the model
-   per-layer from `_quantization_metadata` instead of as a blanket fp8 unet — a
-   larger, separate feature.)
+1. **Load dtype — mixed precision is preserved in BOTH load paths.** The model
+   is built with a single blanket storage dtype: the fork's `unet_dtype` returns
+   fp8 whenever `--fp8_storage` (default on) is set and the device supports fp8
+   *storage* — unlike upstream, which only picks fp8 on fp8-*compute* GPUs
+   (Hopper/Ada) and otherwise upcasts the whole checkpoint to bf16. So on Ampere
+   the fork builds an fp8 unet where upstream would build bf16. A *mixed*
+   checkpoint (e.g. `flux2_dev_fp8mixed`: 128 fp8 layers + 171 bf16 layers the
+   author kept in higher precision) must not have those bf16 layers coerced into
+   the fp8 placeholder. `BaseModel._preserve_mixed_precision_storage` retargets,
+   before `load_state_dict`, any placeholder param whose incoming checkpoint
+   dtype is **wider** (higher precision) than the placeholder, so neither the
+   legacy `copy_` path nor the dynamic `assign` path down-converts it. Layers
+   stored at equal-or-lower precision are untouched (an fp8 layer still upcasts
+   to bf16 when fp8 storage is off; uniform checkpoints are unaffected). Result:
+   legacy and dynamic load **identically** (verified bit-identical on
+   `flux2_dev_fp8mixed`), each keeping fp8-where-fp8 and bf16-where-bf16. The
+   Windows lazy loader already preserved the stored dtype; this brings the stock
+   `torch.nn.Linear` (Linux) load to parity. Pinned by
+   `tests/unit/test_aimdo_dynamic_load.py::TestMixedPrecisionStoragePreserved`.
 
 2. **Streaming geometry — a real bug, fixed.** A scale-carrying weight
    (comfy_kitchen `QuantizedTensor`, or plain scaled-fp8) must cross the vbar in
@@ -483,8 +486,9 @@ checkpoints that stream. Only one is a bug.
    override, and the streaming/accounting geometries
    (`model_patcher.lowvram_materialization_geometry`).
 
-The correctness target for streaming is therefore **streamed == resident under
-the same patcher**, not dynamic == legacy.
+The correctness targets are therefore: **legacy == dynamic** at load (mixed
+precision preserved both ways) and **streamed == resident** under the same
+patcher.
 
 To reproduce, force a fitting fp8 model to stream and compare to the resident
 result (this is what `tests/unit/test_aimdo_dynamic_load.py` does via the
