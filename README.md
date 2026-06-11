@@ -50,7 +50,7 @@ New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
 cd $HOME\Documents\ComfyUI_Workspace
 uv venv --python 3.12
 uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
-uv pip install triton-windows
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ triton-windows
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
 .\.venv\Scripts\Activate.ps1
 comfyui --help

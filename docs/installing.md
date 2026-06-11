@@ -419,15 +419,17 @@ Triton is used by some custom nodes and performance features.
 
 **Linux:**
 ```shell
-uv pip install --torch-backend=auto triton
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ triton
 ```
 
 **Windows:**
 ```powershell
-uv pip install triton-windows
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ triton-windows
 ```
 
-See https://github.com/woct0rdho/triton-windows for details.
+The index serves `triton-windows` with its bundled CUDA toolchain patched to
+match CUDA 13 variants (`/simple/cu130/`, etc.); see
+https://github.com/woct0rdho/triton-windows for the upstream wheels.
 
 ### ROCm
 
