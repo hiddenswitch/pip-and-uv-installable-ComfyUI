@@ -250,4 +250,12 @@ def setup_post_torch(config: Configuration):
     setup_fsspec()
     fix_pytorch_240()
     from .. import torchvision_compat  # noqa: F401
+    # Activate dynamic VRAM (comfy-aimdo) by default. The module's import-time
+    # logic is a no-op unless dynamic VRAM is supported (torch >= 2.8) and not
+    # explicitly disabled via --disable-dynamic-vram. Models that fit in VRAM
+    # stay fully resident, so this is transparent; larger models gain
+    # offload/streaming instead of OOM. Previously backed out for an eager fp8
+    # (Flux2) regression that has since been fixed in quant_ops (fp8 dequant no
+    # longer routes through the graph-visible materialize op in eager mode).
+    from .. import aimdo_integration  # noqa: F401
     setup_tracing(config)
