@@ -127,6 +127,47 @@ grep -oP '(?<=typer\.Option\()[^)]+' comfy/cmd/cli.py | sort > /tmp/typer_args.t
 diff /tmp/stub_args.txt /tmp/types.txt
 ```
 
+## Entrypoint / `main.py` startup side effects
+
+Upstream's real entrypoint is the root `main.py`: it runs module-level startup
+code (device init, allocator setup, monkeypatches) as a side effect of import,
+before the server starts. **Our root `main.py` is a thin shim** — it only calls
+`comfy.cmd.main._start_comfyui`. The fork's actual startup runs through
+`comfy/cmd/main_pre.py` and `comfy/component_model/setup.py::setup_post_torch`,
+invoked by the Typer CLI.
+
+This means: **any startup side effect upstream adds to or changes in root
+`main.py` must be mirrored into `setup_post_torch` (or `main_pre.py`).** A git
+merge of `main.py` will look clean — the lines apply or our shim absorbs them —
+but the behavior is silently lost because our process never executes upstream's
+`main.py` body.
+
+This already bit us once, expensively: upstream PR #14116 (`e154da83`,
+"Threaded Loader performance fixes (+ Aimdo 0.4.6)") reworked how `main.py`
+activates dynamic VRAM (comfy-aimdo). The activation moved into
+`comfy/aimdo_integration.py`, which only takes effect when something imports it.
+Upstream's `main.py` imported it; our `setup_post_torch` did not. So from
+**v0.23.0 onward dynamic VRAM was silently dormant** — `aimdo_allocator` stayed
+`None`, `get_model_patcher_class()` always returned the legacy `ModelPatcher`,
+and every release ran without streaming/offload. It was active through v0.22.x
+(when `main.py` still called `comfy_aimdo.control.init()` directly) and went dark
+at the merge, undetected because nothing tests `setup_post_torch`'s effects.
+
+When merging `main.py`, check for module-level startup behavior and mirror it:
+
+```bash
+# What runs at import in upstream main.py (side-effecting calls before server start)
+git show <upstream>:main.py | grep -nE "^\s*(import comfy_aimdo|comfy_aimdo\.|.*\.init\(|from .* import .*integration|set_per_process|cuda\.init)"
+
+# What our startup path actually runs
+grep -nE "aimdo_integration|comfy_aimdo|\.init\(|cuda\.init" comfy/cmd/main_pre.py comfy/component_model/setup.py
+```
+
+Specifically, dynamic VRAM must be activated by importing `comfy.aimdo_integration`
+from `setup_post_torch` (the module self-gates on torch >= 2.8 and
+`--disable-dynamic-vram`). If that import is missing, dynamic VRAM is off no
+matter what `main.py` says.
+
 ## Git Merge Configuration
 
 This fork frequently moves upstream top-level paths into `comfy/`, so plain Git defaults produce too much rename noise during upstream merges.
