@@ -26,7 +26,12 @@ from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, cano
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
 _FACADE_BUILD_REVISION = 4
-_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset()
+# Dependencies stripped from every generated wheel. gguf is a runtime
+# dependency of this fork itself (pyproject.toml), and the registry node with
+# the same name vendors an unrelated repo that breaks `import gguf`.
+_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset({
+    "gguf",
+})
 
 
 @dataclass(frozen=True)

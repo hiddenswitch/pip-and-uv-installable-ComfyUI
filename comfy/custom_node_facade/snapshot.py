@@ -294,7 +294,11 @@ async def _collect_versions(
 
     async def load(project: FacadeProject) -> tuple[str, list[FacadeVersion]]:
         async with semaphore:
-            return project.node_id, await registry.list_versions(project)
+            try:
+                return project.node_id, await registry.list_versions(project)
+            except Exception:
+                logger.warning("Failed to list versions for %s, omitting from snapshot", project.node_id, exc_info=True)
+                return project.node_id, []
 
     results = await asyncio.gather(*(load(project) for project in projects))
     return dict(results)
