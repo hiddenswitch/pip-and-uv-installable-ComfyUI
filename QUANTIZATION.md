@@ -175,7 +175,7 @@ only kitchen-format serialization (the `weight*` suffixes above) loads today.
 
 ### Ad-hoc quantization (quantize-on-load)
 
-The `weight_dtype` dropdown on UNETLoader and related loaders accepts `int8` and `int8_convrot`. Unlike the fp8 entries this is not a plain dtype cast: eligible Linear weights are absmax-quantized per row (with the Hadamard rotation for convrot) while the model loads, on the GPU when one is available. Sensitive layers (embedders, modulation/adaLN, final projections) are excluded per architecture via `int8_quant_exclude` on the model configs in `comfy/supported_models.py`. Saving the model afterwards writes a distributable int8 checkpoint through the regular state_dict path.
+The `weight_dtype` dropdown on UNETLoader and related loaders accepts `int8` and `int8_convrot`. Unlike the fp8 entries this is not a plain dtype cast: eligible Linear weights are absmax-quantized per row (with the Hadamard rotation for convrot) while the model loads, on the GPU when one is available. Starting from the bf16/fp16 checkpoint with `int8_convrot` is the recommended flow: on real DiT weights with outlier-heavy activations it measures ~3.6x lower output error than plain int8 (1.2% vs 4.5% per layer) at ~12% speed cost. Selecting `int8_convrot` over an already-quantized plain int8 checkpoint upgrades it in place (dequantize, rotate, requantize), recovering most of that quality (1.5%) for pre-quantized downloads. Sensitive layers (embedders, modulation/adaLN, final projections) are excluded per architecture via `int8_quant_exclude` on the model configs in `comfy/supported_models.py`. Saving the model afterwards writes a distributable int8 checkpoint through the regular state_dict path.
 
 ### Quantization Metadata
 

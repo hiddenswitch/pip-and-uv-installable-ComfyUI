@@ -1929,7 +1929,16 @@ def _apply_quantize_on_load(model_config, model_options):
     if not fmt:
         return
     if model_config.quant_config is not None:
-        logger.info("Checkpoint is already quantized; ignoring quantize_on_load=%s", fmt)
+        if fmt == "int8_convrot":
+            # Already-quantized plain int8 layers can be upgraded in place:
+            # dequantize, Hadamard-rotate, requantize. The small second
+            # weight-quantization error buys convrot's activation-outlier
+            # spreading on every forward. Layers in other formats and layers
+            # the publisher left unquantized are not touched.
+            logger.info("Upgrading already-quantized int8 layers to int8_convrot on load")
+            model_config.quant_config = {**model_config.quant_config, "upgrade_int8_to_convrot": True}
+        else:
+            logger.info("Checkpoint is already quantized; ignoring quantize_on_load=%s", fmt)
         return
     if model_options.get("custom_operations") is not None or model_config.custom_operations is not None:
         return

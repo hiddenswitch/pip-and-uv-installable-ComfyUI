@@ -286,6 +286,37 @@ class TestQuantizeOnLoad(unittest.TestCase):
                              "bias": torch.zeros(32, dtype=torch.bfloat16)}, strict=False)
         self.assertIsInstance(lin.weight, QuantizedTensor)
 
+    def test_upgrade_int8_to_convrot_on_load(self):
+        # A pre-quantized plain int8 layer upgrades to convrot when requested:
+        # dequantize, rotate, requantize. Indivisible layers stay plain.
+        from comfy.quant_ops_int8 import Int8RowwiseLayout
+        mpo = ops.mixed_precision_ops({"mixed_ops": True, "upgrade_int8_to_convrot": True}, torch.bfloat16)
+        w = torch.randn(32, 256, dtype=torch.bfloat16)
+        qd, params = Int8RowwiseLayout.quantize(w)
+        lin = mpo.Linear(256, 32, device="cpu")
+        lin.load_state_dict({
+            "weight": qd, "weight_scale": params.scale,
+            "bias": torch.zeros(32, dtype=torch.bfloat16),
+            "comfy_quant": _comfy_quant_tensor({"format": "int8"}),
+        }, strict=False)
+        self.assertEqual(lin.quant_format, "int8_convrot")
+        self.assertEqual(lin.layout_type, "Int8ConvRotLayout")
+        x = torch.randn(24, 256, dtype=torch.bfloat16)
+        rel = ((lin(x).float() - torch.nn.functional.linear(x, w).float()).abs().mean()
+               / torch.nn.functional.linear(x, w).float().abs().mean())
+        self.assertLess(rel.item(), 0.06)
+
+        # in_features not divisible by 256: stays plain int8
+        w2 = torch.randn(32, 200, dtype=torch.bfloat16)
+        qd2, p2 = Int8RowwiseLayout.quantize(w2)
+        lin2 = mpo.Linear(200, 32, device="cpu")
+        lin2.load_state_dict({
+            "weight": qd2, "weight_scale": p2.scale,
+            "bias": torch.zeros(32, dtype=torch.bfloat16),
+            "comfy_quant": _comfy_quant_tensor({"format": "int8"}),
+        }, strict=False)
+        self.assertEqual(lin2.quant_format, "int8")
+
     def test_prequantized_checkpoint_wins(self):
         mpo = self._ops(fmt="int8")
         lin = mpo.Linear(256, 32, device="cpu")

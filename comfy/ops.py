@@ -1570,6 +1570,31 @@ def _quantize_on_load_conf(module, layer_name, weight):
     return {"format": fmt}
 
 
+def _maybe_upgrade_int8_to_convrot(module, quantized_weight, device, compute_dtype):
+    """Upgrade a plain int8 weight to int8_convrot at load time.
+
+    Dequantizes the checkpoint's rowwise/tensorwise int8 weight back to the
+    original space, applies the Hadamard rotation, and requantizes. The
+    representation change costs a second weight-quantization rounding (small)
+    and buys convrot's activation-outlier spreading at inference.
+    """
+    if (
+        not getattr(module, "_upgrade_int8_convrot", False)
+        or module.quant_format != "int8"
+        or "int8_convrot" in module._disabled_formats
+        or module._orig_shape[-1] % 256 != 0
+    ):
+        return quantized_weight
+    quant_device = device
+    if (quant_device is None or torch.device(quant_device).type == "cpu") and torch.cuda.is_available():
+        quant_device = model_management.get_torch_device()
+    dense = quantized_weight.to(device=quant_device).dequantize()
+    upgraded = QuantizedTensor.from_float(dense, "Int8ConvRotLayout").to(device=device, dtype=compute_dtype)
+    module.quant_format = "int8_convrot"
+    module.layout_type = "Int8ConvRotLayout"
+    return upgraded
+
+
 def _load_quantized_module(module, super_load, state_dict, prefix, local_metadata, strict,
                             missing_keys, unexpected_keys, error_msgs, load_extra_params=False):
     """Shared _load_from_state_dict body for quantized-weight modules.
@@ -1691,6 +1716,7 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
 
             params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
             quantized_weight = QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params)
+            quantized_weight = _maybe_upgrade_int8_to_convrot(module, quantized_weight, device, compute_dtype)
         if module.quant_format in disabled_storage_formats:
             module.layout_type = None
             module.weight = torch.nn.Parameter(quantized_weight.dequantize().to(device=device, dtype=compute_dtype), requires_grad=False)
@@ -1768,6 +1794,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
             _disabled_storage_formats = disabled_storage
             _quantize_on_load = (quant_config or {}).get("quantize_on_load")
             _quantize_on_load_exclude = tuple((quant_config or {}).get("exclude_layers", ()))
+            _upgrade_int8_convrot = bool((quant_config or {}).get("upgrade_int8_to_convrot", False))
 
             def __init__(self, in_features: int, out_features: int, bias: bool = True, device=None, dtype=None):
                 super().__init__()
