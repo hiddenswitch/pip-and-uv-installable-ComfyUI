@@ -451,6 +451,40 @@ git diff --cc -- comfy/model_management.py comfy/model_patcher.py comfy/ops.py
 
 Check for protocol drift too. If upstream adds required model-patcher attributes or methods, update `comfy/model_management_types.py`, `ModelManageableStub`, dynamic patchers, and tests.
 
+#### Dynamic VRAM streaming of quantized weights
+
+Dynamic VRAM (ModelPatcherDynamic) must produce **bit-identical** forward output
+to the legacy ModelPatcher. Two invariants are easy to break during a merge, and
+neither shows up in a single hunk — both manifest only as a silent ~10-20% output
+divergence on quantized/mixed models that stream:
+
+1. **Load dtype.** The dynamic patcher loads weights with
+   `load_state_dict(assign=True)` so the vbar can own the tensors. `assign=True`
+   *replaces* each param instead of `copy_`-casting into it, so a weight stored
+   at a different dtype than the model's storage dtype (e.g. a bf16 layer inside
+   an fp8 "mixed" checkpoint like `flux2_dev_fp8mixed`) keeps its file dtype and
+   diverges from the legacy path, which casts via `param.copy_()`.
+   `BaseModel.load_model_weights` pre-casts mismatched floating weights to the
+   param dtype when `assign=True`. Regression test:
+   `tests/unit/test_aimdo_dynamic_load.py::TestDynamicLoadDtype`.
+
+2. **Streaming geometry.** A scale-carrying weight (comfy_kitchen
+   `QuantizedTensor`, or plain scaled-fp8) must cross the vbar in its **native**
+   low-precision layout, not be densely cast to the compute dtype mid-stream. The
+   dense-materialize transfer (`cast_to_gathered` with `target_geometries`) drops
+   the per-tensor scale. `ops._streams_in_native_dtype()` gates this in
+   `cast_modules_with_vbar.target_geometry_for` and the streaming/accounting
+   geometries (`model_patcher.lowvram_materialization_geometry`).
+
+To reproduce, force a fitting fp8 model to stream and compare to the resident
+result (this is what `tests/unit/test_aimdo_dynamic_load.py` does via the
+`limit_free_vram` helper, which patches `model_management.get_free_memory`):
+
+```bash
+COMFY_TEST_FP8_MODEL=models/diffusion_models/flux1-dev-fp8.safetensors \
+  python -m pytest tests/unit/test_aimdo_dynamic_load.py -q
+```
+
 ### New Model Family Support
 
 When upstream adds a model family, the merge is not complete until the fork can load it through the packaged workflow path. Do all of the following:

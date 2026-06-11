@@ -401,6 +401,26 @@ class BaseModel(torch.nn.Module):
                 to_load[k[len(unet_prefix):]] = sd.pop(k)
 
         to_load = self.model_config.process_unet_state_dict(to_load)
+        if assign:
+            # assign=True (dynamic VRAM / ModelPatcherDynamic) replaces each
+            # param outright instead of copy_-casting the incoming tensor into
+            # it. A weight stored at a different dtype than the model's storage
+            # dtype (e.g. a bf16 layer in an fp8 model) would therefore keep its
+            # file dtype and diverge from the non-dynamic path, which casts via
+            # param.copy_(). Pre-cast floating weights to the existing param
+            # dtype so dynamic and legacy load bit-identically. Already-quantized
+            # weights (QuantizedTensor) and dtype-matched tensors are untouched.
+            target_state = self.diffusion_model.state_dict()
+            quantized_cls = getattr(ops, "QuantizedTensor", ())
+            for name, incoming in list(to_load.items()):
+                cur = target_state.get(name)
+                if (cur is not None
+                        and torch.is_tensor(incoming) and torch.is_tensor(cur)
+                        and not isinstance(incoming, quantized_cls)
+                        and not isinstance(cur, quantized_cls)
+                        and incoming.is_floating_point() and cur.is_floating_point()
+                        and incoming.dtype != cur.dtype):
+                    to_load[name] = incoming.to(dtype=cur.dtype)
         m, u = self.diffusion_model.load_state_dict(to_load, strict=False, assign=assign)
         if len(m) > 0:
             logger.warning("unet missing: {}".format(m))

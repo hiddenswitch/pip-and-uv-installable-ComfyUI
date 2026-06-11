@@ -43,6 +43,19 @@ from .interruption import throw_exception_if_processing_interrupted
 
 logger = logging.getLogger(__name__)
 
+
+def _streams_in_native_dtype(tensor):
+    """Weights that carry a per-tensor scale must cross the dynamic-VRAM vbar in
+    their native low-precision layout, not be densely cast to the compute dtype
+    mid-stream. That covers comfy_kitchen QuantizedTensors (qdata + scale) and
+    plain scaled-fp8 weights (1-byte float storage); the dtype cast / dequant
+    happens later in post_cast or the forward, exactly as in the resident path."""
+    if isinstance(tensor, QuantizedTensor):
+        return True
+    dtype = getattr(tensor, "dtype", None)
+    return bool(dtype is not None and dtype.is_floating_point and tensor.element_size() == 1)
+
+
 _DYNAMIC_VRAM_FP8_POLICIES = {"auto", "resident", "materialize"}
 
 
@@ -329,8 +342,15 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
             return None
         if target_dtype is None:
             return tensor
-        if isinstance(tensor, QuantizedTensor) and want_requant and should_keep_quantized_vbar(s, tensor):
-            return tensor
+        if _streams_in_native_dtype(tensor):
+            # Stream the weight in its native low-precision layout (QuantizedTensor
+            # qdata+scale, or plain scaled-fp8 bytes) and let post_cast / the
+            # forward apply the dtype cast. Materializing the target dtype here
+            # routes the tensor through cast_to_gathered(target_geometries=...),
+            # a raw fp8->bf16 cast that drops the per-tensor weight scale, so the
+            # streamed result silently diverges from the resident path (see
+            # docs/merging.md, "Dynamic VRAM streaming of quantized weights").
+            return model_management.tensor_materialization_geometry(tensor)
         return model_management.tensor_materialization_geometry(tensor, dtype=target_dtype)
 
     for s in comfy_modules:
@@ -433,6 +453,13 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
         cast_dest = None
         needs_cast = False
         direct_materialize = cast_geometry != source_geometry
+        # A scale-carrying weight (QuantizedTensor or scaled-fp8) must keep its
+        # native layout across the vbar. The dense-materialize transfer path
+        # (cast_to_gathered with target_geometries) casts mid-stream and drops
+        # the per-tensor scale; force the pin/needs_cast streaming path instead so
+        # the native payload is preserved and the dtype cast happens in post_cast.
+        if _streams_in_native_dtype(s.weight):
+            direct_materialize = False
         has_patch_functions = len(getattr(s, "weight_function", [])) > 0 or len(getattr(s, "bias_function", [])) > 0
 
         xfer_source = [ s.weight, s.bias ]

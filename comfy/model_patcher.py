@@ -232,18 +232,20 @@ def should_bake_lowvram_patch(module, weight, set_func=None) -> bool:
 def lowvram_materialization_geometry(module, param_key, tensor, model_dtype, function_count=0):
     if tensor is None:
         return None
-    if not isinstance(tensor, QuantizedTensor):
+
+    # A patched weight, or any non-weight param, materializes densely at the
+    # model dtype: post_cast dequantizes and applies the patch functions.
+    if param_key != "weight" or function_count > 0:
         return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
 
-    if param_key != "weight":
-        return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
-
-    if function_count > 0:
-        return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
-
-    if ops.should_keep_quantized_vbar(module, tensor):
+    # An unpatched weight streams its native payload verbatim (QuantizedTensor
+    # qdata+scale, or scaled-fp8 bytes); see cast_modules_with_vbar.
+    # target_geometry_for. Size the vbar for the native layout so accounting
+    # matches the bytes actually written and the per-tensor scale survives the
+    # round-trip. Sizing fp8 weights natively also lets fp8 models that fit in
+    # VRAM load fully resident instead of needlessly streaming.
+    if ops._streams_in_native_dtype(tensor):
         return model_management.tensor_materialization_geometry(tensor)
-
     return model_management.tensor_materialization_geometry(tensor, dtype=model_dtype or tensor.dtype)
 
 
