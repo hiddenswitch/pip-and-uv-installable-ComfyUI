@@ -20,7 +20,7 @@ If you need to develop an application or plugin around ComfyUI, this fork stays 
 
 This LTS fork adds development, embedding, automated testing, LLM and distributed inference features to ComfyUI, but maintains compatibility with custom nodes from the ecosystem.
 
-- **Pip and UV Installable:** Install via `pip` or `uv` directly from GitHub. No manual cloning required for users.
+- **Pip and UV Installable:** Install via `pip` or `uv` from the appmana package index (`--extra-index-url https://nodes.appmana.com/simple/`). No manual cloning required for users.
 - **Automatic Model Downloading:** Missing models (e.g., Stable Diffusion, FLUX, LLMs) are downloaded on-demand from Hugging Face or CivitAI.
 - **Docker and Containers:** First-class support for Docker and Kubernetes with optimized containers for NVIDIA and AMD.
 - **Distributed Inference:** Run scalable inference clusters with multiple workers and frontends using RabbitMQ.
@@ -49,7 +49,7 @@ $env:Path = "$HOME\.local\bin;$env:Path"
 New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
 cd $HOME\Documents\ComfyUI_Workspace
 uv venv --python 3.12
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
 uv pip install triton-windows
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
 .\.venv\Scripts\Activate.ps1

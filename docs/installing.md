@@ -17,7 +17,7 @@ $env:Path = "$HOME\.local\bin;$env:Path"
 New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
 cd $HOME\Documents\ComfyUI_Workspace
 uv venv --python 3.12
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
 uv pip install triton-windows
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
 .\.venv\Scripts\Activate.ps1
@@ -33,7 +33,7 @@ $env:Path = "$HOME\.local\bin;$env:Path"
 New-Item -ItemType Directory -Force "$HOME\Documents\ComfyUI_Workspace"
 cd $HOME\Documents\ComfyUI_Workspace
 uv venv --python 3.12
-uv pip install --torch-backend=rocm7.2 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=rocm7.2 --extra-index-url https://nodes.appmana.com/simple/ comfyui
 .\.venv\Scripts\Activate.ps1
 comfyui --help
 comfyui serve --guess-settings --fp32-vae
@@ -47,7 +47,7 @@ export PATH="$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/Documents/ComfyUI_Workspace"
 cd "$HOME/Documents/ComfyUI_Workspace"
 uv venv --python 3.12
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
 source .venv/bin/activate
 comfyui --help
 comfyui serve --guess-settings
@@ -63,7 +63,7 @@ export PATH="$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/ComfyUI_Workspace"
 cd "$HOME/ComfyUI_Workspace"
 uv venv --python 3.12
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ sageattention flash-attn
 source .venv/bin/activate
 comfyui --help
@@ -78,7 +78,7 @@ export PATH="$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/ComfyUI_Workspace"
 cd "$HOME/ComfyUI_Workspace"
 uv venv --python 3.12
-uv pip install --torch-backend=rocm7.2 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=rocm7.2 --extra-index-url https://nodes.appmana.com/simple/ comfyui
 source .venv/bin/activate
 comfyui --help
 comfyui serve --guess-settings --fp32-vae
@@ -114,7 +114,7 @@ cd "$HOME/ComfyUI_Workspace"
 uv venv --python 3.12
 export ROCM_INDEX_URL="https://rocm.nightlies.amd.com/v2/gfx120X-all/"
 uv pip install --index-url "$ROCM_INDEX_URL" --pre torch torchaudio torchvision triton
-uv pip install "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui
 source .venv/bin/activate
 comfyui --help
 comfyui serve --guess-settings --fp32-vae
@@ -138,7 +138,7 @@ export PATH="$HOME/.local/bin:$PATH"
 mkdir -p "$HOME/ComfyUI_Workspace"
 cd "$HOME/ComfyUI_Workspace"
 uv venv --python 3.11
-uv pip install --torch-backend=xpu "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=xpu --extra-index-url https://nodes.appmana.com/simple/ comfyui
 source .venv/bin/activate
 python -c "import torch; print(torch.xpu.is_available())"
 comfyui --help
@@ -165,12 +165,12 @@ comfyui serve --guess-settings
 ### Upgrading
 
 ```shell
-uv pip install --upgrade "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --upgrade --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 For NVIDIA users who want to ensure the correct CUDA version is maintained:
 ```shell
-uv pip install --torch-backend=auto --upgrade "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --upgrade --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 ## CUDA and PyTorch
@@ -220,10 +220,10 @@ If you need to target a specific CUDA version (e.g., to match your driver or for
 
 ```shell
 # Install with CUDA 12.8
-uv pip install --torch-backend=cu128 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=cu128 --extra-index-url https://nodes.appmana.com/simple/ comfyui
 
 # Install with CUDA 13.0
-uv pip install --torch-backend=cu130 "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=cu130 --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 See the [uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integration/pytorch/) for more details.
