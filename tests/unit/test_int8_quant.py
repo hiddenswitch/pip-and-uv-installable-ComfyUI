@@ -300,6 +300,96 @@ class TestQuantizeOnLoad(unittest.TestCase):
         self.assertEqual(lin.quant_format, "int8_convrot")
 
 
+@requires_int8
+class TestSVDQuantAWQWiring(unittest.TestCase):
+    """Wiring tests for the offline-calibrated kitchen layouts.
+
+    Uses fabricated kitchen-format tensors; the forward is compared against
+    the layout's own dequantize, which runs the same kernel path.
+    """
+
+    N, K, R, G = 256, 384, 16, 64
+
+    def _svdq_sd(self, act_unsigned=False):
+        conf = {"format": "svdquant_w4a4", "group_size": self.G}
+        if act_unsigned:
+            conf["act_unsigned"] = True
+        return {
+            "weight": torch.randint(-128, 128, (self.N, self.K // 2), dtype=torch.int8),
+            "weight_scale": torch.rand(self.K // self.G, self.N, dtype=torch.bfloat16) * 0.02 + 0.01,
+            "weight_proj_down": torch.randn(self.K, self.R, dtype=torch.bfloat16) * 0.02,
+            "weight_proj_up": torch.randn(self.N, self.R, dtype=torch.bfloat16) * 0.02,
+            "weight_smooth_factor": torch.rand(self.K, dtype=torch.bfloat16) + 0.5,
+            "bias": torch.zeros(self.N, dtype=torch.bfloat16),
+            "comfy_quant": _comfy_quant_tensor(conf),
+        }
+
+    def test_svdquant_load_and_roundtrip(self):
+        lin = ops.mixed_precision_ops({"mixed_ops": True}, torch.bfloat16).Linear(self.K, self.N, device="cpu")
+        missing, unexpected = lin.load_state_dict(self._svdq_sd(act_unsigned=True), strict=False)
+        self.assertEqual(missing, [])
+        self.assertEqual(unexpected, [])
+        self.assertIsInstance(lin.weight, QuantizedTensor)
+        self.assertEqual(lin.quant_format, "svdquant_w4a4")
+        self.assertTrue(lin.weight._params.act_unsigned)
+        sd = lin.state_dict(prefix="l.")
+        conf = _read_conf(sd["l.comfy_quant"])
+        self.assertEqual(conf["format"], "svdquant_w4a4")
+        self.assertTrue(conf.get("act_unsigned"))
+        self.assertEqual(sorted(k.split("l.")[-1] for k in sd), sorted([
+            "bias", "comfy_quant", "weight", "weight_scale",
+            "weight_proj_down", "weight_proj_up", "weight_smooth_factor"]))
+
+    @unittest.skipUnless(has_gpu(), "requires CUDA for the w4a4 kernel")
+    def test_svdquant_forward(self):
+        lin = ops.mixed_precision_ops({"mixed_ops": True}, torch.bfloat16).Linear(self.K, self.N, device="cuda")
+        lin.load_state_dict(self._svdq_sd(), strict=False)
+        lin = lin.to("cuda")
+        x = torch.randn(64, self.K, device="cuda", dtype=torch.bfloat16)
+        out = lin(x)
+        ref = torch.nn.functional.linear(x, lin.weight.dequantize(), lin.bias)
+        cos = torch.nn.functional.cosine_similarity(out.float().flatten(), ref.float().flatten(), dim=0)
+        # int4 activation quantization on uncalibrated random data is noisy;
+        # cosine validates the wiring rather than calibration quality.
+        self.assertGreater(cos.item(), 0.97)
+
+    def _awq_sd(self):
+        return {
+            "weight": torch.randint(-128, 128, (self.N, self.K // 2), dtype=torch.int8),
+            "weight_scale": torch.rand(self.K // self.G, self.N, dtype=torch.bfloat16) * 0.02 + 0.01,
+            "weight_zeros": torch.randn(self.K // self.G, self.N, dtype=torch.bfloat16) * 0.1,
+            "bias": torch.zeros(self.N, dtype=torch.bfloat16),
+            "comfy_quant": _comfy_quant_tensor({"format": "awq_w4a16", "group_size": self.G}),
+        }
+
+    def test_awq_load_forward_roundtrip(self):
+        lin = ops.mixed_precision_ops({"mixed_ops": True}, torch.bfloat16).Linear(self.K, self.N, device="cpu")
+        missing, unexpected = lin.load_state_dict(self._awq_sd(), strict=False)
+        self.assertEqual(missing, [])
+        self.assertEqual(unexpected, [])
+        self.assertEqual(lin.quant_format, "awq_w4a16")
+        x = torch.randn(24, self.K, dtype=torch.bfloat16)
+        out = lin(x)
+        ref = torch.nn.functional.linear(x, lin.weight.dequantize(), lin.bias)
+        rel = (out.float() - ref.float()).abs().mean() / ref.float().abs().mean()
+        self.assertLess(rel.item(), 0.02)
+        conf = _read_conf(lin.state_dict(prefix="l.")["l.comfy_quant"])
+        self.assertEqual(conf["format"], "awq_w4a16")
+        self.assertEqual(conf["group_size"], self.G)
+
+    def test_lora_bake_falls_back_to_dense(self):
+        lin = ops.mixed_precision_ops({"mixed_ops": True}, torch.bfloat16).Linear(self.K, self.N, device="cpu")
+        lin.load_state_dict(self._svdq_sd(), strict=False)
+        dq = lin.convert_weight(lin.weight)
+        lin.set_weight(dq + 0.01)
+        # offline-calibrated layouts cannot requantize: the patched weight
+        # stays dense and the layer keeps working
+        self.assertNotIsInstance(lin.weight, QuantizedTensor)
+        self.assertIsNone(lin.layout_type)
+        out = lin(torch.randn(8, self.K, dtype=torch.bfloat16))
+        self.assertEqual(tuple(out.shape), (8, self.N))
+
+
 class TestApplyQuantizeOnLoad(unittest.TestCase):
     def _cfg(self):
         class Cfg:

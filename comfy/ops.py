@@ -1657,6 +1657,24 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
                             f"Unsupported convrot group size {groupsize} for layer {layer_name}; "
                             f"only {expected} is supported")
                 scales = {"scale": ws.float()}
+            elif module.quant_format == "svdquant_w4a4":
+                ws = pop_scale("weight_scale")
+                pd = pop_scale("weight_proj_down")
+                pu = pop_scale("weight_proj_up")
+                sf = pop_scale("weight_smooth_factor")
+                if ws is None or pd is None or pu is None or sf is None:
+                    raise ValueError(f"Missing SVDQuant W4A4 tensors for layer {layer_name}")
+                # wscales / projections / smoothing stay in the checkpoint
+                # compute dtype (bf16/fp16) — the kernel reads them as-is.
+                scales = {"scale": ws, "proj_down": pd, "proj_up": pu, "smooth_factor": sf,
+                          "act_unsigned": bool(layer_conf.get("act_unsigned", False))}
+            elif module.quant_format == "awq_w4a16":
+                ws = pop_scale("weight_scale")
+                zs = pop_scale("weight_zeros")
+                if ws is None or zs is None:
+                    raise ValueError(f"Missing AWQ W4A16 scales/zeros for layer {layer_name}")
+                scales = {"scale": ws, "zeros": zs,
+                          "group_size": int(layer_conf.get("group_size", 64))}
             elif module.quant_format == "mxfp8":
                 bs = pop_scale("weight_scale", torch.float8_e8m0fnu)
                 if bs is None:
@@ -1713,6 +1731,16 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
         extra_layout_conf = getattr(module.weight.layout_cls, "extra_state_dict_conf", None)
         if extra_layout_conf is not None:
             quant_conf.update(extra_layout_conf())
+        weight_params = getattr(module.weight, "_params", None)
+        if weight_params is not None:
+            # Per-layer topology/grouping facts that live on the layout params
+            # (e.g. SVDQuant act_unsigned, AWQ group_size) round-trip through
+            # the comfy_quant JSON.
+            if getattr(weight_params, "act_unsigned", False):
+                quant_conf["act_unsigned"] = True
+            params_group_size = getattr(weight_params, "group_size", None)
+            if params_group_size is not None:
+                quant_conf["group_size"] = int(params_group_size)
         if getattr(module, '_full_precision_mm_config', False):
             quant_conf["full_precision_matrix_mult"] = True
         if extra_quant_conf:
@@ -1867,31 +1895,39 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                     return _release_weight_bias(self, output, cast_state)
 
                 # Inference path (unchanged)
+                keep_quantized_weight = isinstance(input, QuantizedTensor)
                 if _use_quantized:
+                    layout_cls = get_layout_class(self.layout_type)
+                    if not getattr(layout_cls, "QUANTIZES_INPUT", True):
+                        # Layouts whose kernels fuse activation handling
+                        # internally (SVDQuant W4A4, AWQ W4A16) take the float
+                        # input as-is; keep the quantized weight so dispatch
+                        # reaches the fused kernel.
+                        keep_quantized_weight = True
+                    else:
+                        # Reshape 3D tensors to 2D for quantization (needed for NVFP4 and others)
+                        input_reshaped = input.reshape(-1, input_shape[2]) if input.ndim == 3 else input
 
-                    # Reshape 3D tensors to 2D for quantization (needed for NVFP4 and others)
-                    input_reshaped = input.reshape(-1, input_shape[2]) if input.ndim == 3 else input
+                        # Fall back to non-quantized for non-2D tensors
+                        if input_reshaped.ndim == 2:
+                            # Layouts can decline small batches; the plain-input
+                            # path dequantizes the weight and runs a float
+                            # linear instead.
+                            layout_gate = getattr(layout_cls, "should_quantize_input", None)
+                            if layout_gate is None or layout_gate(input_reshaped):
+                                reshaped_3d = input.ndim == 3
+                                quantize_activation = getattr(layout_cls, "quantize_activation", None)
+                                if quantize_activation is not None:
+                                    input = quantize_activation(input_reshaped)
+                                else:
+                                    # dtype is now implicit in the layout class
+                                    scale = getattr(self, 'input_scale', None)
+                                    if scale is not None:
+                                        scale = model_management.cast_to_device(scale, input.device, None)
+                                    input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
+                                keep_quantized_weight = True
 
-                    # Fall back to non-quantized for non-2D tensors
-                    if input_reshaped.ndim == 2:
-                        # Layouts can decline small batches (e.g. int8 GEMM
-                        # needs M > 16); the plain-input path dequantizes the
-                        # weight and runs a float linear instead.
-                        layout_cls = get_layout_class(self.layout_type)
-                        layout_gate = getattr(layout_cls, "should_quantize_input", None)
-                        if layout_gate is None or layout_gate(input_reshaped):
-                            reshaped_3d = input.ndim == 3
-                            quantize_activation = getattr(layout_cls, "quantize_activation", None)
-                            if quantize_activation is not None:
-                                input = quantize_activation(input_reshaped)
-                            else:
-                                # dtype is now implicit in the layout class
-                                scale = getattr(self, 'input_scale', None)
-                                if scale is not None:
-                                    scale = model_management.cast_to_device(scale, input.device, None)
-                                input = QuantizedTensor.from_float(input_reshaped, self.layout_type, scale=scale)
-
-                output = self.forward_comfy_cast_weights(input, compute_dtype, want_requant=isinstance(input, QuantizedTensor))
+                output = self.forward_comfy_cast_weights(input, compute_dtype, want_requant=keep_quantized_weight)
 
                 # Reshape output back to 3D if input was 3D
                 if reshaped_3d:
@@ -1907,8 +1943,18 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
 
             def set_weight(self, weight, inplace_update=False, seed=None, return_weight=False, **kwargs):
                 if getattr(self, 'layout_type', None) is not None:
-                    # dtype is now implicit in the layout class
-                    weight = QuantizedTensor.from_float(weight, self.layout_type, scale="recalculate", stochastic_rounding=seed, inplace_ops=True).to(self.weight.dtype)
+                    try:
+                        # dtype is now implicit in the layout class
+                        weight = QuantizedTensor.from_float(weight, self.layout_type, scale="recalculate", stochastic_rounding=seed, inplace_ops=True).to(self.weight.dtype)
+                    except NotImplementedError:
+                        # Offline-calibrated layouts (SVDQuant, AWQ) cannot
+                        # requantize a patched weight; keep it dense instead.
+                        # Correct but loses the int4 memory/speed for this layer.
+                        logging.warning(
+                            "LoRA bake requantization is not supported for %s; keeping the patched weight dense",
+                            self.layout_type)
+                        self.layout_type = None
+                        weight = weight.to(self.weight.dtype)
                 else:
                     weight = weight.to(self.weight.dtype)
                 if return_weight:
@@ -2154,11 +2200,15 @@ def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_
         disabled = set()
         disabled_storage = set()
         if not mixed_precision_quantization_available():
-            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4", "int8", "int8_convrot"})
-            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4", "int8", "int8_convrot"})
+            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4", "int8", "int8_convrot", "svdquant_w4a4", "awq_w4a16"})
+            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4", "int8", "int8_convrot", "svdquant_w4a4", "awq_w4a16"})
         if not int8_quantization_available():
             disabled.update({"int8", "int8_convrot"})
             disabled_storage.update({"int8", "int8_convrot"})
+        svdq_layout = get_layout_class("TensorCoreSVDQuantW4A4Layout")
+        if svdq_layout is None or not svdq_layout.supports_fast_matmul():
+            # SVDQuant W4A4 needs sm_80+ int4 tensor cores (layout MIN_SM (8,0)).
+            disabled.add("svdquant_w4a4")
         if not nvfp4_compute:
             disabled.add("nvfp4")
         if not mxfp8_compute:

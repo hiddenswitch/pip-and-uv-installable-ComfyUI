@@ -128,6 +128,8 @@ We define 4 possible scaling parameters that should cover most recipes in the ne
 | float8_e4m3fn | float32 | float32 (scalar) | - | - | float32 (scalar) |
 | int8 | int8 | float32 ([out, 1] per-row, scalar accepted) | - | - | accepted but ignored |
 | int8_convrot | int8 | float32 ([out, 1] per-row) | - | - | accepted but ignored |
+| svdquant_w4a4 | int8 (packed int4) | bf16/fp16 ([in/64, out] per-group) | - | - | - |
+| awq_w4a16 | int8 (packed int4) | bf16/fp16 ([in/64, out] per-group) | - | - | - |
 
 You can find the defined formats in `comfy/quant_ops.py` (QUANT_ALGOS).
 
@@ -147,6 +149,29 @@ Per-layer `comfy_quant` JSON:
 The `convrot`/`per_row` keys are redundant with the format and kept for compatibility with checkpoints produced by ComfyUI-INT8-Fast. Foreign int8 checkpoints are normalized on load (`comfy.utils.convert_old_quants`): a per-layer `comfy_quant` JSON without a `"format"` key, or a bare int8 `.weight` with a sibling `.weight_scale` and no marker at all (ModelOpt int8 row-wise exports), both map onto these formats automatically, so `CheckpointLoaderSimple`/`UNETLoader` load them with no extra nodes.
 
 Hardware: int8 tensor-core matmul needs NVIDIA sm_75 (Turing) or newer and notably includes all of Ampere (sm_80/sm_86), where fp8 compute is unavailable. The triton kernels are independent of the comfy_kitchen "triton" backend (which is disabled below sm_89 for fp8e4nv reasons). On unsupported devices int8 weights still load (half the memory) and dequantize per forward.
+
+### SVDQuant W4A4 and AWQ W4A16 (`svdquant_w4a4`, `awq_w4a16`)
+
+Offline-calibrated 4-bit formats implemented natively by comfy_kitchen
+(`comfy_kitchen/tensor/svdquant_w4a4.py`, `awq_w4a16.py`) following nunchaku's
+conventions. SVDQuant stores packed int4 weights plus a rank-R SVD low-rank
+correction (`weight_proj_down`/`weight_proj_up`) and input smoothing
+(`weight_smooth_factor`); the kernel fuses int4 activation quantization, the
+low-rank branch, and the int4 GEMM. AWQ W4A16 keeps activations in bf16/fp16
+(used for modulation linears) with per-group scales and zero points
+(`weight_zeros`). Both are load-only: `quantize()` raises, calibration happens
+offline (DeepCompressor). Per-layer JSON: `{"format": "svdquant_w4a4",
+"act_unsigned": true}` marks nunchaku's post-GELU fc2 layers;
+`{"format": "awq_w4a16", "group_size": 64}` for the AWQ layers. LoRA bake on
+these layers falls back to a dense patched weight (no requantization path).
+
+Caveats: the current comfy_kitchen CUDA kernels are tuned for Blackwell; on
+Ampere (sm_86) the w4a4 path runs but measures slower than the int8 w8a8 path,
+so on 30-series/A-series treat these formats as a 4x weight-memory feature
+rather than a speedup. Checkpoints in raw nunchaku packing (key names
+`qweight`/`wscales`/`proj_down`, nunchaku tile-swizzled int4 order, fused qkv
+projections, int32-packed AWQ weights) are not yet converted automatically;
+only kitchen-format serialization (the `weight*` suffixes above) loads today.
 
 ### Ad-hoc quantization (quantize-on-load)
 

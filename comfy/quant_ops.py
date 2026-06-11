@@ -564,6 +564,22 @@ QUANT_ALGOS = {
         "comfy_tensor_layout": "TensorCoreNVFP4Layout",
         "group_size": 16,
     },
+    # SVDQuant W4A4 (nunchaku): packed int4 weights + per-group scales + SVD
+    # low-rank correction. Offline-calibrated (DeepCompressor); load-only.
+    "svdquant_w4a4": {
+        "storage_t": torch.int8,
+        "parameters": {"weight_scale", "weight_proj_down", "weight_proj_up", "weight_smooth_factor"},
+        "comfy_tensor_layout": "TensorCoreSVDQuantW4A4Layout",
+        "group_size": 64,
+    },
+    # AWQ W4A16: packed int4 weights + per-group fp scales/zeros, fp
+    # activations (nunchaku uses it for modulation linears). Load-only.
+    "awq_w4a16": {
+        "storage_t": torch.int8,
+        "parameters": {"weight_scale", "weight_zeros"},
+        "comfy_tensor_layout": "TensorCoreAWQW4A16Layout",
+        "group_size": 64,
+    },
 }
 
 if _CK_MXFP8_AVAILABLE:
