@@ -43,8 +43,10 @@ class _FakeResp:
 class _FakeSession:
     def __init__(self, routes: dict):
         self.routes = routes
+        self.calls: list[str] = []
 
     def get(self, url):
+        self.calls.append(url)
         for key, resp in self.routes.items():
             if url == key:
                 return resp
@@ -206,6 +208,33 @@ async def test_build_triton_windows_cu128_is_not_patched():
     assert z.read("triton/backends/nvidia/bin/ptxas.exe") == b"OLD_PTXAS_12"
     assert "triton_windows-3.7.0.post26.dist-info/METADATA" in z.namelist()
     assert _record_valid(out, "triton_windows-3.7.0.post26.dist-info")
+
+
+async def test_cuda13_binaries_memoized_per_variant():
+    session = _build_session(_make_triton_windows_wheel())
+    builder = tw.TritonWheelBuilder(session)
+    first = await builder.cuda13_binaries("cu130")
+    second = await builder.cuda13_binaries("cu130")
+    assert first is second  # served from the per-variant memo
+    archive = ("https://developer.download.nvidia.com/compute/cuda/redist/"
+               "cuda_nvcc/windows-x86_64/cuda_nvcc-windows-x86_64-13.0.1-archive.zip")
+    assert session.calls.count(archive) == 1  # not re-downloaded
+
+
+async def test_prewarm_targets_latest_version_both_projects():
+    session = _FakeSession({
+        "https://pypi.org/simple/triton-windows/": _FakeResp(text=(
+            '<a href="https://f/triton_windows-3.7.0.post26-cp312-cp312-win_amd64.whl">a</a>'
+            '<a href="https://f/triton_windows-3.7.0.post26-cp313-cp313-win_amd64.whl">b</a>'
+            '<a href="https://f/triton_windows-3.6.0.post1-cp312-cp312-win_amd64.whl">old</a>'
+        )),
+    })
+    targets = [t async for t in tw.prewarm_targets(session, cuda_variants=("cu130", "cu128"))]
+    # 2 latest wheels x 2 projects x 2 variants
+    assert len(targets) == 8
+    assert not any("3.6.0" in served for served, _ in targets)  # only the latest version
+    assert any(served.startswith("triton-") for served, _ in targets)
+    assert any(served.startswith("triton_windows-") for served, _ in targets)
 
 
 if __name__ == "__main__":

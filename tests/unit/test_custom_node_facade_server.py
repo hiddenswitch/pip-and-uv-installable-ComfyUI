@@ -252,6 +252,42 @@ async def test_triton_package_route_builds_and_caches(monkeypatch, tmp_path):
         await client.close()
 
 
+async def test_triton_prewarm_builds_into_cache(monkeypatch, tmp_path):
+    _FakeRegistry.calls = 0
+    _FakeTritonBuilder.calls = []
+
+    async def fake_targets(session, **kwargs):
+        del session, kwargs
+        yield "triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"
+        yield "triton_windows-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"
+
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(facade_server, "TritonWheelBuilder", _FakeTritonBuilder)
+    monkeypatch.setattr(facade_server, "triton_prewarm_targets", fake_targets)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {})
+
+    config = Configuration()
+    config.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=config)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        await app["facade_triton_prewarm"]  # let the background prewarm finish
+        assert sorted(_FakeTritonBuilder.calls) == [
+            ("triton-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"),
+            ("triton_windows-3.7.0.post26-cp312-cp312-win_amd64.whl", "cu130"),
+        ]
+        # a request is now served from the prewarmed cache without rebuilding
+        _FakeTritonBuilder.calls = []
+        resp = await client.get("/packages/triton/cu130/triton-3.7.0.post26-cp312-cp312-win_amd64.whl")
+        assert resp.status == 200
+        assert await resp.read() == b"PATCHED_WHEEL_BYTES"
+        assert _FakeTritonBuilder.calls == []
+    finally:
+        await client.close()
+
+
 async def test_serve_pip_uses_snapshot_registry_when_configured(monkeypatch):
     _FakeRegistry.calls = 0
     _FakeSnapshotRegistry.calls = 0

@@ -20,15 +20,23 @@ served from ``/packages/triton/{cuda}/{filename}``.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import dataclasses
 import hashlib
 import html
 import io
+import logging
 import re
 import zipfile
 
 import aiohttp
+
+logger = logging.getLogger(__name__)
+
+# Plain CUDA variants warmed at startup. cu13x wheels need the expensive CUDA-13
+# toolchain swap; cu128 is rename-only but still worth caching.
+DEFAULT_PREWARM_CUDA_VARIANTS = ("cu128", "cu130", "cu131", "cu132")
 
 PYPI_SIMPLE = "https://pypi.org/simple"
 PYPI_JSON = "https://pypi.org/pypi"
@@ -146,6 +154,8 @@ class TritonWheelBuilder:
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self._session = session
+        self._cuda_binaries: dict[str, dict[str, bytes]] = {}
+        self._cuda_locks: dict[str, asyncio.Lock] = {}
 
     async def fetch_url(self, url: str) -> bytes:
         async with self._session.get(url) as resp:
@@ -166,8 +176,23 @@ class TritonWheelBuilder:
         raise KeyError(f"no upstream triton-windows wheel for {served_filename!r}")
 
     async def cuda13_binaries(self, cuda: str) -> dict[str, bytes]:
-        """Fetch the CUDA 13.x redist binaries to patch into the wheel, keyed by
-        their destination path inside the wheel."""
+        """CUDA 13.x redist binaries to patch into the wheel, keyed by their
+        destination path inside the wheel. Memoized per CUDA variant so a
+        warm/build sweep does not re-download the (~30 MB) redist archives once
+        per wheel."""
+        cached = self._cuda_binaries.get(cuda)
+        if cached is not None:
+            return cached
+        lock = self._cuda_locks.setdefault(cuda, asyncio.Lock())
+        async with lock:
+            cached = self._cuda_binaries.get(cuda)
+            if cached is not None:
+                return cached
+            result = await self._fetch_cuda13_binaries(cuda)
+            self._cuda_binaries[cuda] = result
+            return result
+
+    async def _fetch_cuda13_binaries(self, cuda: str) -> dict[str, bytes]:
         label = cuda_redist_label(cuda)
         if label is None:
             raise ValueError(f"not a CUDA-13 variant: {cuda}")
@@ -212,6 +237,35 @@ class TritonWheelBuilder:
             replacements=replacements,
             rename_to_triton=rename,
         )
+
+
+async def _triton_windows_latest_win_wheels(session: aiohttp.ClientSession) -> list[str]:
+    """The win_amd64 triton-windows wheel filenames at the latest version."""
+    from packaging.version import InvalidVersion, Version
+
+    wheels = [name for name, _ in await _pypi_wheels(session, "triton-windows") if "win_amd64" in name]
+
+    def version_of(filename: str) -> Version | None:
+        try:
+            return Version(filename.split("-")[1])
+        except (IndexError, InvalidVersion):
+            return None
+
+    versions = [v for v in (version_of(name) for name in wheels) if v is not None]
+    if not versions:
+        return []
+    latest = max(versions)
+    return sorted(name for name in wheels if version_of(name) == latest)
+
+
+async def prewarm_targets(session: aiohttp.ClientSession, cuda_variants=DEFAULT_PREWARM_CUDA_VARIANTS):
+    """Yield ``(served_filename, cuda)`` for the latest triton-windows wheels
+    across both the ``triton`` (renamed) and ``triton-windows`` projects."""
+    filenames = await _triton_windows_latest_win_wheels(session)
+    for cuda in cuda_variants:
+        for filename in filenames:
+            yield filename, cuda
+            yield _rename_filename(filename, "triton"), cuda
 
 
 def _rebuild_wheel(
