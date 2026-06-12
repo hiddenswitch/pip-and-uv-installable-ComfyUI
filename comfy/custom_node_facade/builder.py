@@ -26,7 +26,8 @@ import fsspec
 from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
-_FACADE_BUILD_REVISION = 4
+# 5: gguf stripped from generated dependencies (upstreamed into this fork)
+_FACADE_BUILD_REVISION = 5
 # Dependencies stripped from every generated wheel. gguf is a runtime
 # dependency of this fork itself (pyproject.toml), and the registry node with
 # the same name vendors an unrelated repo that breaks `import gguf`.
@@ -404,10 +405,11 @@ def _render_metadata(
     project: FacadeProject,
     version: FacadeVersion,
     dependencies: list[str],
+    distribution_name: str | None = None,
 ) -> bytes:
     lines = [
         "Metadata-Version: 2.1",
-        f"Name: {project.canonical_name}",
+        f"Name: {distribution_name or project.canonical_name}",
         f"Version: {version.version}",
         f"Summary: {project.description or project.display_name}",
         f"Home-page: {project.repo_url}",
@@ -543,7 +545,16 @@ class FacadeWheelBuilder:
         self,
         project: FacadeProject | str,
         version: FacadeVersion | str,
+        distribution_name: str | None = None,
     ) -> CachedWheel:
+        """Build (or fetch from cache) the wheel for *project* at *version*.
+
+        ``distribution_name`` is the canonicalized name the client requested.
+        When it differs from the project's canonical name (an alias request),
+        the wheel is named and its METADATA ``Name:`` set to the requested
+        name — pip and uv reject an index that returns a distribution named
+        differently from the one they asked for.
+        """
         resolved_project = await self._registry.get_project(project) if isinstance(project, str) else project
         if resolved_project is None:
             raise KeyError(f"Unknown facade project: {project}")
@@ -552,11 +563,14 @@ class FacadeWheelBuilder:
         if resolved_version is None:
             raise KeyError(f"Unknown facade version: {resolved_project.canonical_name}@{version}")
 
+        name = canonicalize_project_name(distribution_name) if distribution_name else resolved_project.canonical_name
+
         with tracer.start_as_current_span("Build Facade Wheel") as span:
             span.set_attribute("facade.project_name", resolved_project.canonical_name)
+            span.set_attribute("facade.distribution_name", name)
             span.set_attribute("facade.node_id", resolved_project.node_id)
             span.set_attribute("facade.version", resolved_version.version)
-            wheel_name = self.wheel_filename(resolved_project, resolved_version.version)
+            wheel_name = self.wheel_filename(resolved_project, resolved_version.version, name)
             wheel_path = self._cache.wheel_path(resolved_project, wheel_name, self._cache_revision)
             span.set_attribute("facade.wheel_path", wheel_path)
             if self._cache.exists(wheel_path):
@@ -564,7 +578,7 @@ class FacadeWheelBuilder:
                 return self._cache.cached_wheel(wheel_path)
 
             span.set_attribute("facade.cache_hit", False)
-            lock = self._locks.setdefault((resolved_project.canonical_name, resolved_version.version), asyncio.Lock())
+            lock = self._locks.setdefault((name, resolved_version.version), asyncio.Lock())
             async with lock:
                 if self._cache.exists(wheel_path):
                     span.set_attribute("facade.cache_hit_after_lock", True)
@@ -589,6 +603,7 @@ class FacadeWheelBuilder:
                     archive_bytes,
                     wheel_path,
                     dependency_package_names,
+                    name,
                 )
                 return built
 
@@ -599,6 +614,7 @@ class FacadeWheelBuilder:
         archive_bytes: bytes,
         wheel_path: str,
         dependency_package_names: list[str],
+        distribution_name: str | None = None,
     ) -> CachedWheel:
         with tracer.start_as_current_span("Assemble Facade Wheel") as span:
             span.set_attribute("facade.project_name", project.canonical_name)
@@ -611,9 +627,9 @@ class FacadeWheelBuilder:
                 repo_root = self._select_repo_root(source_root)
                 span.set_attribute("facade.repo_root", str(repo_root))
 
-                requirements = self._collect_requirements(project, version, repo_root, dependency_package_names)
+                requirements = self._collect_requirements(project, version, repo_root, dependency_package_names, distribution_name)
                 span.set_attribute("facade.requirement_count", len(requirements))
-                self._write_wheel(project, version, repo_root, requirements, wheel_path)
+                self._write_wheel(project, version, repo_root, requirements, wheel_path, distribution_name)
             return self._cache.cached_wheel(wheel_path)
 
     def _collect_requirements(
@@ -622,11 +638,16 @@ class FacadeWheelBuilder:
         version: FacadeVersion,
         repo_root: Path,
         dependency_package_names: list[str],
+        distribution_name: str | None = None,
     ) -> list[str]:
         dependencies: list[str] = list(version.dependencies) or _read_requirements_file(repo_root)
         dependencies.extend(project.extra_requirements)
 
         dependencies.extend(dependency_package_names)
+
+        self_names = {canonicalize_project_name(project.canonical_name)}
+        if distribution_name:
+            self_names.add(canonicalize_project_name(distribution_name))
 
         filtered: list[str] = []
         seen: set[str] = set()
@@ -638,7 +659,7 @@ class FacadeWheelBuilder:
                 continue
             stripped = _strip_url_dependency(stripped)
             dep_name = _parse_requirement_name(stripped)
-            if dep_name in skipped or dep_name == canonicalize_project_name(project.canonical_name):
+            if dep_name in skipped or dep_name in self_names:
                 continue
             if dep_name in _FACADE_EXPANDED_DEPENDENCIES:
                 for expanded in _FACADE_EXPANDED_DEPENDENCIES[dep_name]:
@@ -661,9 +682,11 @@ class FacadeWheelBuilder:
         repo_root: Path,
         requirements: list[str],
         wheel_path: str,
+        distribution_name: str | None = None,
     ) -> None:
-        module_name = _stub_package_name(project.canonical_name)
-        dist_name = _wheel_distribution_name(project.canonical_name)
+        served_name = distribution_name or project.canonical_name
+        module_name = _stub_package_name(served_name)
+        dist_name = _wheel_distribution_name(served_name)
         dist_info = f"{dist_name}-{version.version}.dist-info"
 
         with tempfile.TemporaryDirectory(prefix="comfyui_facade_wheel_") as staging_dir:
@@ -675,9 +698,9 @@ class FacadeWheelBuilder:
             (tree / module_name / "__init__.py").write_bytes(b"")
             (tree / module_name / "entrypoint.py").write_bytes(_render_entrypoint_module(project))
             (tree / dist_info).mkdir()
-            (tree / dist_info / "METADATA").write_bytes(_render_metadata(project, version, requirements))
+            (tree / dist_info / "METADATA").write_bytes(_render_metadata(project, version, requirements, served_name))
             (tree / dist_info / "WHEEL").write_bytes(_render_wheel())
-            (tree / dist_info / "entry_points.txt").write_bytes(_render_entry_points(project.canonical_name, module_name))
+            (tree / dist_info / "entry_points.txt").write_bytes(_render_entry_points(served_name, module_name))
 
             # Symlink vendor tree (zip follows symlinks by default on Linux)
             vendor_dir = tree / module_name / "_vendor" / project.repo_name
@@ -714,8 +737,8 @@ class FacadeWheelBuilder:
             self._cache.copy_from(str(temp_wheel), wheel_path)
 
     @staticmethod
-    def wheel_filename(project: FacadeProject, version: str) -> str:
-        dist_name = _wheel_distribution_name(project.canonical_name)
+    def wheel_filename(project: FacadeProject, version: str, distribution_name: str | None = None) -> str:
+        dist_name = _wheel_distribution_name(distribution_name or project.canonical_name)
         return f"{dist_name}-{version}-py3-none-any.whl"
 
     async def _build_rewrite_wheel(

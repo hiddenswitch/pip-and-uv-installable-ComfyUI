@@ -309,3 +309,114 @@ async def test_serve_pip_uses_snapshot_registry_when_configured(monkeypatch):
         assert _FakeSnapshotRegistry.snapshot_uri == configuration.pip_facade_snapshot_uri
     finally:
         await client.close()
+
+
+async def test_alias_request_serves_wheels_named_after_requested_name(monkeypatch, tmp_path):
+    """Regression: uv rejects an index that returns a distribution named
+    differently from the requested one ("expected distribution for
+    comfyui-ipadapter-plus, got distribution for comfyui-ipadapter-plus-fork").
+    A project page requested under an alias must list wheels named after the
+    requested name, and the built wheel's METADATA Name must match."""
+    import io
+    import zipfile
+
+    from aiohttp import web
+
+    from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion, canonicalize_project_name
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("NeatNodes-fork/__init__.py", "NODE_CLASS_MAPPINGS = {}\n")
+
+    archive_app = web.Application()
+
+    async def serve_archive(_request):
+        return web.Response(body=archive.getvalue(), content_type="application/zip")
+
+    archive_app.router.add_get("/node.zip", serve_archive)
+    archive_client = TestClient(TestServer(archive_app))
+    await archive_client.start_server()
+
+    project = FacadeProject(
+        canonical_name="neat-nodes-fork",
+        display_name="Neat Nodes (fork)",
+        node_id="neat_nodes_fork",
+        repo_url="https://example.invalid/NeatNodes-fork",
+        repo_name="NeatNodes-fork",
+        description="",
+        aliases=("neat-nodes", "neat-nodes-fork"),
+        extra_requirements=(),
+        skip_requirements=frozenset(),
+        depends_on=(),
+        latest_version="1.0.0",
+    )
+    version = FacadeVersion(
+        version="1.0.0",
+        download_url=str(archive_client.make_url("/node.zip")),
+        dependencies=("sentencepiece",),
+        deprecated=False,
+    )
+
+    class _AliasRegistry:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        async def list_projects(self):
+            return [project]
+
+        async def get_project(self, name):
+            if canonicalize_project_name(name) in project.aliases:
+                return project
+            return None
+
+        async def list_versions(self, _project):
+            return [version]
+
+        async def get_version(self, _project, version_str):
+            return version if version_str == version.version else None
+
+        async def dependency_project_name(self, dependency_id):
+            return canonicalize_project_name(dependency_id)
+
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _AliasRegistry)
+    monkeypatch.setattr(facade_server, "PYPI_PROXY_INDEX", {})
+
+    config = Configuration()
+    config.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=config)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        # Alias page lists wheels named after the requested name.
+        alias_page = await client.get("/simple/neat-nodes/")
+        assert alias_page.status == 200
+        alias_html = await alias_page.text()
+        assert "/packages/neat-nodes/1.0.0/neat_nodes-1.0.0-py3-none-any.whl" in alias_html
+        assert "neat_nodes_fork" not in alias_html
+
+        # Canonical page is unchanged.
+        canonical_page = await client.get("/simple/neat-nodes-fork/")
+        assert canonical_page.status == 200
+        assert "neat_nodes_fork-1.0.0-py3-none-any.whl" in await canonical_page.text()
+
+        # The wheel downloaded under the alias carries the alias as its
+        # distribution name — this is what uv verifies.
+        wheel_response = await client.get("/packages/neat-nodes/1.0.0/neat_nodes-1.0.0-py3-none-any.whl")
+        assert wheel_response.status == 200
+        wheel_bytes = await wheel_response.read()
+        with zipfile.ZipFile(io.BytesIO(wheel_bytes)) as wheel:
+            names = wheel.namelist()
+            assert "neat_nodes-1.0.0.dist-info/METADATA" in names
+            metadata = wheel.read("neat_nodes-1.0.0.dist-info/METADATA").decode("utf-8")
+            assert "Name: neat-nodes" in metadata
+            assert "Name: neat-nodes-fork" not in metadata
+
+        # The canonical wheel is also still served under its own name.
+        canonical_wheel = await client.get("/packages/neat-nodes-fork/1.0.0/neat_nodes_fork-1.0.0-py3-none-any.whl")
+        assert canonical_wheel.status == 200
+        with zipfile.ZipFile(io.BytesIO(await canonical_wheel.read())) as wheel:
+            metadata = wheel.read("neat_nodes_fork-1.0.0.dist-info/METADATA").decode("utf-8")
+            assert "Name: neat-nodes-fork" in metadata
+    finally:
+        await client.close()
+        await archive_client.close()

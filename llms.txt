@@ -382,7 +382,7 @@ wants the output to depict.
 
    ```bash
    uv pip install --upgrade --torch-backend=auto \
-     "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+     --extra-index-url https://nodes.appmana.com/simple/ comfyui
    ```
 
    If no venv is present, install `uv` in the way that matches the
@@ -427,15 +427,17 @@ wants the output to depict.
    `python3` may be 3.10/3.11/3.12, and the latest ComfyUI + torch
    stack is targeted at 3.13.
 
-2. **ComfyUI itself + torch.** Install from the git repo, **not** from
-   PyPI — this fork ships features (workflow URI loading, note URL
-   extraction, foreign-format translation, the pip facade, etc.) that
-   the upstream PyPI `comfyui` package doesn't have. `--torch-backend=auto`
-   picks the right CUDA / ROCm / MPS wheel for the host (ROCm 7.2 is
-   the default for AMD on Linux; works for almost every AMD user):
+2. **ComfyUI itself + torch.** Install the `comfyui` package from the
+   appmana index (`--extra-index-url https://nodes.appmana.com/simple/`),
+   **not** plain PyPI — the index serves this fork, which ships features
+   (workflow URI loading, note URL extraction, foreign-format translation,
+   the pip facade, etc.) that the upstream PyPI `comfyui` placeholder
+   doesn't have. `--torch-backend=auto` picks the right CUDA / ROCm / MPS
+   wheel for the host (ROCm 7.2 is the default for AMD on Linux; works for
+   almost every AMD user):
    ```bash
    uv pip install --torch-backend=auto \
-     "comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
+     --extra-index-url https://nodes.appmana.com/simple/ comfyui
    ```
 
    **Older NVIDIA GPUs (Maxwell / Pascal / Volta — anything older than
@@ -450,7 +452,7 @@ wants the output to depict.
    Quadro P-series (Pascal), and Tesla V100 / Titan V (Volta):
    ```bash
    uv pip install --torch-backend=cu126 \
-     "comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
+     --extra-index-url https://nodes.appmana.com/simple/ comfyui
    ```
    Symptom of the wrong wheel on these GPUs: `comfyui env check` itself
    crashes with `RuntimeError: cuDNN version 91900 is not compatible
@@ -461,7 +463,7 @@ wants the output to depict.
    ```bash
    # With dev tooling (pytest, lint, etc.):
    uv pip install --torch-backend=auto \
-     "comfyui[dev] @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git"
+     --extra-index-url https://nodes.appmana.com/simple/ "comfyui[dev]"
    ```
 
    **CPU-only hosts use the same install command.** Don't pass
@@ -1201,7 +1203,7 @@ https://docs.astral.sh/uv/getting-started/installation/.
 **The shape of a shareable invocation:**
 
 ```bash
-uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+uvx --from comfyui --extra-index-url https://nodes.appmana.com/simple/ \
     --torch-backend=auto \
     comfyui workflows run <template-or-path-or-url> -a -g \
     --prompt '…' [--negative-prompt '…'] [--seed N] \
@@ -1277,7 +1279,7 @@ a repo, or any HTTP static host):
 ```bash
 comfyui workflows convert my_wf.json -o my_wf_api.json
 # Share the raw URL as the first positional to `workflows run`:
-uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+uvx --from comfyui --extra-index-url https://nodes.appmana.com/simple/ \
     --torch-backend=auto \
     comfyui workflows run https://gist.../raw/my_wf_api.json -a -g \
     --prompt '…'
@@ -1292,7 +1294,7 @@ extracted from the source PNG's `parameters` text chunk):
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Generate:
-uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+uvx --from comfyui --extra-index-url https://nodes.appmana.com/simple/ \
     --torch-backend=auto \
     comfyui workflows run image_anima_preview -a -g \
     --prompt 'masterpiece, best quality, score_9, score_8, score_7, 1girl, solo, Hatsune Miku, maid uniform, apron, portrait, holding notebook covering face, holding, notebook, sketchbook writing text "WAI-ANIMA" and chibi' \
@@ -1322,7 +1324,7 @@ through Triton, so without it the attention backend silently falls
 back. Example, recipient on CUDA 13.0:
 
 ```bash
-uvx --from 'comfyui @ git+https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI.git' \
+uvx --from comfyui --extra-index-url https://nodes.appmana.com/simple/ \
     --torch-backend=cu130 \
     --extra-index-url https://nodes.appmana.com/simple/cu130/ \
     --with triton --with sageattention \

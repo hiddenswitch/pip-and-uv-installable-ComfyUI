@@ -7,7 +7,7 @@ See the [README](../README.md) for installation and getting started.
 ## Installing
 
 ```shell
-uv pip install --torch-backend=auto "comfyui@git+https://github.com/hiddenswitch/ComfyUI.git"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 `--torch-backend=auto` installs the correct `torch`, `torchvision`, and `torchaudio` for your platform. Omit `--torch-backend` if you want to keep your currently installed PyTorch.

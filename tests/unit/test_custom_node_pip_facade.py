@@ -747,3 +747,59 @@ async def test_comfyui_proxy_lists_release_wheels():
     assert "some-other-thing.zip" not in body
     # queries the configured repo
     assert "/repos/o/r/releases" in session.last_url
+
+
+async def test_manager_name_collision_resolves_to_registry_owner(monkeypatch):
+    """Regression for the CI failure where /simple/comfyui-ipadapter-plus/
+    served pamparamm's fork: two manager entries whose repo basenames
+    canonicalize identically must resolve so that the registry node owning the
+    exact id gets the name and the fork keeps its own registry id."""
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def manager_registry(_session):
+        return [
+            {
+                "title": "ComfyUI IPAdapter plus",
+                "reference": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+                "description": "",
+            },
+            {
+                "title": "ComfyUI IPAdapter plus fork",
+                "reference": "https://github.com/pamparamm/ComfyUI_IPAdapter_plus",
+                "description": "",
+            },
+        ]
+
+    async def cnr_nodes(_self):
+        return [
+            {
+                "id": "comfyui_ipadapter_plus",
+                "name": "ComfyUI_IPAdapter_plus",
+                "repository": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "2.0.0"},
+            },
+            {
+                "id": "comfyui_ipadapter_plus_fork",
+                "name": "ComfyUI_IPAdapter_plus_fork",
+                "repository": "https://github.com/pamparamm/ComfyUI_IPAdapter_plus",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "2.0.1"},
+            },
+        ]
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", cnr_nodes)
+
+    registry = FacadeRegistry(session=None)  # type: ignore[arg-type]
+
+    plus = await registry.get_project("comfyui-ipadapter-plus")
+    assert plus is not None
+    assert plus.repo_url == "https://github.com/cubiq/ComfyUI_IPAdapter_plus"
+    assert plus.node_id == "comfyui_ipadapter_plus"
+
+    fork = await registry.get_project("comfyui-ipadapter-plus-fork")
+    assert fork is not None
+    assert fork.repo_url == "https://github.com/pamparamm/ComfyUI_IPAdapter_plus"
+    assert fork.node_id == "comfyui_ipadapter_plus_fork"

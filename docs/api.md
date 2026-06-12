@@ -45,7 +45,7 @@ You can use the built-in Python client library by installing this package withou
 
 ```shell
 pip install aiohttp
-pip install --no-deps git+https://github.com/hiddenswitch/ComfyUI.git
+pip install --no-deps --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 Then the following idiomatic pattern is available:

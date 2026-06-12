@@ -200,7 +200,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ci = [
-    "comfyui @ git+https://github.com/hiddenswitch/ComfyUI.git",
+    "comfyui",
     "pytest",
     "pytest-asyncio",
     "pillow",
@@ -210,10 +210,10 @@ ci = [
 my_nodes = "my_nodes"
 ```
 
-Install for testing with:
+Install for testing with (the index is where the `comfyui` package resolves):
 
 ```shell
-uv pip install --torch-backend=auto -e ".[ci]"
+uv pip install --torch-backend=auto --extra-index-url https://nodes.appmana.com/simple/ -e ".[ci]"
 ```
 
 ### Registering Models

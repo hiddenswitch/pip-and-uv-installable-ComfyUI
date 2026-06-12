@@ -102,7 +102,7 @@ The installation process for ComfyUI-Manager requires two steps: installing its 
     First, ensure you have installed `comfyui` from this repository as described in the Installing section. Then, run the following command from your ComfyUI workspace directory (the one containing your `.venv` folder) to install the extra dependencies for ComfyUI-Manager:
 
     ```shell
-    uv pip install --torch-backend=auto --upgrade "comfyui[comfyui_manager]@git+https://github.com/hiddenswitch/ComfyUI.git"
+    uv pip install --torch-backend=auto --upgrade --extra-index-url https://nodes.appmana.com/simple/ "comfyui[comfyui_manager]"
     ```
 
 2.  **Clone the repository.**
@@ -679,10 +679,11 @@ Create a `requirements.txt`:
 comfyui
 ```
 
-Observe `comfyui` is now a requirement for using your custom nodes. This will ensure you will be able to access `comfyui` as a library. For example, your code will now be able to import the folder paths using `from comfyui.cmd import folder_paths`. Because you will be using my fork, use this:
+Observe `comfyui` is now a requirement for using your custom nodes. This will ensure you will be able to access `comfyui` as a library. For example, your code will now be able to import the folder paths using `from comfyui.cmd import folder_paths`. Because you will be using my fork, point your `requirements.txt` at the package index so `comfyui` resolves to it:
 
 ```
-comfyui @ git+https://github.com/hiddenswitch/ComfyUI.git
+--extra-index-url https://nodes.appmana.com/simple/
+comfyui
 ```
 
 Additionally, create a `pyproject.toml`:
