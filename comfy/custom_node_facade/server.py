@@ -153,16 +153,20 @@ def create_facade_app(
                 raise web.HTTPNotFound(text="Unknown project")
             span.set_attribute("facade.project_name", project.canonical_name)
 
+            # Serve the page under the name the client asked for: pip and uv
+            # reject an index whose distributions are named differently from
+            # the requested project, so alias requests get alias-named wheels.
+            span.set_attribute("facade.distribution_name", project_name)
             versions = await registry.list_versions(project)
             span.set_attribute("facade.version_count", len(versions))
             links = "\n".join(
-                f'<a href="/packages/{project.canonical_name}/{item.version}/'
-                f'{builder.wheel_filename(project, item.version)}">'
-                f'{html.escape(builder.wheel_filename(project, item.version))}</a><br/>'
+                f'<a href="/packages/{project_name}/{item.version}/'
+                f'{builder.wheel_filename(project, item.version, project_name)}">'
+                f'{html.escape(builder.wheel_filename(project, item.version, project_name))}</a><br/>'
                 for item in versions
             )
             return web.Response(
-                text=_simple_html(f"Simple Index for {project.canonical_name}", links),
+                text=_simple_html(f"Simple Index for {project_name}", links),
                 content_type="text/html",
             )
 
@@ -171,21 +175,23 @@ def create_facade_app(
             registry: FacadeRegistryProtocol = app["facade_registry"]
             builder: FacadeWheelBuilder = app["facade_builder"]
 
+            requested_name = canonicalize_project_name(request.match_info["project"])
             project = await registry.get_project(request.match_info["project"])
             if project is None:
                 raise web.HTTPNotFound(text="Unknown project")
             span.set_attribute("facade.project_name", project.canonical_name)
+            span.set_attribute("facade.distribution_name", requested_name)
 
             version = await registry.get_version(project, request.match_info["version"])
             if version is None:
                 raise web.HTTPNotFound(text="Unknown version")
             span.set_attribute("facade.version", version.version)
 
-            expected_name = builder.wheel_filename(project, version.version)
+            expected_name = builder.wheel_filename(project, version.version, requested_name)
             if request.match_info["filename"] != expected_name:
                 raise web.HTTPNotFound(text="Filename does not match requested project/version")
 
-            wheel = await builder.build_wheel(project, version)
+            wheel = await builder.build_wheel(project, version, requested_name)
             span.set_attribute("facade.wheel_path", wheel.cache_path)
             if wheel.local_path is not None:
                 return web.FileResponse(path=wheel.local_path)
