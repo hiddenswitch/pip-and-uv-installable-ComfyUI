@@ -1362,3 +1362,40 @@ def test_direct_materialize_prefetch_allows_dtype_changing_weight(monkeypatch):
     ) is not None
     assert calls[0][1] is torch.bfloat16
     assert calls[0][5]["prefetch_hint"] is False
+
+
+def test_windows_linear_allocates_weights_eagerly_when_aimdo_disabled(monkeypatch):
+    """Regression: the Windows deferred-weight path checked the bare
+    ``memory_management.aimdo_enabled`` function object (always truthy), so on
+    Windows every Linear was constructed with ``weight=None`` even with dynamic
+    VRAM disabled — breaking any code that touches ``.weight`` before a state
+    dict load (the CI unit-test failures on the Windows runner)."""
+    from comfy import model_management, ops
+
+    monkeypatch.setattr(model_management, "WINDOWS", True)
+
+    layer = ops.manual_cast.Linear(3, 2)
+    assert layer.weight is not None
+    assert layer.weight.shape == (2, 3)
+
+
+def test_windows_linear_lazy_load_zero_fills_out_in_weight_shape(monkeypatch):
+    """With Windows + aimdo active, construction defers weights; a state dict
+    load that misses the weight key must zero-fill with nn.Linear's
+    (out_features, in_features) shape, not the transpose."""
+    from comfy import memory_management, model_management, ops
+
+    monkeypatch.setattr(model_management, "WINDOWS", True)
+    monkeypatch.setattr(memory_management, "aimdo_allocator", object())
+
+    layer = ops.manual_cast.Linear(3, 2)
+    assert layer.weight is None
+
+    layer.load_state_dict({}, strict=False)
+    assert layer.weight.shape == (2, 3)
+    assert layer.bias.shape == (2,)
+
+    loaded = ops.manual_cast.Linear(3, 2)
+    loaded.load_state_dict({"weight": torch.ones(2, 3), "bias": torch.zeros(2)}, strict=False)
+    assert loaded.weight.shape == (2, 3)
+    assert torch.equal(loaded.weight, torch.ones(2, 3))

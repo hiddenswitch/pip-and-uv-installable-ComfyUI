@@ -191,7 +191,18 @@ def test_workflows_run_workflow_specific_help_order():
     workflow_params = out.index("Common parameters")
     default_params = out.index("Arguments")
 
-    assert explanation < workflow_params < default_params
+    def _context(label: str, position: int) -> str:
+        return f"{label}@{position}: ...{out[max(0, position - 120):position + 160]}..."
+
+    diagnostics = "\n".join(
+        (
+            f"head: {out[:300]}",
+            _context("explanation", explanation),
+            _context("workflow_params", workflow_params),
+            _context("default_params", default_params),
+        )
+    )
+    assert explanation < workflow_params < default_params, diagnostics
 
 
 def test_workflows_run_workflow_specific_help_accepts_png_workflow(tmp_path):
