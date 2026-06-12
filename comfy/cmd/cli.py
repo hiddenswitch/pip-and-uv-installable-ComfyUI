@@ -1499,9 +1499,12 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
 
     @staticmethod
     def _split_help_before_default_params(help_text: str) -> tuple[str, str]:
-        """Split rich Typer help before the standard Arguments/Options panels."""
+        """Split rich Typer help before the standard Arguments/Options panels.
+
+        Legacy Windows consoles make rich substitute ASCII box characters for
+        the rounded ones, so match both border styles."""
         plain_help = re.sub(r"\x1b\[[0-9;]*m", "", help_text)
-        match = re.search(r"(?m)^\s*╭─ (Arguments|Options) ", plain_help)
+        match = re.search(r"(?m)^\s*(?:╭─+|\+-+) (Arguments|Options) ", plain_help)
         if match is None:
             return help_text, ""
         split_at = _plain_index_to_raw_index(help_text, match.start())
