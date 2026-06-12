@@ -26,7 +26,8 @@ import fsspec
 from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
-_FACADE_BUILD_REVISION = 4
+# 5: gguf stripped from generated dependencies (upstreamed into this fork)
+_FACADE_BUILD_REVISION = 5
 # Dependencies stripped from every generated wheel. gguf is a runtime
 # dependency of this fork itself (pyproject.toml), and the registry node with
 # the same name vendors an unrelated repo that breaks `import gguf`.
