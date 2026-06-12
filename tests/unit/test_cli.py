@@ -439,3 +439,31 @@ def test_serve_starts_and_reaches_ready():
         )
     finally:
         process.shutdown()
+
+
+def test_workflows_run_workflow_specific_help_order_legacy_windows(monkeypatch):
+    """Regression for the Windows runner: legacy consoles render rich panels
+    with square box borders, which the help splitter didn't match, so the
+    custom workflow panels printed after the generic Arguments/Options panels
+    and the help-order test failed with the Common parameters panel at the
+    end of the output."""
+    import rich.console
+
+    original_init = rich.console.Console.__init__
+
+    def legacy_init(self, *args, **kwargs):
+        kwargs.setdefault("legacy_windows", True)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(rich.console.Console, "__init__", legacy_init)
+
+    workflow = "tests/inference/workflows/z_image-0.json"
+    result = runner.invoke(app, ["workflows", "run", workflow, "--help"], env={"COLUMNS": "220"})
+    assert result.exit_code == 0
+    out = " ".join(_plain(result.output).split())
+
+    explanation = out.index("Execute workflow(s) locally and exit.")
+    workflow_params = out.index("Common parameters")
+    default_params = out.index("Arguments")
+
+    assert explanation < workflow_params < default_params, out[:300]
