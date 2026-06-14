@@ -5,7 +5,6 @@ logger = logging.getLogger(__name__)
 
 from . import memory_management
 from . import model_management
-from . import model_patcher
 
 import comfy_aimdo.control
 import comfy_aimdo.host_buffer
@@ -41,7 +40,6 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
         else: #INFO
             comfy_aimdo.control.set_log_info()
 
-        model_patcher.CoreModelPatcher = model_patcher.ModelPatcherDynamic
         memory_management.aimdo_allocator = comfy_aimdo.torch.get_torch_allocator()
         logger.info("DynamicVRAM support detected and enabled")
     else:

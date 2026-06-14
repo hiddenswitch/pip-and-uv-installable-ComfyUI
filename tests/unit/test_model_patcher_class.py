@@ -100,11 +100,13 @@ class TestModelPatcherIsDynamic:
     @pytest.mark.parametrize("load_device,device_name", get_test_devices())
     def test_model_patcher_is_not_dynamic(self, load_device, device_name):
         """Standard ModelPatcher returns False for is_dynamic() on any device."""
+        from comfy import memory_management
         from comfy.model_patcher import ModelPatcher
 
         model = torch.nn.Linear(10, 10)
-        patcher = ModelPatcher(model, load_device=load_device, offload_device=torch.device('cpu'))
-        assert patcher.is_dynamic() is False
+        with patch.object(memory_management, 'aimdo_allocator', None):
+            patcher = ModelPatcher(model, load_device=load_device, offload_device=torch.device('cpu'))
+            assert patcher.is_dynamic() is False
 
     @pytest.mark.parametrize("load_device,device_name", get_test_devices())
     def test_model_patcher_dynamic_class_and_is_dynamic(self, load_device, device_name):
@@ -126,3 +128,80 @@ class TestModelPatcherIsDynamic:
             # GPU: ModelPatcherDynamic.__new__ returns actual ModelPatcherDynamic
             assert type(patcher) is ModelPatcherDynamic
             assert patcher.is_dynamic() is True
+
+
+class TestModelPatcherParent:
+    """Tests for parent tracking used by cloned/delegate patchers."""
+
+    def test_parent_can_be_assigned_for_core_delegate(self):
+        """Custom nodes can attach a dynamic parent to a core patcher delegate."""
+        from comfy import memory_management
+        from comfy.model_patcher import ModelPatcher
+
+        model = torch.nn.Linear(10, 10)
+        with patch.object(memory_management, 'aimdo_allocator', None):
+            parent = ModelPatcher(model, load_device=torch.device('cpu'), offload_device=torch.device('cpu'))
+            delegate = ModelPatcher(model, load_device=torch.device('cpu'), offload_device=torch.device('cpu'))
+
+        delegate.parent = parent
+
+        assert delegate.parent is parent
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for dynamic patcher")
+    def test_core_delegate_can_parent_to_dynamic_patcher(self):
+        """Regression for custom nodes replacing a dynamic patcher with a core delegate."""
+        from comfy.model_patcher import ModelPatcher, ModelPatcherDynamic
+
+        model = torch.nn.Linear(10, 10)
+        parent = ModelPatcherDynamic(
+            model,
+            load_device=torch.device('cuda:0'),
+            offload_device=torch.device('cpu'),
+        )
+        delegate = ModelPatcher(
+            model,
+            load_device=parent.load_device,
+            offload_device=parent.offload_device,
+            _force_core=True,
+        )
+
+        delegate.parent = parent
+
+        assert parent.is_dynamic() is True
+        assert delegate.is_dynamic() is False
+        assert delegate.parent is parent
+
+
+class TestModelPatcherFactoryCompatibility:
+    """Tests for legacy direct ModelPatcher(...) construction."""
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for dynamic patcher")
+    def test_direct_model_patcher_uses_factory_for_cuda_when_aimdo_enabled(self):
+        from comfy import memory_management
+        from comfy.model_patcher import ModelPatcher, ModelPatcherDynamic
+
+        model = torch.nn.Linear(10, 10)
+        with patch.object(memory_management, 'aimdo_allocator', object()):
+            patcher = ModelPatcher(
+                model,
+                load_device=torch.device('cuda:0'),
+                offload_device=torch.device('cpu'),
+            )
+
+        assert type(patcher) is ModelPatcherDynamic
+        assert patcher.is_dynamic() is True
+
+    def test_direct_model_patcher_keeps_cpu_on_core_when_aimdo_enabled(self):
+        from comfy import memory_management
+        from comfy.model_patcher import ModelPatcher
+
+        model = torch.nn.Linear(10, 10)
+        with patch.object(memory_management, 'aimdo_allocator', object()):
+            patcher = ModelPatcher(
+                model,
+                load_device=torch.device('cpu'),
+                offload_device=torch.device('cpu'),
+            )
+
+        assert type(patcher) is ModelPatcher
+        assert patcher.is_dynamic() is False
