@@ -363,7 +363,17 @@ class LazyCastingParamPiece(torch.nn.Parameter):
         return caster.state_dict_tensor(self.state_dict_key)
 
 
-class ModelPatcher(ModelManageable, PatchSupport):
+class _ModelPatcherFactoryMeta(type(ModelManageable)):
+    def __call__(cls, *args, **kwargs):
+        force_core = kwargs.pop("_force_core", False)
+        if cls is ModelPatcher and not force_core:
+            implementation = get_model_patcher_class()
+            if implementation is not cls:
+                return implementation(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
+
+
+class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactoryMeta):
     def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         self.size = size
         self.model: BaseModel | torch.nn.Module = model
@@ -436,8 +446,12 @@ class ModelPatcher(ModelManageable, PatchSupport):
         self._memory_measurements.current_weight_patches_uuid = value
 
     @property
-    def parent(self) -> Optional["ModelPatcher"]:
+    def parent(self) -> Optional[ModelManageable]:
         return self._parent
+
+    @parent.setter
+    def parent(self, value: Optional[ModelManageable]) -> None:
+        self._parent = value
 
     @property
     def force_cast_weights(self) -> bool:
@@ -487,8 +501,10 @@ class ModelPatcher(ModelManageable, PatchSupport):
 
     def clone(self, disable_dynamic=False, model_override=None) -> "ModelPatcher":
         class_ = self.__class__
+        force_core = False
         if self.is_dynamic() and disable_dynamic:
             class_ = ModelPatcher
+            force_core = True
             if model_override is None:
                 if self.cached_patcher_init is None:
                     raise RuntimeError("Cannot create non-dynamic delegate: cached_patcher_init is not initialized.")
@@ -499,7 +515,12 @@ class ModelPatcher(ModelManageable, PatchSupport):
         if model_override is None:
             model_override = self.get_clone_model_override()
 
-        n = class_(model_override[0], self.load_device, self.offload_device, self.model_size(), weight_inplace_update=self.weight_inplace_update)
+        if class_ is ModelPatcher:
+            force_core = True
+        kwargs = {"weight_inplace_update": self.weight_inplace_update}
+        if force_core:
+            kwargs["_force_core"] = True
+        n = class_(model_override[0], self.load_device, self.offload_device, self.model_size(), **kwargs)
         n._memory_measurements = copy.copy(self._memory_measurements)
         n.ckpt_name = self.ckpt_name
         n.patches = {}
@@ -1926,7 +1947,7 @@ class ModelPatcherDynamic(ModelPatcher):
     def __new__(cls, model=None, load_device=None, offload_device=None, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
         if load_device is not None and model_management.is_device_cpu(load_device):
             # reroute to default MP for CPUs
-            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name)
+            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name, _force_core=True)
         return super().__new__(cls)
 
     def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
