@@ -3,7 +3,8 @@
 comfyui-ollama
 comfyui-sam2
 comfyui-custom-scripts
-comfyui-kjnodes>=1.4.2
+# 1.4.7 is currently served from nodes.appmana.com with a corrupted cached wheel.
+comfyui-kjnodes>=1.4.2,<1.4.7
 comfyui-impact-pack
 comfyui-inspire-pack
 comfyui-ipadapter-plus
