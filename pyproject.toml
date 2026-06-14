@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.24.0.9"
+version = "0.24.0.10"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
