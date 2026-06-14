@@ -481,6 +481,66 @@ def test_facade_cache_store_handles_windows_local_parent(tmp_path: Path):
     assert cache._parent(windows_style_path).endswith("\\facade")
 
 
+def test_facade_cache_store_copy_from_is_atomic_under_concurrency(tmp_path: Path):
+    """Regression: serve-pip replicas share one SMB cache and the per-build
+    lock is per-process, so several pods build the same brand-new wheel at
+    once. Direct writes to the final path interleaved into a torn, non-zip
+    file that Varnish then cached (uv: "Failed to unzip wheel ... unexpected
+    header"). copy_from must install atomically, so the destination is always
+    one complete source, never a mixture or a truncation."""
+    import threading
+
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    cache = builder._cache  # type: ignore[attr-defined]
+
+    size = 2 * 1024 * 1024
+    workers = 8
+    # Each worker copies a source that is entirely one distinct byte value, so
+    # any interleave of two writers is detectable as a destination containing
+    # more than one byte value.
+    sources = []
+    for i in range(workers):
+        src = tmp_path / f"src-{i}.bin"
+        src.write_bytes(bytes([i + 1]) * size)
+        sources.append(str(src))
+
+    dest = cache.wheel_path(  # a realistic nested cache path
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+    )
+
+    barrier = threading.Barrier(workers)
+
+    def worker(src: str) -> None:
+        barrier.wait()
+        cache.copy_from(src, dest)
+
+    threads = [threading.Thread(target=worker, args=(s,)) for s in sources]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    data = Path(dest).read_bytes()
+    assert len(data) == size, f"truncated/torn write: {len(data)} != {size}"
+    distinct = set(data)
+    assert len(distinct) == 1, f"interleaved write: destination mixes {len(distinct)} byte values"
+    assert (distinct.pop() - 1) in range(workers)
+
+    # No temp siblings left behind after a clean run.
+    leftovers = list(Path(dest).parent.glob(".facade-*.tmp"))
+    assert leftovers == [], f"leftover temp files: {leftovers}"
+
+
+def test_facade_cache_store_write_bytes_is_atomic(tmp_path: Path):
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    cache = builder._cache  # type: ignore[attr-defined]
+
+    dest = cache.custom_path("triton", "cu130", "triton-3.7.0-cp312-cp312-win_amd64.whl")
+    cache.write_bytes(dest, b"PK\x03\x04payload")
+    assert Path(dest).read_bytes() == b"PK\x03\x04payload"
+    assert list(Path(dest).parent.glob(".facade-*.tmp")) == []
+
+
 def test_stamp_relative_python_modules_uses_class_module():
     class ExampleNode:
         __module__ = "vendor.custom_scripts.nodes"

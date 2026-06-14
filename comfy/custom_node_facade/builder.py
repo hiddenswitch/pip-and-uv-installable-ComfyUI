@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -477,22 +478,54 @@ class FacadeCacheStore:
         return bool(self._fs.exists(path))
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        parent = self._parent(path)
-        if parent:
-            self._fs.makedirs(parent, exist_ok=True)
-        with self._fs.open(path, "wb") as handle:
-            handle.write(data)
+        def fill(tmp: str) -> None:
+            with self._fs.open(tmp, "wb") as handle:
+                handle.write(data)
+        self._install_atomically(path, fill)
 
     def copy_from(self, source_path: str, dest_path: str) -> None:
+        def fill(tmp: str) -> None:
+            with open(source_path, "rb") as src, self._fs.open(tmp, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        self._install_atomically(dest_path, fill)
+
+    def _install_atomically(self, dest_path: str, fill) -> None:
+        """Write the cache entry to a unique temp sibling, then atomically
+        rename it into place.
+
+        The cache is shared across all serve-pip replicas (one SMB-backed PVC)
+        and the per-build lock is a per-process asyncio.Lock, so two pods can
+        build the same brand-new wheel concurrently. Writing straight to the
+        final path let their writes interleave into a torn, non-zip file that
+        was then cached by Varnish (uv: "Failed to unzip wheel ... unexpected
+        header"). A temp-then-rename makes every reader see either the old or a
+        complete new file, never a half-written one; concurrent builders just
+        race on the final rename and the last complete file wins.
+        """
         parent = self._parent(dest_path)
         if parent:
             self._fs.makedirs(parent, exist_ok=True)
-        local = self._local_path(dest_path)
-        if local is not None:
-            shutil.copy2(source_path, local)
+        is_local = isinstance(self._fs, fsspec.implementations.local.LocalFileSystem)
+        if is_local and parent:
+            fd, tmp = tempfile.mkstemp(dir=parent, prefix=".facade-", suffix=".tmp")
+            os.close(fd)
         else:
-            with open(source_path, "rb") as src, self._fs.open(dest_path, "wb") as dst:
-                shutil.copyfileobj(src, dst)
+            tmp = f"{dest_path}.{uuid.uuid4().hex}.tmp"
+        try:
+            fill(tmp)
+            if is_local:
+                os.replace(tmp, dest_path)
+            else:
+                self._fs.mv(tmp, dest_path)
+        except BaseException:
+            try:
+                if is_local:
+                    os.remove(tmp)
+                else:
+                    self._fs.rm(tmp)
+            except Exception:  # noqa: BLE001 - best-effort temp cleanup
+                pass
+            raise
 
     def read_bytes(self, path: str) -> bytes:
         with self._fs.open(path, "rb") as handle:
