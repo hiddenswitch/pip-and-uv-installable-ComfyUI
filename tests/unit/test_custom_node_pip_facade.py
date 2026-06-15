@@ -481,13 +481,9 @@ def test_facade_cache_store_handles_windows_local_parent(tmp_path: Path):
     assert cache._parent(windows_style_path).endswith("\\facade")
 
 
-def test_facade_cache_store_copy_from_is_atomic_under_concurrency(tmp_path: Path):
-    """Regression: serve-pip replicas share one SMB cache and the per-build
-    lock is per-process, so several pods build the same brand-new wheel at
-    once. Direct writes to the final path interleaved into a torn, non-zip
-    file that Varnish then cached (uv: "Failed to unzip wheel ... unexpected
-    header"). copy_from must install atomically, so the destination is always
-    one complete source, never a mixture or a truncation."""
+def test_facade_cache_store_filesystem_copy_from_installs_complete_file(tmp_path: Path):
+    """Filesystem cache writes are installed with temp+rename semantics, so the
+    destination is always one complete source, never a mixture or truncation."""
     import threading
 
     builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
@@ -539,6 +535,29 @@ def test_facade_cache_store_write_bytes_is_atomic(tmp_path: Path):
     cache.write_bytes(dest, b"PK\x03\x04payload")
     assert Path(dest).read_bytes() == b"PK\x03\x04payload"
     assert list(Path(dest).parent.glob(".facade-*.tmp")) == []
+
+
+def test_facade_cache_store_object_cache_writes_final_key_without_rename(tmp_path: Path, monkeypatch):
+    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix="memory://facade-object-cache")  # type: ignore[arg-type]
+    cache = builder._cache  # type: ignore[attr-defined]
+    cache._is_object_cache = True  # exercise S3-style object-store behavior without s3fs
+
+    def fail_mv(*_args, **_kwargs):
+        raise AssertionError("object cache writes must not rename or move temp objects")
+
+    monkeypatch.setattr(cache._fs, "mv", fail_mv)
+
+    source = tmp_path / "source.whl"
+    source.write_bytes(b"PK\x03\x04wheel")
+    dest = cache.wheel_path(
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+    )
+
+    cache.copy_from(str(source), dest)
+    assert cache.read_bytes(dest) == b"PK\x03\x04wheel"
+
+    cache.write_bytes(dest, b"PK\x03\x04replacement")
+    assert cache.read_bytes(dest) == b"PK\x03\x04replacement"
 
 
 def test_stamp_relative_python_modules_uses_class_module():
