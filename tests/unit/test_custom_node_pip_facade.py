@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import concurrent.futures
 import io
 import os
+import shutil
 import types
 import zipfile
 from pathlib import Path
 
+import pytest
+import s3fs
+from docker.errors import DockerException
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.wait_strategies import LogMessageWaitStrategy
+
 from comfy.custom_node_facade import flash_attention_wheels
 from comfy.custom_node_facade.builder import FacadeWheelBuilder
 from comfy.custom_node_facade.builder import FlashAttentionProxySpec
+from comfy.custom_node_facade.builder import FacadeCacheStore
 from comfy.custom_node_facade.builder import PYPI_PROXY_INDEX
 from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
 from comfy.cmd.node_info import node_info
@@ -38,6 +47,34 @@ _FLASH_ATTENTION_WHEEL_URLS = (
     "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.8.2/flash_attn_3-3.0.0+cu128torch2.8-cp39-abi3-linux_x86_64.whl",
     "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.29/flash_attn_3-3.0.0+cu124torch2.5-cp39-abi3-linux_x86_64.whl",
 )
+
+
+class SeaweedFSS3Container(DockerContainer):
+    def __init__(self):
+        super().__init__("chrislusf/seaweedfs:latest")
+        self.with_exposed_ports(8333)
+        self.with_command("server -ip=0.0.0.0 -dir=/data -s3 -s3.port=8333")
+        self.waiting_for(LogMessageWaitStrategy("Start Seaweed S3 API Server"))
+
+    def endpoint_url(self) -> str:
+        return f"http://127.0.0.1:{self.get_exposed_port(8333)}"
+
+
+@pytest.fixture(name="seaweedfs_s3_endpoint")
+def fixture_seaweedfs_s3_endpoint():
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is required for SeaweedFS S3 testcontainer")
+
+    container = SeaweedFSS3Container()
+    try:
+        container.start()
+    except DockerException as exc:
+        pytest.skip(f"Docker is unavailable for SeaweedFS S3 testcontainer: {exc}")
+
+    try:
+        yield container.endpoint_url()
+    finally:
+        container.stop()
 
 
 def test_strip_url_dependency_rewrites_sam2():
@@ -558,6 +595,47 @@ def test_facade_cache_store_object_cache_writes_final_key_without_rename(tmp_pat
 
     cache.write_bytes(dest, b"PK\x03\x04replacement")
     assert cache.read_bytes(dest) == b"PK\x03\x04replacement"
+
+
+def test_facade_cache_store_seaweedfs_s3_concurrent_puts_publish_complete_objects(
+    tmp_path: Path,
+    seaweedfs_s3_endpoint: str,
+):
+    """The production SeaweedFS cache backend should be the S3-compatible API.
+
+    Concurrent writers to the same generated wheel key are duplicate work, but
+    the final object must always be one complete PUT payload, never a mixed or
+    truncated wheel.
+    """
+    bucket = "facade-concurrent-put-test"
+    storage_options = {
+        "anon": True,
+        "client_kwargs": {"endpoint_url": seaweedfs_s3_endpoint},
+    }
+    s3fs.S3FileSystem(**storage_options).mkdir(bucket)
+    cache = FacadeCacheStore(f"s3://{bucket}/pip-facade", storage_options=storage_options)
+
+    size = 1024 * 1024
+    workers = 8
+    sources: list[Path] = []
+    for i in range(workers):
+        source = tmp_path / f"source-{i}.whl"
+        source.write_bytes(bytes([i + 1]) * size)
+        sources.append(source)
+
+    dest = cache.wheel_path(
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+    )
+
+    for _ in range(3):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(lambda source: cache.copy_from(str(source), dest), sources))
+
+        payload = cache.read_bytes(dest)
+        distinct = set(payload)
+        assert len(payload) == size
+        assert len(distinct) == 1
+        assert (distinct.pop() - 1) in range(workers)
 
 
 def test_stamp_relative_python_modules_uses_class_module():
