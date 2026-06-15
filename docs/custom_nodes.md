@@ -215,6 +215,21 @@ comfyui serve-pip --pip-facade-cache-prefix=/tmp/comfyui-pip-facade
 comfyui serve-pip --pip-facade-cache-prefix=s3://my-bucket/comfyui/pip-facade
 ```
 
+For SeaweedFS, prefer the S3 API over a SeaweedFS CSI-mounted directory:
+
+```bash
+AWS_ACCESS_KEY_ID=... \
+AWS_SECRET_ACCESS_KEY=... \
+comfyui serve-pip \
+  --pip-facade-cache-prefix=s3://my-bucket/comfyui/pip-facade \
+  --pip-facade-cache-s3-endpoint-url=http://seaweedfs-s3:8333
+```
+
+The S3 backend publishes each wheel as a complete object PUT. A CSI-mounted
+object store can expose weaker filesystem semantics than a normal local disk,
+which is not a good fit for generated wheel cache files served directly to pip
+and uv clients.
+
 Use `--pip-facade-only-known-nodes` to restrict to tested nodes. Use `snapshot-pip-registry` to pre-generate a sqlite snapshot for faster startup.
 
 The installed wheel is only a transport wrapper. It exposes a `comfyui.custom_nodes` entry point, points ComfyUI at the vendored custom-node directory, and then the node is imported as a vanilla custom node with the same compatibility shims used for `custom_nodes/` clones.

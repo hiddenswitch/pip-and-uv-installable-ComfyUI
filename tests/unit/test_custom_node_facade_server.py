@@ -44,6 +44,16 @@ class _FakeProxy:
         return f"<html><body>{cuda}</body></html>"
 
 
+def test_cache_storage_options_sets_s3_endpoint_only_for_s3_prefix():
+    config = Configuration()
+    config.pip_facade_cache_s3_endpoint_url = "http://seaweedfs-s3:8333"
+
+    assert facade_server._cache_storage_options(config, "s3://bucket/prefix") == {
+        "client_kwargs": {"endpoint_url": "http://seaweedfs-s3:8333"}
+    }
+    assert facade_server._cache_storage_options(config, "/mnt/seaweedfs/prefix") == {}
+
+
 async def test_serve_pip_warms_registry_before_reporting_ready(monkeypatch):
     _FakeRegistry.calls = 0
     monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)

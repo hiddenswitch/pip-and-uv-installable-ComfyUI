@@ -32,12 +32,16 @@ def create_facade_app(
     cache_prefix = configuration.pip_facade_cache_prefix
     if cache_prefix is None:
         cache_prefix = os.path.join(user_cache_dir(appname="comfyui"), "pip_facade")
+    cache_storage_options = _cache_storage_options(configuration, str(cache_prefix))
 
     async def on_startup(application: web.Application) -> None:
         with tracer.start_as_current_span("Initialize Pip Facade Server") as span:
             span.set_attribute("facade.listen", configuration.listen)
             span.set_attribute("facade.port", configuration.port)
             span.set_attribute("facade.cache_prefix", str(cache_prefix))
+            endpoint_url = getattr(configuration, "pip_facade_cache_s3_endpoint_url", None)
+            if endpoint_url:
+                span.set_attribute("facade.cache_s3_endpoint_url", endpoint_url)
             timeout = aiohttp.ClientTimeout(total=10 * 60.0, connect=60.0)
             session = aiohttp.ClientSession(timeout=timeout)
             registry: FacadeRegistryProtocol
@@ -52,12 +56,18 @@ def create_facade_app(
                 )
                 span.set_attribute("facade.registry_base_url", configuration.pip_facade_registry_base_url)
             cache_revision = getattr(configuration, "pip_facade_cache_revision", None)
-            builder = FacadeWheelBuilder(session, registry, cache_prefix=cache_prefix, cache_revision=cache_revision)
+            builder = FacadeWheelBuilder(
+                session,
+                registry,
+                cache_prefix=cache_prefix,
+                cache_storage_options=cache_storage_options,
+                cache_revision=cache_revision,
+            )
             application["facade_session"] = session
             application["facade_registry"] = registry
             application["facade_builder"] = builder
             application["facade_triton_builder"] = TritonWheelBuilder(session)
-            application["facade_triton_cache"] = FacadeCacheStore(cache_prefix)
+            application["facade_triton_cache"] = FacadeCacheStore(cache_prefix, storage_options=cache_storage_options)
             application["facade_triton_locks"] = {}
             with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
                 projects = await registry.list_projects()
@@ -261,6 +271,13 @@ def create_facade_app(
     app.router.add_get("/packages/{project}/{version}/{filename}", package_download)
     app.router.add_get("/{segment}/", simple_one_segment)
     return app
+
+
+def _cache_storage_options(configuration: Configuration, cache_prefix: str) -> dict:
+    endpoint_url = getattr(configuration, "pip_facade_cache_s3_endpoint_url", None)
+    if endpoint_url and cache_prefix.startswith(("s3://", "s3a://")):
+        return {"client_kwargs": {"endpoint_url": endpoint_url}}
+    return {}
 
 
 async def run_facade_server(

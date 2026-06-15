@@ -19,6 +19,7 @@ import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass
+from typing import Any, Mapping
 from pathlib import Path
 
 import aiohttp
@@ -34,6 +35,10 @@ _FACADE_BUILD_REVISION = 5
 # the same name vendors an unrelated repo that breaks `import gguf`.
 _FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset({
     "gguf",
+})
+_OBJECT_CACHE_PROTOCOLS: frozenset[str] = frozenset({
+    "s3",
+    "s3a",
 })
 
 
@@ -467,9 +472,12 @@ class CachedWheel:
 
 
 class FacadeCacheStore:
-    def __init__(self, prefix: str | os.PathLike[str]) -> None:
+    def __init__(self, prefix: str | os.PathLike[str], *, storage_options: Mapping[str, Any] | None = None) -> None:
         self._prefix = str(prefix)
-        self._fs, self._root = fsspec.core.url_to_fs(self._prefix)
+        self._fs, self._root = fsspec.core.url_to_fs(self._prefix, **(storage_options or {}))
+        protocol = self._fs.protocol
+        protocols = {protocol} if isinstance(protocol, str) else set(protocol)
+        self._is_object_cache = bool(protocols & _OBJECT_CACHE_PROTOCOLS)
 
     def wheel_path(self, project: FacadeProject, filename: str, revision: int = _FACADE_BUILD_REVISION) -> str:
         return self._join(f"v{revision}", canonicalize_project_name(project.canonical_name), filename)
@@ -478,33 +486,35 @@ class FacadeCacheStore:
         return bool(self._fs.exists(path))
 
     def write_bytes(self, path: str, data: bytes) -> None:
+        if self._is_object_cache:
+            with self._fs.open(path, "wb") as handle:
+                handle.write(data)
+            return
+
         def fill(tmp: str) -> None:
             with self._fs.open(tmp, "wb") as handle:
                 handle.write(data)
         self._install_atomically(path, fill)
 
     def copy_from(self, source_path: str, dest_path: str) -> None:
+        if self._is_object_cache:
+            with open(source_path, "rb") as src, self._fs.open(dest_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            return
+
         def fill(tmp: str) -> None:
             with open(source_path, "rb") as src, self._fs.open(tmp, "wb") as dst:
                 shutil.copyfileobj(src, dst)
         self._install_atomically(dest_path, fill)
 
     def _install_atomically(self, dest_path: str, fill) -> None:
-        """Write the cache entry to a unique temp sibling, then atomically
-        rename it into place.
+        """Install a filesystem cache entry via temp sibling and rename.
 
-        The cache is shared across all serve-pip replicas (one SMB-backed PVC)
-        and the per-build lock is a per-process asyncio.Lock, so two pods can
-        build the same brand-new wheel concurrently. Writing straight to the
-        final path let their writes interleave into a torn, non-zip file that
-        was then cached by Varnish (uv: "Failed to unzip wheel ... unexpected
-        header"). A temp-then-rename makes every reader see either the old or a
-        complete new file, never a half-written one; concurrent builders just
-        race on the final rename and the last complete file wins.
+        This path is for real filesystem-style cache prefixes. Object stores
+        such as S3 publish a complete object on PUT completion, so they bypass
+        this method and write the final key directly.
         """
-        parent = self._parent(dest_path)
-        if parent:
-            self._fs.makedirs(parent, exist_ok=True)
+        parent = self._ensure_parent(dest_path)
         is_local = isinstance(self._fs, fsspec.implementations.local.LocalFileSystem)
         if is_local and parent:
             fd, tmp = tempfile.mkstemp(dir=parent, prefix=".facade-", suffix=".tmp")
@@ -526,6 +536,12 @@ class FacadeCacheStore:
             except Exception:  # noqa: BLE001 - best-effort temp cleanup
                 pass
             raise
+
+    def _ensure_parent(self, path: str) -> str:
+        parent = self._parent(path)
+        if parent:
+            self._fs.makedirs(parent, exist_ok=True)
+        return parent
 
     def read_bytes(self, path: str) -> bytes:
         with self._fs.open(path, "rb") as handle:
@@ -566,11 +582,12 @@ class FacadeWheelBuilder:
         registry: FacadeRegistryProtocol,
         *,
         cache_prefix: str | os.PathLike[str],
+        cache_storage_options: Mapping[str, Any] | None = None,
         cache_revision: int | None = None,
     ) -> None:
         self._session = session
         self._registry = registry
-        self._cache = FacadeCacheStore(cache_prefix)
+        self._cache = FacadeCacheStore(cache_prefix, storage_options=cache_storage_options)
         self._cache_revision = cache_revision or _FACADE_BUILD_REVISION
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
