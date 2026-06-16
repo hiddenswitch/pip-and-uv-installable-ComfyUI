@@ -1,7 +1,7 @@
 import argparse
 import pytest
 from requests.exceptions import HTTPError
-from unittest.mock import patch, mock_open
+from unittest.mock import Mock, patch, mock_open
 
 from comfy.app.frontend_management import (
     FrontendManager,
@@ -78,14 +78,22 @@ def test_init_frontend_default():
 
 def test_init_frontend_invalid_version():
     version_string = "test-owner/test-repo@1.100.99"
-    with pytest.raises(HTTPError):
-        FrontendManager.init_frontend_unsafe(version_string)
+    response = Mock()
+    response.links = {}
+    response.json.return_value = []
+    response.raise_for_status.return_value = None
+    with pytest.raises(ValueError):
+        with patch("comfy.app.frontend_management.requests.get", return_value=response):
+            FrontendManager.init_frontend_unsafe(version_string)
 
 
 def test_init_frontend_invalid_provider():
     version_string = "invalid/invalid@latest"
+    response = Mock()
+    response.raise_for_status.side_effect = HTTPError("not found")
     with pytest.raises(HTTPError):
-        FrontendManager.init_frontend_unsafe(version_string)
+        with patch("comfy.app.frontend_management.requests.get", return_value=response):
+            FrontendManager.init_frontend_unsafe(version_string)
 
 
 @pytest.fixture
