@@ -65,8 +65,8 @@ def fixture_seaweedfs_s3_endpoint():
     if shutil.which("docker") is None:
         pytest.skip("Docker is required for SeaweedFS S3 testcontainer")
 
-    container = SeaweedFSS3Container()
     try:
+        container = SeaweedFSS3Container()
         container.start()
     except DockerException as exc:
         pytest.skip(f"Docker is unavailable for SeaweedFS S3 testcontainer: {exc}")
