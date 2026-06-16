@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-
 import asyncio
 import glob
 import io
@@ -33,9 +32,10 @@ from packaging import version
 from typing_extensions import NamedTuple
 
 from comfy_api import feature_flags
-from comfy_execution.jobs import JobStatus, get_job, get_all_jobs
+from comfy_execution.jobs import JobStatus, get_job, get_all_jobs, validate_job_id
 from .latent_preview_image_encoding import encode_preview_image
 from .. import __version__
+from ..deploy_environment import get_deploy_environment
 from .. import interruption, model_management
 from .. import node_helpers
 from .. import utils
@@ -753,6 +753,7 @@ class PromptServer(ExecutorToClientProgress):
                     "python_version": sys.version,
                     "pytorch_version": torch_version,
                     "embedded_python": os.path.split(os.path.split(sys.executable)[0])[1] == "python_embeded",
+                    "deploy_environment": get_deploy_environment(),
                     "argv": sys.argv
                 },
                 "devices": device_entries
@@ -960,7 +961,21 @@ class PromptServer(ExecutorToClientProgress):
 
             if "prompt" in json_data:
                 prompt = json_data["prompt"]
-                prompt_id = str(json_data.get("prompt_id", uuid.uuid4()))
+                client_prompt_id = json_data.get("prompt_id")
+                if client_prompt_id is None:
+                    # Absent or explicit null: the server mints the id.
+                    prompt_id = str(uuid.uuid4())
+                else:
+                    try:
+                        prompt_id = validate_job_id(client_prompt_id)
+                    except ValueError:
+                        error = {
+                            "type": "invalid_prompt_id",
+                            "message": "prompt_id must be a valid UUID",
+                            "details": "prompt_id must be a UUID string in canonical lowercase hyphenated form; omit it to let the server generate one",
+                            "extra_info": {}
+                        }
+                        return web.json_response({"error": error, "node_errors": {}}, status=400)
 
                 partial_execution_targets = None
                 if "partial_execution_targets" in json_data:
@@ -987,6 +1002,11 @@ class PromptServer(ExecutorToClientProgress):
                     # so the prompt worker can read it on dequeue without
                     # touching the prompt dict itself.
                     extra_data["__metadata_v1__"] = metadata
+
+                if "comfy_usage_source" not in extra_data:
+                    usage_source = request.headers.get("Comfy-Usage-Source")
+                    if usage_source:
+                        extra_data["comfy_usage_source"] = usage_source
                 if valid[0]:
                     outputs_to_execute = valid[2]
                     self.prompt_queue.put(
@@ -1550,8 +1570,19 @@ class PromptServer(ExecutorToClientProgress):
         await runner.setup()
 
         server_args = current_execution_context().configuration
-        if 'tls_keyfile' in server_args or 'tls_certfile' in server_args:
+        if server_args.tls_keyfile or server_args.tls_certfile:
             logger.warning("Use caddy instead of aiohttp to serve https by setting up a reverse proxy. See README.md")
+        if verbose:
+            logging.info("Starting server\n")
+            if server_args.debug_hang:
+                logging.info(
+                    f"{'-' * 80}\n"
+                    "ComfyUI has been started in debug-hang mode. Run your workflow as normal up to\n"
+                    "the point of the hang or freeze, then use ctrl-C in the cmd or controlling\n"
+                    "terminal to dump the python backtraces for debugging. Please attach the extra\n"
+                    "debug info to your bug report.\n"
+                    f"{'-' * 80}"
+                )
 
         def is_ipv4(address: str, *args):
             try:

@@ -170,7 +170,8 @@ _VRAM_OPTS: list[tuple] = [
     ("lowvram", bool, typer.Option(False, "--lowvram/--no-lowvram", help="Reduce UNet's VRAM usage.")),
     ("novram", bool, typer.Option(False, "--novram/--no-novram", help="Minimize VRAM usage.")),
     ("cpu", bool, typer.Option(False, "--cpu/--no-cpu", help="Use CPU for processing.")),
-    ("reserve_vram", float, typer.Option(0, "--reserve-vram", help="Set the amount of vram in GB you want to reserve for use by your OS/other software.")),
+    ("reserve_vram", Optional[float], typer.Option(None, "--reserve-vram", help="Set the amount of vram in GB you want to reserve for use by your OS/other software.")),
+    ("vram_headroom", float, typer.Option(0, "--vram-headroom", help="Set extra DynamicVRAM headroom in GB above the default reservation.")),
     ("disable_dynamic_vram", bool, typer.Option(False, "--disable-dynamic-vram", help="Disable dynamic VRAM and use estimate based model loading.")),
     ("fast_disk", bool, typer.Option(False, "--fast-disk/--no-fast-disk", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")),
 ]
@@ -227,6 +228,7 @@ _CACHE_OPTS: list[tuple] = [
     ("cache_lru", int, typer.Option(0, "--cache-lru", help="Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.")),
     ("cache_none", bool, typer.Option(False, "--cache-none/--no-cache-none", help="Reduced RAM/VRAM usage at the expense of executing every node for each run.")),
     ("cache_ram", float, typer.Option(0, "--cache-ram", help="Use RAM pressure caching with the specified headroom threshold. Default (when no value is provided): 25%% of system RAM (min 4GB, max 32GB).")),
+    ("high_ram", bool, typer.Option(False, "--high-ram/--no-high-ram", help="Prefer high-RAM model caching and pinning behavior.")),
 ]
 
 _PREVIEW_OPTS: list[tuple] = [
@@ -265,6 +267,7 @@ _TELEMETRY_OPTS: list[tuple] = [
 
 _LOGGING_OPTS: list[tuple] = [
     ("logging_level", str, typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Specifies the logging level.")),
+    ("debug_hang", bool, typer.Option(False, "--debug-hang/--no-debug-hang", help="Enable stack trace dumps on Ctrl-C for debugging hangs.")),
 ]
 
 _PIP_FACADE_OPTS: list[tuple] = [
@@ -592,6 +595,8 @@ def serve(
     log_file: Optional[str] = typer.Option(None, "--log-file", help="Log file path (default: ~/.comfyui/comfyui.log)."),
     listen: str = typer.Option("127.0.0.1", "-H", "--listen", help="Specify the IP address to listen on (default: 127.0.0.1). You can give a list of ip addresses by separating them with a comma like: 127.2.2.2,127.3.3.3 If --listen is provided without an argument, it defaults to 0.0.0.0,:: (listens on all ipv4 and ipv6)"),
     port: int = typer.Option(8188, help="Set the listen port."),
+    tls_keyfile: Optional[str] = typer.Option(None, "--tls-keyfile", help="Path to TLS key file."),
+    tls_certfile: Optional[str] = typer.Option(None, "--tls-certfile", help="Path to TLS certificate file."),
     enable_cors_header: Optional[str] = typer.Option(None, "--enable-cors-header", help="Enable CORS (Cross-Origin Resource Sharing) with optional origin or allow all with default '*'."),
     max_upload_size: float = typer.Option(100.0, "--max-upload-size", help="Set the maximum upload size in MB."),
     auto_launch: bool = typer.Option(False, "--auto-launch/--no-auto-launch", help="Automatically launch ComfyUI in the default browser."),

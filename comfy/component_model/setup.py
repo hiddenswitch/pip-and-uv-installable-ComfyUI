@@ -4,15 +4,37 @@ Setup functions extracted from main_pre.py.
 Called by Typer commands (cli.py) rather than running at import time.
 """
 import ctypes
+import faulthandler
 import importlib.util
 import logging
 import os
 import shutil
+import signal
+import sys
 import warnings
 
 from ..cli_args_types import Configuration
 
 logger = logging.getLogger(__name__)
+_dumping_traceback = False
+
+
+def setup_debug_hang(config: Configuration):
+    """Enable upstream-style traceback dumps for hang debugging."""
+    faulthandler.enable(file=sys.stderr, all_threads=config.debug_hang)
+    if not config.debug_hang:
+        return
+
+    def dump_traceback_on_sigint(signum, frame):
+        del signum, frame
+        global _dumping_traceback  # pylint: disable=global-statement
+        if _dumping_traceback:
+            raise KeyboardInterrupt
+        _dumping_traceback = True
+        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, dump_traceback_on_sigint)
 
 
 def setup_environment():
@@ -238,6 +260,7 @@ def fix_pytorch_240():
 def setup_pre_torch(config: Configuration):
     """Must be called before torch import."""
     setup_environment()
+    setup_debug_hang(config)
     setup_guess_settings(config)
     setup_cuda_devices(config)
     setup_cuda_malloc()

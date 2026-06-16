@@ -7,9 +7,9 @@ import numpy as np
 import torch
 from PIL import Image
 from comfy.cmd import folder_paths
+from comfy.utils import common_upscale
 from comfy_api.latest import IO, ComfyExtension, Input
 from typing_extensions import override
-
 from comfy_api_nodes.apis.openai import (
     InputFileContent,
     InputImageContent,
@@ -62,7 +62,8 @@ async def validate_and_cast_response(response, timeout: int = None) -> torch.Ten
         timeout: Request timeout in seconds. Defaults to None (no timeout).
 
     Returns:
-        A torch.Tensor representing the image (1, H, W, C).
+        A torch.Tensor of shape (N, H, W, C) with all returned images; images whose
+        dimensions differ from the first image's are resized to match it.
 
     Raises:
         ValueError: If the response is not valid.
@@ -89,6 +90,14 @@ async def validate_and_cast_response(response, timeout: int = None) -> torch.Ten
         arr = np.asarray(pil_img).astype(np.float32) / 255.0
         image_tensors.append(torch.from_numpy(arr))
 
+    # With size="auto" the API can return images whose dimensions differ by a few pixels within a single response
+    # resize them to the first image's dimensions so they can be stacked into one batch.
+    ref_h, ref_w = image_tensors[0].shape[:2]
+    for i, t in enumerate(image_tensors):
+        if t.shape[:2] != (ref_h, ref_w):
+            samples = t.unsqueeze(0).movedim(-1, 1)
+            samples = common_upscale(samples, ref_w, ref_h, "bilinear", "center")
+            image_tensors[i] = samples.movedim(1, -1).squeeze(0)
     return torch.stack(image_tensors, dim=0)
 
 

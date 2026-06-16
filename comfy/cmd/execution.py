@@ -49,6 +49,7 @@ from comfy_execution.graph_utils import is_link, GraphBuilder
 from comfy_execution.progress import get_progress_state, reset_progress_state, add_progress_handler, \
     WebUIProgressHandler, ProgressRegistry
 from comfy_execution.utils import CurrentNodeContext
+from comfy_execution.asset_enrichment import enrich_output_with_assets
 from comfy_execution.validation import validate_node_input
 from .. import interruption
 from .. import memory_management
@@ -236,6 +237,8 @@ def get_input_data(inputs, class_def, unique_id, execution_list=None, dynprompt=
                 hidden_inputs_v3[io.Hidden.auth_token_comfy_org] = extra_data.get("auth_token_comfy_org", None)
             if io.Hidden.api_key_comfy_org.name in hidden:
                 hidden_inputs_v3[io.Hidden.api_key_comfy_org] = extra_data.get("api_key_comfy_org", None)
+            if io.Hidden.comfy_usage_source.name in hidden:
+                hidden_inputs_v3[io.Hidden.comfy_usage_source] = extra_data.get("comfy_usage_source", None)
     else:
         if "hidden" in valid_inputs:
             h = valid_inputs["hidden"]
@@ -252,6 +255,8 @@ def get_input_data(inputs, class_def, unique_id, execution_list=None, dynprompt=
                     input_data_all[x] = [extra_data.get("auth_token_comfy_org", None)]
                 if h[x] == "API_KEY_COMFY_ORG":
                     input_data_all[x] = [extra_data.get("api_key_comfy_org", None)]
+                if h[x] == "COMFY_USAGE_SOURCE":
+                    input_data_all[x] = [extra_data.get("comfy_usage_source", None)]
     v3_data["hidden_inputs"] = hidden_inputs_v3
     return input_data_all, missing_keys, v3_data
 
@@ -663,6 +668,10 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                 asyncio.create_task(await_completion())
                 return RecursiveExecutionTuple(ExecutionResult.PENDING, None, None)
         if len(output_ui) > 0:
+            # Enrich at output-processing time (not in the send path) so assets
+            # are registered even when no client is connected, and the asset id
+            # flows into ui_outputs and the cache alongside the raw entries.
+            output_ui = enrich_output_with_assets(output_ui)
             ui_outputs[unique_id] = {
                 "meta": {
                     "node_id": unique_id,

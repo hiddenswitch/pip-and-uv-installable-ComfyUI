@@ -87,6 +87,8 @@ class Configuration(dict):
         base_directory (Optional[str]): Set the ComfyUI base directory for models, custom_nodes, input, output, temp, and user directories.
         listen (str): IP address to listen on. Defaults to "127.0.0.1".
         port (int): Port number for the server to listen on. Defaults to 8188.
+        tls_keyfile (Optional[str]): Path to TLS key file.
+        tls_certfile (Optional[str]): Path to TLS certificate file.
         enable_cors_header (Optional[str]): Enables CORS with the specified origin.
         max_upload_size (float): Maximum upload size in MB. Defaults to 100.
         extra_model_paths_config (Optional[List[str]]): Extra model paths configuration files.
@@ -126,6 +128,7 @@ class Configuration(dict):
         preview_method (LatentPreviewMethod): Method for generating previews. Defaults to "auto".
         cache_lru (int): Use LRU caching with a maximum of N node results cached. May use more RAM/VRAM.
         cache_ram (float): Use RAM pressure caching with the specified headroom threshold.
+        high_ram (bool): Prefer pinning/offloading behavior for systems with abundant RAM.
         use_split_cross_attention (bool): Use split cross-attention optimization.
         use_quad_cross_attention (bool): Use sub-quadratic cross-attention optimization.
         use_pytorch_cross_attention (bool): Use PyTorch's cross-attention function.
@@ -140,6 +143,7 @@ class Configuration(dict):
         cpu (bool): Use CPU for processing.
         fast (set[PerformanceFeature]): Enable some untested and potentially quality deteriorating optimizations. Pass specific optimizations if you only want to enable some (e.g. --fast fp16_accumulation fp8_matrix_mult or --fast fp16_accumulation,fp8_matrix_mult). Valid optimizations: fp16_accumulation, fp8_matrix_mult, cublas_ops, autotune, dynamic_vram
         reserve_vram (Optional[float]): Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS
+        vram_headroom (float): Extra DynamicVRAM headroom in GB above the default reservation.
         disable_dynamic_vram (bool): Disable dynamic VRAM and use estimate-based model loading.
         fast_disk (bool): Prefer disk-backed dynamic loading and offload over unpinned RAM.
         disable_smart_memory (bool): Disable smart memory management.
@@ -160,6 +164,7 @@ class Configuration(dict):
         distributed_queue_name (str): This name will be used by the frontends and workers to exchange prompt requests and replies. Progress updates will be prefixed by the queue name, followed by a '.', then the user ID.
         external_address (str): Specifies a base URL for external addresses reported by the API, such as for image paths.
         logging_level (str): Specifies a log level
+        debug_hang (bool): Enable stack trace dumps on Ctrl-C for debugging hangs.
         disable_known_models (bool): Disables automatic downloads of known models and prevents them from appearing in the UI.
         max_queue_size (int): The API will reject prompt requests if the queue's size exceeds this value.
         otel_service_name (str): The name of the service or application that is generating telemetry data. Default: "comfyui".
@@ -238,6 +243,8 @@ class Configuration(dict):
         self.base_directory: Optional[str] = None
         self.listen: str = "127.0.0.1"
         self.port: int = 8188
+        self.tls_keyfile: Optional[str] = None
+        self.tls_certfile: Optional[str] = None
         self.enable_cors_header: Optional[str] = None
         self.enable_compress_response_body: bool = False
         self.max_upload_size: float = 100.0
@@ -291,7 +298,8 @@ class Configuration(dict):
         self.disable_comfy_kitchen_backends: list[str] = []
         self.fp8_materialization: str = "auto"
         # reserve 0, because this has been exceptionally buggy
-        self.reserve_vram: float = 0.0
+        self.reserve_vram: Optional[float] = None
+        self.vram_headroom: float = 0.0
         self.disable_dynamic_vram: bool = False
         self.enable_dynamic_vram: bool = False
         self.fast_disk: bool = False
@@ -322,6 +330,7 @@ class Configuration(dict):
         self.force_hf_local_dir_mode: bool = False
         self.preview_size: int = 512
         self.logging_level: str = "INFO"
+        self.debug_hang: bool = False
         self.oneapi_device_selector: Optional[str] = None
         self.log_stdout: bool = False
 
@@ -361,6 +370,7 @@ class Configuration(dict):
         self.cache_classic: bool = False
         self.cache_none: bool = False
         self.cache_ram: float = 0.0
+        self.high_ram: bool = False
         self.async_offload: Optional[int] = None
         self.disable_async_offload: bool = False
         self.force_non_blocking: bool = False

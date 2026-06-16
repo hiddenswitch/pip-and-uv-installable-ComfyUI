@@ -23,12 +23,25 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
     torch.cuda.init()
     device_index = torch_device.index if torch_device.index is not None else torch.cuda.current_device()
 
-    if comfy_aimdo.control.init():
+    simple_vram_headroom = None if args.reserve_vram is None else int(args.reserve_vram * 1024 ** 3)
+    try:
+        control_initialized = comfy_aimdo.control.init(simple_vram_headroom=simple_vram_headroom)
+    except TypeError:
+        # comfy-aimdo 0.4.9 protocol.
+        control_initialized = comfy_aimdo.control.init()
+
+    if control_initialized:
         importlib.reload(comfy_aimdo.host_buffer)
         importlib.reload(comfy_aimdo.model_vbar)
         importlib.reload(comfy_aimdo.vram_buffer)
 
-    if comfy_aimdo.control.lib is not None and comfy_aimdo.control.init_device(device_index):
+    try:
+        device_initialized = comfy_aimdo.control.init_device((device_index, int(args.vram_headroom * 1024 ** 3)))
+    except TypeError:
+        # comfy-aimdo 0.4.9 protocol.
+        device_initialized = comfy_aimdo.control.init_device(device_index)
+
+    if comfy_aimdo.control.lib is not None and device_initialized:
         if args.verbose == 'DEBUG':
             comfy_aimdo.control.set_log_debug()
         elif args.verbose == 'CRITICAL':

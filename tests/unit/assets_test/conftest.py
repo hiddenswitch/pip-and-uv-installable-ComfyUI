@@ -10,6 +10,7 @@ import socket
 import tempfile
 import uuid
 from multiprocessing import Process
+import time
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterator, Optional
 
@@ -120,9 +121,17 @@ def _post_multipart_asset(
 
 @pytest.fixture
 def make_asset_bytes() -> Callable[[str, int], bytes]:
+    # Salt content per test so it never collides with assets left over from
+    # earlier tests. Delete is now always a soft delete (content is preserved),
+    # so the suite can no longer rely on hard-deleting content for isolation.
+    # Deterministic within a test: the same (name, size) yields the same bytes.
+    salt = uuid.uuid4().bytes
+
     def _make(name: str, size: int = 8192) -> bytes:
         seed = sum(ord(c) for c in name) % 251
-        return bytes((i * 31 + seed) % 256 for i in range(size))
+        body = bytearray((i * 31 + seed) % 256 for i in range(size))
+        body[: len(salt)] = salt[:size]
+        return bytes(body)
     return _make
 
 
@@ -160,8 +169,11 @@ def seeded_asset(request: pytest.FixtureRequest, http: requests.Session, api_bas
     if tags is None:
         tags = ["models", "checkpoints", "unit-tests", "alpha"]
     meta = {"purpose": "test", "epoch": 1, "flags": ["x", "y"], "nullable": None}
-    file_bytes = (uuid.uuid4().hex.encode("ascii") * 256)[:4096]
-    files = {"file": (name, file_bytes, "application/octet-stream")}
+    # Unique content per test so the seed always creates a fresh asset (201).
+    # Delete is now always a soft delete, so content from a prior test survives
+    # and would otherwise dedup this upload into an existing asset (200).
+    content = uuid.uuid4().bytes + b"A" * (4096 - 16)
+    files = {"file": (name, content, "application/octet-stream")}
     form_data = {
         "tags": json.dumps(tags),
         "name": name,
@@ -194,4 +206,4 @@ def autoclean_unit_test_assets(http: requests.Session, api_base: str):
             break
         for aid in ids:
             with contextlib.suppress(Exception):
-                http.delete(f"{api_base}/api/assets/{aid}?delete_content=true", timeout=30)
+                http.delete(f"{api_base}/api/assets/{aid}", timeout=30)
