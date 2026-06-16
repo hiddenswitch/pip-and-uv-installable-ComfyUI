@@ -952,6 +952,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp16.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/Bernini-R", "diffusion_models/wan2.2_bernini_r_high_noise_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/Bernini-R", "diffusion_models/wan2.2_bernini_r_low_noise_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors", alternate_filenames=("WanVideo/2_2/wan2.2_ti2v_5B_fp16.safetensors",)),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors"),
