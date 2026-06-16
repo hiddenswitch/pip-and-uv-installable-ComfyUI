@@ -1,0 +1,56 @@
+{
+  "1": {
+    "class_type": "LoadImageFromURL",
+    "inputs": {
+      "value": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/chroma/fennec_girl_sing.png"
+    },
+    "_meta": {
+      "title": "Load Test Image"
+    }
+  },
+  "2": {
+    "class_type": "LoadDA3Model",
+    "inputs": {
+      "model_name": "depth_anything_3_small.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Load Depth Anything 3"
+    }
+  },
+  "3": {
+    "class_type": "DA3Inference",
+    "inputs": {
+      "da3_model": ["2", 0],
+      "image": ["1", 0],
+      "resolution": 140,
+      "resize_method": "upper_bound_resize",
+      "mode": "mono"
+    },
+    "_meta": {
+      "title": "Run Depth Anything 3"
+    }
+  },
+  "4": {
+    "class_type": "DA3Render",
+    "inputs": {
+      "da3_geometry": ["3", 0],
+      "output": "depth",
+      "output.normalization": "v2_style",
+      "output.apply_sky_clip": false
+    },
+    "_meta": {
+      "title": "Render Depth"
+    }
+  },
+  "5": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "depth-anything3",
+      "images": ["4", 0]
+    },
+    "_meta": {
+      "title": "Save Depth Image"
+    }
+  }
+}

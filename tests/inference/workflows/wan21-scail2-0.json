@@ -1,0 +1,164 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.1_14B_SCAIL_2_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Load SCAIL-2 Diffusion Model"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Load Wan Text Encoder"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "_meta": {
+      "title": "Load Wan VAE"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a simple studio character motion test, neutral lighting, clean background",
+      "clip": ["2", 0]
+    },
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blur, artifacts",
+      "clip": ["2", 0]
+    },
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "6": {
+    "class_type": "WanSCAILToVideo",
+    "inputs": {
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "vae": ["3", 0],
+      "width": 128,
+      "height": 128,
+      "length": 1,
+      "batch_size": 1,
+      "replacement_mode": false,
+      "pose_strength": 1.0,
+      "pose_start": 0.0,
+      "pose_end": 1.0,
+      "video_frame_offset": 0,
+      "previous_frame_count": 1
+    },
+    "_meta": {
+      "title": "SCAIL-2 Conditioning"
+    }
+  },
+  "7": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": {
+      "shift": 8.0,
+      "model": ["1", 0]
+    },
+    "_meta": {
+      "title": "Wan Sampling Shift"
+    }
+  },
+  "8": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": ["7", 0],
+      "positive": ["6", 0],
+      "negative": ["6", 1],
+      "cfg": 6.0
+    },
+    "_meta": {
+      "title": "CFG Guider"
+    }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 424242
+    },
+    "_meta": {
+      "title": "Noise"
+    }
+  },
+  "10": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "Sampler"
+    }
+  },
+  "11": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 1,
+      "denoise": 1.0,
+      "model": ["7", 0]
+    },
+    "_meta": {
+      "title": "Scheduler"
+    }
+  },
+  "12": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["9", 0],
+      "guider": ["8", 0],
+      "sampler": ["10", 0],
+      "sigmas": ["11", 0],
+      "latent_image": ["6", 2]
+    },
+    "_meta": {
+      "title": "Sample SCAIL-2"
+    }
+  },
+  "13": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "samples": ["12", 0],
+      "vae": ["3", 0],
+      "tile_size": 128,
+      "overlap": 32
+    },
+    "_meta": {
+      "title": "Decode Video"
+    }
+  },
+  "14": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "filename_prefix": "wan21-scail2",
+      "fps": 8,
+      "lossless": false,
+      "quality": 80,
+      "method": "default",
+      "images": ["13", 0]
+    },
+    "_meta": {
+      "title": "Save SCAIL-2 WEBP"
+    }
+  }
+}

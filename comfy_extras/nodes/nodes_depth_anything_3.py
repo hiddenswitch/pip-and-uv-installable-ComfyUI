@@ -152,16 +152,24 @@ class LoadDA3Model(io.ComfyNode):
 
     @classmethod
     def execute(cls, model_name, weight_dtype) -> io.NodeOutput:
-        model_options = {}
+        compute_dtype = None
         if weight_dtype == "fp16":
-            model_options["dtype"] = torch.float16
+            compute_dtype = torch.float16
         elif weight_dtype == "bf16":
-            model_options["dtype"] = torch.bfloat16
+            compute_dtype = torch.bfloat16
         elif weight_dtype == "fp32":
-            model_options["dtype"] = torch.float32
+            compute_dtype = torch.float32
 
         path = folder_paths.get_full_path_or_raise("geometry_estimation", model_name)
-        model = comfy.sd.load_diffusion_model(path, model_options=model_options)
+        model = comfy.sd.load_diffusion_model(path, model_options={"dtype": torch.float32})
+        if compute_dtype is None:
+            compute_dtype = mm.unet_dtype(
+                supported_dtypes=(torch.float16, torch.bfloat16, torch.float32),
+                weight_dtype=torch.float32,
+            )
+        if compute_dtype != torch.float32:
+            model.set_model_compute_dtype(compute_dtype)
+        model.da3_compute_dtype = compute_dtype
         return io.NodeOutput(model)
 
 
@@ -173,7 +181,7 @@ def _run_da3(model_patcher, image: torch.Tensor, process_res: int, method: str =
     mm.load_model_gpu(model_patcher)
     diffusion = model_patcher.model.diffusion_model
     device = mm.get_torch_device()
-    dtype = diffusion.dtype if diffusion.dtype is not None else torch.float32
+    dtype = getattr(model_patcher, "da3_compute_dtype", None) or model_patcher.model.get_dtype_inference()
 
     depths, confs, skies = [], [], []
     for i in range(B):
@@ -319,7 +327,7 @@ class DA3Inference(io.ComfyNode):
         mm.load_model_gpu(model)
         diffusion = model.model.diffusion_model
         device = mm.get_torch_device()
-        dtype = diffusion.dtype if diffusion.dtype is not None else torch.float32
+        dtype = getattr(model, "da3_compute_dtype", None) or model.model.get_dtype_inference()
 
         # All views in a single forward pass: (1, S, 3, H', W').
         x = image.to(device)

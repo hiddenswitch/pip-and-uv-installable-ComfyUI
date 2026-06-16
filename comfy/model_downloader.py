@@ -924,6 +924,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/diffusion_models/wan2.1_t2v_14B_fp16.safetensors", show_in_ui=False),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/diffusion_models/wan2.1_t2v_14B_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/SCAIL-2", "diffusion_models/wan2.1_14B_SCAIL_2_fp16.safetensors", show_in_ui=False),
+    HuggingFile("Comfy-Org/SCAIL-2", "diffusion_models/wan2.1_14B_SCAIL_2_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/diffusion_models/hunyuan_video_v2_replace_image_to_video_720p_bf16.safetensors"),
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/diffusion_models/hidream_i1_dev_bf16.safetensors"),
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/diffusion_models/hidream_i1_dev_fp8.safetensors"),
@@ -1435,6 +1437,14 @@ KNOWN_POSE_DETECTION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/vitpose_comfy", "onnx/vitpose_h_wholebody_data.bin", save_with_filename="onnx/vitpose_h_wholebody_data.bin"),
 ], folder_name="detection")
 
+# Depth Anything 3 -- geometry estimation models.
+KNOWN_GEOMETRY_ESTIMATION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_small.safetensors"),
+    HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_base.safetensors", show_in_ui=False),
+    HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_mono_large.safetensors", show_in_ui=False),
+    HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_metric_large.safetensors", show_in_ui=False),
+], folder_name="geometry_estimation")
+
 # ComfyUI-Frame-Interpolation -- VFI models
 # RIFE models from GitHub releases (no HF mirror)
 _VFI_GITHUB_BASE = "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation/releases/download/models"
@@ -1878,6 +1888,7 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_SEEDVR2_MODELS,
     KNOWN_GGUF_MODELS,
     KNOWN_POSE_DETECTION_MODELS,
+    KNOWN_GEOMETRY_ESTIMATION_MODELS,
     KNOWN_VFI_MODELS,
     KNOWN_FLASHVSR_MODELS,
     KNOWN_FLUX_CHECKPOINTS,
