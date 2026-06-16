@@ -20,6 +20,9 @@ cat $VIRTUAL_ENV/pyvenv.cfg | grep uv
 **In a uv-managed environment**: Always use `uv pip install` instead of `pip install`:
 
 ```bash
+# Refresh the editable checkout and dev/test dependencies before merge validation.
+uv pip install -U -e ".[dev]"
+
 # Correct
 uv pip install <package-name>
 uv pip install -r requirements.txt
@@ -37,6 +40,7 @@ pip install <package-name>
 | Install package | `uv pip install <package>` |
 | Install from requirements | `uv pip install -r requirements.txt` |
 | Install editable | `uv pip install -e .` |
+| Refresh editable dev install | `uv pip install -U -e ".[dev]"` |
 | Install with extras | `uv pip install "package[extra1,extra2]"` |
 | Sync dependencies | `uv sync` |
 
@@ -653,6 +657,15 @@ rg -n 'dependencies = |comfyui-frontend-package|comfyui-workflow-templates|comfy
 ```
 
 For upstream pins such as `pkg==X.Y.Z`, use an equivalent fork minimum when this package intentionally carries a range, e.g. `pkg>=X.Y.Z,<next-compatible-bound>`. For ordinary lower bounds, make sure `pyproject.toml` is at least as high as upstream. If upstream adds a base dependency that this fork does not have, add it to `dependencies` unless it is deliberately excluded with a documented reason. Recent examples include `comfyui-frontend-package`, `comfyui-workflow-templates`, `comfy-aimdo`, `numpy`, `kornia`, and `filelock`.
+
+After dependency changes, refresh the active checkout before running template, lint, or inference checks:
+
+```bash
+uv pip install -U -e ".[dev]"
+python -c 'import importlib.metadata as m; print(m.version("comfyui-workflow-templates"))'
+```
+
+Do this before investigating template-related failures. A stale local `comfyui-workflow-templates` install can make CI-only templates appear missing locally, or hide packaged template assets that `tests/unit/test_workflow_template_known_models.py` will validate in CI.
 
 Key packages to watch:
 

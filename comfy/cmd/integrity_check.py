@@ -7,6 +7,9 @@ import platform
 import sys
 from pathlib import Path
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 import psutil
 from rich.console import Console
 from rich.table import Table
@@ -34,6 +37,41 @@ def _runtime_pkg_version(name: str) -> str:
     if isinstance(runtime_version, str) and runtime_version:
         return runtime_version
     return metadata_version
+
+
+def _installed_requirement_for(package_name: str) -> Requirement | None:
+    package_key = canonicalize_name(package_name)
+    for req_text in importlib.metadata.requires("comfyui") or ():
+        req = Requirement(req_text)
+        if canonicalize_name(req.name) != package_key:
+            continue
+        if req.marker is not None and not req.marker.evaluate():
+            continue
+        return req
+    return None
+
+
+def _requirement_detail(package_name: str) -> str:
+    req = _installed_requirement_for(package_name)
+    if req is None or not req.specifier:
+        return ""
+    return str(req.specifier)
+
+
+def _check_installed_requirement(package_name: str) -> _CheckResult:
+    req = _installed_requirement_for(package_name)
+    installed = _pkg_version(package_name)
+    if req is None:
+        return (f"{package_name} constraint", None, "no active comfyui requirement")
+    if installed == "(not installed)":
+        return (f"{package_name} constraint", False, f"missing; requires {req.specifier}")
+    try:
+        version = Version(installed)
+    except InvalidVersion:
+        return (f"{package_name} constraint", False, f"installed version {installed!r} is not PEP 440")
+    if version in req.specifier:
+        return (f"{package_name} constraint", True, f"{installed} satisfies {req.specifier}")
+    return (f"{package_name} constraint", False, f"{installed} does not satisfy {req.specifier}")
 
 
 def _section_config_files(console: Console):
@@ -128,9 +166,10 @@ _CheckResult = tuple[str, bool | None, str]
 
 
 def _run_compatibility_checks() -> list[_CheckResult]:
-    from packaging.version import Version
-
     checks: list[_CheckResult] = []
+
+    for pkg in ("comfyui-frontend-package", "comfyui-workflow-templates"):
+        checks.append(_check_installed_requirement(pkg))
 
     # opencv + numpy 2 compatibility
     numpy_ver = _pkg_version("numpy")
@@ -307,11 +346,12 @@ def _section_package_versions(console: Console):
     table = Table(show_edge=False, pad_edge=False, box=None)
     table.add_column("Package", no_wrap=True)
     table.add_column("Version")
+    table.add_column("Required")
 
-    table.add_row("Python", sys.version.split()[0])
+    table.add_row("Python", sys.version.split()[0], "")
     for pkg in packages:
         version = _runtime_pkg_version(pkg) if pkg in {"torch", "torchvision", "torchaudio"} else _pkg_version(pkg)
-        table.add_row(pkg, version)
+        table.add_row(pkg, version, _requirement_detail(pkg))
 
     console.print(table)
 
