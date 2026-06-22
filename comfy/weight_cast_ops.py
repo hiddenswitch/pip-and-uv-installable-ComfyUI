@@ -109,9 +109,9 @@ def _stable_module_key(identity: str) -> int:
 
 def _set_module_key(module: torch.nn.Module, key: int) -> None:
     try:
-        module._comfy_weight_cast_key = int(key)
-        if hasattr(module, "_comfy_weight_cast_key_tensor"):
-            delattr(module, "_comfy_weight_cast_key_tensor")
+        key = int(key)
+        module._comfy_weight_cast_key = key
+        module._comfy_weight_cast_key_tensor = torch.tensor(key, dtype=torch.int64)
     except Exception:
         pass
 
@@ -170,7 +170,6 @@ def module_bias_shape(module: torch.nn.Module) -> list[int] | None:
     return None
 
 
-@torch.compiler.assume_constant_result
 def next_invocation_id() -> int:
     return next(_INVOCATION_IDS)
 
@@ -224,7 +223,7 @@ def _custom_op_return(output: torch.Tensor) -> torch.Tensor:
     return output
 
 
-def _prefetch_token(module_key: int, invocation_id: int) -> torch.Tensor:
+def _prefetch_token(module_key: torch.Tensor | int, invocation_id: torch.Tensor | int) -> torch.Tensor:
     return torch.tensor(invocation_id, dtype=torch.int64)
 
 
@@ -260,7 +259,7 @@ def _prefetch(
     **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight(
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -279,7 +278,7 @@ def prefetch_weight(
 )
 def prefetch_weight_after(
     memory_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -293,7 +292,7 @@ def prefetch_weight_after(
 
 @prefetch_weight.register_fake
 def _prefetch_weight_fake(
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -308,7 +307,7 @@ def _prefetch_weight_fake(
 @prefetch_weight_after.register_fake
 def _prefetch_weight_after_fake(
     memory_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -326,7 +325,7 @@ def _prefetch_weight_after_fake(
     **_TORCH_OP_TAG_KWARGS,
 )
 def prefetch_weight_bias(
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -345,7 +344,7 @@ def prefetch_weight_bias(
 )
 def prefetch_weight_bias_after(
     memory_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -359,7 +358,7 @@ def prefetch_weight_bias_after(
 
 @prefetch_weight_bias.register_fake
 def _prefetch_weight_bias_fake(
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -374,7 +373,7 @@ def _prefetch_weight_bias_fake(
 @prefetch_weight_bias_after.register_fake
 def _prefetch_weight_bias_after_fake(
     memory_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -398,7 +397,7 @@ def _consume_prefetch(module_key: int, invocation_id: int) -> object:
 def resolve_weight(
     exemplar: torch.Tensor,
     weight_shape: list[int],
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -434,7 +433,7 @@ def resolve_prefetched_weight(
     exemplar: torch.Tensor,
     weight_shape: list[int],
     prefetch_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -467,7 +466,7 @@ def _resolve_prefetched_weight_fake(
     exemplar: torch.Tensor,
     weight_shape: list[int],
     prefetch_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -483,7 +482,7 @@ def _resolve_prefetched_weight_fake(
 def _resolve_weight_fake(
     exemplar: torch.Tensor,
     weight_shape: list[int],
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -504,7 +503,7 @@ def resolve_weight_bias(
     exemplar: torch.Tensor,
     weight_shape: list[int],
     bias_shape: list[int],
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -544,7 +543,7 @@ def resolve_prefetched_weight_bias(
     weight_shape: list[int],
     bias_shape: list[int],
     prefetch_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -581,7 +580,7 @@ def _resolve_prefetched_weight_bias_fake(
     weight_shape: list[int],
     bias_shape: list[int],
     prefetch_token: torch.Tensor,
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -601,7 +600,7 @@ def _resolve_weight_bias_fake(
     exemplar: torch.Tensor,
     weight_shape: list[int],
     bias_shape: list[int],
-    module_key: int,
+    module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
     bias_dtype_code: int,
@@ -634,7 +633,11 @@ _LIB.define(
     **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(
-    "release_memory_(Tensor output, Tensor memory_token, int module_key, int invocation_id) -> Tensor",
+    "release_tensor_(Tensor(a!) output, Tensor module_key, int invocation_id) -> ()",
+    **_TORCH_OP_TAG_KWARGS,
+)
+_LIB.define(
+    "release_memory_(Tensor output, Tensor memory_token, Tensor module_key, int invocation_id) -> Tensor",
     **_TORCH_OP_TAG_KWARGS,
 )
 
@@ -675,7 +678,12 @@ def release_(output: torch.Tensor, module_key: int, invocation_id: int) -> None:
     return None
 
 
-def release_memory_(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
+def release_tensor_(output: torch.Tensor, module_key: torch.Tensor, invocation_id: int) -> None:
+    release_(output, module_key, invocation_id)
+    return None
+
+
+def release_memory_(output: torch.Tensor, memory_token: torch.Tensor, module_key: torch.Tensor, invocation_id: int) -> torch.Tensor:
     release_(output, module_key, invocation_id)
     return memory_token
 
@@ -684,7 +692,11 @@ def _release_fake(output: torch.Tensor, module_key: int, invocation_id: int) -> 
     return None
 
 
-def _release_memory_fake(output: torch.Tensor, memory_token: torch.Tensor, module_key: int, invocation_id: int) -> torch.Tensor:
+def _release_tensor_fake(output: torch.Tensor, module_key: torch.Tensor, invocation_id: int) -> None:
+    return None
+
+
+def _release_memory_fake(output: torch.Tensor, memory_token: torch.Tensor, module_key: torch.Tensor, invocation_id: int) -> torch.Tensor:
     return memory_token
 
 
@@ -696,5 +708,7 @@ _LIB.impl("memory_join", memory_join, "CompositeExplicitAutograd")
 _LIB.impl("memory_join", _memory_join_fake, "Meta")
 _LIB.impl("release_", release_, "CompositeExplicitAutograd")
 _LIB.impl("release_", _release_fake, "Meta")
+_LIB.impl("release_tensor_", release_tensor_, "CompositeExplicitAutograd")
+_LIB.impl("release_tensor_", _release_tensor_fake, "Meta")
 _LIB.impl("release_memory_", release_memory_, "CompositeExplicitAutograd")
 _LIB.impl("release_memory_", _release_memory_fake, "Meta")

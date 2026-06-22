@@ -162,6 +162,10 @@ class Int8RowwiseLayout(QuantizedLayout):
         return QuantizedTensor(qdata, cls.__name__, params)
 
     @classmethod
+    def should_quantize_input(cls, tensor: torch.Tensor) -> bool:
+        return tensor.shape[0] > 16
+
+    @classmethod
     def quantize(cls, tensor: torch.Tensor, scale=None, stochastic_rounding=0, inplace_ops=False,
                  rotation_dtype=torch.float32, **kwargs):
         """Quantize a weight or activation tensor.
@@ -269,6 +273,27 @@ def _int8_gemm_or_none(a, b, bias, out_dtype):
         return None
 
 
+def _int8_linear_or_none(input_tensor, weight, bias, out_dtype):
+    """Fused int8 linear for aten.linear where weight is known to be [N, K]."""
+    if not (isinstance(input_tensor, QuantizedTensor) and isinstance(weight, QuantizedTensor)):
+        return None
+    x_q, x_scale = input_tensor._qdata, input_tensor._params.scale
+    w_q, w_scale = weight._qdata, weight._params.scale
+    if x_q.ndim != 2 or w_q.ndim != 2:
+        return None
+    if x_scale.numel() not in (1, x_q.shape[0]):
+        return None
+    if w_q.shape[1] != x_q.shape[1]:
+        return None
+    if w_scale.numel() not in (1, w_q.shape[0]):
+        return None
+    try:
+        return torch.ops.comfy_int8.gemm(x_q, x_scale, w_q, w_scale, bias, out_dtype)
+    except (RuntimeError, TypeError) as exc:
+        logger.warning("INT8 linear gemm failed: %s, falling back to dequantization", exc)
+        return None
+
+
 @register_layout_op(torch.ops.aten.linear.default, Int8RowwiseLayout)
 def _handle_int8_linear(qt, args, kwargs):
     """INT8 linear: out = x_q @ w_q.T scaled per-token and per-row, fused.
@@ -280,7 +305,7 @@ def _handle_int8_linear(qt, args, kwargs):
     input_tensor, weight = args[0], args[1]
     bias = args[2] if len(args) > 2 else None
     out_dtype = kwargs.get("out_dtype", getattr(input_tensor, "dtype", None))
-    out = _int8_gemm_or_none(input_tensor, weight, bias, out_dtype)
+    out = _int8_linear_or_none(input_tensor, weight, bias, out_dtype)
     if out is not None:
         return out
     return torch.nn.functional.linear(*dequantize_args((input_tensor, weight, bias)))

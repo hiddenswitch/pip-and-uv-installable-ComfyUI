@@ -850,7 +850,10 @@ def _cast_weight_bias(module, input=None, *, dtype=None, device=None, bias_dtype
 def _release_weight_bias(module, output, state):
     if isinstance(state, tuple):
         module_key, invocation_id = state
-        torch.ops.comfy_weight.release_(output, module_key, invocation_id)
+        if isinstance(module_key, torch.Tensor):
+            torch.ops.comfy_weight.release_tensor_(output, module_key, invocation_id)
+        else:
+            torch.ops.comfy_weight.release_(output, module_key, invocation_id)
         return output
     runtime = weight_cast.get_weight_cast_runtime_by_name(state.backend)
     return runtime.release(module, uncast_bias_weight, output, state)
@@ -1867,34 +1870,55 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 return _release_weight_bias(self, x, cast_state)
 
             def _int8_inline_forward(self, input):
-                """Compiled int8 fast path on plain tensors and custom ops.
+                """INT8 fast path on plain tensors and custom ops.
 
                 The graph-visible weight cast materializes weights densely at
                 the input dtype, which would silently dequantize int8 and lose
                 the w8a8 speedup inside compiled blocks. When the quantized
-                weight is already resident on the input device, run the int8
-                math directly: optional convrot rotation, per-token quant, and
-                the fused GEMM, all opaque custom ops dynamo traces cleanly.
+                weight is available on the input device, run the same math used
+                by ComfyUI-INT8-Fast directly: optional ConvRot activation
+                rotation, dynamic per-token quantization, and fused GEMM.
                 """
                 from .quant_ops_int8 import rotate_groups
 
                 input_shape = input.shape
                 x2d = input.reshape(-1, input_shape[-1]) if input.ndim != 2 else input
-                weight = self.weight
-                bias = self.bias
+                cast_state = None
+                if weight_cast.is_torch_compiling() and self.weight.device == input.device:
+                    weight = self.weight
+                    bias = self.bias
+                else:
+                    weight, bias, cast_state = _cast_weight_bias(
+                        self,
+                        input=None,
+                        dtype=torch.int8,
+                        device=input.device,
+                        bias_dtype=input.dtype,
+                        want_requant=True,
+                    )
                 out_features = weight.shape[0]
                 layout_cls = get_layout_class(self.layout_type)
                 group_size = getattr(layout_cls, "GROUP_SIZE", None)
 
+                if x2d.dtype != input.dtype:
+                    x2d = x2d.to(input.dtype)
                 if group_size is not None:
                     x2d = rotate_groups(x2d, group_size, compute_dtype=None)
-                x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
-                out = torch.ops.comfy_int8.gemm(
-                    x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
+
+                if x2d.shape[0] > 16:
+                    x_q, x_scale = torch.ops.comfy_int8.quantize_rowwise(x2d)
+                    out = torch.ops.comfy_int8.gemm(
+                        x_q, x_scale, weight._qdata, weight._params.scale, bias, input.dtype)
+                else:
+                    w_float = weight._qdata.to(torch.float32) * weight._params.scale
+                    bias_typed = bias.to(x2d.dtype) if bias is not None else None
+                    out = torch.nn.functional.linear(x2d, w_float.to(x2d.dtype), bias_typed)
 
                 if input.ndim != 2:
                     out = out.reshape(input_shape[:-1] + (out_features,))
-                return out
+                if cast_state is None:
+                    return out
+                return _release_weight_bias(self, out, cast_state)
 
             def forward(self, input, *args, **kwargs):
                 run_every_op()
@@ -1907,7 +1931,6 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                     int8_inline = (
                         getattr(self, 'layout_type', None) in ("Int8RowwiseLayout", "Int8ConvRotLayout")
                         and isinstance(self.weight, QuantizedTensor)
-                        and self.weight.device == input.device
                         and not self._full_precision_mm
                         and len(self.weight_function) == 0 and len(self.bias_function) == 0
                     )

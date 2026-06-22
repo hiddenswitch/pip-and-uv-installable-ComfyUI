@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 import torch
 
 import comfy.utils
+import comfy.quant_ops_int8 as quant_ops_int8
 import comfy.weight_cast as weight_cast
 from comfy.weight_cast_schedule import wrap_backend_with_weight_prefetch_scheduler
 from comfy.weight_cast import get_materialization_spec
@@ -184,6 +185,23 @@ def _model_needs_graph_visible_weight_cast(model: ModelPatcher, module: torch.nn
     )
 
 
+def _prewarm_convrot_hadamard(child: torch.nn.Module, device: torch.device | None) -> None:
+    if device is None or device.type == "cpu":
+        return
+    layout_type = getattr(child, "layout_type", None)
+    if layout_type != "Int8ConvRotLayout":
+        return
+    try:
+        layout_cls = quant_ops_int8.get_layout_class(layout_type)
+        group_size = getattr(layout_cls, "GROUP_SIZE", None)
+        if group_size is None:
+            return
+        for dtype in (torch.bfloat16, torch.float16, torch.float32):
+            quant_ops_int8.regular_hadamard(group_size, device=device, dtype=dtype)
+    except Exception as exc:
+        logger.debug("ConvRot Hadamard prewarm failed for %s: %s", type(child).__name__, exc)
+
+
 def _first_tensor_device(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.device | None:
     values = list(args) + list(kwargs.values())
     for value in values:
@@ -211,6 +229,7 @@ def _stabilize_compile_parameter_residency(
     move_params = device is not None and device.type != "cpu"
     with torch.no_grad():
         for module_name, child in module.named_modules():
+            _prewarm_convrot_hadamard(child, device)
             if not (
                 hasattr(child, "comfy_cast_weights")
                 or hasattr(child, "weight_function")

@@ -11,6 +11,7 @@ from .cli_args import _args
 from .weight_cast_ops import (
     device_type_to_code,
     dtype_to_code,
+    module_key_tensor,
     module_bias_shape,
     module_weight_shape,
     next_invocation_id,
@@ -223,6 +224,18 @@ class EagerWeightCastRuntime(WeightCastRuntime):
 class GraphVisibleWeightCastRuntime(WeightCastRuntime):
     name = BACKEND_GRAPH_VISIBLE
 
+    @staticmethod
+    def _needs_unique_invocation(module: torch.nn.Module) -> bool:
+        if getattr(module, "_v", None) is not None:
+            return True
+        for attr in ("weight_function", "bias_function"):
+            if len(getattr(module, attr, ())) > 0:
+                return True
+        for attr in ("weight_lowvram_function", "bias_lowvram_function"):
+            if getattr(module, attr, None) is not None:
+                return True
+        return False
+
     def resolve(
         self,
         module: torch.nn.Module,
@@ -237,10 +250,8 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
     ) -> tuple[torch.Tensor, torch.Tensor | None, WeightCastState]:
         if input is None:
             raise RuntimeError("Graph-visible weight casting requires an input/exemplar tensor")
-        module_key = getattr(module, "_comfy_weight_cast_key", None)
-        if module_key is None:
-            module_key = register_module(module)
-        invocation_id = next_invocation_id()
+        module_key = module_key_tensor(module)
+        invocation_id = next_invocation_id() if self._needs_unique_invocation(module) else 0
         weight_shape = _materialization_shape(module, "weight")
         if weight_shape is None:
             weight_shape = module_weight_shape(module)
@@ -277,7 +288,10 @@ class GraphVisibleWeightCastRuntime(WeightCastRuntime):
         state: Any,
     ) -> torch.Tensor:
         module_key, invocation_id = state
-        torch.ops.comfy_weight.release_(output, module_key, invocation_id)
+        if isinstance(module_key, torch.Tensor):
+            torch.ops.comfy_weight.release_tensor_(output, module_key, invocation_id)
+        else:
+            torch.ops.comfy_weight.release_(output, module_key, invocation_id)
         return output
 
 

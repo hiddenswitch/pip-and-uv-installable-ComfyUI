@@ -25,11 +25,12 @@ import torch
 logger = logging.getLogger(__name__)
 
 INT8_MIN_SM = (7, 5)
-_SCALE_EPS = 1e-12
+_SCALE_EPS = 1e-30
 
 try:
     import triton
     import triton.language as tl
+    from triton.language.extra import libdevice
 
     TRITON_AVAILABLE = True
 except ImportError:
@@ -88,7 +89,7 @@ if TRITON_AVAILABLE:
             x = tl.load(x_row + offs * stride_xk, mask=mask, other=0.0).to(tl.float32)
             absmax = tl.maximum(absmax, tl.max(tl.abs(x), axis=0))
 
-        scale = tl.maximum(absmax / 127.0, 1e-12)
+        scale = tl.maximum(absmax / 127.0, 1e-30)
         inv_scale = 1.0 / scale
         tl.store(scale_ptr + row, scale)
 
@@ -97,19 +98,17 @@ if TRITON_AVAILABLE:
             mask = offs < K
             x = tl.load(x_row + offs * stride_xk, mask=mask, other=0.0).to(tl.float32)
             q = x * inv_scale
-            # round half up via floor(q + 0.5): portable across triton builds
-            # (CUDA and ROCm), unlike libdevice.rint / tl.math intrinsics
-            q = tl.floor(q + 0.5)
+            q = libdevice.rint(q)
             q = tl.minimum(tl.maximum(q, -128.0), 127.0)
             tl.store(q_row + offs * stride_qk, q.to(tl.int8), mask=mask)
 
     _GEMM_CONFIGS = [
         triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=8),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=4, num_warps=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=8),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=3, num_warps=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64, "BLOCK_K": 128, "GROUP_M": 8}, num_stages=4, num_warps=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 64, "BLOCK_K": 64, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256, "BLOCK_K": 32, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 32, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 64, "BLOCK_K": 32, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 32, "GROUP_M": 8}, num_stages=4, num_warps=4),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 32, "BLOCK_K": 32, "GROUP_M": 8}, num_stages=4, num_warps=4),
     ]
 
     @triton.autotune(configs=_GEMM_CONFIGS, key=["M", "N", "K"])
@@ -296,34 +295,6 @@ def gemm(
 
     if TRITON_AVAILABLE and x_q.is_cuda and m > 0:
         tl_out_dtype = _TL_OUT_DTYPES.get(out_dtype)
-        # K-heavy down-projections fill few output tiles, so the single-pass
-        # kernel underutilizes the SMs while cublasLt's split-K reduction wins
-        # (measured 164 vs 137 TOPS on GA102 at K=12288, N=3072). Route those
-        # through _int_mm with a fused triton dequant epilogue.
-        k_heavy = k >= 2 * n and m >= 1024
-        if tl_out_dtype is not None and k_heavy and _int_mm_supported(x_q, w_q):
-            try:
-                acc = torch._int_mm(x_q.contiguous(), w_q.contiguous().t())
-                out = torch.empty((m, n), device=x_q.device, dtype=out_dtype)
-                grid = lambda meta: (  # noqa: E731
-                    triton.cdiv(m, meta["BLOCK_M"]),
-                    triton.cdiv(n, meta["BLOCK_N"]),
-                )
-                _int32_dequant_epilogue_kernel[grid](
-                    acc, out,
-                    x_scale2d, w_scale2d,
-                    bias if bias is not None else acc,
-                    m, n,
-                    acc.stride(0), acc.stride(1),
-                    out.stride(0), out.stride(1),
-                    HAS_BIAS=bias is not None,
-                    OUT_DTYPE=tl_out_dtype,
-                    BLOCK_M=64, BLOCK_N=128,
-                    num_warps=4,
-                )
-                return out
-            except RuntimeError as exc:
-                logger.debug("split-K _int_mm route failed, using triton gemm: %s", exc)
         # tl.dot's 16-minimum applies to the constexpr tile sizes, not M/N/K:
         # masked loads make any actual shape work, including M=1.
         if tl_out_dtype is not None:
