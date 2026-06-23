@@ -384,6 +384,14 @@ jobs:
           echo "torchaudio==2.11.0+xpu" >> overrides.txt
           uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
           echo "sentry-sdk; python_version < '0'" >> overrides.txt
+      - name: Install PyTorch XPU
+        run: |
+          export UV_BREAK_SYSTEM_PACKAGES=true
+          export UV_SYSTEM_PYTHON=true
+          uv pip install --torch-backend=xpu --reinstall \
+            "torch==2.11.0+xpu" \
+            "torchvision==0.26.0+xpu" \
+            "torchaudio==2.11.0+xpu"
       - name: Install ComfyUI (with torch+xpu)
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
