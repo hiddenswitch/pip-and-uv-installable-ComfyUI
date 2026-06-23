@@ -19,6 +19,7 @@ from comfy.custom_node_facade.builder import FacadeWheelBuilder
 from comfy.custom_node_facade.builder import FlashAttentionProxySpec
 from comfy.custom_node_facade.builder import FacadeCacheStore
 from comfy.custom_node_facade.builder import PYPI_PROXY_INDEX
+from comfy.custom_node_facade.builder import PyPIProxySpec
 from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
 from comfy.cmd.node_info import node_info
 from comfy.nodes.package import _extract_vanilla_custom_node_roots
@@ -151,6 +152,14 @@ def test_cuda_specific_proxy_support_matrix():
         } == supported_cuda_variants
 
     assert all(PYPI_PROXY_INDEX["insightface"].supports_cuda(cuda) for cuda in checked_cuda_variants)
+
+
+def test_triton_xpu_proxy_uses_pytorch_xpu_index():
+    proxy = PYPI_PROXY_INDEX["triton-xpu"]
+
+    assert isinstance(proxy, PyPIProxySpec)
+    assert proxy.supports_cuda("cu130")
+    assert proxy.upstream_index_url("cu130") == "https://download.pytorch.org/whl/xpu/triton-xpu/"
 
 
 def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):

@@ -348,33 +348,21 @@ jobs:
       matrix:
         target:
           - labels: [self-hosted, linux, X64, ipex-a380-6gb]
-            friendly_name: "Python 3.12 PyTorch 2.11 XPU (upstream)"
-            container: "ubuntu:24.04"
+            friendly_name: "Python 3.11 PyTorch 2.11 XPU (upstream)"
+            container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
     steps:
       - name: Install system + Intel GPU runtime + uv
         run: |
-          # XPU was upstreamed into PyTorch 2.4+; intel-extension-for-pytorch
-          # is no longer required for ComfyUI's test surface. The previous
-          # matrix entry used intel/intel-extension-for-pytorch:2.8.10-xpu and
-          # pulled python3.11 from ppa:deadsnakes; the deadsnakes path through
-          # api.launchpad.net was timing out the entire 25-minute job. We now
-          # build on ubuntu:24.04 + Intel's official compute-runtime repo,
-          # which provides the Level Zero GPU shim (libze_intel_gpu) that the
-          # torch+xpu wheel needs to enumerate the Arc A380. The wheel itself
-          # ships the SYCL/oneAPI userspace runtime; the kernel-driver shim
-          # has to come from the OS.
+          # Use Intel's latest XPU-bearing image as the runtime base. It already
+          # includes the Level Zero/OpenCL stack needed to enumerate the Arc
+          # A380; the job still installs upstream torch+xpu explicitly below.
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-              $COMFYUI_UBUNTU_BOOTSTRAP_PACKAGES \
-              $COMFYUI_LINUX_SYSTEM_PACKAGES
-          curl -fsSL https://repositories.intel.com/gpu/intel-graphics.key \
-            | gpg --dearmor -o /usr/share/keyrings/intel-graphics.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble client" \
-            > /etc/apt/sources.list.d/intel-gpu-noble.list
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            intel-opencl-icd intel-level-zero-gpu level-zero
+              curl ca-certificates gpg gnupg2 git \
+              $COMFYUI_LINUX_SYSTEM_PACKAGES \
+              $COMFYUI_GPU_DIAGNOSTIC_PACKAGES
+          python --version
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v5

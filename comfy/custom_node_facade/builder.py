@@ -242,6 +242,10 @@ PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
     # triton-windows: same Windows wheels under their real name.
     TritonProxySpec(name="triton-windows", rename_to_triton=False),
     PyPIProxySpec(
+        name="triton-xpu",
+        upstream_index_url_template="https://download.pytorch.org/whl/xpu/triton-xpu/",
+    ),
+    PyPIProxySpec(
         name="sageattention",
         upstream_index_url_template="https://appmana.github.io/forks-sageattention-stable-abi/{cuda}/sageattention/",
         cuda_variants=STABLE_ABI_CUDA_VARIANTS,
