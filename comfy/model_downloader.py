@@ -917,6 +917,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_raw_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_turbo_fp8_scaled.safetensors"),
+    HuggingFile("Winnougan/Krea-2-Base-Turbo-NVFP4-FP8-INT8", "Krea2_Raw_convrot_int8mixed.safetensors"),
+    HuggingFile("Winnougan/Krea-2-Base-Turbo-NVFP4-FP8-INT8", "Krea2_Turbo_convrot_int8mixed.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_base_bf16.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_base_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_edit_bf16.safetensors"),
