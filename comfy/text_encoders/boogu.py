@@ -6,8 +6,8 @@ The model itself is the standard Qwen3-VL TE, only the chat template differs
 (a fixed system prompt and no <think> block).
 """
 
-import comfy.text_encoders.qwen3vl
-from comfy import sd1_clip
+from .. import sd1_clip
+from . import qwen3vl
 
 
 # System prompts from the reference pipeline (pipeline_boogu.py).
@@ -17,7 +17,7 @@ BOOGU_T2I_SYSTEM = "You are a helpful assistant that generates high-quality imag
 BOOGU_DROP_SYSTEM = "Describe the key features of the input image (color, shape, size, texture, objects, background), then explain how the user's text instruction should alter or modify the image. Generate a new image that meets the user's requirements while maintaining consistency with the original input where appropriate."
 
 
-class BooguTokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
+class BooguTokenizer(qwen3vl.Qwen3VLTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, model_type="qwen3vl_8b")
         # apply_chat_template without add_generation_prompt
@@ -33,26 +33,26 @@ class BooguTokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
         return super().tokenize_with_weights(text, return_word_ids=return_word_ids, llama_template=llama_template, images=images, prevent_empty_text=prevent_empty_text, thinking=thinking, **kwargs)
 
 
-class BooguQwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
-    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_8b"):
-        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type=model_type)
+class BooguQwen3VLClipModel(qwen3vl.Qwen3VLClipModel):
+    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_8b", textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type=model_type, textmodel_json_config=textmodel_json_config)
         # apply the final RMSNorm to the tapped last layer
         self.layer_norm_hidden_state = True
 
 
 class BooguTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
         clip_model = lambda **kw: BooguQwen3VLClipModel(**kw, model_type="qwen3vl_8b")
-        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=clip_model, model_options=model_options)
+        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=clip_model, model_options=model_options, textmodel_json_config=textmodel_json_config)
 
 
 def te(dtype_llama=None, llama_quantization_metadata=None):
     class BooguTEModel_(BooguTEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if dtype_llama is not None:
                 dtype = dtype_llama
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return BooguTEModel_

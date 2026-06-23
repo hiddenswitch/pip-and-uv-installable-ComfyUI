@@ -82,13 +82,13 @@ def test_dynamic_quantized_lowvram_lora_patch_is_baked(monkeypatch):
 
 def test_comfy_weight_custom_ops_compile_with_eager_backend():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
 
     layer = ops.manual_cast.Linear(3, 2)
     with torch.no_grad():
         layer.weight.copy_(torch.tensor([[1.0, 2.0, 3.0], [0.5, -1.0, 4.0]]))
         layer.bias.copy_(torch.tensor([0.25, -0.5]))
-    key = register_module(layer)
+    key = module_key_tensor(layer)
     invocation_id = 1
     weight_shape = module_weight_shape(layer)
     bias_shape = module_bias_shape(layer)
@@ -98,7 +98,7 @@ def test_comfy_weight_custom_ops_compile_with_eager_backend():
             x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
-        torch.ops.comfy_weight.release_(out, key, invocation_id)
+        torch.ops.comfy_weight.release_tensor_(out, key, invocation_id)
         return out
 
     x = torch.randn(4, 3)
@@ -109,13 +109,13 @@ def test_comfy_weight_custom_ops_compile_with_eager_backend():
 
 def test_comfy_weight_custom_ops_are_present_in_fx_graph():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
 
     layer = ops.manual_cast.Linear(3, 2)
     with torch.no_grad():
         layer.weight.copy_(torch.tensor([[1.0, 2.0, 3.0], [0.5, -1.0, 4.0]]))
         layer.bias.copy_(torch.tensor([0.25, -0.5]))
-    key = register_module(layer)
+    key = module_key_tensor(layer)
     invocation_id = 1
     weight_shape = module_weight_shape(layer)
     bias_shape = module_bias_shape(layer)
@@ -130,7 +130,7 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
             x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
-        torch.ops.comfy_weight.release_(out, key, invocation_id)
+        torch.ops.comfy_weight.release_tensor_(out, key, invocation_id)
         return out
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -144,11 +144,11 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
 
 def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     layer = ops.manual_cast.Linear(3, 2)
-    key = register_module(layer)
+    key = module_key_tensor(layer)
     invocation_id = 1
     weight_shape = module_weight_shape(layer)
     bias_shape = module_bias_shape(layer)
@@ -163,7 +163,7 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
             x, weight_shape, bias_shape, key, invocation_id, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
-        torch.ops.comfy_weight.release_(out, key, invocation_id)
+        torch.ops.comfy_weight.release_tensor_(out, key, invocation_id)
         return out
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -177,14 +177,14 @@ def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
 
 def test_weight_prefetch_scheduler_lookahead_zero_leaves_demand_resolves():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     layer = ops.manual_cast.Linear(2, 2)
     args = (
         module_weight_shape(layer),
         module_bias_shape(layer),
-        register_module(layer),
+        module_key_tensor(layer),
         1,
     )
     graphs = []
@@ -198,7 +198,7 @@ def test_weight_prefetch_scheduler_lookahead_zero_leaves_demand_resolves():
             x, *args, 0, 0, 0, False, 0, -1
         )
         out = torch.nn.functional.linear(x, weight, bias)
-        torch.ops.comfy_weight.release_(out, args[2], args[3])
+        torch.ops.comfy_weight.release_tensor_(out, args[2], args[3])
         return out
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -269,7 +269,7 @@ def test_mixed_precision_linear_compile_path_avoids_parameter_inspection(monkeyp
 
 def test_weight_prefetch_scheduler_respects_byte_budget():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -277,13 +277,13 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -295,10 +295,10 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
     def fn(x_small, x_large):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x_small, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x_small, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x_large, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x_large, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y1, y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -315,7 +315,7 @@ def test_weight_prefetch_scheduler_respects_byte_budget():
 
 def test_weight_prefetch_scheduler_respects_live_lookahead_window():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     layers = [ops.manual_cast.Linear(2, 2) for _ in range(4)]
@@ -323,7 +323,7 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
         (
             module_weight_shape(layer),
             module_bias_shape(layer),
-            register_module(layer),
+            module_key_tensor(layer),
             invocation,
         )
         for invocation, layer in enumerate(layers, start=1)
@@ -339,7 +339,7 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
         for layer_args in args:
             weight, bias = torch.ops.comfy_weight.resolve_weight_bias(x, *layer_args, 0, 0, 0, False, 0, -1)
             total = total + torch.nn.functional.linear(x, weight, bias)
-            torch.ops.comfy_weight.release_(total, layer_args[2], layer_args[3])
+            torch.ops.comfy_weight.release_tensor_(total, layer_args[2], layer_args[3])
         return total
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -359,20 +359,20 @@ def test_weight_prefetch_scheduler_respects_live_lookahead_window():
 def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses(monkeypatch):
     from comfy import ops
     import comfy.weight_cast_schedule as schedule
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
 
     first = ops.manual_cast.Linear(2, 2)
     second = ops.manual_cast.Linear(256, 256)
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -386,10 +386,10 @@ def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses
     def fn(x_small, x_large):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x_small, *first_args, 1, 1, 1, False, 0, -1)
         y1 = torch.nn.functional.linear(x_small, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x_large, *second_args, 1, 1, 1, False, 0, -1)
         y2 = torch.nn.functional.linear(x_large, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y1, y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -402,7 +402,7 @@ def test_weight_prefetch_scheduler_budgets_from_shapes_when_module_lookup_misses
 
 def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     from comfy import ops, weight_cast
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -418,13 +418,13 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -436,10 +436,10 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
     def fn(x):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y1 + y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -455,7 +455,7 @@ def test_weight_prefetch_scheduler_uses_materialization_spec_budget():
 
 def test_weight_prefetch_scheduler_respects_per_weight_prefetch_cap():
     from comfy import ops, weight_cast
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -471,13 +471,13 @@ def test_weight_prefetch_scheduler_respects_per_weight_prefetch_cap():
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -489,10 +489,10 @@ def test_weight_prefetch_scheduler_respects_per_weight_prefetch_cap():
     def fn(x):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y1 + y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -505,7 +505,7 @@ def test_weight_prefetch_scheduler_respects_per_weight_prefetch_cap():
 
 def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -514,13 +514,13 @@ def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -532,10 +532,10 @@ def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
     def fn(x):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y1 + y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -550,7 +550,7 @@ def test_weight_prefetch_scheduler_keeps_live_patch_function_on_demand_path():
 
 def test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -560,19 +560,19 @@ def test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve()
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     third_args = (
         module_weight_shape(third),
         module_bias_shape(third),
-        register_module(third),
+        module_key_tensor(third),
         3,
     )
     graphs = []
@@ -584,13 +584,13 @@ def test_weight_prefetch_scheduler_keeps_existing_window_across_demand_resolve()
     def fn(x):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(x, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(x, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         w3, b3 = torch.ops.comfy_weight.resolve_weight_bias(x, *third_args, 0, 0, 0, False, 0, -1)
         y3 = torch.nn.functional.linear(x, w3, b3)
-        torch.ops.comfy_weight.release_(y3, third_args[2], third_args[3])
+        torch.ops.comfy_weight.release_tensor_(y3, third_args[2], third_args[3])
         return y1 + y2 + y3
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -789,7 +789,7 @@ def test_vbar_release_defers_unpin_until_cuda_event_completes(monkeypatch):
 
 def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     from comfy import ops
-    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, register_module
+    from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
     from comfy.weight_cast_schedule import schedule_weight_prefetches
 
     first = ops.manual_cast.Linear(2, 2)
@@ -797,13 +797,13 @@ def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     first_args = (
         module_weight_shape(first),
         module_bias_shape(first),
-        register_module(first),
+        module_key_tensor(first),
         1,
     )
     second_args = (
         module_weight_shape(second),
         module_bias_shape(second),
-        register_module(second),
+        module_key_tensor(second),
         2,
     )
     graphs = []
@@ -815,11 +815,11 @@ def test_weight_prefetch_scheduler_can_cross_exemplar_dependency():
     def fn(x):
         w1, b1 = torch.ops.comfy_weight.resolve_weight_bias(x, *first_args, 0, 0, 0, False, 0, -1)
         y1 = torch.nn.functional.linear(x, w1, b1)
-        torch.ops.comfy_weight.release_(y1, first_args[2], first_args[3])
+        torch.ops.comfy_weight.release_tensor_(y1, first_args[2], first_args[3])
         exemplar = y1 + 1
         w2, b2 = torch.ops.comfy_weight.resolve_weight_bias(exemplar, *second_args, 0, 0, 0, False, 0, -1)
         y2 = torch.nn.functional.linear(exemplar, w2, b2)
-        torch.ops.comfy_weight.release_(y2, second_args[2], second_args[3])
+        torch.ops.comfy_weight.release_tensor_(y2, second_args[2], second_args[3])
         return y2
 
     compiled = torch.compile(fn, backend=capture_backend)
@@ -840,7 +840,7 @@ def test_comfy_weight_custom_ops_track_overlapping_invocations():
     with torch.no_grad():
         layer.weight.fill_(1.0)
         layer.bias.zero_()
-    key = weight_cast_ops.register_module(layer)
+    key = weight_cast_ops.module_key_tensor(layer)
     weight_shape = weight_cast_ops.module_weight_shape(layer)
     bias_shape = weight_cast_ops.module_bias_shape(layer)
     first_invocation = 1
@@ -865,8 +865,8 @@ def test_comfy_weight_custom_ops_track_overlapping_invocations():
         torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, first_invocation, 0, 0, 0, False, 0, -1)
         torch.ops.comfy_weight.resolve_weight_bias(x, weight_shape, bias_shape, key, second_invocation, 0, 0, 0, False, 0, -1)
 
-        torch.ops.comfy_weight.release_(x, key, first_invocation)
-        torch.ops.comfy_weight.release_(x, key, second_invocation)
+        torch.ops.comfy_weight.release_tensor_(x, key, first_invocation)
+        torch.ops.comfy_weight.release_tensor_(x, key, second_invocation)
     finally:
         weight_cast_ops._ACTIVE.clear()
         weight_cast_ops._PREFETCHED.clear()
@@ -880,7 +880,7 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
     from comfy import weight_cast_ops
 
     layer = ops.manual_cast.Linear(2, 2)
-    key = weight_cast_ops.register_module(layer)
+    key = weight_cast_ops.module_key_tensor(layer)
     weight_shape = weight_cast_ops.module_weight_shape(layer)
     bias_shape = weight_cast_ops.module_bias_shape(layer)
     invocation = 7
@@ -909,7 +909,7 @@ def test_comfy_weight_prefetch_token_is_consumed_by_prefetched_resolve():
         weight, bias = torch.ops.comfy_weight.resolve_prefetched_weight_bias(
             x, weight_shape, bias_shape, token, key, invocation, 0, 0, 0, False, 0, -1
         )
-        torch.ops.comfy_weight.release_(torch.nn.functional.linear(x, weight, bias), key, invocation)
+        torch.ops.comfy_weight.release_tensor_(torch.nn.functional.linear(x, weight, bias), key, invocation)
     finally:
         weight_cast_ops._ACTIVE.clear()
         weight_cast_ops._PREFETCHED.clear()
@@ -935,7 +935,7 @@ def test_graph_visible_runtime_uses_distinct_invocations_for_repeated_module(mon
 
     monkeypatch.setattr(weight_cast, "_is_device_cpu", lambda device: False)
     layer = ops.manual_cast.Linear(2, 1, dtype=torch.float16)
-    weight_cast_ops.register_module(layer)
+    weight_cast_ops.module_key_tensor(layer)
     layer._comfy_weight_cast_weight_shape = weight_cast_ops.module_weight_shape(layer)
     layer._comfy_weight_cast_bias_shape = weight_cast_ops.module_bias_shape(layer)
     with torch.no_grad():

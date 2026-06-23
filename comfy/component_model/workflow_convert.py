@@ -72,7 +72,7 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
     "RecordAudio": (("audio", ""),),
     # CustomCombo declares a single ``choice`` input in its V3 schema and
     # relies on ``accept_all_inputs=True`` + a frontend-defined widget
-    # extension to render an ``index`` field plus up to three user-authored
+    # extension to render an ``index`` field plus user-authored
     # ``optionN`` entries. graphToPrompt serializes these by name even
     # though they aren't in INPUT_TYPES, so we have to mirror the naming
     # convention here.
@@ -87,6 +87,10 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
         ("option7", ""),
         ("option8", ""),
         ("option9", ""),
+        ("option10", ""),
+        ("option11", ""),
+        ("option12", ""),
+        ("option13", ""),
     ),
 })
 
@@ -874,6 +878,42 @@ class _NodeDTO:
         self.clobbered_wv: list | None = None
 
 
+def _connected_widget_source_for_slot(sg_def: dict, slot: int) -> tuple[int, str] | None:
+    for raw in sg_def.get('links', []):
+        link = _parse_link(raw)
+        if link.src_node != _SUBGRAPH_INPUT_NODE_ID or link.src_slot != slot:
+            continue
+
+        target_node = next(
+            (inner for inner in sg_def.get('nodes', []) if inner.get('id') == link.dst_node),
+            None,
+        )
+        if target_node is None:
+            continue
+
+        target_inputs = target_node.get('inputs', [])
+        if link.dst_slot >= len(target_inputs):
+            continue
+
+        target_input = target_inputs[link.dst_slot]
+        widget = target_input.get('widget')
+        if widget is None:
+            continue
+
+        widget_name = widget.get('name') if isinstance(widget, dict) else None
+        if widget_name is None:
+            widget_name = target_input.get('name')
+        if not widget_name:
+            continue
+
+        try:
+            return int(target_node['id']), str(widget_name)
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    return None
+
+
 def _compute_proxy_overrides(sg_node, parent_overrides=None):
     proxy_widgets = sg_node.get('properties', {}).get('proxyWidgets', [])
     wv = sg_node.get('widgets_values', [])
@@ -1130,11 +1170,6 @@ def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
     if isinstance(wv, dict):
         wv = []
 
-    # Modern proxyWidgets format: [[internalNodeId, widgetName], ...] aligned
-    # positionally with subgraph_def.inputs and widgets_values. When the
-    # boundary slot has a corresponding proxy widget AND the user has
-    # customised the value (widgets_values has an entry at this slot),
-    # return the matching widgets_values entry.
     if slot < len(proxy_widgets) and slot < len(wv):
         pw = proxy_widgets[slot]
         if isinstance(pw, (list, tuple)) and len(pw) >= 2 and pw[1] == inp_name:
@@ -1161,6 +1196,20 @@ def _get_sg_widget_by_slot(sg_node, slot, sg_def=None):
     # line 131-135), which falls through to the interior widget's value when
     # ``useWidgetValueStore`` has no override for that proxy.
     if sg_def and not wv and proxy_widgets:
+        source = _connected_widget_source_for_slot(sg_def, slot)
+        if source is not None:
+            source_node_id, source_widget_name = source
+            target_node = next(
+                (inner for inner in sg_def.get('nodes', []) if inner.get('id') == source_node_id),
+                None,
+            )
+            if target_node is not None:
+                found, value = _get_inner_widget_value(
+                    target_node, source_widget_name, _active_node_mappings.get(),
+                )
+                if found:
+                    return True, value
+
         # Walk the subgraph's inner links to find the inner node that consumes
         # this boundary slot.
         for raw in sg_def.get('links', []):
@@ -1664,7 +1713,7 @@ def _convert_ui_to_api_impl(workflow, preserve_unknown_nodes, node_mappings):
                 # and the generic virtual node resolution returns undefined.
                 if _frontend_unknown:
                     pass
-                elif _all_input_names is None or inp_name in _all_input_names:
+                elif link_id is not None or _all_input_names is None or inp_name in _all_input_names:
                     api_inputs[inp_name] = _wrap_value(resolved[1])
             else:
                 api_inputs[inp_name] = [resolved[1], resolved[2]]

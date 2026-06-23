@@ -10,8 +10,8 @@ import numbers
 
 import torch
 
-import comfy.text_encoders.qwen3vl
-from comfy import sd1_clip
+from .. import sd1_clip
+from . import qwen3vl
 
 # tap k == hidden_states[k] (no offset).
 KREA2_TAP_LAYERS = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35]
@@ -20,7 +20,7 @@ KREA2_TAP_LAYERS = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35]
 KREA2_TEMPLATE = "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
 
 
-class Krea2Tokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
+class Krea2Tokenizer(qwen3vl.Qwen3VLTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, model_type="qwen3vl_4b")
         self.llama_template = KREA2_TEMPLATE  # conditioning template; image text-gen uses qwen3vl's default image template.
@@ -30,15 +30,16 @@ class Krea2Tokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
         return super().tokenize_with_weights(text, return_word_ids=return_word_ids, llama_template=llama_template, images=images, prevent_empty_text=prevent_empty_text, thinking=thinking, **kwargs)
 
 
-class Krea2Qwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
-    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}):
+class Krea2Qwen3VLClipModel(qwen3vl.Qwen3VLClipModel):
+    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, textmodel_json_config=None):
         super().__init__(device=device, layer=KREA2_TAP_LAYERS, layer_idx=None, dtype=dtype,
-                         attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_4b")
+                         attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_4b",
+                         textmodel_json_config=textmodel_json_config)
 
 
 class Krea2TEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, name="qwen3vl_4b", clip_model=Krea2Qwen3VLClipModel, model_options=model_options)
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, name="qwen3vl_4b", clip_model=Krea2Qwen3VLClipModel, model_options=model_options, textmodel_json_config=textmodel_json_config)
 
     def encode_token_weights(self, token_weight_pairs, template_end=-1):
         out, pooled, extra = super().encode_token_weights(token_weight_pairs)  # out: (B, 12, seq, 2560)
@@ -74,11 +75,11 @@ class Krea2TEModel(sd1_clip.SD1ClipModel):
 
 def te(dtype_llama=None, llama_quantization_metadata=None):
     class Krea2TEModel_(Krea2TEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
             if dtype_llama is not None:
                 dtype = dtype_llama
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return Krea2TEModel_

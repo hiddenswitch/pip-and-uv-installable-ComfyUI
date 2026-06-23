@@ -3,10 +3,10 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import Qwen2Tokenizer
 
-from comfy import sd1_clip
-import comfy.text_encoders.qwen_vl
+from .. import sd1_clip
+from ..transformers_compat import Qwen2Tokenizer
+from . import qwen_vl
 from .qwen35 import Qwen35VisionModel
 from .llama import BaseLlama, BaseQwen3, BaseGenerate, Llama2_, Qwen3VL_4BConfig, Qwen3VL_8BConfig
 
@@ -61,7 +61,7 @@ class Qwen3VL(BaseLlama, BaseQwen3, BaseGenerate, torch.nn.Module):
     def preprocess_embed(self, embed, device):
         if embed["type"] == "image":
             # Qwen3-VL normalizes to [-1, 1] (mean/std 0.5), unlike Qwen2.5-VL's CLIP normalization.
-            image, grid = comfy.text_encoders.qwen_vl.process_qwen2vl_images(embed["data"], patch_size=16, image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5])
+            image, grid = qwen_vl.process_qwen2vl_images(embed["data"], patch_size=16, image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5])
             merged, deepstack = self.visual(image.to(device, dtype=torch.float32), grid)
             return merged, {"grid": grid, "deepstack": deepstack}
         return None, None
@@ -74,7 +74,7 @@ class Qwen3VL(BaseLlama, BaseQwen3, BaseGenerate, torch.nn.Module):
 
         device = embeds.device
         seq = embeds.shape[1]
-        position_ids = comfy.text_encoders.qwen_vl.qwen2vl_mrope_position_ids(embeds_info, seq, device)
+        position_ids = qwen_vl.qwen2vl_mrope_position_ids(embeds_info, seq, device)
 
         # DeepStack: mask of image positions + per-vision-layer features to inject there.
         visual_pos_masks = torch.zeros((1, seq), dtype=torch.bool, device=device)
@@ -99,8 +99,10 @@ def _make_qwen3vl_model(model_type):
 
 
 class Qwen3VLClipModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="hidden", layer_idx=-1, dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_8b"):
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={},
+    def __init__(self, device="cpu", layer="hidden", layer_idx=-1, dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_8b", textmodel_json_config=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
+        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config,
                          dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False,
                          model_class=_make_qwen3vl_model(model_type), enable_attention_masks=attention_mask,
                          return_attention_masks=attention_mask, model_options=model_options)
@@ -117,9 +119,9 @@ class Qwen3VLClipModel(sd1_clip.SDClipModel):
 
 
 class Qwen3VLTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}, model_type="qwen3vl_8b"):
+    def __init__(self, device="cpu", dtype=None, model_options={}, model_type="qwen3vl_8b", textmodel_json_config=None):
         clip_model = lambda **kw: Qwen3VLClipModel(**kw, model_type=model_type)
-        super().__init__(device=device, dtype=dtype, name=model_type, clip_model=clip_model, model_options=model_options)
+        super().__init__(device=device, dtype=dtype, name=model_type, clip_model=clip_model, model_options=model_options, textmodel_json_config=textmodel_json_config)
 
 
 class Qwen3VLSDTokenizer(sd1_clip.SDTokenizer):

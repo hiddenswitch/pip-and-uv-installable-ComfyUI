@@ -7,7 +7,7 @@ import os
 from ..model_management import cast_to_device
 from ..ldm.modules.attention import optimized_attention_for_device
 from .. import sd1_clip
-from .qwen_vl import process_qwen2vl_images
+from . import qwen_vl
 
 from .llama import BaseLlama, BaseGenerate, Llama2_, MLP, RMSNorm, apply_rope
 
@@ -695,12 +695,12 @@ class Qwen35(BaseLlama, BaseGenerate, torch.nn.Module):
 
     def preprocess_embed(self, embed, device):
         if embed["type"] == "image":
-            image, grid = process_qwen2vl_images(embed["data"], patch_size=16)
+            image, grid = qwen_vl.process_qwen2vl_images(embed["data"], patch_size=16)
             return self.visual(image.to(device, dtype=torch.float32), grid), grid
         return None, None
 
     def forward(self, x, attention_mask=None, embeds=None, num_tokens=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=None, embeds_info=[], past_key_values=None):
-        position_ids = comfy.text_encoders.qwen_vl.qwen2vl_mrope_position_ids(embeds_info, embeds.shape[1], embeds.device)
+        position_ids = qwen_vl.qwen2vl_mrope_position_ids(embeds_info, embeds.shape[1], embeds.device)
         return super().forward(x, attention_mask=attention_mask, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=final_layer_norm_intermediate, dtype=dtype, position_ids=position_ids, past_key_values=past_key_values)
 
     def init_kv_cache(self, batch, max_cache_len, device, execution_dtype):

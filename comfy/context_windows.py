@@ -6,14 +6,14 @@ import collections
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import logging
-import comfy.model_management
-import comfy.patcher_extension
-import comfy.utils
-import comfy.conds
+from . import conds
+from . import model_management
+from . import patcher_extension
+from . import utils
 if TYPE_CHECKING:
-    from comfy.model_base import BaseModel
-    from comfy.model_patcher import ModelPatcher
-    from comfy.controlnet import ControlBase
+    from .model_base import BaseModel
+    from .model_patcher import ModelPatcher
+    from .controlnet import ControlBase
 
 
 class ContextWindowABC(ABC):
@@ -324,7 +324,7 @@ class WindowingState:
             for cond_dict in cond_list:
                 model_conds = cond_dict.get('model_conds', {})
                 if 'latent_shapes' in model_conds:
-                    model_conds['latent_shapes'] = comfy.conds.CONDConstant(new_shapes)
+                    model_conds['latent_shapes'] = conds.CONDConstant(new_shapes)
 
 
 @dataclass
@@ -402,7 +402,7 @@ class IndexListContextHandler(ContextHandlerABC):
 
         latent_shapes = self._get_latent_shapes(conds)
         if latent_shapes is not None and len(latent_shapes) > 1:
-            modalities = comfy.utils.unpack_latents(noise, latent_shapes)
+            modalities = utils.unpack_latents(noise, latent_shapes)
             primary_total = latent_shapes[0][self.dim]
             primary_video_count = modalities[0].size(self.dim) - guide_count
             apply_freenoise(modalities[0].narrow(self.dim, 0, primary_video_count), self.dim, self.context_length, self.context_overlap, seed)
@@ -412,7 +412,7 @@ class IndexListContextHandler(ContextHandlerABC):
                 mod_ctx_len = max(round(self.context_length * ratio), 1)
                 mod_ctx_overlap = max(round(self.context_overlap * ratio), 0)
                 modalities[i] = apply_freenoise(modalities[i], self.dim, mod_ctx_len, mod_ctx_overlap, seed)
-            noise, _ = comfy.utils.pack_latents(modalities)
+            noise, _ = utils.pack_latents(modalities)
             return noise
         video_count = noise.size(self.dim) - guide_count
         apply_freenoise(noise.narrow(self.dim, 0, video_count), self.dim, self.context_length, self.context_overlap, seed)
@@ -422,7 +422,7 @@ class IndexListContextHandler(ContextHandlerABC):
         """Build windowing state for the current step, including unpacking latents and extracting guide frame info from conds."""
         latent_shapes = self._get_latent_shapes(conds)
         is_multimodal = latent_shapes is not None and len(latent_shapes) > 1
-        unpacked_latents = comfy.utils.unpack_latents(x_in, latent_shapes) if is_multimodal else [x_in]
+        unpacked_latents = utils.unpack_latents(x_in, latent_shapes) if is_multimodal else [x_in]
 
         unpacked_latents_list = list(unpacked_latents)
         guide_latents_list = [None] * len(unpacked_latents)
@@ -506,7 +506,7 @@ class IndexListContextHandler(ContextHandlerABC):
                         for cond_key, cond_value in new_cond_item.items():
                             # Allow callbacks to handle custom conditioning items
                             handled = False
-                            for callback in comfy.patcher_extension.get_all_callbacks(
+                            for callback in patcher_extension.get_all_callbacks(
                                 IndexListCallbacks.RESIZE_COND_ITEM, self.callbacks
                             ):
                                 result = callback(cond_key, cond_value, window, x_in, device, new_cond_item)
@@ -588,7 +588,7 @@ class IndexListContextHandler(ContextHandlerABC):
             counts = [[torch.zeros(get_shape_for_dim(m, self.dim), device=m.device) for _ in conds] for m in window_state.latents]
         biases = [[([0.0] * m.shape[self.dim]) for _ in conds] for m in window_state.latents]
 
-        for callback in comfy.patcher_extension.get_all_callbacks(IndexListCallbacks.EXECUTE_START, self.callbacks):
+        for callback in patcher_extension.get_all_callbacks(IndexListCallbacks.EXECUTE_START, self.callbacks):
             callback(self, model, x_in, conds, timestep, model_options)
 
         # accumulate results from each context window
@@ -623,14 +623,14 @@ class IndexListContextHandler(ContextHandlerABC):
 
                 # pack modalities together if needed
                 if window_state.is_multimodal and len(finalized) > 1:
-                    packed, _ = comfy.utils.pack_latents(finalized)
+                    packed, _ = utils.pack_latents(finalized)
                 else:
                     packed = finalized[0]
 
                 result_out.append(packed)
             return result_out
         finally:
-            for callback in comfy.patcher_extension.get_all_callbacks(IndexListCallbacks.EXECUTE_CLEANUP, self.callbacks):
+            for callback in patcher_extension.get_all_callbacks(IndexListCallbacks.EXECUTE_CLEANUP, self.callbacks):
                 callback(self, model, x_in, conds, timestep, model_options)
 
     def evaluate_context_windows(self, calc_cond_batch: Callable, model: BaseModel, x_in: torch.Tensor, conds,
@@ -651,7 +651,7 @@ class IndexListContextHandler(ContextHandlerABC):
         results: list[ContextResults] = []
         for window_idx, window in enumerated_context_windows:
             # allow processing to end between context window executions for faster Cancel
-            comfy.model_management.throw_exception_if_processing_interrupted()
+            model_management.throw_exception_if_processing_interrupted()
 
             # prepare the window accounting for multimodal windows
             window = window_state.prepare_window(window, model)
@@ -668,7 +668,7 @@ class IndexListContextHandler(ContextHandlerABC):
             # slice the window for each modality, injecting guide frames where applicable
             sliced, guide_frame_counts_per_modality = window_state.slice_for_window(window, self.latent_retain_index_list, device)
 
-            for callback in comfy.patcher_extension.get_all_callbacks(IndexListCallbacks.EVALUATE_CONTEXT_WINDOWS, self.callbacks):
+            for callback in patcher_extension.get_all_callbacks(IndexListCallbacks.EVALUATE_CONTEXT_WINDOWS, self.callbacks):
                 callback(self, model, x_in, conds, timestep, model_options, window_idx, window, model_options, device, first_device)
 
             logging.info(f"Context window {window_idx + 1}/{total_windows or len(enumerated_context_windows)}: frames {window.index_list[0]}-{window.index_list[-1]} of {x.shape[self.dim]}"
@@ -677,7 +677,7 @@ class IndexListContextHandler(ContextHandlerABC):
 
             # if multimodal, pack modalities together
             if window_state.is_multimodal and len(sliced) > 1:
-                sub_x, sub_shapes = comfy.utils.pack_latents(sliced)
+                sub_x, sub_shapes = utils.pack_latents(sliced)
             else:
                 sub_x, sub_shapes = sliced[0], [sliced[0].shape]
 
@@ -693,7 +693,7 @@ class IndexListContextHandler(ContextHandlerABC):
             sub_conds_out = calc_cond_batch(model, sub_conds, sub_x, sub_timestep, model_options)
 
             # unpack outputs
-            out_per_modality = [comfy.utils.unpack_latents(sub_conds_out[i], sub_shapes) for i in range(len(sub_conds_out))]
+            out_per_modality = [utils.unpack_latents(sub_conds_out[i], sub_shapes) for i in range(len(sub_conds_out))]
 
             # strip causal_window_fix anchor from primary modality before guide strip so window_len math stays correct
             if anchor_applied:
@@ -734,7 +734,7 @@ class IndexListContextHandler(ContextHandlerABC):
                 window.add_window(conds_final[i], sub_conds_out[i] * weights_tensor)
                 window.add_window(counts_final[i], weights_tensor)
 
-        for callback in comfy.patcher_extension.get_all_callbacks(IndexListCallbacks.COMBINE_CONTEXT_WINDOW_RESULTS, self.callbacks):
+        for callback in patcher_extension.get_all_callbacks(IndexListCallbacks.COMBINE_CONTEXT_WINDOW_RESULTS, self.callbacks):
             callback(self, x_in, sub_conds_out, sub_conds, window, window_idx, total_windows, timestep, conds_final, counts_final, biases_final)
 
 
@@ -758,7 +758,7 @@ def _prepare_sampling_wrapper(executor, model, noise_shape: torch.Tensor, conds,
 
 def create_prepare_sampling_wrapper(model: ModelPatcher):
     model.add_wrapper_with_key(
-        comfy.patcher_extension.WrappersMP.PREPARE_SAMPLING,
+        patcher_extension.WrappersMP.PREPARE_SAMPLING,
         "ContextWindows_prepare_sampling",
         _prepare_sampling_wrapper
     )
@@ -781,7 +781,7 @@ def _sampler_sample_wrapper(executor, guider, sigmas, extra_args, callback, nois
 
 def create_sampler_sample_wrapper(model: ModelPatcher):
     model.add_wrapper_with_key(
-        comfy.patcher_extension.WrappersMP.SAMPLER_SAMPLE,
+        patcher_extension.WrappersMP.SAMPLER_SAMPLE,
         "ContextWindows_sampler_sample",
         _sampler_sample_wrapper
     )

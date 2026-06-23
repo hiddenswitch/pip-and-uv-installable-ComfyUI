@@ -1113,6 +1113,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     ),
     # PixelDiT and PiD pixel-space models
     HuggingFile("Comfy-Org/Lens", "diffusion_models/lens_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Lens", "diffusion_models/lens_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pixeldit_1300m_1024px_bf16.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pixeldit_1300m_1024px_mxfp8.safetensors"),
     HuggingFile("Comfy-Org/PixelDiT", "diffusion_models/pid_flux1_1024_to_4096_4step_bf16.safetensors"),

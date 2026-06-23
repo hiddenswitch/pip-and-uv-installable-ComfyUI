@@ -31,6 +31,7 @@ _RESOLVE: Callable[..., tuple[torch.Tensor, torch.Tensor | None, object]] | None
 _RELEASE: Callable[[torch.nn.Module, torch.Tensor, torch.Tensor | None, object], None] | None = None
 _PREFETCHED: dict[tuple[int, int], object] = {}
 _INVOCATION_IDS = itertools.count(1)
+_PREFETCH_IDS = itertools.count(1)
 
 _DTYPES = {
     0: None,
@@ -175,8 +176,9 @@ def next_invocation_id() -> int:
 
 
 def reset_invocation_ids() -> None:
-    global _INVOCATION_IDS
+    global _INVOCATION_IDS, _PREFETCH_IDS
     _INVOCATION_IDS = itertools.count(1)
+    _PREFETCH_IDS = itertools.count(1)
 
 
 def set_callbacks(
@@ -224,7 +226,8 @@ def _custom_op_return(output: torch.Tensor) -> torch.Tensor:
 
 
 def _prefetch_token(module_key: torch.Tensor | int, invocation_id: torch.Tensor | int) -> torch.Tensor:
-    return torch.tensor(invocation_id, dtype=torch.int64)
+    del module_key, invocation_id
+    return torch.tensor(next(_PREFETCH_IDS), dtype=torch.int64)
 
 
 def _prefetch(
@@ -242,7 +245,8 @@ def _prefetch(
     module_key = _tensor_key(module_key)
     invocation_id = _tensor_key(invocation_id)
     module = _module(module_key)
-    _PREFETCHED[(module_key, invocation_id)] = _PREFETCH(
+    token = _prefetch_token(module_key, invocation_id)
+    _PREFETCHED[(module_key, _tensor_key(token))] = _PREFETCH(
         module,
         code_to_device(device_type_code, device_index),
         code_to_dtype(dtype_code),
@@ -250,7 +254,7 @@ def _prefetch(
         code_to_dtype(compute_dtype_code),
         want_requant,
     )
-    return _prefetch_token(module_key, invocation_id)
+    return token
 
 
 @torch.library.custom_op(
@@ -385,7 +389,11 @@ def _prefetch_weight_bias_after_fake(
     return memory_token.new_empty((), dtype=torch.int64)
 
 
-def _consume_prefetch(module_key: int, invocation_id: int) -> object:
+def _consume_prefetch(module_key: int, invocation_id: int, prefetch_token: torch.Tensor | int | None = None) -> object:
+    if prefetch_token is not None:
+        state = _PREFETCHED.pop((module_key, _tensor_key(prefetch_token)), None)
+        if state is not None:
+            return state
     return _PREFETCHED.pop((module_key, invocation_id), None)
 
 
@@ -454,7 +462,7 @@ def resolve_prefetched_weight(
         code_to_dtype(bias_dtype_code),
         code_to_dtype(compute_dtype_code),
         want_requant,
-        prefetch_state=_consume_prefetch(module_key, invocation_id),
+        prefetch_state=_consume_prefetch(module_key, invocation_id, prefetch_token),
     )
     weight = _custom_op_return(weight)
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
@@ -564,7 +572,7 @@ def resolve_prefetched_weight_bias(
         code_to_dtype(bias_dtype_code),
         code_to_dtype(compute_dtype_code),
         want_requant,
-        prefetch_state=_consume_prefetch(module_key, invocation_id),
+        prefetch_state=_consume_prefetch(module_key, invocation_id, prefetch_token),
     )
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")

@@ -295,7 +295,8 @@ def _schedule_weight_resolves(
             continue
         args = tuple(node.args)
         invocation = _resolve_invocation(node)
-        release = release_nodes.get(invocation)
+        release_queue = release_nodes.get(invocation)
+        release = release_queue.pop(0) if release_queue else None
         size = max(1, resolve_sizes[index])
 
         if release is None:
@@ -409,14 +410,14 @@ def _release_invocation(node: torch.fx.Node) -> tuple[Any, Any] | None:
     return args[-2], args[-1]
 
 
-def _release_nodes_by_invocation(graph: torch.fx.Graph) -> dict[tuple[Any, Any], torch.fx.Node]:
-    releases: dict[tuple[Any, Any], torch.fx.Node] = {}
+def _release_nodes_by_invocation(graph: torch.fx.Graph) -> dict[tuple[Any, Any], list[torch.fx.Node]]:
+    releases: dict[tuple[Any, Any], list[torch.fx.Node]] = defaultdict(list)
     for node in graph.nodes:
         if not _is_release(node):
             continue
         invocation = _release_invocation(node)
         if invocation is not None:
-            releases[invocation] = node
+            releases[invocation].append(node)
     return releases
 
 
