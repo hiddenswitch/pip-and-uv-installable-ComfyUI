@@ -386,6 +386,11 @@ jobs:
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           touch overrides.txt
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
           echo "torch==2.11.0+xpu" >> overrides.txt
           echo "torchvision==0.26.0+xpu" >> overrides.txt
           echo "torchaudio==2.11.0+xpu" >> overrides.txt
@@ -397,6 +402,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install --torch-backend=xpu "comfyui[dev]@${GITHUB_WORKSPACE}/src" --inexact
       - name: Install custom nodes
         env:
@@ -405,6 +411,7 @@ jobs:
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
@@ -412,6 +419,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_PRERELEASE=allow
           export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           for attempt in 1 2 3; do
             uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
             [ "$attempt" -eq 3 ] && exit 1
