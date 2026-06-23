@@ -76,7 +76,8 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           
           ( [[ "$(uv pip freeze | awk -F'[=.]' '/^numpy==/ {print $3}')" -lt 2 ]] && echo "numpy<2" || echo "numpy>=2" ) >> numpy_override.txt
-          uv pip install -U $(cat numpy_override.txt)
+          python -c "from pathlib import Path; import shutil; [shutil.rmtree(path, ignore_errors=True) for base in (Path('/usr/local/lib'), Path('/opt/conda/lib')) if base.exists() for pattern in ('python*/dist-packages/scipy', 'python*/dist-packages/scipy-*.dist-info', 'python*/site-packages/scipy', 'python*/site-packages/scipy-*.dist-info') for path in base.glob(pattern)]"
+          uv pip install -U $(cat numpy_override.txt) "scipy>=1.11.4"
       - name: Update OpenCV
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
