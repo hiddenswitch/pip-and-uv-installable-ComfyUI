@@ -13,7 +13,7 @@ class EmptyChromaRadianceLatentImage(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="EmptyChromaRadianceLatentImage",
-            category="model/latent/chroma_radiance",
+            category="model/latent/chroma radiance",
             inputs=[
                 io.Int.Input(id="width", default=1024, min=16, max=MAX_RESOLUTION, step=16),
                 io.Int.Input(id="height", default=1024, min=16, max=MAX_RESOLUTION, step=16),
@@ -51,7 +51,7 @@ class ChromaRadianceOptions(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="ChromaRadianceOptions",
-            category="model/patch/chroma_radiance",
+            category="model/patch/chroma radiance",
             description="Allows setting advanced options for the Chroma Radiance model.",
             inputs=[
                 io.Model.Input(id="model"),

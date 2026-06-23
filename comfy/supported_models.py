@@ -40,6 +40,8 @@ from .text_encoders import cogvideo
 from .text_encoders import gpt_oss
 from .text_encoders import hidream_o1
 from .text_encoders import ideogram4
+from .text_encoders import boogu
+from .text_encoders import krea2
 
 
 
@@ -1915,6 +1917,27 @@ class QwenImage(supported_models_base.BASE):
         return supported_models_base.ClipTarget(qwen_image.QwenImageTokenizer, qwen_image.te(**hunyuan_detect))
 
 
+class Boogu(Omnigen2):
+    unet_config = {
+        "image_model": "boogu",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.16,
+    }
+
+    memory_usage_factor = 2.15
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Boogu(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3vl_8b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(boogu.BooguTokenizer, boogu.te(**hunyuan_detect))
+
 class Ideogram4(supported_models_base.BASE):
     unet_config = {
         "image_model": "ideogram4",
@@ -1955,6 +1978,33 @@ class Ideogram4(supported_models_base.BASE):
         hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3vl_8b.transformer.".format(pref))
         return supported_models_base.ClipTarget(ideogram4.Ideogram4Tokenizer, ideogram4.te(**hunyuan_detect))
 
+class Krea2(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "krea2",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+    memory_usage_factor = 2.2
+
+    latent_format = latent_formats.Wan21
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.Krea2(self, device=device)
+        return out
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3vl_4b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(krea2.Krea2Tokenizer, krea2.te(**hunyuan_detect))
 
 class HunyuanImage21(HunyuanVideo):
     unet_config = {
@@ -2436,8 +2486,10 @@ models = [
     ACEStep,
     ACEStep15,
     Omnigen2,
+    Boogu,
     QwenImage,
     Ideogram4,
+    Krea2,
     Flux2,
     Lens,
     Kandinsky5Image,

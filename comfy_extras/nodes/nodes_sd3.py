@@ -14,8 +14,9 @@ class TripleCLIPLoader(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="TripleCLIPLoader",
-            category="advanced/loaders",
-            description="[Recipes]\n\nsd3: clip-l, clip-g, t5",
+            display_name="Load CLIP (Triple)",
+            category="model/loaders",
+            description="Recipes:\nsd3: clip-l, clip-g, t5",
             inputs=[
                 io.Combo.Input("clip_name1", options=get_filename_list_with_downloadable("text_encoders")),
                 io.Combo.Input("clip_name2", options=get_filename_list_with_downloadable("text_encoders")),
@@ -42,7 +43,7 @@ class EmptySD3LatentImage(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="EmptySD3LatentImage",
-            category="model/latent/sd3",
+            category="model/latent/stable diffusion",
             inputs=[
                 io.Int.Input("width", default=1024, min=16, max=nodes.MAX_RESOLUTION, step=16),
                 io.Int.Input("height", default=1024, min=16, max=nodes.MAX_RESOLUTION, step=16),
@@ -67,7 +68,8 @@ class CLIPTextEncodeSD3(io.ComfyNode):
         return io.Schema(
             node_id="CLIPTextEncodeSD3",
             search_aliases=["sd3 prompt"],
-            category="advanced/conditioning",
+            display_name="CLIP Text Encode (SD3)",
+            category="model/conditioning/stable diffusion",
             inputs=[
                 io.Clip.Input("clip"),
                 io.String.Input("clip_l", multiline=True, dynamic_prompts=True),

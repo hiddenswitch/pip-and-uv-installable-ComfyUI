@@ -522,7 +522,8 @@ class SaveLatent:
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
                 }
 
-    RETURN_TYPES = ()
+    RETURN_TYPES = ("LATENT",)
+    RETURN_NAMES = ("samples",)
     FUNCTION = "save"
 
     OUTPUT_NODE = True
@@ -560,7 +561,7 @@ class SaveLatent:
         output["latent_format_version_0"] = torch.tensor([])
 
         utils.save_torch_file(output, file, metadata=metadata)
-        return {"ui": {"latents": results}}
+        return {"ui": {"latents": results}, "result": (samples,)}
 
 
 class LoadLatent:
@@ -1063,7 +1064,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip_name": (get_filename_list_with_downloadable("text_encoders", KNOWN_CLIP_MODELS),),
-                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4"],),
+                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4", "boogu", "krea2"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1074,7 +1075,7 @@ class CLIPLoader:
 
     CATEGORY = "advanced/loaders"
 
-    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\nlens: gpt-oss-20b\n pixeldit: gemma 2 2B elm\nideogram4: qwen3-vl 8B"
+    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\nlens: gpt-oss-20b\n pixeldit: gemma 2 2B elm\nideogram4: qwen3-vl 8B\nboogu: qwen3-vl 8B\nkrea2: qwen3-vl 4B"
 
     def load_clip(self, clip_name, type="stable_diffusion", device="default"):
         clip_type = getattr(sd.CLIPType, type.upper(), sd.CLIPType.STABLE_DIFFUSION)
@@ -1787,7 +1788,8 @@ class SaveImage:
             },
         }
 
-    RETURN_TYPES = ()
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
     FUNCTION = "save_images"
 
     OUTPUT_NODE = True
@@ -1799,7 +1801,7 @@ class SaveImage:
 
     def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
         if images is None:
-            return {"ui": {"images": []}}
+            return {"ui": {"images": []}, "result": (images,)}
         filename_prefix += self.prefix_append
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
         results = list()
@@ -1828,7 +1830,7 @@ class SaveImage:
             })
             counter += 1
 
-        return {"ui": {"images": results}}
+        return {"ui": {"images": results}, "result": (images,)}
 
 
 class PreviewImage(SaveImage):

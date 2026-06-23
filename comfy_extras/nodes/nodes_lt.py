@@ -30,7 +30,7 @@ class GetICLoRAParameters(io.ComfyNode):
             display_name="Get IC-LoRA Parameters",
             description="Extracts IC-LoRA parameters from the safetensors metadata of a LoRA-loaded "
                         "model and outputs them for LTXVAddGuide (eg. reference_downscale_factor).",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             search_aliases=["ic-lora", "ic lora", "iclora", "downscale factor", "reference downscale"],
             inputs=[
                 io.Model.Input(
@@ -67,7 +67,7 @@ class EmptyLTXVLatentVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="EmptyLTXVLatentVideo",
-            category="model/latent/video/ltxv",
+            category="model/latent/ltxv",
             inputs=[
                 io.Int.Input("width", default=768, min=64, max=nodes.MAX_RESOLUTION, step=32),
                 io.Int.Input("height", default=512, min=64, max=nodes.MAX_RESOLUTION, step=32),
@@ -92,7 +92,7 @@ class LTXVImgToVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVImgToVideo",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -137,7 +137,7 @@ class LTXVImgToVideoInplace(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVImgToVideoInplace",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             inputs=[
                 io.Vae.Input("vae"),
                 io.Image.Input("image"),
@@ -258,7 +258,7 @@ class LTXVAddGuide(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVAddGuide",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -505,7 +505,7 @@ class LTXVCropGuides(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVCropGuides",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -549,7 +549,7 @@ class LTXVConditioning(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVConditioning",
-            category="model/conditioning/video_models",
+            category="model/conditioning/ltxv",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -573,7 +573,7 @@ class ModelSamplingLTXV(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="ModelSamplingLTXV",
-            category="advanced/model",
+            category="model/patch/ltxv",
             inputs=[
                 io.Model.Input("model"),
                 io.Float.Input("max_shift", default=2.05, min=0.0, max=100.0, step=0.01),
@@ -755,7 +755,7 @@ class LTXVConcatAVLatent(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVConcatAVLatent",
-            category="model/latent/video/ltxv",
+            category="model/latent/ltxv",
             inputs=[
                 io.Latent.Input("video_latent"),
                 io.Latent.Input("audio_latent"),
@@ -790,7 +790,7 @@ class LTXVSeparateAVLatent(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVSeparateAVLatent",
-            category="model/latent/video/ltxv",
+            category="model/latent/ltxv",
             description="LTXV Separate AV Latent",
             inputs=[
                 io.Latent.Input("av_latent"),
@@ -823,7 +823,7 @@ class LTXVReferenceAudio(io.ComfyNode):
         return io.Schema(
             node_id="LTXVReferenceAudio",
             display_name="LTXV Reference Audio (ID-LoRA)",
-            category="model/conditioning/audio",
+            category="model/conditioning/ltxv",
             description="Set reference audio for ID-LoRA speaker identity transfer. Encodes a reference audio clip into the conditioning and optionally patches the model with identity guidance (extra forward pass without reference, amplifying the speaker identity effect).",
             inputs=[
                 io.Model.Input("model"),

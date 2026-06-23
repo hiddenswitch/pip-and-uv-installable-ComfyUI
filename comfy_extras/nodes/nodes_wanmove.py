@@ -251,7 +251,7 @@ class WanMoveVisualizeTracks(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="WanMoveVisualizeTracks",
-            category="model/conditioning/video_models",
+            category="model/conditioning/wan/move",
             inputs=[
                 io.Image.Input("images"),
                 io.Tracks.Input("tracks", optional=True),
@@ -287,7 +287,7 @@ class WanMoveTracksFromCoords(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="WanMoveTracksFromCoords",
-            category="model/conditioning/video_models",
+            category="model/conditioning/wan/move",
             inputs=[
                 io.String.Input("track_coords", force_input=True, default="[]", optional=True),
                 io.Mask.Input("track_mask", optional=True),
@@ -329,7 +329,8 @@ class GenerateTracks(io.ComfyNode):
         return io.Schema(
             node_id="GenerateTracks",
             search_aliases=["motion paths", "camera movement", "trajectory"],
-            category="model/conditioning/video_models",
+            display_name="Generate Video Tracks",
+            category="model/conditioning/wan/move",
             inputs=[
                 io.Int.Input("width", default=832, min=16, max=4096, step=16),
                 io.Int.Input("height", default=480, min=16, max=4096, step=16),
@@ -439,7 +440,7 @@ class WanMoveConcatTrack(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="WanMoveConcatTrack",
-            category="model/conditioning/video_models",
+            category="model/conditioning/wan/move",
             inputs=[
                 io.Tracks.Input("tracks_1"),
                 io.Tracks.Input("tracks_2", optional=True),
@@ -468,7 +469,7 @@ class WanMoveTrackToVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="WanMoveTrackToVideo",
-            category="model/conditioning/video_models",
+            category="model/conditioning/wan/move",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),

@@ -49,7 +49,7 @@ class LTXVAudioVAEEncode(VAEEncodeAudio):
         return io.Schema(
             node_id="LTXVAudioVAEEncode",
             display_name="LTXV Audio VAE Encode",
-            category="model/latent/audio",
+            category="model/latent/ltxv",
             inputs=[
                 io.Audio.Input("audio", tooltip="The audio to be encoded."),
                 io.Vae.Input(
@@ -72,7 +72,7 @@ class LTXVAudioVAEDecode(io.ComfyNode):
         return io.Schema(
             node_id="LTXVAudioVAEDecode",
             display_name="LTXV Audio VAE Decode",
-            category="model/latent/audio",
+            category="model/latent/ltxv",
             inputs=[
                 io.Latent.Input("samples", tooltip="The latent to be decoded."),
                 io.Vae.Input(
@@ -105,7 +105,7 @@ class LTXVEmptyLatentAudio(io.ComfyNode):
         return io.Schema(
             node_id="LTXVEmptyLatentAudio",
             display_name="LTXV Empty Latent Audio",
-            category="model/latent/audio",
+            category="model/latent/ltxv",
             inputs=[
                 io.Int.Input(
                     "frames_number",
@@ -179,9 +179,9 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
         text_encoders = get_filename_list_with_downloadable("text_encoders")
         return io.Schema(
             node_id="LTXAVTextEncoderLoader",
-            display_name="LTXV Audio Text Encoder Loader",
-            category="advanced/loaders",
-            description="[Recipes]\n\nltxav: gemma 3 12B",
+            display_name="Load LTXV Audio Text Encoder",
+            category="model/loaders",
+            description="Recipes:\nltxav: gemma 3 12B",
             inputs=[
                 io.Combo.Input(
                     "text_encoder",

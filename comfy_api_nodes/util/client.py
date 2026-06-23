@@ -23,6 +23,7 @@ from comfy.cmd.server import PromptServer
 
 from . import request_logger
 from ._helpers import (
+    _retry_after_wait,
     default_base_url,
     get_comfy_api_headers,
     get_node_id,
@@ -84,6 +85,7 @@ class _PollUIState:
 
 
 _RETRY_STATUS = {408, 500, 502, 503, 504}  # status 429 is handled separately
+_MAX_RETRY_AFTER_WAIT = 150.0  # Cap a server Retry-After at this many seconds so a large hint can't block execution
 COMPLETED_STATUSES = ["succeeded", "succeed", "success", "completed", "finished", "done", "complete"]
 FAILED_STATUSES = ["cancelled", "canceled", "canceling", "fail", "failed", "error"]
 QUEUED_STATUSES = ["created", "queued", "queueing", "submitted", "initializing", "wait", "in_queue"]
@@ -749,6 +751,7 @@ async def _request_base(cfg: _RequestConfig, expect_binary: bool):
                         should_retry = True
 
                     if should_retry:
+                        wait_time = _retry_after_wait(resp.headers.get("Retry-After"), wait_time, _MAX_RETRY_AFTER_WAIT)
                         logger.warning(
                             "HTTP %s %s -> %s. Waiting %.2fs (%s).",
                             method,

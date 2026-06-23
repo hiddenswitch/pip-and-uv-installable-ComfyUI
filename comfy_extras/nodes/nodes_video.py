@@ -33,6 +33,7 @@ class SaveWEBM(io.ComfyNode):
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
             is_output_node=True,
+            outputs=[io.Image.Output(display_name="images")]
         )
 
     @classmethod
@@ -75,7 +76,7 @@ class SaveWEBM(io.ComfyNode):
         container.mux(stream.encode())
         container.close()
 
-        return io.NodeOutput(ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]))
+        return io.NodeOutput(images, ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]))
 
 
 class SaveVideo(io.ComfyNode):
@@ -96,6 +97,7 @@ class SaveVideo(io.ComfyNode):
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
             is_output_node=True,
+            outputs=[io.Video.Output("video")],
         )
 
     @classmethod
@@ -124,7 +126,7 @@ class SaveVideo(io.ComfyNode):
             metadata=saved_metadata
         )
 
-        return io.NodeOutput(ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]))
+        return io.NodeOutput(video, ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]))
 
 
 class CreateVideo(io.ComfyNode):
@@ -241,13 +243,8 @@ class VideoSlice(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Video Slice",
-            display_name="Video Slice",
-            search_aliases=[
-                "trim video duration",
-                "skip first frames",
-                "frame load cap",
-                "start time",
-            ],
+            display_name="Trim Video",
+            search_aliases=["trim video duration", "skip first frames", "frame load cap", "start time"],
             category="video",
             essentials_category="Video Tools",
             inputs=[

@@ -28,7 +28,7 @@ class StableZero123_Conditioning(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="StableZero123_Conditioning",
-            category="model/conditioning/3d_models",
+            category="model/conditioning/stable zero123",
             inputs=[
                 io.ClipVision.Input("clip_vision"),
                 io.Image.Input("init_image"),
@@ -67,7 +67,7 @@ class StableZero123_Conditioning_Batched(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="StableZero123_Conditioning_Batched",
-            category="model/conditioning/3d_models",
+            category="model/conditioning/stable zero123",
             inputs=[
                 io.ClipVision.Input("clip_vision"),
                 io.Image.Input("init_image"),
@@ -115,7 +115,7 @@ class SV3D_Conditioning(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="SV3D_Conditioning",
-            category="model/conditioning/3d_models",
+            category="model/conditioning/stable video 3d",
             inputs=[
                 io.ClipVision.Input("clip_vision"),
                 io.Image.Input("init_image"),

@@ -11,6 +11,8 @@ class SetUnionControlNetType(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="SetUnionControlNetType",
+            search_aliases=["set controlnet type", "union controlnet type"],
+            display_name="Set Union ControlNet Type",
             category="model/conditioning/controlnet",
             inputs=[
                 io.ControlNet.Input("control_net"),
@@ -41,6 +43,7 @@ class ControlNetInpaintingAliMamaApply(io.ComfyNode):
         return io.Schema(
             node_id="ControlNetInpaintingAliMamaApply",
             search_aliases=["masked controlnet"],
+            display_name="Apply ControlNet Inpainting (AliMama)",
             category="model/conditioning/controlnet",
             inputs=[
                 io.Conditioning.Input("positive"),
