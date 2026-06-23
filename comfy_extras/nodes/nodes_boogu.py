@@ -1,7 +1,7 @@
 import math
 
-import node_helpers
 import comfy.utils
+from comfy import node_helpers
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 
