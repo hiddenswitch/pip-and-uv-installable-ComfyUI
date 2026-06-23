@@ -17,5 +17,4 @@ comfyui-animatediff-evolved
 comfyui-frame-interpolation
 comfyui-crystools
 comfyui-detail-daemon
-comfyui-nunchaku
 comfyui-prompt-combinator

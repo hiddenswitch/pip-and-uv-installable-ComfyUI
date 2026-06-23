@@ -117,6 +117,8 @@ jobs:
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
+          export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
@@ -127,6 +129,7 @@ jobs:
           export UV_EXCLUDE=excludes.txt
           uv pip install --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
           uv pip install --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -299,6 +302,8 @@ jobs:
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_PYTHON=/opt/venv/bin/python
+          export UV_OVERRIDE=overrides.txt
+          export UV_EXCLUDE=excludes.txt
           uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
@@ -399,6 +404,7 @@ jobs:
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
+          export UV_OVERRIDE=overrides.txt
           uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
@@ -512,13 +518,14 @@ jobs:
         env:
           UV_NO_CACHE: "1"
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
           uv pip install --python C:/venv/Scripts/python.exe triton-windows
           uv pip install --python C:/venv/Scripts/python.exe --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
           uv pip install --python C:/venv/Scripts/python.exe --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do
@@ -562,7 +569,13 @@ jobs:
         env:
           UV_NO_CACHE: "1"
         run: |
-          uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip freeze | awk '/^(torch|torchvision|torchaudio|numpy|opencv)/' > overrides.txt || true
+          cat <<'EOF' > excludes.txt
+          torch
+          torchvision
+          torchaudio
+          EOF
+          uv pip install --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do
