@@ -68,6 +68,12 @@ index swaps the wheel's bundled CUDA 12.x compiler binaries
 woct0rdho's wheels ship 12.x regardless of target, which breaks `ptxas` on the
 CUDA 13 toolchain.
 
+For Intel XPU installs, `torch` itself can depend on `triton-xpu`. That package
+is hosted by PyTorch's XPU wheel index
+(`https://download.pytorch.org/whl/xpu/triton-xpu/`), not PyPI. Use
+`uv pip install --torch-backend=xpu ...` for XPU environments so uv includes the
+PyTorch XPU index when resolving custom-node requirements.
+
 #### Selecting a CUDA *and* torch ABI (flash-attn)
 
 `flash-attn` / `flash-attn-3` wheels are tagged with both the CUDA and torch

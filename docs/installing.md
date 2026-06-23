@@ -145,6 +145,15 @@ comfyui --help
 comfyui serve --guess-settings
 ```
 
+XPU PyTorch wheels can depend on `triton-xpu`, for example `torch==2.11.0+xpu`
+requires `triton-xpu==3.7.0`. `triton-xpu` is not a normal PyPI package; PyTorch
+publishes those wheels on its XPU wheel index at
+`https://download.pytorch.org/whl/xpu/triton-xpu/`. When using
+`uv pip install --torch-backend=xpu`, uv can resolve that dependency from the
+PyTorch XPU backend index. If you install or override XPU torch packages
+manually, install `triton-xpu` from the same PyTorch XPU index instead of trying
+to resolve it from PyPI.
+
 ### Running Again Later
 
 To start ComfyUI again after closing your terminal, `cd` into your workspace and run:
@@ -236,6 +245,7 @@ See the [uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integrat
 - ComfyUI uses it only if the installed torch build already supports XPU.
 - The recommended Linux path is the Intel XPU PyTorch container used in CI: `intel/intel-extension-for-pytorch:2.8.10-xpu`.
 - On bare Ubuntu, install the Intel GPU driver/runtime stack first, then verify `torch.xpu.is_available()` before installing ComfyUI.
+- XPU torch wheels may require `triton-xpu`, which is hosted by PyTorch under `https://download.pytorch.org/whl/xpu/triton-xpu/`, not on PyPI.
 
 ### AMD ROCm
 
@@ -461,6 +471,20 @@ uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --pre
 ```
 
 If you followed the ROCm installation steps above, Triton was already installed alongside PyTorch.
+
+### XPU
+
+For Intel XPU, Triton is distributed as `triton-xpu`. It is a dependency of
+XPU-enabled PyTorch wheels, not something to install from PyPI:
+
+```shell
+uv pip install --torch-backend=xpu torch
+```
+
+PyTorch hosts the `triton-xpu` wheels at
+`https://download.pytorch.org/whl/xpu/triton-xpu/`. Use `--torch-backend=xpu` or
+that PyTorch XPU index whenever a custom node or override causes dependency
+resolution to include `triton-xpu`.
 
 ## CUDA Extension Wheels
 
