@@ -54,7 +54,7 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "importlib_resources",
     "Pillow",
-    "scipy",
+    "scipy>=1.11.4",
     "simpleeval>=1.0.3",
     "tqdm",
     "protobuf>=3.20.0",
