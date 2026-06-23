@@ -98,7 +98,7 @@ if TRITON_AVAILABLE:
             mask = offs < K
             x = tl.load(x_row + offs * stride_xk, mask=mask, other=0.0).to(tl.float32)
             q = x * inv_scale
-            q = libdevice.rint(q)
+            q = libdevice.nearbyint(q)
             q = tl.minimum(tl.maximum(q, -128.0), 127.0)
             tl.store(q_row + offs * stride_qk, q.to(tl.int8), mask=mask)
 
