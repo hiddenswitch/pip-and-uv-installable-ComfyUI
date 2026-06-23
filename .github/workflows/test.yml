@@ -446,6 +446,10 @@ jobs:
           # inside the workflow container.
           SYCL_CACHE_PERSISTENT: "1"
           SYCL_CACHE_DIR: "/tmp/sycl_cache"
+          # torch 2.11.0+xpu segfaults in torch.jit.script while importing
+          # kornia during ComfyUI's node preload. Keep TorchScript disabled
+          # for unit tests while leaving SYCL kernel caching enabled.
+          PYTORCH_JIT: "0"
           COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
           mkdir -p "$SYCL_CACHE_DIR"
