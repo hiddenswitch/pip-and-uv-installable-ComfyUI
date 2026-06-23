@@ -152,6 +152,12 @@ CUSTOM_NODE_REGISTRY: list[CustomNodeSpec] = [
         depends_on=("rgthree-comfy", "ComfyUI_essentials"),
     ),
     CustomNodeSpec(
+        node_id="ComfyUI-ConditioningKrea2Rebalance",
+        repo_url="https://github.com/nova452/ComfyUI-ConditioningKrea2Rebalance",
+        display_name="ComfyUI-ConditioningKrea2Rebalance",
+        inject_version="0.1.0",
+    ),
+    CustomNodeSpec(
         node_id="ComfyUI-WanVideoWrapper",
         repo_url="https://github.com/kijai/ComfyUI-WanVideoWrapper",
         display_name="ComfyUI-WanVideoWrapper",
