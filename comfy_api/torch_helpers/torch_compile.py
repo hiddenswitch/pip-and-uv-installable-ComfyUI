@@ -78,6 +78,13 @@ def _compile_kwargs(
 _CUDAGRAPH_MODES = ("reduce-overhead", "max-autotune")
 
 
+def _set_dynamo_config_if_present(name: str, value: object) -> None:
+    try:
+        setattr(torch._dynamo.config, name, value)
+    except AttributeError:
+        logger.debug("Skipping unsupported torch._dynamo.config.%s", name)
+
+
 def _mode_wants_cudagraphs(mode: Optional[str]) -> bool:
     if not mode:
         return False
@@ -352,9 +359,9 @@ def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Option
     # clear out any other torch.compile wrappers
     model.remove_wrappers_with_key(WrappersMP.APPLY_MODEL, COMPILE_KEY)
     # if no keys, default to 'diffusion_model'
-    torch._dynamo.config.allow_unspec_int_on_nn_module = True
-    torch._dynamo.config.force_parameter_static_shapes = False
-    torch._dynamo.config.force_nn_module_property_static_shapes = False
+    _set_dynamo_config_if_present("allow_unspec_int_on_nn_module", True)
+    _set_dynamo_config_if_present("force_parameter_static_shapes", False)
+    _set_dynamo_config_if_present("force_nn_module_property_static_shapes", False)
     if not keys:
         keys = ["diffusion_model"]
     # create kwargs dict that can be referenced later

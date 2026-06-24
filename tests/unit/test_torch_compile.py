@@ -12,6 +12,7 @@ from comfy_api.torch_helpers.torch_compile import (
     TORCH_COMPILE_KWARGS,
     TORCH_COMPILE_STRATEGY,
     _CompiledModel,
+    _set_dynamo_config_if_present,
     set_torch_compile_wrapper,
 )
 from comfy_extras.nodes.nodes_torch_compile import TorchCompileModel
@@ -53,6 +54,10 @@ class _FakePatcher(HooksSupportStub):
 
     def add_callback_with_key(self, call_type: str, key: str, callback):
         self.callbacks.setdefault(call_type, {})[key] = [callback]
+
+
+def test_set_dynamo_config_if_present_ignores_missing_config():
+    _set_dynamo_config_if_present("__comfy_missing_test_config__", True)
 
 
 def test_set_torch_compile_wrapper_omits_mode_when_options_are_present(monkeypatch):
