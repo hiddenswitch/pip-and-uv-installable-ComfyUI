@@ -4,6 +4,7 @@ import logging
 import itertools
 import hashlib
 import weakref
+import typing
 from typing import Callable
 
 import inspect
@@ -404,7 +405,7 @@ def _consume_prefetch(module_key: int, invocation_id: int, prefetch_token: torch
 )
 def resolve_weight(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
+    weight_shape: typing.List[int],
     module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
@@ -439,7 +440,7 @@ def resolve_weight(
 )
 def resolve_prefetched_weight(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
+    weight_shape: typing.List[int],
     prefetch_token: torch.Tensor,
     module_key: torch.Tensor,
     invocation_id: int,
@@ -472,7 +473,7 @@ def resolve_prefetched_weight(
 @resolve_prefetched_weight.register_fake
 def _resolve_prefetched_weight_fake(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
+    weight_shape: typing.List[int],
     prefetch_token: torch.Tensor,
     module_key: torch.Tensor,
     invocation_id: int,
@@ -489,7 +490,7 @@ def _resolve_prefetched_weight_fake(
 @resolve_weight.register_fake
 def _resolve_weight_fake(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
+    weight_shape: typing.List[int],
     module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
@@ -509,8 +510,8 @@ def _resolve_weight_fake(
 )
 def resolve_weight_bias(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
-    bias_shape: list[int],
+    weight_shape: typing.List[int],
+    bias_shape: typing.List[int],
     module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
@@ -519,7 +520,7 @@ def resolve_weight_bias(
     want_requant: bool,
     device_type_code: int,
     device_index: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> typing.Tuple[torch.Tensor, torch.Tensor]:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
     module_key = _tensor_key(module_key)
@@ -548,8 +549,8 @@ def resolve_weight_bias(
 )
 def resolve_prefetched_weight_bias(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
-    bias_shape: list[int],
+    weight_shape: typing.List[int],
+    bias_shape: typing.List[int],
     prefetch_token: torch.Tensor,
     module_key: torch.Tensor,
     invocation_id: int,
@@ -559,7 +560,7 @@ def resolve_prefetched_weight_bias(
     want_requant: bool,
     device_type_code: int,
     device_index: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> typing.Tuple[torch.Tensor, torch.Tensor]:
     if _RESOLVE is None:
         raise RuntimeError("comfy_weight resolve callback is not installed")
     module_key = _tensor_key(module_key)
@@ -585,8 +586,8 @@ def resolve_prefetched_weight_bias(
 @resolve_prefetched_weight_bias.register_fake
 def _resolve_prefetched_weight_bias_fake(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
-    bias_shape: list[int],
+    weight_shape: typing.List[int],
+    bias_shape: typing.List[int],
     prefetch_token: torch.Tensor,
     module_key: torch.Tensor,
     invocation_id: int,
@@ -596,7 +597,7 @@ def _resolve_prefetched_weight_bias_fake(
     want_requant: bool,
     device_type_code: int,
     device_index: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> typing.Tuple[torch.Tensor, torch.Tensor]:
     return (
         _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code)),
         _fake_bias(bias_shape, exemplar, _concrete_int(bias_dtype_code or dtype_code)),
@@ -606,8 +607,8 @@ def _resolve_prefetched_weight_bias_fake(
 @resolve_weight_bias.register_fake
 def _resolve_weight_bias_fake(
     exemplar: torch.Tensor,
-    weight_shape: list[int],
-    bias_shape: list[int],
+    weight_shape: typing.List[int],
+    bias_shape: typing.List[int],
     module_key: torch.Tensor,
     invocation_id: int,
     dtype_code: int,
@@ -616,7 +617,7 @@ def _resolve_weight_bias_fake(
     want_requant: bool,
     device_type_code: int,
     device_index: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> typing.Tuple[torch.Tensor, torch.Tensor]:
     return (
         _fake_weight(weight_shape, exemplar, _concrete_int(dtype_code)),
         _fake_bias(bias_shape, exemplar, _concrete_int(bias_dtype_code or dtype_code)),
