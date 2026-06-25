@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest import mock
 
 import torch
 
@@ -14,6 +15,7 @@ if not has_gpu():
     args.cpu = True
 
 from comfy import ops  # noqa: E402
+from comfy.model_patcher import ModelPatcher  # noqa: E402
 from comfy.quant_ops import QuantizedTensor, int8_quantization_available  # noqa: E402
 import comfy.utils  # noqa: E402
 
@@ -257,6 +259,22 @@ class TestInt8MixedPrecisionLoad(unittest.TestCase):
         self.assertEqual(unexpected, [])
         x = torch.randn(24, 256, dtype=torch.bfloat16)
         self.assertTrue(torch.allclose(lin(x).float(), lin2(x).float(), atol=1e-3))
+
+    def test_force_cast_prequantized_weight_does_not_requantize(self):
+        lin, _ = self._make_linear("int8_convrot")
+
+        class Model(torch.nn.Module):
+            def __init__(self, layer):
+                super().__init__()
+                self.lin = layer
+
+        model = Model(lin)
+        patcher = ModelPatcher(model, load_device=torch.device("cpu"), offload_device=torch.device("cpu"))
+        with mock.patch.object(QuantizedTensor, "from_float", side_effect=AssertionError("requantized")):
+            patcher.patch_weight_to_device("lin.weight", device_to=torch.device("cpu"), force_cast=True)
+
+        self.assertIsInstance(model.lin.weight, QuantizedTensor)
+        self.assertEqual(model.lin.weight._layout_cls, "Int8ConvRotLayout")
 
 
 @requires_int8
