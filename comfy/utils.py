@@ -1744,15 +1744,17 @@ def convert_old_quants(state_dict, model_prefix="", metadata={}):
 def _normalize_int8_quants(state_dict, model_prefix=""):
     """Normalize foreign INT8 checkpoints onto the comfy_quant format keys.
 
-    Covers two shapes produced outside this codebase:
+    Covers shapes produced outside this codebase:
     - ComfyUI-INT8-Fast style: per-layer ``comfy_quant`` JSON without a
       ``"format"`` key (e.g. ``{"convrot": true, "convrot_groupsize": 256}``).
+    - INT8 checkpoints using ``"format": "int8_tensorwise"`` for the same
+      per-layer scale layout, with an optional ``"convrot"`` marker.
     - ModelOpt-style int8 row-wise exports: int8 ``.weight`` with a sibling
       ``.weight_scale`` and no ``comfy_quant`` marker at all.
 
     Both are mapped to ``{"format": "int8"}`` or ``{"format": "int8_convrot"}``
     so detect_layer_quantization and the mixed-precision loader handle them
-    natively. Layers already carrying a ``"format"`` are left untouched.
+    natively.
     """
     updates = {}
     for k in state_dict:
@@ -1773,7 +1775,8 @@ def _normalize_int8_quants(state_dict, model_prefix=""):
                 conf = json.loads(existing.numpy().tobytes())
             except (ValueError, AttributeError):
                 conf = {}
-            if conf.get("format") is not None:
+            quant_format = conf.get("format")
+            if quant_format is not None and quant_format != "int8_tensorwise":
                 continue
 
         if conf.get("convrot"):

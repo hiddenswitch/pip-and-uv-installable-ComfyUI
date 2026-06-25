@@ -143,6 +143,24 @@ class TestInt8Normalization(unittest.TestCase):
         self.assertEqual(conf["format"], "int8_convrot")
         self.assertEqual(conf["convrot_groupsize"], 256)
 
+    def test_int8_tensorwise_convrot_json_normalized(self):
+        sd = self._foreign_layer_sd({
+            "format": "int8_tensorwise",
+            "convrot": True,
+            "convrot_groupsize": 256,
+            "per_row": True,
+        })
+        out, _ = comfy.utils.convert_old_quants(sd, model_prefix="", metadata={})
+        conf = _read_conf(out["lin.comfy_quant"])
+        self.assertEqual(conf["format"], "int8_convrot")
+        self.assertEqual(conf["convrot_groupsize"], 256)
+
+    def test_int8_tensorwise_plain_json_normalized(self):
+        sd = self._foreign_layer_sd({"format": "int8_tensorwise", "per_row": True})
+        out, _ = comfy.utils.convert_old_quants(sd, model_prefix="", metadata={})
+        conf = _read_conf(out["lin.comfy_quant"])
+        self.assertEqual(conf["format"], "int8")
+
     def test_bare_int8_weight_scale_normalized(self):
         sd = self._foreign_layer_sd(None)
         out, _ = comfy.utils.convert_old_quants(sd, model_prefix="", metadata={})
