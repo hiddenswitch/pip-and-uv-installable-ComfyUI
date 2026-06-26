@@ -13,6 +13,7 @@ from comfy_api.torch_helpers.torch_compile import (
     TORCH_COMPILE_STRATEGY,
     _CompiledModel,
     _set_dynamo_config_if_present,
+    _stabilize_compile_parameter_residency,
     set_torch_compile_wrapper,
 )
 from comfy_extras.nodes.nodes_torch_compile import TorchCompileModel
@@ -379,6 +380,18 @@ def test_compiled_model_stabilizes_small_manual_cast_parameters_before_compile(m
     from comfy_api.torch_helpers.torch_compile import _compile_module_identity
 
     assert seen_keys == [weight_cast_ops.register_module_with_stable_key(layer, _compile_module_identity("", layer))]
+
+
+def test_compile_residency_stabilization_reuses_weight_cast_key_tensor():
+    from comfy import ops
+
+    layer = ops.disable_weight_init.Linear(2, 1)
+
+    _stabilize_compile_parameter_residency(layer, torch.device("cpu"))
+    first_tensor = layer._comfy_weight_cast_key_tensor
+    _stabilize_compile_parameter_residency(layer, torch.device("cpu"))
+
+    assert layer._comfy_weight_cast_key_tensor is first_tensor
 
 
 def test_compiled_model_reuses_jit_graph_for_value_only_sampling_changes():

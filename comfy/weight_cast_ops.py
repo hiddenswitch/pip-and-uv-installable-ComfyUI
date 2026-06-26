@@ -112,6 +112,16 @@ def _stable_module_key(identity: str) -> int:
 def _set_module_key(module: torch.nn.Module, key: int) -> None:
     try:
         key = int(key)
+        existing_key = getattr(module, "_comfy_weight_cast_key", None)
+        existing_tensor = getattr(module, "_comfy_weight_cast_key_tensor", None)
+        if (
+            existing_key == key
+            and isinstance(existing_tensor, torch.Tensor)
+            and existing_tensor.ndim == 0
+            and existing_tensor.dtype == torch.int64
+            and int(existing_tensor.item()) == key
+        ):
+            return
         module._comfy_weight_cast_key = key
         module._comfy_weight_cast_key_tensor = torch.tensor(key, dtype=torch.int64)
     except Exception:
