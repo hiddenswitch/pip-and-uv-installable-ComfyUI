@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 import pytest
+from typer.testing import CliRunner
 
 import comfy.cmd.cli as cli_module
 from comfy.cmd.cli import _RunWorkflowCommand
@@ -149,3 +150,51 @@ def test_extract_workflow_ref_uses_click_option_arity():
         ["--all", "--video", "input.mp4", "workflow.json", "--help"],
         ctx=_ctx(),
     ) == "workflow.json"
+
+
+def test_workflows_submit_rewrites_discovered_workflow_flag(monkeypatch):
+    from comfy.cmd.cli import app, _register_sub_apps
+    import comfy.cmd.sub_workflows as sub_workflows
+
+    _register_sub_apps()
+
+    _patch_params(
+        monkeypatch,
+        [
+            Param(
+                node_id="327",
+                class_type="PrimitiveInt",
+                widget_name="value",
+                value=0,
+                type="INT",
+                flag_name="seed",
+            )
+        ],
+    )
+
+    captured = {}
+
+    async def fake_submit_workflows(workflows, server, config):
+        captured["workflows"] = workflows
+        captured["server"] = server
+        captured["set"] = config.set
+
+    monkeypatch.setattr(sub_workflows, "_submit_workflows", fake_submit_workflows)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "workflows",
+            "submit",
+            "workflow.json",
+            "--server",
+            "http://127.0.0.1:8199",
+            "--x-seed",
+            "2002",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["workflows"] == ["workflow.json"]
+    assert captured["server"] == "http://127.0.0.1:8199"
+    assert captured["set"] == ["327.inputs.value=2002"]

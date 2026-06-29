@@ -78,15 +78,15 @@ class _ComfyGroup(typer.core.TyperGroup):
             command_ctx = click.Context(command, info_name="run-workflow", parent=ctx)
             return command, command_ctx, args[1:]
 
-        if len(args) >= 2 and args[0] == "workflows" and args[1] == "run":
+        if len(args) >= 2 and args[0] == "workflows":
             workflows = self.get_command(ctx, "workflows")
             if not isinstance(workflows, click.Group):
                 return None, None, None
-            command = workflows.get_command(ctx, "run")
+            command = workflows.get_command(ctx, args[1])
             if not isinstance(command, _RunWorkflowCommand):
                 return None, None, None
             workflows_ctx = click.Context(workflows, info_name="workflows", parent=ctx)
-            command_ctx = click.Context(command, info_name="run", parent=workflows_ctx)
+            command_ctx = click.Context(command, info_name=args[1], parent=workflows_ctx)
             return command, command_ctx, args[2:]
 
         return None, None, None
@@ -1293,6 +1293,7 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
     @classmethod
     def _example_invocation(cls, ref: str, params, ctx: click.Context | None = None) -> str | None:
         from ..entrypoints.workflow_params import TIER_HEADLINE
+        command_path = ctx.command_path if ctx is not None else "comfyui run-workflow"
         target = next(
             (p for p in params if p.tier == TIER_HEADLINE and p.type in ("STRING", "INT", "FLOAT")),
             next((p for p in params if p.tier == TIER_HEADLINE), None),
@@ -1301,8 +1302,8 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             return None
         flag = cls._workflow_flag_for_param(target, ctx=ctx)
         if flag:
-            return f"comfyui run-workflow {ref} {flag} <value>"
-        return f"comfyui run-workflow {ref} --set {target.node_id}.inputs.{target.widget_name}=<value>"
+            return f"{command_path} {ref} {flag} <value>"
+        return f"{command_path} {ref} --set {target.node_id}.inputs.{target.widget_name}=<value>"
 
     def parse_args(self, ctx, args):
         if "--help" in args or "-h" in args:

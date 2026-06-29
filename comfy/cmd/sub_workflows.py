@@ -14,6 +14,7 @@ from .cli import (
     _COMFYUI_ENV, _build_config,
     _discover_from_ref, _RunWorkflowCommand,
     _run_workflow_command,
+    _warn_unknown_cli_args,
     _RUN_ALL_OPTION, _RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION,
     _RUN_DISABLE_PROGRESS_OPTION, _RUN_DRY_RUN_OPTION, _RUN_WORKFLOWS_ARGUMENT,
 )
@@ -85,14 +86,24 @@ def workflows_run(
     _run_workflow_command(ctx, workflows, all, dry_run, locals(), kwargs)
 
 
-@workflows_app.command(name="submit")
+@workflows_app.command(
+    name="submit",
+    context_settings={
+        **_COMFYUI_ENV,
+        "allow_extra_args": True,
+        "ignore_unknown_options": True,
+    },
+    cls=_RunWorkflowCommand,
+)
 @_with_options(_WORKFLOW_OVERRIDE_OPTS_NO_OUTPUT)
 def workflows_submit(
+    ctx: typer.Context,
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, or literal JSON."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
     **kwargs,
 ):
     """Submit workflow(s) to a running server with the same overrides as run-workflow."""
+    _warn_unknown_cli_args(ctx.args)
     config = _build_config(kwargs)
     asyncio.run(_submit_workflows(workflows, server, config))
 

@@ -480,6 +480,10 @@ class Comfy:
         return self
 
     async def __aexit__(self, *args):
+        exc_type = args[0] if args else None
+        if exc_type in (asyncio.CancelledError, KeyboardInterrupt):
+            from .. import interruption
+            interruption.interrupt_current_processing()
 
         while self.task_count > 0:
             await asyncio.sleep(0.1)

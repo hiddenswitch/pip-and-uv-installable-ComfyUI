@@ -8,6 +8,7 @@ from typing import Optional, Literal
 
 import typer
 
+from .. import interruption
 from ..cli_args_types import Configuration
 from ..component_model.asyncio_files import stream_json_objects
 from ..component_model.uris import is_uri
@@ -246,22 +247,27 @@ async def run_workflows(workflows: list[str | Literal["-"]], configuration: Opti
         configuration = args
     resolved = [_resolve_workflow(w) for w in workflows]
     show_progress = not getattr(configuration, "disable_progress", False) and os.isatty(2)
-    async with Comfy(configuration=configuration) as comfy:
-        for workflow in resolved:
-            obj: dict
-            async for obj in stream_json_objects(workflow):
-                if is_ui_workflow(obj):
-                    logger.info("Converting UI workflow to API format")
-                for prompt in expand_workflow_quantity(obj, configuration):
-                    try:
-                        if show_progress:
-                            res = await _run_with_progress(comfy, prompt)
-                        else:
-                            res = await comfy.queue_prompt_api(prompt)
-                        typer.echo(json.dumps(res.outputs))
-                    except asyncio.CancelledError:
-                        logger.info("Exiting gracefully.")
-                        break
+    try:
+        async with Comfy(configuration=configuration) as comfy:
+            for workflow in resolved:
+                obj: dict
+                async for obj in stream_json_objects(workflow):
+                    if is_ui_workflow(obj):
+                        logger.info("Converting UI workflow to API format")
+                    for prompt in expand_workflow_quantity(obj, configuration):
+                        try:
+                            if show_progress:
+                                res = await _run_with_progress(comfy, prompt)
+                            else:
+                                res = await comfy.queue_prompt_api(prompt)
+                            typer.echo(json.dumps(res.outputs))
+                        except asyncio.CancelledError:
+                            interruption.interrupt_current_processing()
+                            logger.info("Exiting gracefully.")
+                            raise
+    except asyncio.CancelledError:
+        interruption.interrupt_current_processing()
+        raise
 
 
 async def _run_with_progress(comfy: Comfy, prompt: dict):
@@ -282,26 +288,30 @@ async def _run_with_progress(comfy: Comfy, prompt: dict):
     ) as progress:
         overall = progress.add_task("Running workflow", total=None)
 
-        async for notification in task.progress():
-            if notification.event == "progress":
-                data = notification.data
-                value = data.get("value", 0)
-                total = data.get("max", 100)
-                node_id = data.get("node")
-                if node_id and node_id not in node_tasks:
-                    node_tasks[node_id] = progress.add_task(f"Node {node_id}", total=total)
-                if node_id and node_id in node_tasks:
-                    progress.update(node_tasks[node_id], completed=value, total=total)
-            elif notification.event == "execution_cached":
-                cached = notification.data.get("nodes", [])
-                for nid in cached:
-                    if nid not in node_tasks:
-                        node_tasks[nid] = progress.add_task(f"Node {nid} (cached)", total=1)
-                    progress.update(node_tasks[nid], completed=1, total=1)
-            elif notification.event == "executing":
-                node_id = notification.data.get("node")
-                if node_id:
-                    progress.update(overall, description=f"Executing node {node_id}")
+        try:
+            async for notification in task.progress():
+                if notification.event == "progress":
+                    data = notification.data
+                    value = data.get("value", 0)
+                    total = data.get("max", 100)
+                    node_id = data.get("node")
+                    if node_id and node_id not in node_tasks:
+                        node_tasks[node_id] = progress.add_task(f"Node {node_id}", total=total)
+                    if node_id and node_id in node_tasks:
+                        progress.update(node_tasks[node_id], completed=value, total=total)
+                elif notification.event == "execution_cached":
+                    cached = notification.data.get("nodes", [])
+                    for nid in cached:
+                        if nid not in node_tasks:
+                            node_tasks[nid] = progress.add_task(f"Node {nid} (cached)", total=1)
+                        progress.update(node_tasks[nid], completed=1, total=1)
+                elif notification.event == "executing":
+                    node_id = notification.data.get("node")
+                    if node_id:
+                        progress.update(overall, description=f"Executing node {node_id}")
+        except asyncio.CancelledError:
+            interruption.interrupt_current_processing()
+            raise
 
         progress.update(overall, description="Done", completed=1, total=1)
 
