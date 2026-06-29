@@ -100,26 +100,49 @@ def workflows_submit(
     ctx: typer.Context,
     workflows: list[str] = typer.Argument(..., help="Workflow files, URIs, template names, or literal JSON."),
     server: Optional[str] = typer.Option(None, "--server", envvar="COMFYUI_SERVER", help="Server URL."),
+    response_mode: str = typer.Option(
+        "sync",
+        "--response-mode",
+        case_sensitive=False,
+        help="Server response mode: sync waits for outputs; async returns the queued prompt id immediately.",
+    ),
     **kwargs,
 ):
     """Submit workflow(s) to a running server with the same overrides as run-workflow."""
     _warn_unknown_cli_args(ctx.args)
+    response_mode = response_mode.lower()
+    if response_mode not in {"sync", "async"}:
+        raise typer.BadParameter("response mode must be 'sync' or 'async'")
     config = _build_config(kwargs)
-    asyncio.run(_submit_workflows(workflows, server, config))
+    asyncio.run(_submit_workflows(workflows, server, config, response_mode=response_mode))
 
 
-async def _submit_workflows(workflows: list[str], server: Optional[str], config):
+async def _submit_workflows(workflows: list[str], server: Optional[str], config, response_mode: str = "sync"):
     from rich.console import Console
     from .server_connection import post_json
     from ..component_model.asyncio_files import load_workflow_json
     from ..entrypoints.workflow import _resolve_workflow, expand_workflow_quantity
 
     console = Console()
+    headers = None
+    timeout_total: Optional[float] = None
+    if response_mode == "async":
+        headers = {
+            "Accept": "application/json+respond-async",
+            "Prefer": "respond-async",
+        }
+        timeout_total = 60.0
     for wf_path in workflows:
         resolved = _resolve_workflow(wf_path)
         obj = load_workflow_json(resolved)
         for prompt in expand_workflow_quantity(obj, config):
-            result = await post_json(server, "/api/v1/prompts", body=prompt)
+            result = await post_json(
+                server,
+                "/api/v1/prompts",
+                body=prompt,
+                headers=headers,
+                timeout_total=timeout_total,
+            )
             console.print_json(json.dumps(result))
 
 

@@ -12,6 +12,7 @@ from comfy_api.torch_helpers.torch_compile import (
     TORCH_COMPILE_KWARGS,
     TORCH_COMPILE_STRATEGY,
     _CompiledModel,
+    _mark_compile_dynamic_inputs,
     _set_dynamo_config_if_present,
     _stabilize_compile_parameter_residency,
     set_torch_compile_wrapper,
@@ -564,6 +565,28 @@ def test_torch_compile_model_preserves_real_dynamic_patchers(monkeypatch):
     executor = lambda *args, **kwargs: None
     wrapper(executor)
     assert compile_calls[0][0] is compiled
+
+
+def test_compile_dynamic_hints_only_conditioning_sequence_dims(monkeypatch):
+    marked = []
+    monkeypatch.setattr(
+        torch._dynamo,
+        "maybe_mark_dynamic",
+        lambda tensor, dim: marked.append((tuple(tensor.shape), dim)),
+        raising=False,
+    )
+
+    latent = torch.zeros(1, 16, 64, 64)
+    context = torch.zeros(1, 77, 4096)
+    pooled = torch.zeros(1, 4096)
+    nested = {"cross": {"c_crossattn": torch.zeros(1, 120, 4096)}}
+
+    _mark_compile_dynamic_inputs((latent,), {"x": latent, "context": context, "pooled": pooled, "extra": nested})
+
+    assert ((1, 77, 4096), 1) in marked
+    assert ((1, 120, 4096), 1) in marked
+    assert all(shape != (1, 16, 64, 64) for shape, _ in marked)
+    assert all(shape != (1, 4096) for shape, _ in marked)
 
 
 def test_setup_torch_compile_cache_dirs_uses_app_cache_and_preserves_overrides(monkeypatch, tmp_path):

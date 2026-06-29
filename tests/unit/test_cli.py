@@ -43,6 +43,25 @@ def test_serve_help():
     assert "--daemon" in out or "-d" in out
 
 
+def test_start_delegates_to_serve_daemon(monkeypatch):
+    calls = []
+
+    class Result:
+        returncode = 17
+
+    def fake_run(args, check=False):
+        calls.append((args, check))
+        return Result()
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli_module.sys, "argv", ["/tmp/comfyui"])
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 17
+    assert calls == [(["/tmp/comfyui", "serve", "--daemon", "--guess-settings"], False)]
+
+
 def test_worker_help():
     result = runner.invoke(app, ["worker", "--help"])
     assert result.exit_code == 0

@@ -174,10 +174,11 @@ def test_workflows_submit_rewrites_discovered_workflow_flag(monkeypatch):
 
     captured = {}
 
-    async def fake_submit_workflows(workflows, server, config):
+    async def fake_submit_workflows(workflows, server, config, response_mode="sync"):
         captured["workflows"] = workflows
         captured["server"] = server
         captured["set"] = config.set
+        captured["response_mode"] = response_mode
 
     monkeypatch.setattr(sub_workflows, "_submit_workflows", fake_submit_workflows)
 
@@ -198,3 +199,4 @@ def test_workflows_submit_rewrites_discovered_workflow_flag(monkeypatch):
     assert captured["workflows"] == ["workflow.json"]
     assert captured["server"] == "http://127.0.0.1:8199"
     assert captured["set"] == ["327.inputs.value=2002"]
+    assert captured["response_mode"] == "sync"

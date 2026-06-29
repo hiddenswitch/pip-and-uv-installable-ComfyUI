@@ -8,6 +8,7 @@ import torch
 import comfy.utils
 import comfy.quant_ops_int8 as quant_ops_int8
 import comfy.weight_cast as weight_cast
+from comfy.cmd.main_pre import tracer
 from comfy.weight_cast_schedule import wrap_backend_with_weight_prefetch_scheduler
 from comfy.weight_cast import get_materialization_spec
 from comfy.weight_cast_ops import (
@@ -225,6 +226,66 @@ def _first_tensor_device(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch
     return None
 
 
+_CONDITIONING_DYNAMIC_KEYS = frozenset((
+    "context",
+    "c_crossattn",
+    "conditioning",
+    "conditioning_to",
+    "conditioning_from",
+    "encoder_hidden_states",
+    "attention_mask",
+))
+
+
+def _mark_dynamic_dim(tensor: torch.Tensor, dim: int, *, min_value: int = 1) -> None:
+    if tensor.ndim <= dim:
+        return
+    if tensor.shape[dim] <= min_value:
+        return
+    try:
+        maybe_mark_dynamic = getattr(torch._dynamo, "maybe_mark_dynamic", None)
+        if maybe_mark_dynamic is not None:
+            maybe_mark_dynamic(tensor, dim)
+        else:
+            torch._dynamo.mark_dynamic(tensor, dim, min=min_value)
+    except Exception as exc:
+        logger.debug(
+            "Skipping torch dynamic dim hint for shape=%s dim=%s: %s",
+            tuple(tensor.shape),
+            dim,
+            exc,
+        )
+
+
+def _mark_conditioning_sequence_dims(value: Any, *, key: str | None = None) -> None:
+    if isinstance(value, torch.Tensor):
+        if key in _CONDITIONING_DYNAMIC_KEYS:
+            # Text/context tensors are typically [batch, seq, channels].
+            # Attention masks are [batch, seq]. Keep latent/image spatial
+            # dimensions specialized; only padded sequence length varies.
+            _mark_dynamic_dim(value, 1)
+        return
+    if isinstance(value, dict):
+        for child_key, child_value in value.items():
+            child_key_str = str(child_key)
+            _mark_conditioning_sequence_dims(
+                child_value,
+                key=child_key_str if child_key_str in _CONDITIONING_DYNAMIC_KEYS else key,
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for child in value:
+            _mark_conditioning_sequence_dims(child, key=key)
+
+
+def _mark_compile_dynamic_inputs(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    # torch.compile traces lazily on first call, so mark runtime inputs just
+    # before invoking the compiled callable. Keep latent spatial dimensions
+    # static; only padded text/context sequence lengths should vary here.
+    for key, value in kwargs.items():
+        _mark_conditioning_sequence_dims(value, key=key)
+
+
 def _stabilize_compile_parameter_residency(
     module: torch.nn.Module,
     device: torch.device | None,
@@ -290,6 +351,7 @@ class _CompiledModel(torch.nn.Module):
         object.__setattr__(self, "_original", module)
         self._compile_disabled_reason: str | None = None
         self._logged_bypass_reasons: set = set()
+        self._forward_calls = 0
 
     def __getattr__(self, name: str):
         try:
@@ -333,17 +395,27 @@ class _CompiledModel(torch.nn.Module):
                 sorted(transformer_options.keys()) if isinstance(transformer_options, dict) else None,
             )
             return self._original(*args, **kwargs)
-        _stabilize_compile_parameter_residency(self._original, _first_tensor_device(args, kwargs))
-        _mark_cudagraph_step_begin()
-        reset_invocation_ids()
-        try:
-            return self.compiled(*args, **kwargs)
-        except Exception as exc:
-            if not _is_graceful_compile_disable_error(exc):
-                raise
-            logger.warning("Disabling torch.compile for this module after kernel-specific failure: %s", exc)
-            self._compile_disabled_reason = str(exc)
-            return self._original(*args, **kwargs)
+        self._forward_calls += 1
+        with tracer.start_as_current_span("Torch Compile Forward") as span:
+            span.set_attribute("module_class", type(self._original).__name__)
+            span.set_attribute("forward_calls", self._forward_calls)
+            device = _first_tensor_device(args, kwargs)
+            if device is not None:
+                span.set_attribute("device", str(device))
+            with tracer.start_as_current_span("Torch Compile Stabilize Residency"):
+                _stabilize_compile_parameter_residency(self._original, device)
+            _mark_cudagraph_step_begin()
+            reset_invocation_ids()
+            _mark_compile_dynamic_inputs(args, kwargs)
+            try:
+                with tracer.start_as_current_span("Torch Compile Invoke"):
+                    return self.compiled(*args, **kwargs)
+            except Exception as exc:
+                if not _is_graceful_compile_disable_error(exc):
+                    raise
+                logger.warning("Disabling torch.compile for this module after kernel-specific failure: %s", exc)
+                self._compile_disabled_reason = str(exc)
+                return self._original(*args, **kwargs)
 
 
 def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Optional[dict[str, Any]] = None,

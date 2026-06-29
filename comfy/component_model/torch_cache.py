@@ -8,6 +8,9 @@ from ..vendor.appdirs import user_cache_dir
 def setup_torch_compile_cache_dirs() -> None:
     """Set persistent torch compile cache directories unless the user did."""
     cache_root = os.path.join(user_cache_dir(appname="comfyui"), "torch_compile")
+    os.environ.setdefault("TORCHINDUCTOR_FX_GRAPH_CACHE", "1")
+    os.environ.setdefault("TORCHINDUCTOR_AUTOGRAD_CACHE", "1")
+    os.environ.setdefault("TORCHINDUCTOR_BUNDLE_TRITON_INTO_FX_GRAPH_CACHE", "1")
     cache_dirs = {
         "TORCHINDUCTOR_CACHE_DIR": os.path.join(cache_root, "inductor"),
         "TRITON_CACHE_DIR": os.path.join(cache_root, "triton"),

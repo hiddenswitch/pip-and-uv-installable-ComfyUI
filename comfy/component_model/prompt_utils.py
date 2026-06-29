@@ -780,7 +780,10 @@ def enable_compile(prompt: dict) -> dict:
         new_id = _allocate_node_id(prompt)
         prompt[new_id] = {
             "class_type": "TorchCompileModel",
-            "inputs": {"model": [chain_tail, 0]},
+            "inputs": {
+                "model": [chain_tail, 0],
+                "mode": "default",
+            },
             "_meta": {"title": "torch.compile (auto)"},
         }
         for cid in model_consumers:

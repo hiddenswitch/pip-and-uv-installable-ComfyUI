@@ -34,11 +34,13 @@ async def post_json(
     server: Optional[str],
     path: str,
     body: Optional[dict] = None,
+    headers: Optional[dict[str, str]] = None,
+    timeout_total: Optional[float] = 60.0,
 ) -> Any:
     url = f"{server_url(server)}{path}"
-    timeout = ClientTimeout(total=60.0, connect=10.0)
+    timeout = ClientTimeout(total=timeout_total, connect=10.0)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=body or {}) as resp:
+        async with session.post(url, json=body or {}, headers=headers) as resp:
             if resp.status >= 400:
                 text = await resp.text()
                 raise RuntimeError(f"HTTP {resp.status}: {text}")

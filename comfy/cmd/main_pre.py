@@ -24,8 +24,8 @@ from ..component_model.cuda_env import ensure_pytorch_cuda_alloc_conf, should_sk
 
 os.environ['TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'] = '1'
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
-os.environ["TORCHINDUCTOR_AUTOGRAD_CACHE"] = "1"
+os.environ.setdefault("TORCHINDUCTOR_FX_GRAPH_CACHE", "1")
+os.environ.setdefault("TORCHINDUCTOR_AUTOGRAD_CACHE", "1")
 os.environ["BITSANDBYTES_NOWELCOME"] = "1"
 os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'

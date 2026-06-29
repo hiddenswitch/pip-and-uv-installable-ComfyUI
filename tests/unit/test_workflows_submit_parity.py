@@ -43,14 +43,17 @@ def _run_submit(**kwargs) -> dict:
     """
     captured: dict = {}
 
-    async def fake_post_json(server, path, body=None):
+    async def fake_post_json(server, path, body=None, headers=None, timeout_total=60.0):
         captured["body"] = body
         captured["server"] = server
         captured["path"] = path
+        captured["headers"] = headers
+        captured["timeout_total"] = timeout_total
         return {"prompt_id": "abc123"}
 
     workflows = kwargs.pop("workflows", [])
     server = kwargs.pop("server", None)
+    response_mode = kwargs.pop("response_mode", "sync")
     # Tests historically used `set_overrides`; map to the Configuration field name `set`.
     if "set_overrides" in kwargs:
         kwargs["set"] = kwargs.pop("set_overrides")
@@ -58,7 +61,9 @@ def _run_submit(**kwargs) -> dict:
 
     def _thread_target():
         with mock.patch("comfy.cmd.server_connection.post_json", new=fake_post_json):
-            asyncio.run(_submit_workflows(workflows, server, config))
+            asyncio.run(_submit_workflows(
+                workflows, server, config, response_mode=response_mode,
+            ))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(_thread_target).result()
@@ -125,9 +130,27 @@ class TestSubmitParity:
         compiles = [(nid, n) for nid, n in captured["body"].items()
                     if n["class_type"] == "TorchCompileModel"]
         assert len(compiles) == 1
-        new_id, _ = compiles[0]
+        new_id, compile_node = compiles[0]
+        assert compile_node["inputs"]["mode"] == "default"
+        assert "dynamic" not in compile_node["inputs"]
         # KSampler's model input now points at the compile node.
         assert captured["body"]["5"]["inputs"]["model"] == [new_id, 0]
+
+    def test_submit_async_response_mode_requests_accepted_job(self, wf_path):
+        captured = _run_submit(
+            workflows=[str(wf_path)],
+            response_mode="async",
+        )
+        assert captured["headers"] == {
+            "Accept": "application/json+respond-async",
+            "Prefer": "respond-async",
+        }
+        assert captured["timeout_total"] == 60.0
+
+    def test_submit_sync_response_mode_has_no_total_timeout(self, wf_path):
+        captured = _run_submit(workflows=[str(wf_path)])
+        assert captured["headers"] is None
+        assert captured["timeout_total"] is None
 
     def test_lora_then_compile_compose(self, wf_path):
         captured = _run_submit(
@@ -188,7 +211,7 @@ class TestSubmitParity:
 
         posts: list[dict] = []
 
-        async def fake_post_json(server, path, body=None):
+        async def fake_post_json(server, path, body=None, headers=None, timeout_total=60.0):
             posts.append(body)
             return {"prompt_id": f"id_{len(posts)}"}
 
@@ -209,7 +232,7 @@ class TestSubmitParity:
     def test_quantity_posts_multiple_seeded_jobs(self, wf_path):
         posts: list[dict] = []
 
-        async def fake_post_json(server, path, body=None):
+        async def fake_post_json(server, path, body=None, headers=None, timeout_total=60.0):
             posts.append(body)
             return {"prompt_id": f"id_{len(posts)}"}
 

@@ -1442,7 +1442,10 @@ class PromptServer(ExecutorToClientProgress):
             return web.json_response(prompt, status=200)
 
     def _schedule_background_task_with_web_response(self, fut, task_id):
-        task = asyncio.create_task(fut, name=task_id)
+        if isinstance(fut, asyncio.Future):
+            task = fut
+        else:
+            task = asyncio.create_task(fut, name=task_id)
         self.background_tasks[task_id] = task
         task.add_done_callback(lambda _: self.background_tasks.pop(task_id))
         # todo: type this from the OpenAPI spec

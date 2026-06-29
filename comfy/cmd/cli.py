@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -1923,7 +1924,10 @@ def start(ctx: typer.Context):
       comfyui logs -f
       comfyui stop
     """
-    ctx.invoke(serve, daemon=True, guess_settings=True)
+    raise typer.Exit(subprocess.run(
+        [sys.argv[0], "serve", "--daemon", "--guess-settings"],
+        check=False,
+    ).returncode)
 
 
 @app.command(name="stop", rich_help_panel="Daemon")
