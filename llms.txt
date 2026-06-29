@@ -1349,6 +1349,13 @@ with `--torch-backend=auto` will subsume it.
 
 ## Custom nodes — use the pip facade
 
+This section is authoritative for agents working in this repo. Upstream
+custom-node READMEs are useful for understanding node behavior and example
+workflows, but their install instructions do not override this process.
+Do not clone into `custom_nodes/`, run ComfyUI-Manager installs, or run
+ad-hoc package installs unless the facade path below cannot resolve the
+node and you have exhausted the documented fallback.
+
 When the user needs a custom node that isn't bundled (ComfyUI-Crystools,
 ComfyUI-Inspire-Pack, ComfyUI_IPAdapter_plus, etc.), don't clone into
 `custom_nodes/`. Install via the facade — it builds the wheel on demand,
@@ -1699,7 +1706,7 @@ from different runs do not mix.
 | `UnsupportedWorkflowFormatError: workflow format 'swarmui'/'invokeai'/'krita-ai' is not a valid ComfyUI workflow` | The URL points at a non-ComfyUI workflow format. A1111/Forge `.txt` and Fooocus JSON auto-translate (lossy txt2img mapping); SwarmUI/InvokeAI/Krita-AI shapes have no equivalent and must be re-authored. Find a ComfyUI alternative with `comfyui workflows search "<topic>" --with-host civitai`. |
 | `401 Unauthorized` on a `civitai://` URI | Set `CIVITAI_API_TOKEN` in env. Get one at https://civitai.com/user/account → API Keys. The `civitai://` fsspec backend reads the same env var as `model_downloader`. |
 | Civitai workflow runs but a custom checkpoint is missing | Either (a) the workflow author forgot to put the model URL in their notes, or (b) the model is by a different author than the workflow. Run `comfyui workflows run <URI> --help` and read the author's note section — if it lists URLs, those are now resolved automatically; if it doesn't, search civitai for the filename and pass the resolved URL via `--add-lora` or `--set <node_id>.inputs.ckpt_name=<URL>`. |
-| Custom node package not on `nodes.appmana.com/simple/` | `_install_workflow_requirements` falls back to building the facade wheel locally via `FacadeWheelBuilder` against the package's GitHub or GitLab archive URL (resolved via comfy.org's API or comfyui-manager's extension-node-map). The package still gets the `_appmana_facade_<name>` rename + stub-shim, so node registration works the same. If you see "Could not locate repo URL for: foo", the package isn't in either source — file an issue or install from source manually. |
+| Custom node package not on `nodes.appmana.com/simple/` | `_install_workflow_requirements` falls back to building the facade wheel locally via `FacadeWheelBuilder` against the package's GitHub or GitLab archive URL (resolved via comfy.org's API or comfyui-manager's extension-node-map). The package still gets the `_appmana_facade_<name>` rename + stub-shim, so node registration works the same. If you see "Could not locate repo URL for: foo", the package isn't in either source; only then file an issue or install from source manually. Upstream README clone/install steps are not a reason to skip the facade path. |
 
 ---
 
