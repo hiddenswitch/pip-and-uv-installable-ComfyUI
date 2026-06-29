@@ -89,14 +89,16 @@ def te(dtype_llama=None, llama_quantization_metadata=None):
 # Full Qwen3-VL-8B variant with vision
 
 class Ideogram4Qwen3VLClipModel(qwen3vl.Qwen3VLClipModel):
-    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}):
+    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, textmodel_json_config=None):
         super().__init__(device=device, layer=IDEOGRAM4_TAP_LAYERS, layer_idx=None, dtype=dtype,
-                         attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_8b")
+                         attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_8b",
+                         textmodel_json_config=textmodel_json_config)
 
 
 class Ideogram4Qwen3VLTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=Ideogram4Qwen3VLClipModel, model_options=model_options)
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=Ideogram4Qwen3VLClipModel,
+                         model_options=model_options, textmodel_json_config=textmodel_json_config)
 
     def encode_token_weights(self, token_weight_pairs):
         out, pooled, extra = super().encode_token_weights(token_weight_pairs)
@@ -116,11 +118,12 @@ class Ideogram4Qwen3VLTokenizer(qwen3vl.Qwen3VLTokenizer):
 
 def te_qwen3vl(dtype_llama=None, llama_quantization_metadata=None):
     class Ideogram4Qwen3VLTEModel_(Ideogram4Qwen3VLTEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if dtype_llama is not None:
                 dtype = dtype_llama
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options,
+                             textmodel_json_config=textmodel_json_config)
     return Ideogram4Qwen3VLTEModel_

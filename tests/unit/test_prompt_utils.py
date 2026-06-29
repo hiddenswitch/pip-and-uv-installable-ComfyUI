@@ -1217,6 +1217,47 @@ class TestEnableCompile:
         # ModelSamplingFlux's model input is the newly inserted LoRA.
         assert patched["12"]["inputs"]["model"] == [new_lora_id, 0]
 
+    def test_compile_wraps_each_dual_model_branch(self):
+        wf = {
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": "ideogram4-unconditional.safetensors"},
+            },
+            "2": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": "ideogram4.safetensors"},
+            },
+            "3": {
+                "class_type": "DualModelGuider",
+                "inputs": {"model": ["6", 0], "model_negative": ["1", 0], "conditioning": ["4", 0]},
+            },
+            "4": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"text": "prompt"},
+            },
+            "5": {
+                "class_type": "SamplerCustomAdvanced",
+                "inputs": {"guider": ["3", 0]},
+            },
+            "6": {
+                "class_type": "CFGOverride",
+                "inputs": {"model": ["2", 0], "cfg": 3, "start_percent": 0.7, "end_percent": 1},
+            },
+        }
+
+        patched = enable_compile(wf)
+        compile_nodes = {
+            tuple(node["inputs"]["model"]): nid
+            for nid, node in patched.items()
+            if node["class_type"] == "TorchCompileModel"
+        }
+
+        assert set(compile_nodes) == {("1", 0), ("6", 0)}
+        assert patched["3"]["inputs"]["model_negative"] == [compile_nodes[("1", 0)], 0]
+        assert patched["3"]["inputs"]["model"] == [compile_nodes[("6", 0)], 0]
+        assert patched["6"]["inputs"]["model"] == ["2", 0]
+        assert patched["5"]["inputs"]["guider"] == ["3", 0]
+
     def test_idempotent_when_workflow_has_torch_compile(self):
         wf = _sdxl_like_workflow()
         wf["99"] = {"class_type": "TorchCompileModel", "inputs": {"model": ["2", 0]}}

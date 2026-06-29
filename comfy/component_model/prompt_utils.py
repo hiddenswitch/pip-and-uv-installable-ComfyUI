@@ -445,6 +445,7 @@ _MODEL_PASSTHROUGH_CLASS_TYPES = frozenset({
     "ModelSamplingAuraFlow",
     "ModelSamplingStableCascade",
     "ModelSamplingLTXV",
+    "CFGOverride",
 })
 
 _CLIP_PRODUCER_CLASS_TYPES = frozenset({
@@ -514,6 +515,25 @@ def _find_clip_splice_point(prompt: dict) -> Optional[str]:
     return roots[0]
 
 
+def _find_model_chain_tail_from_root(prompt: dict, root: str) -> str:
+    """Return the MODEL chain tail that starts at *root*.
+
+    The tail is the last MODEL-passthrough node before the chain reaches a
+    sampler, guider, or other non-passthrough consumer. Multi-model workflows
+    such as Ideogram4 have separate conditional and unconditional roots; each
+    root needs its own compile wrapper.
+    """
+    tail = root
+    while True:
+        consumers = _consumers_of_model_output(prompt, tail)
+        if len(consumers) != 1:
+            return tail
+        cid = consumers[0]
+        if prompt[cid].get("class_type") not in _MODEL_PASSTHROUGH_CLASS_TYPES:
+            return tail
+        tail = cid
+
+
 def _find_model_chain_tail(prompt: dict) -> Optional[str]:
     """Return the node id at the END of the MODEL chain (just before the sampler).
 
@@ -526,15 +546,7 @@ def _find_model_chain_tail(prompt: dict) -> Optional[str]:
     root = _find_model_splice_point(prompt)
     if root is None:
         return None
-    tail = root
-    while True:
-        consumers = _consumers_of_model_output(prompt, tail)
-        if len(consumers) != 1:
-            return tail
-        cid = consumers[0]
-        if prompt[cid].get("class_type") not in _MODEL_PASSTHROUGH_CLASS_TYPES:
-            return tail
-        tail = cid
+    return _find_model_chain_tail_from_root(prompt, root)
 
 
 # Class types whose presence downstream of a loader means the loader is the
@@ -736,31 +748,42 @@ def _rewire_inputs(node: dict, old: tuple[str, int], new: tuple[str, int]) -> No
 
 def enable_compile(prompt: dict) -> dict:
     """Return a copy of *prompt* with a ``TorchCompileModel`` spliced after
-    every MODEL chain tail found by :func:`_find_model_splice_point`.
+    every independent MODEL chain tail.
 
     ``torch.compile`` applied to the diffusion transformer typically gives a
     2–4× step-time speedup after the first warmup step; the tradeoff is
     ~30s–2min of compile time on first run and additional VRAM during
-    graph capture. We splice at the same position as ``--add-lora`` so the
-    compile wraps the model + any LoRAs the user added.
+    graph capture. We splice at the end of each model chain so the compile
+    wraps the model + any LoRAs or ModelSampling* patches the user added.
     """
     prompt = copy.deepcopy(prompt)
     if any(n.get("class_type") == "TorchCompileModel" for n in prompt.values()):
         # Workflow already opts in; don't double-wrap.
         return prompt
-    # Compile the FINAL patched model so the traced graph captures all
-    # upstream LoRAs and ModelSampling* patches. Splice at chain tail.
-    chain_tail = _find_model_chain_tail(prompt)
-    if chain_tail is None:
+    roots = [
+        nid for nid, node in prompt.items()
+        if node.get("class_type") in _MODEL_PRODUCER_CLASS_TYPES
+        and _consumers_of_model_output(prompt, nid)
+    ]
+    if not roots:
         logger.warning("--compile: no MODEL producer found, skipping")
         return prompt
-    model_consumers = _consumers_of_model_output(prompt, chain_tail)
-    new_id = _allocate_node_id(prompt)
-    prompt[new_id] = {
-        "class_type": "TorchCompileModel",
-        "inputs": {"model": [chain_tail, 0]},
-        "_meta": {"title": "torch.compile (auto)"},
-    }
-    for cid in model_consumers:
-        _rewire_inputs(prompt[cid], (chain_tail, 0), (new_id, 0))
+
+    compiled_tails: set[str] = set()
+    for root in roots:
+        chain_tail = _find_model_chain_tail_from_root(prompt, root)
+        if chain_tail in compiled_tails:
+            continue
+        model_consumers = _consumers_of_model_output(prompt, chain_tail)
+        if not model_consumers:
+            continue
+        new_id = _allocate_node_id(prompt)
+        prompt[new_id] = {
+            "class_type": "TorchCompileModel",
+            "inputs": {"model": [chain_tail, 0]},
+            "_meta": {"title": "torch.compile (auto)"},
+        }
+        for cid in model_consumers:
+            _rewire_inputs(prompt[cid], (chain_tail, 0), (new_id, 0))
+        compiled_tails.add(chain_tail)
     return prompt
