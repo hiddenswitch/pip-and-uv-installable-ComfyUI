@@ -339,7 +339,7 @@ comfyui workflows list --format json | \
 |---|---|
 | Single image / video / edit | `comfyui workflows run <template-name>` with `--prompt`, `--image`, `--seed`, `--add-lora`, `--compile`. |
 | User hands you a workflow URL / civitai / HF link | **First** run `comfyui workflows run <URL> --help` to read the author's `MarkdownNote` instructions (download URLs, place-in hints, prompt examples), then run with `--all`. See §Running someone else's workflow. |
-| Mass processing (dozens+ of prompts, CSV-driven, batch edits) | Start the daemon once (`comfyui start`), loop in Python using `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Mass processing. |
+| Repeated generations from the same workflow (including simple iteration, A/B prompts, batch prompts, CSV-driven runs, or batch edits) | Start the daemon once (`comfyui start`), submit jobs with `comfyui workflows submit` or the embedded client, and poll `comfyui jobs`. See §Repeated runs. |
 | Non-trivial graph editing (custom subgraphs, new node types) | Write Python importing `comfy.component_model.prompt_utils` and run embedded. |
 
 **You may read user-provided images, videos, and text and reason about
@@ -1111,11 +1111,15 @@ daemon path (§Mass processing) instead so the model stays resident.
 
 ---
 
-## Mass processing — daemon + submit + poll
+## Repeated runs — daemon + submit + poll
 
-For tens-to-thousands of jobs, start the daemon once and submit. The
-daemon keeps models resident, so amortized per-job cost drops from
-"model load + sample" to "sample only".
+If you expect to run more than one generation from the same workflow,
+start the daemon once and submit jobs to it. This applies even for a
+small two- or three-try prompt iteration, not just bulk processing. The
+daemon keeps models resident and preserves runtime caches, so amortized
+per-job cost drops from "process start + model load + sample" to "submit
++ sample"; for `--compile` workflows it also lets warmup and cached
+compiled kernels pay off across jobs.
 
 ```bash
 # 1. Start the daemon (equivalent to `serve --daemon --guess-settings`):
@@ -1642,7 +1646,8 @@ non-trivial graph edits → embedded Python in §Task 7).
    instead.
 9. If output is wrong, iterate on the prompt or add/remove a LoRA.
    Don't loop infinitely — after 3 tries, ask the user.
-10. For bulk jobs: daemon + submit. For exotic graph edits: Python.
+10. For any repeated same-workflow generation: daemon + submit. For
+    exotic graph edits: Python.
 
 ## Measuring performance with OpenTelemetry
 
