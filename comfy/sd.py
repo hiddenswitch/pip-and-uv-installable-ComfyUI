@@ -1948,43 +1948,6 @@ def load_checkpoint_guess_config_clip_only(ckpt_path, embedding_directory=None, 
     return clip.patcher
 
 
-def _apply_quantize_on_load(model_config, model_options):
-    """Force mixed-precision ops for ad-hoc quantization of a float checkpoint.
-
-    Driven by the weight_dtype dropdown values "int8"/"int8_convrot" via
-    ``model_options["quantize_on_load"]``. Checkpoints that are already
-    quantized win; the per-architecture sensitive-layer exclusions come from
-    the model config's ``int8_quant_exclude`` attribute.
-    """
-    fmt = model_options.get("quantize_on_load")
-    if not fmt:
-        return
-    if model_config.quant_config is not None:
-        if fmt == "int8_convrot":
-            # Already-quantized plain int8 layers can be upgraded in place:
-            # dequantize, Hadamard-rotate, requantize. The small second
-            # weight-quantization error buys convrot's activation-outlier
-            # spreading on every forward. Layers in other formats and layers
-            # the publisher left unquantized are not touched.
-            logger.info("Upgrading already-quantized int8 layers to int8_convrot on load")
-            model_config.quant_config = {**model_config.quant_config, "upgrade_int8_to_convrot": True}
-        else:
-            logger.info("Checkpoint is already quantized; ignoring quantize_on_load=%s", fmt)
-        return
-    if model_options.get("custom_operations") is not None or model_config.custom_operations is not None:
-        return
-    from .quant_ops import int8_quantization_available
-    if not int8_quantization_available():
-        logger.warning("INT8 quantization unavailable; ignoring quantize_on_load=%s", fmt)
-        return
-    model_config.quant_config = {
-        "mixed_ops": True,
-        "quantize_on_load": fmt,
-        "exclude_layers": tuple(getattr(model_config, "int8_quant_exclude", ()) or ()),
-    }
-    logger.info("Quantizing diffusion model weights on load to %s", fmt)
-
-
 def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options=None, te_model_options=None, metadata: Optional[FileMetadata] = None, ckpt_path="", disable_dynamic=False) -> tuple[ModelManageable, Optional[CLIP], Optional[VAE], Optional[CLIPVision]]:
     if te_model_options is None:
         te_model_options = {}
@@ -2013,8 +1976,6 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
         if diffusion_model is None:
             return None
         return (diffusion_model, None, VAE(sd={}), None)  # The VAE object is there to throw an exception if it's actually used'
-
-    _apply_quantize_on_load(model_config, model_options)
 
     unet_weight_dtype = list(model_config.supported_inference_dtypes)
     if model_config.quant_config is not None:
@@ -2160,7 +2121,6 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
                     logger.warning("{} {}".format(diffusers_keys[k], k))
 
     offload_device = model_options.get("offload_device", model_management.unet_offload_device())
-    _apply_quantize_on_load(model_config, model_options)
     unet_weight_dtype = list(model_config.supported_inference_dtypes)
     if model_config.quant_config is not None:
         weight_dtype = None

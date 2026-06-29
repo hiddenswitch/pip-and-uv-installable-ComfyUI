@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from comfy.cmd.main_pre import tracer
+
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
 
 import comfy.utils
-import comfy.quant_ops_int8 as quant_ops_int8
 import comfy.weight_cast as weight_cast
-from comfy.cmd.main_pre import tracer
 from comfy.weight_cast_schedule import wrap_backend_with_weight_prefetch_scheduler
 from comfy.weight_cast import get_materialization_spec
 from comfy.weight_cast_ops import (
@@ -116,19 +116,8 @@ def _is_unsupported_fp8e4nv_compile_error(exc: BaseException) -> bool:
     return _FP8E4NV_UNSUPPORTED in str(exc)
 
 
-_INT8_COMPILE_ERROR_MARKERS = ("comfy_int8", "int8_kernels")
-
-
-def _is_int8_kernel_compile_error(exc: BaseException) -> bool:
-    """INT8 triton/kernel failures disable compilation gracefully like fp8e4nv:
-    the eager int8 path keeps working, so a kernel-specific compile failure
-    should degrade rather than crash sampling."""
-    message = str(exc)
-    return any(marker in message for marker in _INT8_COMPILE_ERROR_MARKERS)
-
-
 def _is_graceful_compile_disable_error(exc: BaseException) -> bool:
-    return _is_unsupported_fp8e4nv_compile_error(exc) or _is_int8_kernel_compile_error(exc)
+    return _is_unsupported_fp8e4nv_compile_error(exc)
 
 
 def _make_module_tensors_contiguous(module: torch.nn.Module) -> None:
@@ -191,23 +180,6 @@ def _model_needs_graph_visible_weight_cast(model: ModelPatcher, module: torch.nn
         weight_cast.graph_visible_backend_unavailable_reason() is None
         and _module_has_cast_capable_weights(module)
     )
-
-
-def _prewarm_convrot_hadamard(child: torch.nn.Module, device: torch.device | None) -> None:
-    if device is None or device.type == "cpu":
-        return
-    layout_type = getattr(child, "layout_type", None)
-    if layout_type != "Int8ConvRotLayout":
-        return
-    try:
-        layout_cls = quant_ops_int8.get_layout_class(layout_type)
-        group_size = getattr(layout_cls, "GROUP_SIZE", None)
-        if group_size is None:
-            return
-        for dtype in (torch.bfloat16, torch.float16, torch.float32):
-            quant_ops_int8.regular_hadamard(group_size, device=device, dtype=dtype)
-    except Exception as exc:
-        logger.debug("ConvRot Hadamard prewarm failed for %s: %s", type(child).__name__, exc)
 
 
 def _first_tensor_device(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.device | None:
@@ -297,7 +269,6 @@ def _stabilize_compile_parameter_residency(
     move_params = device is not None and device.type != "cpu"
     with torch.no_grad():
         for module_name, child in module.named_modules():
-            _prewarm_convrot_hadamard(child, device)
             if not (
                 hasattr(child, "comfy_cast_weights")
                 or hasattr(child, "weight_function")

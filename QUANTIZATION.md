@@ -126,29 +126,31 @@ We define 4 possible scaling parameters that should cover most recipes in the ne
 | Format | Storage dtype | weight_scale | weight_scale_2 | pre_quant_scale | input_scale |
 |--------|---------------|--------------|----------------|-----------------|-------------|
 | float8_e4m3fn | float32 | float32 (scalar) | - | - | float32 (scalar) |
-| int8 | int8 | float32 ([out, 1] per-row, scalar accepted) | - | - | accepted but ignored |
-| int8_convrot | int8 | float32 ([out, 1] per-row) | - | - | accepted but ignored |
+| int8_tensorwise | int8 | float32 ([out, 1] per-row, scalar accepted) | - | - | - |
 | svdquant_w4a4 | int8 (packed int4) | bf16/fp16 ([in/64, out] per-group) | - | - | - |
 | awq_w4a16 | int8 (packed int4) | bf16/fp16 ([in/64, out] per-group) | - | - | - |
 
 You can find the defined formats in `comfy/quant_ops.py` (QUANT_ALGOS).
 
-### INT8 w8a8 (`int8`, `int8_convrot`)
+### INT8 tensorwise (`int8_tensorwise`)
 
-Symmetric absmax quantization with no zero points: `q = round(x / s).clamp(-128, 127)` with `s = absmax / 127`, one fp32 scale per output row. Activations are quantized dynamically per token on every forward (`comfy/int8_kernels.py`, triton fused per-token quant + int8 GEMM with int32 accumulation and dequant epilogue), so any `input_scale` tensors in a checkpoint are consumed and re-emitted on save but never used at runtime. The triton kernels handle any batch size including single tokens (tile sizes, not M, satisfy the tensor-core minimum); only the no-triton `torch._int_mm` fallback needs M > 16 and falls back to a dequantized matmul below that.
-
-`int8_convrot` additionally stores weights in a rotated space: each contiguous group of 256 input channels is right-multiplied by a normalized regular Hadamard matrix (block-diagonal rotation, `comfy/quant_ops_int8.py`). The matrix is symmetric and orthogonal, so the same rotation applied to the activations preserves the matmul result exactly in full precision while spreading activation outliers across channels, which reduces absmax quantization loss. `dequantize()` always de-rotates back to original weight space, which is what makes LoRA application (dequantize, patch, requantize) and every dequantization fallback correct without special cases. Layers whose `in_features` is not divisible by 256 are not eligible for convrot.
+Native INT8 support is provided by comfy_kitchen's `TensorWiseINT8Layout`.
+Checkpoints store int8 weights plus `weight_scale`; activation handling and
+matmul dispatch belong to comfy_kitchen, not this fork. Optional ConvRot
+metadata is preserved on the kitchen layout params when present.
 
 Per-layer `comfy_quant` JSON:
 
 ```json
-{"format": "int8"}
-{"format": "int8_convrot", "convrot_groupsize": 256, "convrot": true, "per_row": true}
+{"format": "int8_tensorwise"}
+{"format": "int8_tensorwise", "convrot_groupsize": 256, "convrot": true, "per_row": true}
 ```
 
-The `convrot`/`per_row` keys are redundant with the format and kept for compatibility with checkpoints produced by ComfyUI-INT8-Fast. Foreign int8 checkpoints are normalized on load (`comfy.utils.convert_old_quants`): a per-layer `comfy_quant` JSON without a `"format"` key, or a bare int8 `.weight` with a sibling `.weight_scale` and no marker at all (ModelOpt int8 row-wise exports), both map onto these formats automatically, so `CheckpointLoaderSimple`/`UNETLoader` load them with no extra nodes.
+Legacy foreign INT8 checkpoints are normalized on load (`comfy.utils.convert_old_quants`): `format: "int8"`, `format: "int8_convrot"`, formatless ComfyUI-INT8-Fast JSON, and bare int8 `.weight` plus `.weight_scale` all map to `format: "int8_tensorwise"`. `convrot` and `convrot_groupsize` are retained for checkpoints that carry them.
 
-Hardware: int8 tensor-core matmul needs NVIDIA sm_75 (Turing) or newer and notably includes all of Ampere (sm_80/sm_86), where fp8 compute is unavailable. The triton kernels are independent of the comfy_kitchen "triton" backend (which is disabled below sm_89 for fp8e4nv reasons). On unsupported devices int8 weights still load (half the memory) and dequantize per forward.
+Hardware: native INT8 acceleration depends on comfy_kitchen and the active
+device/backend. On unsupported devices, INT8 weights can still load and
+dequantize through the mixed-precision fallback path.
 
 ### SVDQuant W4A4 and AWQ W4A16 (`svdquant_w4a4`, `awq_w4a16`)
 
@@ -172,10 +174,6 @@ rather than a speedup. Checkpoints in raw nunchaku packing (key names
 `qweight`/`wscales`/`proj_down`, nunchaku tile-swizzled int4 order, fused qkv
 projections, int32-packed AWQ weights) are not yet converted automatically;
 only kitchen-format serialization (the `weight*` suffixes above) loads today.
-
-### Ad-hoc quantization (quantize-on-load)
-
-The `weight_dtype` dropdown on UNETLoader and related loaders accepts `int8` and `int8_convrot`. Unlike the fp8 entries this is not a plain dtype cast: eligible Linear weights are absmax-quantized per row (with the Hadamard rotation for convrot) while the model loads, on the GPU when one is available. Starting from the bf16/fp16 checkpoint with `int8_convrot` is the recommended flow: on real DiT weights with outlier-heavy activations it measures ~3.6x lower output error than plain int8 (1.2% vs 4.5% per layer) at ~12% speed cost. Selecting `int8_convrot` over an already-quantized plain int8 checkpoint upgrades it in place (dequantize, rotate, requantize), recovering most of that quality (1.5%) for pre-quantized downloads. Sensitive layers (embedders, modulation/adaLN, final projections) are excluded per architecture via `int8_quant_exclude` on the model configs in `comfy/supported_models.py`. Saving the model afterwards writes a distributable int8 checkpoint through the regular state_dict path.
 
 ### Quantization Metadata
 

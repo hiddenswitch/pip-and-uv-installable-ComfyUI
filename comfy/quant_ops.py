@@ -156,6 +156,7 @@ try:
         QuantizedLayout,
         TensorCoreFP8Layout as _CKFp8Layout,
         TensorCoreNVFP4Layout as _CKNvfp4Layout,
+        TensorWiseINT8Layout as _CKTensorWiseINT8Layout,
         register_layout_op,
         register_layout_class,
         get_layout_class as _ck_get_layout_class,
@@ -179,8 +180,6 @@ try:
     # comfy_kitchen's triton fp8 kernels use fp8e4nv, which fails to compile
     # on Ampere (sm < 8.9). Force-disable triton on those GPUs unless the
     # user re-enables it via --enable-comfy-kitchen-backends triton.
-    # This disable is fp8-specific: the INT8 w8a8 triton kernels live in
-    # comfy/int8_kernels.py outside this registry and stay enabled on Ampere.
     if torch.cuda.is_available():
         try:
             min_cap = min(
@@ -254,6 +253,8 @@ except Exception as e:
     class _CKNvfp4Layout:
         pass
 
+    class _CKTensorWiseINT8Layout:
+        pass
 
     def register_layout_class(name, cls):
         pass
@@ -398,6 +399,7 @@ class TensorCoreFP8E5M2Layout(_TensorCoreFP8LayoutBase):
 
 # Backward compatibility alias - default to E4M3
 TensorCoreFP8Layout = TensorCoreFP8E4M3Layout
+TensorWiseINT8Layout = _CKTensorWiseINT8Layout
 
 
 if not hasattr(TensorCoreFP8Layout, "Params"):
@@ -513,7 +515,7 @@ register_layout_class("TensorCoreFP8Layout", TensorCoreFP8Layout)
 register_layout_class("TensorCoreFP8E4M3Layout", TensorCoreFP8E4M3Layout)
 register_layout_class("TensorCoreFP8E5M2Layout", TensorCoreFP8E5M2Layout)
 register_layout_class("TensorCoreNVFP4Layout", TensorCoreNVFP4Layout)
-# todo: needs merge, how does this change for torch 2.2.0 compatibility?
+register_layout_class("TensorWiseINT8Layout", _CKTensorWiseINT8Layout)
 if _CK_MXFP8_AVAILABLE:
     register_layout_class("TensorCoreMXFP8Layout", TensorCoreMXFP8Layout)
 
@@ -522,18 +524,10 @@ _LAYOUT_CLASS_FALLBACKS = {
     "TensorCoreFP8E4M3Layout": TensorCoreFP8E4M3Layout,
     "TensorCoreFP8E5M2Layout": TensorCoreFP8E5M2Layout,
     "TensorCoreNVFP4Layout": TensorCoreNVFP4Layout,
+    "TensorWiseINT8Layout": TensorWiseINT8Layout,
 }
 
-_INT8_AVAILABLE = False
-if _CK_AVAILABLE:
-    try:
-        from .quant_ops_int8 import Int8ConvRotLayout, Int8RowwiseLayout
-
-        _INT8_AVAILABLE = True
-        _LAYOUT_CLASS_FALLBACKS["Int8RowwiseLayout"] = Int8RowwiseLayout
-        _LAYOUT_CLASS_FALLBACKS["Int8ConvRotLayout"] = Int8ConvRotLayout
-    except Exception as e:
-        logger.debug(f"Failed to load int8 quantized layouts, Error: {e}")
+_INT8_AVAILABLE = _CK_AVAILABLE and _ck_get_layout_class("TensorWiseINT8Layout") is not None
 
 
 def int8_quantization_available() -> bool:
@@ -551,17 +545,6 @@ def mixed_precision_quantization_available() -> bool:
     return _CK_AVAILABLE
 
 QUANT_ALGOS = {
-    "int8": {
-        "storage_t": torch.int8,
-        "parameters": {"weight_scale", "input_scale"},
-        "comfy_tensor_layout": "Int8RowwiseLayout",
-    },
-    "int8_convrot": {
-        "storage_t": torch.int8,
-        "parameters": {"weight_scale", "input_scale"},
-        "comfy_tensor_layout": "Int8ConvRotLayout",
-        "group_size": 256,
-    },
     "float8_e4m3fn": {
         "storage_t": torch.float8_e4m3fn,
         "parameters": {"weight_scale", "input_scale"},
@@ -603,9 +586,13 @@ if _CK_MXFP8_AVAILABLE:
         "comfy_tensor_layout": "TensorCoreMXFP8Layout",
         "group_size": 32,
     }
-else:
-    # todo: needs merge, stub for torch 2.2.0?
-    pass
+
+QUANT_ALGOS["int8_tensorwise"] = {
+    "storage_t": torch.int8,
+    "parameters": {"weight_scale"},
+    "comfy_tensor_layout": "TensorWiseINT8Layout",
+    "quantize_input": False,
+}
 
 # ==============================================================================
 # Re-exports for backward compatibility
@@ -618,6 +605,7 @@ __all__ = [
     "TensorCoreFP8E4M3Layout",
     "TensorCoreFP8E5M2Layout",
     "TensorCoreNVFP4Layout",
+    "TensorWiseINT8Layout",
     "QUANT_ALGOS",
     "register_layout_op",
     "mixed_precision_quantization_available",

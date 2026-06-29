@@ -1747,12 +1747,13 @@ def _normalize_int8_quants(state_dict, model_prefix=""):
     Covers shapes produced outside this codebase:
     - ComfyUI-INT8-Fast style: per-layer ``comfy_quant`` JSON without a
       ``"format"`` key (e.g. ``{"convrot": true, "convrot_groupsize": 256}``).
-    - INT8 checkpoints using ``"format": "int8_tensorwise"`` for the same
-      per-layer scale layout, with an optional ``"convrot"`` marker.
+    - INT8 checkpoints using ``"format": "int8"``, ``"int8_convrot"``, or
+      ``"int8_tensorwise"`` for the same per-layer scale layout, with an
+      optional ``"convrot"`` marker.
     - ModelOpt-style int8 row-wise exports: int8 ``.weight`` with a sibling
       ``.weight_scale`` and no ``comfy_quant`` marker at all.
 
-    Both are mapped to ``{"format": "int8"}`` or ``{"format": "int8_convrot"}``
+    All are mapped to kitchen's native ``{"format": "int8_tensorwise"}``
     so detect_layer_quantization and the mixed-precision loader handle them
     natively.
     """
@@ -1776,14 +1777,15 @@ def _normalize_int8_quants(state_dict, model_prefix=""):
             except (ValueError, AttributeError):
                 conf = {}
             quant_format = conf.get("format")
-            if quant_format is not None and quant_format != "int8_tensorwise":
+            if quant_format not in (None, "int8_tensorwise", "int8", "int8_convrot"):
                 continue
 
-        if conf.get("convrot"):
-            conf["format"] = "int8_convrot"
+        if conf.get("convrot") or conf.get("format") == "int8_convrot":
+            conf["format"] = "int8_tensorwise"
+            conf["convrot"] = True
             conf.setdefault("convrot_groupsize", 256)
         else:
-            conf["format"] = "int8"
+            conf["format"] = "int8_tensorwise"
         updates[conf_key] = torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
 
     if updates:

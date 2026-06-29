@@ -2299,8 +2299,7 @@ def supports_mxfp8_compute(device=None):
 def supports_int8_compute(device=None):
     """INT8 tensor-core matmul support: NVIDIA sm_75 (Turing) and newer.
 
-    Unlike fp8, this includes all of Ampere (sm_80/sm_86), where the int8
-    triton kernels in comfy.int8_kernels run at full rate.
+    Unlike fp8, this includes all of Ampere (sm_80/sm_86).
     """
     if not is_nvidia():
         return False

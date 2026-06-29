@@ -21,9 +21,9 @@ classifiers = [
 dependencies = [
     # todo: it looks like there are breaking frontend package changes, so this really does need to be pinned?
     "comfyui-frontend-package>=1.45.19,<1.46",
-    "comfyui-workflow-templates>=0.10.3,<0.11",
-    "comfyui-embedded-docs>=0.5.5,<0.6",
-    "comfy_kitchen>=0.2.10,<0.3",
+    "comfyui-workflow-templates>=0.10.7,<0.11",
+    "comfyui-embedded-docs>=0.5.6,<0.6",
+    "comfy_kitchen>=0.2.14,<0.3",
     "comfy-aimdo>=0.4.10,<0.5",
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.2.2,<5",
@@ -133,7 +133,8 @@ dependencies = [
     "gguf",
     "trimesh",
     "glfw",
-    "PyOpenGL",
+    "PyOpenGL>=3.1.8",
+    "comfy-angle",
     # doesn't support linux correctly yet
     "stringzilla<4.2.0",
     "requests_cache",
