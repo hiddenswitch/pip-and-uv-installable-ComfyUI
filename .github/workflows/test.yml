@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  UBUNTU_APT_MIRROR: https://mirrors.kernel.org/ubuntu
   COMFYUI_LINUX_SYSTEM_PACKAGES: >-
     libgl1 libglib2.0-0 libsndfile1 libxcb1 zip unzip
   COMFYUI_UBUNTU_BOOTSTRAP_PACKAGES: >-
@@ -60,6 +61,11 @@ jobs:
           #   stable_abi_cuda: ""
     steps:
       - run: |
+          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source_file" ] || continue
+            sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
+          done
+          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
           apt-get update
           apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES
         name: Install system dependencies
@@ -190,6 +196,11 @@ jobs:
       HSA_OVERRIDE_GFX_VERSION: "11.0.0"
     steps:
       - run: |
+          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source_file" ] || continue
+            sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
+          done
+          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
           apt-get update
           apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES $COMFYUI_GPU_DIAGNOSTIC_PACKAGES
         name: Install system dependencies
@@ -358,6 +369,11 @@ jobs:
           # includes the Level Zero/OpenCL stack needed to enumerate the Arc
           # A380; the job still installs upstream torch+xpu explicitly below.
           export DEBIAN_FRONTEND=noninteractive
+          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source_file" ] || continue
+            sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
+          done
+          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
           apt-get update
           apt-get install -y --no-install-recommends \
               curl ca-certificates gpg gnupg2 git \
