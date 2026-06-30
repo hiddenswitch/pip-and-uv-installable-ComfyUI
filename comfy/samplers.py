@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .cmd.main_pre import tracer
+
 from typing import Callable, NamedTuple, Any
 import torch
 from functools import partial
@@ -24,7 +26,6 @@ from .k_diffusion import sampling as k_diffusion_sampling
 from .model_base import BaseModel
 from .model_patcher import ModelPatcher
 from .nested_tensor import NestedTensor
-from .cmd.main_pre import tracer
 
 
 def add_area_dims(area, num_dims):
