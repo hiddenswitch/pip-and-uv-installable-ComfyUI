@@ -38,7 +38,8 @@ class AssertVanillaImportFails(CustomNode):
             # development purposes, its source directory is added to path, and this
             # can be imported, so import nodes cannot be used
             if 'nodes' in sys.modules:
-                assert 'NODE_CLASS_MAPPINGS' not in sys.modules['nodes'] or 'SplitImageWithAlpha' not in sys.modules['nodes'].NODE_CLASS_MAPPINGS
+                node_class_mappings = getattr(sys.modules['nodes'], 'NODE_CLASS_MAPPINGS', {})
+                assert 'SplitImageWithAlpha' not in node_class_mappings
                 del sys.modules['nodes']
 
         except ModuleNotFoundError:

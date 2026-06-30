@@ -8,6 +8,7 @@ import math
 import logging
 import scipy.stats
 import numpy
+import time
 
 from . import model_management
 from . import model_patcher as model_patcher_module
@@ -23,6 +24,7 @@ from .k_diffusion import sampling as k_diffusion_sampling
 from .model_base import BaseModel
 from .model_patcher import ModelPatcher
 from .nested_tensor import NestedTensor
+from .cmd.main_pre import tracer
 
 
 def add_area_dims(area, num_dims):
@@ -1227,7 +1229,18 @@ class CFGGuider:
             sampler,
             patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.SAMPLER_SAMPLE, extra_args["model_options"], is_model_options=True)
         )
-        samples = executor.execute(self, sigmas, extra_args, callback, noise, latent_image, denoise_mask, disable_pbar)
+        step_count = int(sigmas.shape[-1] - 1)
+        with tracer.start_as_current_span("Sampler Invoke") as span:
+            span.set_attribute("sampler.class", type(sampler).__name__)
+            span.set_attribute("sampling.steps", step_count)
+            if seed is not None:
+                span.set_attribute("sampling.seed", int(seed))
+            start = time.perf_counter()
+            samples = executor.execute(self, sigmas, extra_args, callback, noise, latent_image, denoise_mask, disable_pbar)
+            elapsed = time.perf_counter() - start
+            span.set_attribute("sampling.elapsed_seconds", elapsed)
+            if step_count > 0:
+                span.set_attribute("sampling.seconds_per_step", elapsed / step_count)
         return self.inner_model.process_latent_out(samples.to(torch.float32))
 
     def outer_sample(self, noise, latent_image, sampler, sigmas, denoise_mask=None, callback=None, disable_pbar=False, seed=None, latent_shapes=None):
@@ -1270,62 +1283,79 @@ class CFGGuider:
         if sigmas.shape[-1] == 0:
             return latent_image
 
-        if latent_image.is_nested:
-            latent_image, latent_shapes = utils.pack_latents(latent_image.unbind())
-            noise, _ = utils.pack_latents(noise.unbind())
-        else:
-            latent_shapes = [latent_image.shape]
+        step_count = int(sigmas.shape[-1] - 1)
+        with tracer.start_as_current_span("Sampling") as span:
+            span.set_attribute("sampler.class", type(sampler).__name__)
+            span.set_attribute("sampling.steps", step_count)
+            span.set_attribute("sampling.cfg", float(self.cfg))
+            span.set_attribute("sampling.disable_progress", bool(disable_pbar))
+            if seed is not None:
+                span.set_attribute("sampling.seed", int(seed))
+            if not latent_image.is_nested:
+                span.set_attribute("sampling.latent_shape", "x".join(str(dim) for dim in latent_image.shape))
 
-        if denoise_mask is not None:
-            if denoise_mask.is_nested:
-                denoise_masks = denoise_mask.unbind()
-                denoise_masks = denoise_masks[:len(latent_shapes)]
+            start = time.perf_counter()
+            if latent_image.is_nested:
+                latent_image, latent_shapes = utils.pack_latents(latent_image.unbind())
+                noise, _ = utils.pack_latents(noise.unbind())
             else:
-                denoise_masks = [denoise_mask]
+                latent_shapes = [latent_image.shape]
 
-            for i in range(len(denoise_masks), len(latent_shapes)):
-                denoise_masks.append(torch.ones(latent_shapes[i]))
+            if denoise_mask is not None:
+                if denoise_mask.is_nested:
+                    denoise_masks = denoise_mask.unbind()
+                    denoise_masks = denoise_masks[:len(latent_shapes)]
+                else:
+                    denoise_masks = [denoise_mask]
 
-            for i in range(len(denoise_masks)):
-                denoise_masks[i] = sampler_helpers.prepare_mask(denoise_masks[i], latent_shapes[i], self.model_patcher.load_device)
+                for i in range(len(denoise_masks), len(latent_shapes)):
+                    denoise_masks.append(torch.ones(latent_shapes[i]))
 
-            if len(denoise_masks) > 1:
-                denoise_mask, _ = utils.pack_latents(denoise_masks)
-            else:
-                denoise_mask = denoise_masks[0]
-            denoise_mask = denoise_mask.float()
+                for i in range(len(denoise_masks)):
+                    denoise_masks[i] = sampler_helpers.prepare_mask(denoise_masks[i], latent_shapes[i], self.model_patcher.load_device)
 
-        self.conds = {}
-        for k in self.original_conds:
-            self.conds[k] = list(map(lambda a: a.copy(), self.original_conds[k]))
-        preprocess_conds_hooks(self.conds)
+                if len(denoise_masks) > 1:
+                    denoise_mask, _ = utils.pack_latents(denoise_masks)
+                else:
+                    denoise_mask = denoise_masks[0]
+                denoise_mask = denoise_mask.float()
 
-        try:
-            orig_model_options = self.model_options
-            self.model_options = model_patcher_module.create_model_options_clone(self.model_options)
-            # if one hook type (or just None), then don't bother caching weights for hooks (will never change after first step)
-            orig_hook_mode = self.model_patcher.hook_mode
-            if get_total_hook_groups_in_conds(self.conds) <= 1:
-                self.model_patcher.hook_mode = EnumHookMode.MinVram
-            sampler_helpers.prepare_model_patcher(self.model_patcher, self.conds, self.model_options)
-            filter_registered_hooks_on_conds(self.conds, self.model_options)
-            executor = patcher_extension.WrapperExecutor.new_class_executor(
-                self.outer_sample,
-                self,
-                patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.OUTER_SAMPLE, self.model_options, is_model_options=True)
-            )
-            output = executor.execute(noise, latent_image, sampler, sigmas, denoise_mask, callback, disable_pbar, seed, latent_shapes=latent_shapes)
-        finally:
-            cast_to_load_options(self.model_options, device=self.model_patcher.offload_device)
-            self.model_options = orig_model_options
-            self.model_patcher.hook_mode = orig_hook_mode
-            self.model_patcher.restore_hook_patches()
+            self.conds = {}
+            for k in self.original_conds:
+                self.conds[k] = list(map(lambda a: a.copy(), self.original_conds[k]))
+            preprocess_conds_hooks(self.conds)
 
-        del self.conds
+            try:
+                orig_model_options = self.model_options
+                self.model_options = model_patcher_module.create_model_options_clone(self.model_options)
+                # if one hook type (or just None), then don't bother caching weights for hooks (will never change after first step)
+                orig_hook_mode = self.model_patcher.hook_mode
+                if get_total_hook_groups_in_conds(self.conds) <= 1:
+                    self.model_patcher.hook_mode = EnumHookMode.MinVram
+                sampler_helpers.prepare_model_patcher(self.model_patcher, self.conds, self.model_options)
+                filter_registered_hooks_on_conds(self.conds, self.model_options)
+                executor = patcher_extension.WrapperExecutor.new_class_executor(
+                    self.outer_sample,
+                    self,
+                    patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.OUTER_SAMPLE, self.model_options, is_model_options=True)
+                )
+                output = executor.execute(noise, latent_image, sampler, sigmas, denoise_mask, callback, disable_pbar, seed, latent_shapes=latent_shapes)
+            finally:
+                cast_to_load_options(self.model_options, device=self.model_patcher.offload_device)
+                self.model_options = orig_model_options
+                self.model_patcher.hook_mode = orig_hook_mode
+                self.model_patcher.restore_hook_patches()
 
-        if len(latent_shapes) > 1:
-            output = NestedTensor(utils.unpack_latents(output, latent_shapes))
-        return output
+            del self.conds
+
+            if len(latent_shapes) > 1:
+                output = NestedTensor(utils.unpack_latents(output, latent_shapes))
+
+            elapsed = time.perf_counter() - start
+            span.set_attribute("sampling.elapsed_seconds", elapsed)
+            if step_count > 0:
+                span.set_attribute("sampling.seconds_per_step", elapsed / step_count)
+            return output
 
 
 def sample(model, noise, positive, negative, cfg, device, sampler, sigmas, model_options={}, latent_image=None, denoise_mask=None, callback=None, disable_pbar=False, seed=None):
