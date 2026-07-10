@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import click
 import pytest
 from typer.testing import CliRunner
@@ -150,6 +152,24 @@ def test_extract_workflow_ref_uses_click_option_arity():
         ["--all", "--video", "input.mp4", "workflow.json", "--help"],
         ctx=_ctx(),
     ) == "workflow.json"
+
+
+def test_option_arity_supports_vendored_click_parameter_classes():
+    ctx = SimpleNamespace(
+        command=SimpleNamespace(
+            params=[
+                SimpleNamespace(name="workflows"),
+                SimpleNamespace(is_flag=False, nargs=1, opts=["--seed"], secondary_opts=[]),
+                SimpleNamespace(is_flag=True, nargs=1, opts=["--compile"], secondary_opts=["--no-compile"]),
+            ]
+        )
+    )
+
+    assert _RunWorkflowCommand._option_value_arity_by_name(ctx) == {
+        "--seed": 1,
+        "--compile": 0,
+        "--no-compile": 0,
+    }
 
 
 def test_workflows_submit_rewrites_discovered_workflow_flag(monkeypatch):

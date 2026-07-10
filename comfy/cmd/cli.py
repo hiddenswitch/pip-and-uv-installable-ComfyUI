@@ -1170,7 +1170,10 @@ class _RunWorkflowCommand(typer.core.TyperCommand):
             return {}
         arity: dict[str, int] = {}
         for param in ctx.command.params:
-            if not isinstance(param, click.Option):
+            # Typer 0.26 vendors Click, so its TyperOption no longer inherits
+            # from the separately installed click.Option class.  Use the
+            # stable option attributes shared by both implementations.
+            if not hasattr(param, "is_flag") or not hasattr(param, "opts"):
                 continue
             consumes = 0 if param.is_flag else max(1, param.nargs)
             for opt in (*param.opts, *param.secondary_opts):
