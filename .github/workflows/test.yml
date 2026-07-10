@@ -93,7 +93,7 @@ jobs:
           uv pip uninstall opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
           python -c "from pathlib import Path; import shutil; [shutil.rmtree(path, ignore_errors=True) for base in (Path('/usr/local/lib'), Path('/opt/conda/lib')) if base.exists() for pattern in ('python*/dist-packages/cv2', 'python*/site-packages/cv2') for path in base.glob(pattern)]"
           for attempt in 1 2 3; do
-            uv pip install -U --no-deps opencv-python-headless && break
+            uv pip install -U --no-deps "opencv-python-headless<5" && break
             [ \"$attempt\" -eq 3 ] && exit 1
             sleep 10
           done
@@ -561,7 +561,7 @@ jobs:
       - name: Repair Windows OpenCV wheel
         run: |
           uv pip uninstall --python C:/venv/Scripts/python.exe opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
-          uv pip install --python C:/venv/Scripts/python.exe -U --no-deps opencv-python-headless
+          uv pip install --python C:/venv/Scripts/python.exe -U --no-deps "opencv-python-headless<5"
           C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
       - name: Lint for errors
         run: |
