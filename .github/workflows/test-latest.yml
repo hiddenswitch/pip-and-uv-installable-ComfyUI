@@ -36,7 +36,7 @@ jobs:
         env:
           UV_NO_CACHE: "1"
         run: |
-          uv pip install --python .venv/bin/python -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --python .venv/bin/python --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
 
       - name: Environment info
         run: |

@@ -126,7 +126,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
@@ -316,7 +316,7 @@ jobs:
           export UV_PYTHON=/opt/venv/bin/python
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -425,7 +425,7 @@ jobs:
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -543,7 +543,7 @@ jobs:
         env:
           UV_NO_CACHE: "1"
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
@@ -600,7 +600,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip install --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do

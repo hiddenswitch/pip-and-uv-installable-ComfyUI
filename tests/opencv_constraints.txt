@@ -1,0 +1,5 @@
+# OpenCV 5 preview wheels omit the EXR codec used by ComfyUI's image API.
+opencv-python<5
+opencv-python-headless<5
+opencv-contrib-python<5
+opencv-contrib-python-headless<5
