@@ -8,7 +8,7 @@ import re
 import shutil
 import uuid
 import tempfile
-
+import mimetypes
 from typing import TypedDict
 from urllib import parse
 
@@ -343,7 +343,20 @@ class UserManager():
             if not isinstance(path, str):
                 return path
 
-            return web.FileResponse(path)
+            # User data files are arbitrary user-supplied content and are never
+            # meant to render inline. Disable MIME sniffing and force a download
+            # so uploaded markup/scripts can't execute in the app origin (stored
+            # XSS). Content-Disposition: attachment is the load-bearing guard;
+            # the content-type override and nosniff are defence in depth.
+            content_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+            if folder_paths.is_dangerous_content_type(content_type):
+                content_type = 'application/octet-stream'
+
+            return web.FileResponse(path, headers={
+                "Content-Type": content_type,
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "attachment",
+            })
 
         @routes.post("/userdata/{file}")
         async def post_userdata(request):

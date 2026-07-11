@@ -1072,7 +1072,7 @@ class AddNoise(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="AddNoise",
-            category="experimental/custom_sampling/noise",
+            category="model/sampling/noise",
             is_experimental=True,
             inputs=[
                 io.Model.Input("model"),
@@ -1122,7 +1122,7 @@ class ManualSigmas(io.ComfyNode):
         return io.Schema(
             node_id="ManualSigmas",
             search_aliases=["custom noise schedule", "define sigmas"],
-            category="experimental/custom_sampling",
+            category="model/sampling/sigmas",
             is_experimental=True,
             inputs=[
                 io.String.Input("sigmas", default="1, 0.5", multiline=False)

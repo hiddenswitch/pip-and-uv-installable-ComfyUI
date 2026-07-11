@@ -167,6 +167,31 @@ class ConditioningConcat:
         return (out,)
 
 
+class ConditioningMultiply:
+    SEARCH_ALIASES = ["scale conditioning", "scale prompt", "multiply conditioning", "multiply prompt"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "conditioning": ("CONDITIONING",),
+            "multiplier": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+        }}
+
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "multiply"
+    CATEGORY = "model/conditioning/transform"
+
+    def multiply(self, conditioning, multiplier):
+        output = []
+        for tensor, metadata in conditioning:
+            values = {}
+            pooled_output = metadata.get("pooled_output")
+            if pooled_output is not None:
+                values["pooled_output"] = pooled_output * multiplier
+            output.append(node_helpers.conditioning_set_values([[tensor * multiplier, metadata]], values)[0])
+        return (output,)
+
+
 class ConditioningSetArea:
     SEARCH_ALIASES = ["regional prompt", "area prompt", "spatial conditioning", "localized prompt"]
 
@@ -351,7 +376,7 @@ class VAEDecodeTiled:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "decode"
 
-    CATEGORY = "experimental"
+    CATEGORY = "model/latent"
 
     def decode(self, vae, samples, tile_size, overlap=64, temporal_size=64, temporal_overlap=8):
         if samples is None:
@@ -404,7 +429,7 @@ class VAEEncodeTiled:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "encode"
 
-    CATEGORY = "experimental"
+    CATEGORY = "model/latent"
 
     def encode(self, vae, pixels, tile_size, overlap, temporal_size=64, temporal_overlap=8) -> tuple[Optional[Latent]]:
         if pixels is None:
@@ -528,7 +553,7 @@ class SaveLatent:
 
     OUTPUT_NODE = True
 
-    CATEGORY = "experimental"
+    CATEGORY = "model/latent"
 
     def save(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir)
@@ -573,7 +598,7 @@ class LoadLatent:
         files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f)) and f.endswith(".latent")]
         return {"required": {"latent": [sorted(files), ]}, }
 
-    CATEGORY = "experimental"
+    CATEGORY = "model/latent"
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "load"
@@ -1829,6 +1854,8 @@ class SaveImage:
 
 
 class PreviewImage(SaveImage):
+    DESCRIPTION = "Preview the images without saving them to the ComfyUI output directory."
+
     def __init__(self):
         self.output_dir = folder_paths.get_temp_directory()
         self.type = "temp"
@@ -2233,6 +2260,7 @@ NODE_CLASS_MAPPINGS = {
     "ConditioningAverage": ConditioningAverage,
     "ConditioningCombine": ConditioningCombine,
     "ConditioningConcat": ConditioningConcat,
+    "ConditioningMultiply": ConditioningMultiply,
     "ConditioningSetArea": ConditioningSetArea,
     "ConditioningSetAreaPercentage": ConditioningSetAreaPercentage,
     "ConditioningSetAreaStrength": ConditioningSetAreaStrength,
@@ -2303,6 +2331,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ConditioningCombine": "Conditioning (Combine)",
     "ConditioningAverage ": "Conditioning (Average)",
     "ConditioningConcat": "Conditioning (Concat)",
+    "ConditioningMultiply": "Conditioning (Multiply)",
     "ConditioningSetArea": "Conditioning (Set Area)",
     "ConditioningSetAreaPercentage": "Conditioning (Set Area with Percentage)",
     "ConditioningSetMask": "Conditioning (Set Mask)",
@@ -2323,6 +2352,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LatentBlend": "Latent Blend",
     "LatentFromBatch": "Latent From Batch",
     "RepeatLatentBatch": "Repeat Latent Batch",
+    "LoadLatent": "Load Latent",
+    "SaveLatent": "Save Latent",
     # Image
     "EmptyImage": "Empty Image",
     "SaveImage": "Save Image",
@@ -2343,7 +2374,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageSharpen": "Sharpen Image",
     "ImageScaleToTotalPixels": "Scale Image to Total Pixels",
     "GetImageSize": "Get Image Size",
-    # experimental
     "VAEDecodeTiled": "VAE Decode (Tiled)",
     "VAEEncodeTiled": "VAE Encode (Tiled)",
 }

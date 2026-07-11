@@ -142,6 +142,7 @@ _DIRECTORY_OPTS: list[tuple] = [
     ("cwd", Optional[str], typer.Option(None, "-w", "--cwd", help="Specify the working directory. If not set, this is the current working directory. models/, input/, output/ and other directories will be located here by default.")),
     ("base_paths", Optional[list[str]], typer.Option(None, "--base-paths", help="Additional base paths for custom nodes, models and inputs.")),
     ("base_directory", Optional[str], typer.Option(None, "--base-directory", help="Set the ComfyUI base directory for models, custom_nodes, input, output, temp, and user directories.")),
+    ("models_directory", Optional[str], typer.Option(None, "--models-directory", help="Set the ComfyUI models directory independently of the base directory.")),
     ("extra_model_paths_config", Optional[list[str]], typer.Option(None, "--extra-model-paths-config", help="Load one or more extra_model_paths.yaml files.")),
     ("output_directory", Optional[str], typer.Option(None, "--output-directory", help="Set the ComfyUI output directory.")),
     ("temp_directory", Optional[str], typer.Option(None, "--temp-directory", help="Set the ComfyUI temp directory.")),
@@ -161,6 +162,8 @@ _DEVICE_OPTS: list[tuple] = [
     ("supports_fp8_compute", bool, typer.Option(False, "--supports-fp8-compute/--no-supports-fp8-compute", help="ComfyUI will act like if the device supports fp8 compute.")),
     ("enable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--enable-comfy-kitchen-backends", help="Re-enable comfy_kitchen quantization backends previously disabled by guess-settings or another flag. Comma-separated. Valid: eager, cuda, triton.")),
     ("disable_comfy_kitchen_backends", Optional[list[str]], typer.Option(None, "--disable-comfy-kitchen-backends", help="Disable comfy_kitchen quantization backends. Use this to skip an op backend that crashes on your hardware (e.g. triton fp8e4nv on Ampere). Comma-separated. Valid: eager, cuda, triton.")),
+    ("enable_triton_backend", bool, typer.Option(False, "--enable-triton-backend/--no-enable-triton-backend", help="Enable the Triton backend in comfy-kitchen.")),
+    ("disable_triton_backend", bool, typer.Option(False, "--disable-triton-backend", help="Force-disable the comfy-kitchen Triton backend.")),
     ("fp8_materialization", str, typer.Option("auto", "--fp8-materialization", envvar="COMFYUI_FP8_MATERIALIZATION", help=f"Select how FP8 weights are materialized to bf16/fp16/fp32. Choices: {', '.join(FP8_MATERIALIZATION_MODES)}. auto is reserved for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.")),
 ]
 
@@ -257,6 +260,7 @@ _NODE_OPTS: list[tuple] = [
     ("enable_video_to_image_fallback", bool, typer.Option(False, "--enable-video-to-image-fallback/--no-enable-video-to-image-fallback", help="Enable video-to-image fallback.")),
     ("disable_known_models", bool, typer.Option(False, "--disable-known-models", help="Disables automatic downloads of known models.")),
     ("enable_assets", bool, typer.Option(False, "--enable-assets/--no-enable-assets", help="Enable the assets API and asset management features.")),
+    ("enable_asset_hashing", bool, typer.Option(False, "--enable-asset-hashing/--no-enable-asset-hashing", help="Compute blake3 content hashes when scanning assets.")),
     ("disable_assets_autoscan", bool, typer.Option(False, "--disable-assets-autoscan", help="Disable asset scanning on startup for database synchronization.")),
 ]
 

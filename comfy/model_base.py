@@ -75,6 +75,7 @@ from .ldm.ideogram4.model import Ideogram4Transformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
 from .ldm.triposplat.model import LatentSeqMMFlowModel
 from .ldm.sam3.detector import SAM3Model
+from .ldm.seedvr.model import NaDiT
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel, SCAIL2WanModel
 from .ldm.wan.ar_model import CausalWanModel
 from .ldm.wan.model_animate import AnimateWanModel
@@ -1052,6 +1053,18 @@ class HunyuanDiT(BaseModel):
         target_height = kwargs.get("target_height", height)
 
         out['image_meta_size'] = conds.CONDRegular(torch.FloatTensor([[height, width, target_height, target_width, 0, 0]]))
+        return out
+
+
+class SeedVR2(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=NaDiT)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        condition = kwargs.get("condition")
+        if condition is not None:
+            out["condition"] = conds.CONDRegular(condition)
         return out
 
 

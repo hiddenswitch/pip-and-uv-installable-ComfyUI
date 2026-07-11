@@ -528,6 +528,8 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
                     elif xfer_dest2 is not None:
                         xfer_source.prepare(xfer_dest2, stream, copy=True, commit=False)
                         return
+                    else:
+                        return
                 model_management.cast_to_gathered(xfer_source, xfer_dest, non_blocking=non_blocking, stream=stream, r2=xfer_dest2)
 
         def handle_pin(m, pin, source, dest, subset="weights", size=None):
@@ -1668,6 +1670,21 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
             if ts is None or bs is None:
                 raise ValueError(f"Missing NVFP4 scales for layer {layer_name}")
             scales = {"scale": ts, "block_scale": bs}
+        elif module.quant_format == "convrot_w4a4":
+            scale = pop_scale("weight_scale")
+            if scale is None:
+                raise ValueError(f"Missing ConvRot W4A4 weight scale for layer {layer_name}")
+            params_conf = layer_conf.get("params", {})
+            if not isinstance(params_conf, dict):
+                params_conf = {}
+            scales = {
+                "scale": scale,
+                "convrot_groupsize": int(
+                    layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256))
+                ),
+                "quant_group_size": 64,
+                "linear_dtype": layer_conf.get("linear_dtype", params_conf.get("linear_dtype", "int4")),
+            }
         else:
             raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
@@ -1726,6 +1743,11 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
             if module.quant_format == "int8_tensorwise" and getattr(weight_params, "convrot", False):
                 quant_conf["convrot"] = True
                 quant_conf["convrot_groupsize"] = int(getattr(weight_params, "convrot_groupsize", 256))
+            elif module.quant_format == "convrot_w4a4":
+                quant_conf["convrot_groupsize"] = getattr(weight_params, "convrot_groupsize", 256)
+                linear_dtype = getattr(weight_params, "linear_dtype", "int4")
+                if linear_dtype != "int4":
+                    quant_conf["linear_dtype"] = linear_dtype
         if getattr(module, '_full_precision_mm_config', False):
             quant_conf["full_precision_matrix_mult"] = True
         if extra_quant_conf:
@@ -1824,7 +1846,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                     return self.forward_comfy_cast_weights(input, input.dtype, want_requant=False)
 
                 input_shape = input.shape
-                reshaped_3d = False
+                reshaped_nd = False
                 #If cast needs to apply lora, it should be done in the compute dtype
                 compute_dtype = input.dtype
 
@@ -1868,8 +1890,8 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         # reaches the fused kernel.
                         keep_quantized_weight = True
                     else:
-                        # Reshape 3D tensors to 2D for quantization (needed for NVFP4 and others)
-                        input_reshaped = input.reshape(-1, input_shape[2]) if input.ndim == 3 else input
+                        # Reshape higher-rank tensors to 2D for quantization.
+                        input_reshaped = input.reshape(-1, input_shape[-1]) if input.ndim >= 3 else input
 
                         # Fall back to non-quantized for non-2D tensors
                         if input_reshaped.ndim == 2:
@@ -1878,7 +1900,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                             # linear instead.
                             layout_gate = getattr(layout_cls, "should_quantize_input", None)
                             if layout_gate is None or layout_gate(input_reshaped):
-                                reshaped_3d = input.ndim == 3
+                                reshaped_nd = input.ndim >= 3
                                 quantize_activation = getattr(layout_cls, "quantize_activation", None)
                                 if quantize_activation is not None:
                                     input = quantize_activation(input_reshaped)
@@ -1905,9 +1927,9 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         want_requant=keep_quantized_weight,
                     )
 
-                # Reshape output back to 3D if input was 3D
-                if reshaped_3d:
-                    output = output.reshape((input_shape[0], input_shape[1], self.weight.shape[0]))
+                # Reshape output back to original rank if input was >2D
+                if reshaped_nd:
+                    output = output.reshape((*input_shape[:-1], self.weight.shape[0]))
 
                 return output
 
@@ -2053,6 +2075,12 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 }
                 if hasattr(params, "block_scale"): # NVFP4
                     kwargs["block_scale"] = params.block_scale[i]
+                if hasattr(params, "quant_group_size"):
+                    kwargs["quant_group_size"] = params.quant_group_size
+                if hasattr(params, "convrot_groupsize"):
+                    kwargs["convrot_groupsize"] = params.convrot_groupsize
+                if hasattr(params, "linear_dtype"):
+                    kwargs["linear_dtype"] = params.linear_dtype
                 return QuantizedTensor(weight._qdata[i], weight._layout_cls, type(params)(**kwargs))
 
             def state_dict(self, *args, destination=None, prefix="", **kwargs):

@@ -32,6 +32,7 @@ from packaging import version
 from typing_extensions import NamedTuple
 
 from comfy_api import feature_flags
+from ..comfy_api_env import get_environment_overrides
 from comfy_execution.jobs import (
     CANCEL_PENDING,
     CANCEL_RUNNING,
@@ -51,6 +52,7 @@ from ..app.lsp import LspManager
 from ..api_server.routes.internal.internal_routes import InternalRoutes
 from ..app.assets.services.asset_management import resolve_hash_to_path
 from ..app.assets.services.ingest import register_file_in_place
+from ..app.assets.services.path_utils import get_known_subfolder_tags
 from ..app.custom_node_manager import CustomNodeManager
 from ..app.frontend_management import FrontendManager
 from ..app.model_manager import ModelFileManager
@@ -507,7 +509,9 @@ class PromptServer(ExecutorToClientProgress):
 
                 if server_args.enable_assets:
                     tag = image_upload_type if image_upload_type in ("input", "output") else "input"
-                    result = register_file_in_place(abs_path=filepath, name=filename, tags=[tag])
+                    tags = [tag]
+                    tags.extend(get_known_subfolder_tags(subfolder))
+                    result = register_file_in_place(abs_path=filepath, name=filename, tags=tags)
                     resp["asset"] = {
                         "id": result.ref.id,
                         "name": result.ref.name,
@@ -679,15 +683,18 @@ class PromptServer(ExecutorToClientProgress):
                             or 'application/octet-stream'
                         )
 
-                        # For security, force certain mimetypes to download instead of display
-                        if content_type in {'text/html', 'text/html-sandboxed', 'application/xhtml+xml', 'text/javascript', 'text/css'}:
-                            content_type = 'application/octet-stream'  # Forces download
+                        safe_filename = filename.replace("\\", "\\\\").replace('"', '\\"')
+                        disposition = f'filename="{safe_filename}"'
+                        if folder_paths.is_dangerous_content_type(content_type):
+                            content_type = 'application/octet-stream'
+                            disposition = f'attachment; filename="{safe_filename}"'
 
                         return web.FileResponse(
                             file,
                             headers={
-                                "Content-Disposition": f"filename=\"{filename}\"",
-                                "Content-Type": content_type
+                                "Content-Disposition": disposition,
+                                "Content-Type": content_type,
+                                "X-Content-Type-Options": "nosniff",
                             }
                         )
             return web.Response(status=404)
@@ -770,7 +777,11 @@ class PromptServer(ExecutorToClientProgress):
 
         @routes.get("/features")
         async def get_features(request):
-            return web.json_response(feature_flags.get_server_features())
+            features = feature_flags.get_server_features()
+            overrides = get_environment_overrides()
+            if overrides:
+                features.update(overrides)
+            return web.json_response(features)
 
         @routes.get("/prompt")
         async def get_prompt(request):
@@ -784,7 +795,7 @@ class PromptServer(ExecutorToClientProgress):
         async def get_object_info(request):
             # todo: what does this doozy do...
             if not server_args.disable_assets_autoscan:
-                asset_seeder.start(roots=("models", "input", "output"))
+                asset_seeder.start(roots=("models", "input", "output"), compute_hashes=server_args.enable_asset_hashing)
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:

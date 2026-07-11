@@ -85,6 +85,7 @@ class Configuration(dict):
         cwd (Optional[str]): Working directory. Defaults to the current directory. This is always treated as a base path for model files, and it will be the place where model files are downloaded.
         base_paths (Optional[list[str]]): Additional base paths for custom nodes, models and inputs.
         base_directory (Optional[str]): Set the ComfyUI base directory for models, custom_nodes, input, output, temp, and user directories.
+        models_directory (Optional[str]): Set the ComfyUI models directory independently of the base directory.
         listen (str): IP address to listen on. Defaults to "127.0.0.1".
         port (int): Port number for the server to listen on. Defaults to 8188.
         tls_keyfile (Optional[str]): Path to TLS key file.
@@ -216,6 +217,7 @@ class Configuration(dict):
         comfy_api_base (str): Set the base URL for the ComfyUI API. (default: https://api.comfy.org)
         database_url (str): Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.
         enable_assets (bool): Enable the assets API and database-backed asset management features.
+        enable_asset_hashing (bool): Compute blake3 hashes while scanning assets.
         disable_assets_autoscan (bool): Disable asset scanning on startup for database synchronization.
         feature_flag (list[str]): Server feature flags in KEY[=VALUE] form.
         list_feature_flags (bool): Print known CLI-settable feature flags as JSON and exit.
@@ -241,6 +243,7 @@ class Configuration(dict):
         self.cwd: Optional[str] = None
         self.base_paths: list[str] = []
         self.base_directory: Optional[str] = None
+        self.models_directory: Optional[str] = None
         self.listen: str = "127.0.0.1"
         self.port: int = 8188
         self.tls_keyfile: Optional[str] = None
@@ -296,6 +299,8 @@ class Configuration(dict):
         self.fast: set[PerformanceFeature] = set()
         self.enable_comfy_kitchen_backends: list[str] = []
         self.disable_comfy_kitchen_backends: list[str] = []
+        self.enable_triton_backend: bool = False
+        self.disable_triton_backend: bool = False
         self.fp8_materialization: str = "auto"
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: Optional[float] = None
@@ -384,6 +389,7 @@ class Configuration(dict):
         self.database_url: str = db_config()
         self._database_url_explicit: bool = False
         self.enable_assets: bool = False
+        self.enable_asset_hashing: bool = False
         self.disable_assets_autoscan: bool = False
         self.feature_flag: list[str] = []
         self.list_feature_flags: bool = False

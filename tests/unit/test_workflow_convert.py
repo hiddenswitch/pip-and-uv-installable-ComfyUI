@@ -452,6 +452,9 @@ class TestExtraWidgets:
     def test_image_upload(self):
         assert _extra_widgets_after({"image_upload": True}) == [None]
 
+    def test_painter_upload_is_owned_by_custom_widget(self):
+        assert _extra_widgets_after({"widgetType": "PAINTER", "image_upload": True}) == []
+
     def test_both(self):
         assert _extra_widgets_after({"control_after_generate": True, "image_upload": True}) == [None, None]
 

@@ -6,7 +6,7 @@ from io import BytesIO
 from PIL import Image
 from aiohttp import web
 from comfy.app.model_manager import ModelFileManager
-from comfy.component_model.folder_path_types import FolderNames
+from comfy.component_model.folder_path_types import FolderNames, ModelPaths
 from comfy.execution_context import context_folder_names_and_paths
 
 pytestmark = (
@@ -24,6 +24,29 @@ def app(model_manager):
     model_manager.add_routes(routes)
     app.add_routes(routes)
     return app
+
+async def test_get_model_folders_includes_registered_extensions(aiohttp_client, app, tmp_path):
+    """Folders expose their registered extension set verbatim; an empty list
+    means match-all (filter_files_extensions semantics)."""
+    names = FolderNames()
+    names.add(ModelPaths(['test_checkpoints'], additional_absolute_directory_paths=[tmp_path], supported_extensions={'.safetensors', '.ckpt'}))
+    names.add(ModelPaths(['test_configs'], additional_absolute_directory_paths=[tmp_path], supported_extensions={'.yaml'}))
+    names.add(ModelPaths(['test_match_all'], additional_absolute_directory_paths=[tmp_path], supported_extensions=set()))
+    names.add(ModelPaths(['configs'], additional_absolute_directory_paths=[tmp_path], supported_extensions={'.yaml'}))
+
+    with context_folder_names_and_paths(names):
+        client = await aiohttp_client(app)
+        response = await client.get('/experiment/models')
+
+        assert response.status == 200
+        folders = {f['name']: f for f in await response.json()}
+
+        assert 'configs' not in folders  # blocklisted
+        assert folders['test_checkpoints']['folders'] == [str(tmp_path)]
+        assert folders['test_checkpoints']['extensions'] == ['.ckpt', '.safetensors']
+        assert folders['test_configs']['extensions'] == ['.yaml']
+        # Match-all registrations are exposed honestly, not substituted.
+        assert folders['test_match_all']['extensions'] == []
 
 async def test_get_model_preview_safetensors(aiohttp_client, app, tmp_path):
     img = Image.new('RGB', (100, 100), 'white')

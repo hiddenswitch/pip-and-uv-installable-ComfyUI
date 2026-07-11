@@ -1,0 +1,87 @@
+{
+  "1": {
+    "inputs": {
+      "value": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Gibson_Girl.png",
+      "name": "",
+      "title": "",
+      "description": "",
+      "__required": true
+    },
+    "class_type": "ImageRequestParameter",
+    "_meta": {"title": "Input Image"}
+  },
+  "2": {
+    "inputs": {
+      "upscale_method": "bilinear",
+      "width": 64,
+      "height": 64,
+      "crop": "center",
+      "image": ["1", 0]
+    },
+    "class_type": "ImageScale",
+    "_meta": {"title": "Small SeedVR2 Test Input"}
+  },
+  "3": {
+    "inputs": {"resized_images": ["2", 0]},
+    "class_type": "SeedVR2Preprocess",
+    "_meta": {"title": "Pre-Process SeedVR2 Input"}
+  },
+  "4": {
+    "inputs": {"vae_name": "ema_vae_fp16.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load SeedVR2 VAE"}
+  },
+  "5": {
+    "inputs": {"pixels": ["3", 0], "vae": ["4", 0]},
+    "class_type": "VAEEncode",
+    "_meta": {"title": "Encode SeedVR2 Input"}
+  },
+  "6": {
+    "inputs": {
+      "unet_name": "seedvr2_3b_fp16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load SeedVR2 Model"}
+  },
+  "7": {
+    "inputs": {"model": ["6", 0], "vae_conditioning": ["5", 0]},
+    "class_type": "SeedVR2Conditioning",
+    "_meta": {"title": "Apply SeedVR2 Conditioning"}
+  },
+  "8": {
+    "inputs": {
+      "seed": 0,
+      "steps": 1,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["6", 0],
+      "positive": ["7", 0],
+      "negative": ["7", 1],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "Sample SeedVR2"}
+  },
+  "9": {
+    "inputs": {"samples": ["8", 0], "vae": ["4", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "Decode SeedVR2 Output"}
+  },
+  "10": {
+    "inputs": {
+      "images": ["9", 0],
+      "original_resized_images": ["2", 0],
+      "color_correction_method": "none"
+    },
+    "class_type": "SeedVR2PostProcessing",
+    "_meta": {"title": "Post-Process SeedVR2 Output"}
+  },
+  "11": {
+    "inputs": {"filename_prefix": "seedvr2", "images": ["10", 0]},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save SeedVR2 Output"}
+  }
+}

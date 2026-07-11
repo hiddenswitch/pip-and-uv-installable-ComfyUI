@@ -111,6 +111,7 @@ parser.add_argument("--supports-fp8-compute", action="store_true", help="Act as 
 parser.add_argument("--fp8-materialization", choices=("auto", "torch", "comfy_kitchen"), default="auto", help="Select how FP8 weights are materialized to bf16/fp16/fp32. auto leaves room for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.")
 
 parser.add_argument("--enable-triton-backend", action="store_true", help="Enable the Triton backend in comfy-kitchen.")
+parser.add_argument("--disable-triton-backend", action="store_true", help="Force-disable the comfy-kitchen Triton backend.")
 parser.add_argument("--preview-method", type=LatentPreviewMethod, default=LatentPreviewMethod.Auto, help="Default preview method.")
 parser.add_argument("--preview-size", type=int, default=512, help="Sets the maximum preview size for sampler nodes.")
 
@@ -218,6 +219,7 @@ parser.add_argument("--openai-api-key", required=False, type=str, default=None, 
 parser.add_argument("--ideogram-api-key", required=False, type=str, default=None, help="Ideogram API key.")
 parser.add_argument("--anthropic-api-key", required=False, type=str, help="Anthropic API key.")
 parser.add_argument("--user-directory", type=str, default=None, help="User directory.")
+parser.add_argument("--models-directory", type=str, default=None, help="Models directory.")
 parser.add_argument("--enable-compress-response-body", action="store_true", help="Compress response body.")
 parser.add_argument("--comfy-api-base", type=str, default="https://api.comfy.org", help="ComfyUI API base URL.")
 parser.add_argument("--block-runtime-package-installation", action="store_true", help="Block runtime installs.")
@@ -264,6 +266,8 @@ database_default_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "user", "comfyui.db")
 )
 parser.add_argument("--database-url", type=str, default=f"sqlite:///{database_default_path}", help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
+parser.add_argument("--enable-assets", action="store_true", help="Enable the assets system.")
+parser.add_argument("--enable-asset-hashing", action="store_true", help="Compute blake3 content hashes when scanning assets.")
 parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning on startup for database synchronization.")
 parser.add_argument("--feature-flag", type=str, action="append", default=[], metavar="KEY[=VALUE]", help="Set a server feature flag.")
 parser.add_argument("--list-feature-flags", action="store_true", help="Print known CLI-settable feature flags as JSON and exit.")

@@ -859,6 +859,9 @@ paths:
                     format: int64
                     minimum: 0
                     description: Maximum file upload size in bytes.
+                  supports_model_type_tags:
+                    type: boolean
+                    description: Whether the server supports namespaced model-type asset tags.
                   free_tier_credits:
                     type: integer
                     format: int32
@@ -2015,7 +2018,7 @@ paths:
                   description: Display name for the asset
                 tags:
                   type: string
-                  description: Comma-separated tags
+                  description: Include exactly one destination role (input, output, or models); models uploads also require one model_type:<folder_name> tag.
                 user_metadata:
                   type: string
                   description: JSON-encoded user metadata
@@ -2296,7 +2299,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssetUpdated'
+                $ref: '#/components/schemas/Asset'
         '400':
           description: Invalid request (no fields provided)
           content:
@@ -9296,6 +9299,7 @@ components:
       required:
       - name
       - folders
+      - extensions
       properties:
         name:
           type: string
@@ -9305,6 +9309,11 @@ components:
           items:
             type: string
           description: Filesystem paths for this model type
+        extensions:
+          type: array
+          items:
+            type: string
+          description: Registered file-extension allowlist. An empty array accepts any extension.
     ModelFile:
       type: object
       description: A single model file in a folder, with filesystem metadata.
@@ -9460,6 +9469,14 @@ components:
         name:
           type: string
           description: Name of the asset file
+        loader_path:
+          type: string
+          nullable: true
+          description: The value a loader consumes to load this asset. Null when no loader can resolve the file.
+        display_name:
+          type: string
+          nullable: true
+          description: Human-facing label for the asset. Not unique.
         hash:
           type: string
           nullable: true

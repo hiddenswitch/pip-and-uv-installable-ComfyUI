@@ -67,6 +67,7 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
     "PreviewAudio": (("audioUI", ""),),
     "SaveAudioMP3": (("audioUI", ""),),
     "SaveAudioOpus": (("audioUI", ""),),
+    "SaveAudioAdvanced": (("audioUI", ""),),
     "Preview3D": (("image", ""),),
     "SaveGLB": (("image", ""),),
     "RecordAudio": (("audio", ""),),
@@ -179,7 +180,12 @@ def _extra_widgets_after(opts: dict, name: str = "", type_spec=None) -> list[str
         has_seed_control = True
     if has_seed_control:
         extras.append(None)
-    if opts.get("image_upload") or opts.get("video_upload") or opts.get("audio_upload"):
+    # PAINTER owns its upload interaction inside the custom widget and does not
+    # serialize a separate upload-button value after the mask path.
+    if (
+        opts.get("widgetType") != "PAINTER"
+        and (opts.get("image_upload") or opts.get("video_upload") or opts.get("audio_upload"))
+    ):
         extras.append(None)
     return extras
 

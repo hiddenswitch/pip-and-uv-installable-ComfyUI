@@ -189,6 +189,11 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         hf_cache_paths,
         hf_xet,
     ]
+    models_directory = construct_path(configuration.models_directory or "models")
+    folder_names_and_paths.application_paths.models_directory = models_directory
+    for model_paths in model_paths_to_add:
+        if model_paths.folder_name_base_path_subdir == construct_path("models"):
+            model_paths.folder_name_base_path_subdir = models_directory
     for model_paths in model_paths_to_add:
         if replace_existing:
             for folder_name in model_paths.folder_names:
@@ -218,7 +223,7 @@ def _folder_names_and_paths():
 
 @_module_properties.getter
 def _models_dir():
-    return str(Path(_current_execution_context().folder_names_and_paths.base_paths[0]) / construct_path("models"))
+    return str(_resolve_path_with_compatibility(_current_execution_context().folder_names_and_paths.application_paths.models_directory))
 
 
 @_module_properties.getter
@@ -314,6 +319,30 @@ def annotated_filepath(name: str) -> tuple[str, str | None]:
     return name, base_dir
 
 
+DANGEROUS_CONTENT_TYPES = {
+    "text/html", "text/html-sandboxed", "application/xhtml+xml",
+    "text/javascript", "application/javascript", "application/x-javascript",
+    "application/ecmascript", "text/css",
+    "image/svg+xml", "application/xml", "text/xml", "message/rfc822",
+}
+
+
+def is_dangerous_content_type(content_type: str | None) -> bool:
+    if not content_type:
+        return False
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return normalized in DANGEROUS_CONTENT_TYPES or normalized.endswith("+xml") or normalized.endswith("/xml")
+
+
+def is_within_directory(directory: str, target: str) -> bool:
+    try:
+        directory = os.path.realpath(directory)
+        target = os.path.realpath(target)
+        return os.path.commonpath((directory, target)) == directory
+    except ValueError:
+        return False
+
+
 def _is_fsspec_url(name: str) -> bool:
     """Return True if *name* looks like an fsspec URL (e.g. ``pkg://…``, ``s3://…``)."""
     return "://" in name and not name.startswith(("file://",))
@@ -355,7 +384,10 @@ def get_annotated_filepath(name, default_dir=None) -> str:
         else:
             base_dir = get_input_directory()  # fallback path
 
-    return os.path.join(base_dir, name)
+    filepath = os.path.abspath(os.path.join(base_dir, name))
+    if not is_within_directory(base_dir, filepath):
+        raise ValueError("Invalid file path: {!r}".format(name))
+    return filepath
 
 
 def exists_annotated_filepath(name):
@@ -374,7 +406,9 @@ def exists_annotated_filepath(name):
     if base_dir is None:
         base_dir = get_input_directory()  # fallback path
 
-    filepath = os.path.join(base_dir, name)
+    filepath = os.path.abspath(os.path.join(base_dir, name))
+    if not is_within_directory(base_dir, filepath):
+        return False
     return os.path.exists(filepath)
 
 

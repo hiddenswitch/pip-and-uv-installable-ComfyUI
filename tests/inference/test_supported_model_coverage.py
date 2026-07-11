@@ -104,6 +104,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "CogVideoX_I2V": ("ltxv-1.json",),
     "CogVideoX_T2V": ("mochi-text-to-video-0.json",),
     "SVD_img2vid": ("ltxv-1.json",),
+    "SeedVR2": ("seedvr2-0.json",),
 }
 
 

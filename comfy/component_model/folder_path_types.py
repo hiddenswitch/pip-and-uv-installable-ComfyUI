@@ -183,12 +183,14 @@ class SupportedExtensions:
 
 @dataclasses.dataclass
 class ApplicationPaths:
+    models_directory: Path = dataclasses.field(default_factory=lambda: construct_path("models"))
     output_directory: Path = dataclasses.field(default_factory=lambda: construct_path("output"))
     temp_directory: Path = dataclasses.field(default_factory=lambda: construct_path("temp"))
     input_directory: Path = dataclasses.field(default_factory=lambda: construct_path("input"))
     user_directory: Path = dataclasses.field(default_factory=lambda: construct_path("user"))
 
     def __iter__(self) -> typing.Generator[Path]:
+        yield self.models_directory
         yield self.output_directory
         yield self.temp_directory
         yield self.input_directory

@@ -54,8 +54,11 @@ def test_annotated_filepath():
 
 def test_get_annotated_filepath():
     default_dir = "/default/dir"
-    assert folder_paths.get_annotated_filepath("test.txt", default_dir) == os.path.join(default_dir, "test.txt")
-    assert folder_paths.get_annotated_filepath("test.txt [output]") == os.path.join(folder_paths.get_output_directory(), "test.txt")
+    # get_annotated_filepath now normalizes with os.path.abspath (part of the
+    # GHSA-779p traversal hardening), so compare against the normalized form —
+    # on Windows abspath also prepends the current drive letter.
+    assert folder_paths.get_annotated_filepath("test.txt", default_dir) == os.path.abspath(os.path.join(default_dir, "test.txt"))
+    assert folder_paths.get_annotated_filepath("test.txt [output]") == os.path.abspath(os.path.join(folder_paths.get_output_directory(), "test.txt"))
 
 
 def test_add_model_folder_path_append(clear_folder_paths):
@@ -149,6 +152,17 @@ def test_base_path_changes(set_base_dir_t):
 
         for name in ["checkpoints", "loras", "vae", "configs", "embeddings", "controlnet", "classifiers"]:
             assert folder_paths.get_folder_paths(name)[0] == os.path.join(test_dir, "models", name)
+
+
+def test_models_directory_override(temp_dir):
+    names = FolderNames(base_paths=[Path(temp_dir) / "base"])
+    config = Configuration()
+    config.models_directory = str(Path(temp_dir) / "shared-models")
+    init_default_paths(names, config, base_paths_from_configuration=False)
+
+    with context_folder_names_and_paths(names):
+        assert folder_paths.models_dir == config.models_directory
+        assert folder_paths.get_folder_paths("checkpoints")[0] == os.path.join(config.models_directory, "checkpoints")
 
 
 def test_base_path_change_clears_old(set_base_dir_t):
