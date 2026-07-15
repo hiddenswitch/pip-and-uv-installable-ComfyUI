@@ -483,6 +483,49 @@ def __unknown_widget_value(val):
     return _json.dumps(val)
 
 
+def _unknown_widget_value_matches_type(value, type_spec) -> bool:
+    if type_spec == "BOOLEAN":
+        return isinstance(value, bool)
+    if type_spec == "INT":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if type_spec == "FLOAT":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_spec == "STRING":
+        return isinstance(value, str)
+    return True
+
+
+def _align_unknown_widget_values(node: dict, widgets_values: list, ordered_names: list[str]) -> list[object] | None:
+    widget_inputs = {
+        (inp.get('widget') or {}).get('name') or inp.get('name'): inp
+        for inp in node.get('inputs', []) or []
+        if isinstance(inp.get('widget'), dict)
+    }
+    types = [widget_inputs.get(name, {}).get('type') for name in ordered_names]
+    if not all(types):
+        return None
+
+    matches = {
+        idx: (idx,)
+        for idx, value in enumerate(widgets_values)
+        if _unknown_widget_value_matches_type(value, types[0])
+    }
+    for type_spec in types[1:]:
+        next_matches: dict[int, tuple[int, ...]] = {}
+        for idx, value in enumerate(widgets_values):
+            if not _unknown_widget_value_matches_type(value, type_spec):
+                continue
+            previous = [match for end, match in matches.items() if end < idx]
+            if previous:
+                next_matches[idx] = (*max(previous, key=lambda match: match[0]), idx)
+        matches = next_matches
+        if not matches:
+            return None
+
+    indices = min(matches.values(), key=lambda match: (match[-1] - match[0] + 1 - len(match), match[0]))
+    return [widgets_values[idx] for idx in indices]
+
+
 def _map_unknown_widgets(widgets_values, node: dict | None = None) -> dict[str, object]:
     if isinstance(widgets_values, dict):
         return {k: _wrap_value(v) for k, v in widgets_values.items()}
@@ -500,6 +543,12 @@ def _map_unknown_widgets(widgets_values, node: dict | None = None) -> dict[str, 
                         if isinstance(name, str):
                             ordered_names.append(name)
         if ordered_names:
+            aligned_values = _align_unknown_widget_values(node, widgets_values, ordered_names)
+            if aligned_values is not None:
+                return {
+                    name: _wrap_value(value)
+                    for name, value in zip(ordered_names, aligned_values)
+                }
             out: dict[str, object] = {}
             for i, name in enumerate(ordered_names):
                 if i >= len(widgets_values):

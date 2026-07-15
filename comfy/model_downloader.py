@@ -1053,6 +1053,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/FLUX.1-Krea-dev_ComfyUI", "split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/NewBie-image-Exp0.1_repackaged", "split_files/diffusion_models/NewBie-Image-Exp0.1-bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Layered_ComfyUI", "split_files/diffusion_models/qwen_image_layered_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-Layered_ComfyUI", "split_files/diffusion_models/qwen_image_layered_fp8mixed.safetensors"),
     HuggingFile("Comfy-Org/HuMo_ComfyUI", "split_files/diffusion_models/humo_17B_fp8_e4m3fn.safetensors"),
     HuggingFile("Kijai/LTXV2_comfy", "diffusion_models/ltx-2-19b-distilled_transformer_only_bf16.safetensors"),
     # Ovis

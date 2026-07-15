@@ -194,7 +194,7 @@ class Attention(nn.Module):
 
         joint_hidden_states = optimized_attention_masked(joint_query, joint_key, joint_value, self.heads,
                                                          attn_mask, transformer_options=transformer_options,
-                                                         skip_reshape=True)
+                                                         skip_reshape=True, low_precision_attention=False)
 
         txt_attn_output = joint_hidden_states[:, :seq_txt, :]
         img_attn_output = joint_hidden_states[:, seq_txt:, :]

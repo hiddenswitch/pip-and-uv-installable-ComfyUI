@@ -11,6 +11,7 @@ from comfy.component_model.workflow_convert import (
     _collect_subgraph_defs,
     _extra_widgets_after,
     _is_widget_type,
+    _map_unknown_widgets,
     _map_widgets,
     _resolve_source,
     _wrap_value,
@@ -21,6 +22,21 @@ from comfy.execution_context import context_add_custom_nodes
 from comfy.nodes.package_typing import ExportedNodes
 
 logger = logging.getLogger(__name__)
+
+
+def test_unknown_subgraph_widgets_align_with_serialized_value_types():
+    node = {
+        "inputs": [
+            {"name": "steps", "type": "INT", "widget": {"name": "steps"}},
+            {"name": "cfg", "type": "FLOAT", "widget": {"name": "cfg"}},
+        ],
+        "_widget_names_ordered": ["steps", "cfg"],
+    }
+
+    assert _map_unknown_widgets(
+        [331728509923362, "randomize", 20, 2.5, "euler", "simple", 1],
+        node=node,
+    ) == {"steps": 20, "cfg": 2.5}
 
 
 # ── helper: tiny node classes for testing ─────────────────────────────────────

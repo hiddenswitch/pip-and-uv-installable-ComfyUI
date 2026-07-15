@@ -1123,6 +1123,19 @@ def test_builtin_templates_smoke(path: Path):
         assert not _is_link(p.value), f"{path.name}: param {p.address} has link value"
 
 
+def test_qwen_image_layered_sampler_parameter_values():
+    from comfy.cmd.workflow_templates import resolve_template
+    from comfy.nodes.package_typing import ExportedNodes
+
+    workflow = json.loads(Path(resolve_template("image_qwen_image_layered")).read_text(encoding="utf-8"))
+    params = discover(workflow, node_mappings=ExportedNodes())
+
+    steps = params_by_role(params, "steps")
+    cfg = params_by_role(params, "cfg")
+    assert [(param.value, param.type) for param in steps] == [(20, "INT")]
+    assert [(param.value, param.type) for param in cfg] == [(2.5, "FLOAT")]
+
+
 def test_yt_bgswap_v01_image_loader_is_loadimage_node_42():
     workflow = _load_workflow("yt_bgswap_v01")
     params = discover(workflow)
