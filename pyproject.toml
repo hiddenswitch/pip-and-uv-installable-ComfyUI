@@ -27,6 +27,7 @@ dependencies = [
     "comfy-aimdo>=0.4.10,<0.5",
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.2.2,<5",
+    "click",
     "torch",
     "torchvision",
     "torchaudio",
