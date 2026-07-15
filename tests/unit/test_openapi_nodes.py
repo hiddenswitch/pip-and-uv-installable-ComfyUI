@@ -461,11 +461,14 @@ def test_file_request_parameter_glob(use_temporary_input_directory):
     expected_rgb_1_0 = torch.tensor([70 / 255.0, 80 / 255.0, 90 / 255.0])
     assert torch.allclose(rgba_image_tensor_no_alpha[1, 0, :], expected_rgb_1_0)
 
-def test_file_request_to_http_url_no_exceptions():
+
+def test_file_request_to_local_image_no_exceptions(use_temporary_input_directory):
+    image_path = os.path.join(use_temporary_input_directory, "image.jpeg")
+    Image.new("RGB", (239, 178)).save(image_path, format="JPEG")
     n = ImageRequestParameter()
-    # Use httpbin.org which returns a stable 239x178 JPEG test image
-    loaded_image, loaded_mask = n.execute(value="https://httpbin.org/image/jpeg")
-    # This is an RGB jpg, so it will be converted to RGBA
+    loaded_image, loaded_mask = n.execute(value=image_path)
+
+    # The RGB JPEG remains a three-channel image.
     b, height, width, channels = loaded_image.shape
     assert b == 1
     assert width == 239
