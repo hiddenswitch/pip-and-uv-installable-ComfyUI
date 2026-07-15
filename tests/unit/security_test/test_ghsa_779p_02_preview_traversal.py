@@ -35,7 +35,7 @@ async def test_legit_preview_returns_200(aiohttp_client, app, tmp_path):
     img = Image.new('RGB', (16, 16), color=(255, 0, 128))
     img.save(tmp_path / "test_model.png", format='PNG')
 
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)
@@ -53,7 +53,7 @@ async def test_legit_preview_returns_200(aiohttp_client, app, tmp_path):
 
 async def test_non_integer_path_index_returns_400(aiohttp_client, app, tmp_path):
     """A non-integer path_index segment must be rejected with 400."""
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)
@@ -64,7 +64,7 @@ async def test_non_integer_path_index_returns_400(aiohttp_client, app, tmp_path)
 
 async def test_out_of_range_path_index_returns_404(aiohttp_client, app, tmp_path):
     """A path_index beyond the configured folder list must return 404."""
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)
@@ -76,7 +76,7 @@ async def test_out_of_range_path_index_returns_404(aiohttp_client, app, tmp_path
 async def test_empty_filename_returns_400(aiohttp_client, app, tmp_path):
     """The "{filename:.*}" capture also matches the empty string (trailing
     slash). It would resolve to the folder itself and must be rejected with 400."""
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)
@@ -117,7 +117,7 @@ async def test_path_traversal_in_filename_returns_403(aiohttp_client, app, tmp_p
     raw_path = '/experiment/models/preview/test_folder/0/' + encoded_traversal
     url = yarl.URL(raw_path, encoded=True)
 
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)
@@ -160,7 +160,7 @@ async def test_symlink_companion_preview_returns_403(aiohttp_client, app, tmp_pa
     except (OSError, NotImplementedError):
         pytest.skip("symlinks not supported on this platform/filesystem")
 
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(model_dir)], None)
     }):
         client = await aiohttp_client(app)
@@ -179,7 +179,7 @@ async def test_null_byte_in_filename_no_500(aiohttp_client, app, tmp_path):
     raw_path = '/experiment/models/preview/test_folder/0/' + 'a%00b'
     url = yarl.URL(raw_path, encoded=True)
 
-    with patch('folder_paths.folder_names_and_paths', {
+    with patch('comfy.cmd.folder_paths.folder_names_and_paths', {
         'test_folder': ([str(tmp_path)], None)
     }):
         client = await aiohttp_client(app)

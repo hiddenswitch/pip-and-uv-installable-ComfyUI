@@ -610,6 +610,7 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/ltx-2", "split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"),
     HuggingFile("Comfy-Org/ltx-2", "split_files/loras/ltx2-squish.safetensors"),
     HuggingFile("Comfy-Org/ltx-2.3", "split_files/loras/ltx-2.3-id-lora-talkvid-3k.safetensors"),
+    HuggingFile("Comfy-Org/ltx-2.3", "split_files/loras/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors"),
     HuggingFile("Comfy-Org/ltx-2.3", "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-DiffSynth-ControlNets", "split_files/loras/qwen_image_union_diffsynth_lora.safetensors"),
     HuggingFile("Comfy-Org/USO_1.0_Repackaged", "split_files/loras/uso-flux1-dit-lora-v1.safetensors"),
@@ -942,6 +943,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_base_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_edit_bf16.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_edit_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_edit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/Boogu-Image", "diffusion_models/boogu_image_turbo_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors"),
@@ -958,6 +960,9 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/diffusion_models/wan2.1_t2v_14B_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/SCAIL-2", "diffusion_models/wan2.1_14B_SCAIL_2_fp16.safetensors", show_in_ui=False),
     HuggingFile("Comfy-Org/SCAIL-2", "diffusion_models/wan2.1_14B_SCAIL_2_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/SCAIL-2", "diffusion_models/wan2.1_14B_SCAIL_2_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Wan-Dancer", "diffusion_models/wan2.2_dancer_14b_global_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/Wan-Dancer", "diffusion_models/wan2.2_dancer_14b_local_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_repackaged", "split_files/diffusion_models/hunyuan_video_v2_replace_image_to_video_720p_bf16.safetensors"),
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/diffusion_models/hidream_i1_dev_bf16.safetensors"),
     HuggingFile("Comfy-Org/HiDream-I1_ComfyUI", "split_files/diffusion_models/hidream_i1_dev_fp8.safetensors"),
@@ -1014,6 +1019,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_fp8_e4m3fn.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_2511_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors"),
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/diffusion_models/flux2_dev_fp8mixed.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4B", "flux-2-klein-base-4b.safetensors"),
@@ -1031,6 +1038,7 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/diffusion_models/z_image_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/z_image", "split_files/diffusion_models/z_image_bf16.safetensors"),
+    HuggingFile("Comfy-Org/z_image", "split_files/diffusion_models/z_image_int8_convrot.safetensors"),
     # Omnigen 2
     HuggingFile("Comfy-Org/Omnigen2_ComfyUI_repackaged", "split_files/diffusion_models/omnigen2_fp16.safetensors"),
     # Hunyuan Image
@@ -1164,6 +1172,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
         save_with_filename="ideogram4_unconditional_nvfp4_mixed.safetensors",
         alternate_filenames=("ideogram4_unconditional_nvfp4_mixed.safetensors",),
     ),
+    HuggingFile("Comfy-Org/Ideogram-4", "diffusion_models/ideogram4_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Ideogram-4", "diffusion_models/ideogram4_unconditional_int8_convrot.safetensors"),
     # Void video inpainting
     HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass1.safetensors"),
     HuggingFile("Comfy-Org/void-model", "diffusion_models/void_pass2.safetensors"),
