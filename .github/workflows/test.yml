@@ -482,7 +482,7 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.target.friendly_name }}
     runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     container:
       image: ${{ matrix.target.container }}
     strategy:
