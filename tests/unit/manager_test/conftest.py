@@ -6,10 +6,10 @@ when --enable-manager is set.
 """
 import contextlib
 import socket
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Generator, Any
-from multiprocessing import Process
 
 import pytest
 import requests
@@ -121,7 +121,7 @@ def manager_disabled_config(manager_disabled_tmp_base_dir: Path) -> Configuratio
 @pytest.fixture(scope="module")
 def manager_enabled_server(
     manager_enabled_config: Configuration,
-) -> Generator[tuple[str, Process], Any, None]:
+) -> Generator[tuple[str, subprocess.Popen], Any, None]:
     """
     Boot ComfyUI with manager enabled.
     Returns (base_url, process).
@@ -135,7 +135,7 @@ def manager_enabled_server(
 @pytest.fixture(scope="module")
 def manager_disabled_server(
     manager_disabled_config: Configuration,
-) -> Generator[tuple[str, Process], Any, None]:
+) -> Generator[tuple[str, subprocess.Popen], Any, None]:
     """
     Boot ComfyUI with manager disabled.
     Returns (base_url, process).
@@ -170,7 +170,7 @@ def manager_with_disabled_custom_nodes_config(
 @pytest.fixture(scope="module")
 def manager_with_disabled_custom_nodes_server(
     manager_with_disabled_custom_nodes_config: Configuration,
-) -> Generator[tuple[str, Process], Any, None]:
+) -> Generator[tuple[str, subprocess.Popen], Any, None]:
     """
     Boot ComfyUI with manager enabled but custom nodes disabled.
     Returns (base_url, process).

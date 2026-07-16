@@ -7,10 +7,9 @@ with a Configuration object instead of raw CLI args.
 import contextlib
 import json
 import socket
+import subprocess
 import tempfile
 import uuid
-from multiprocessing import Process
-import time
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterator, Optional
 
@@ -77,7 +76,7 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
 @pytest.fixture(scope="module")
 def comfy_url_and_proc(
     assets_server_config: Configuration,
-) -> Generator[tuple[str, Process], Any, None]:
+) -> Generator[tuple[str, subprocess.Popen], Any, None]:
     for config, proc in comfy_background_server_from_config(assets_server_config):
         base_url = f"http://{config.listen}:{config.port}"
         yield base_url, proc
@@ -91,7 +90,7 @@ def http() -> Iterator[requests.Session]:
 
 
 @pytest.fixture
-def api_base(comfy_url_and_proc: tuple[str, Process]) -> str:
+def api_base(comfy_url_and_proc: tuple[str, subprocess.Popen]) -> str:
     base_url, _proc = comfy_url_and_proc
     return base_url
 

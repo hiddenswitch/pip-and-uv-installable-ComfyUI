@@ -4,9 +4,9 @@ Tests for comfyui_manager integration.
 Verifies that manager REST API endpoints are properly injected and reachable
 when --enable-manager is set, and that they are NOT available when disabled.
 """
-import pytest
+import subprocess
+
 import requests
-from multiprocessing import Process
 
 
 # Manager v2 API endpoints that should be available when manager is enabled
@@ -34,7 +34,7 @@ class TestManagerEnabled:
     def test_manager_endpoints_reachable(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify manager API endpoints are reachable when enabled."""
         base_url, _proc = manager_enabled_server
@@ -54,7 +54,7 @@ class TestManagerEnabled:
     def test_manager_version_endpoint(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify /v2/manager/version returns version info."""
         base_url, _proc = manager_enabled_server
@@ -73,7 +73,7 @@ class TestManagerEnabled:
     def test_manager_queue_status(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify /v2/manager/queue/status returns queue status."""
         base_url, _proc = manager_enabled_server
@@ -87,7 +87,7 @@ class TestManagerEnabled:
     def test_manager_db_mode(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify /v2/manager/db_mode returns database mode."""
         base_url, _proc = manager_enabled_server
@@ -99,7 +99,7 @@ class TestManagerEnabled:
     def test_customnode_installed(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify /v2/customnode/installed returns installed nodes list."""
         base_url, _proc = manager_enabled_server
@@ -113,7 +113,7 @@ class TestManagerEnabled:
     def test_manager_is_legacy_ui(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify /v2/manager/is_legacy_manager_ui returns boolean or dict with bool."""
         base_url, _proc = manager_enabled_server
@@ -135,7 +135,7 @@ class TestManagerDisabled:
     def test_manager_endpoints_not_found(
         self,
         http: requests.Session,
-        manager_disabled_server: tuple[str, Process],
+        manager_disabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify manager API endpoints return 404 when disabled."""
         base_url, _proc = manager_disabled_server
@@ -156,7 +156,7 @@ class TestManagerDisabled:
     def test_comfyui_base_endpoints_still_work(
         self,
         http: requests.Session,
-        manager_disabled_server: tuple[str, Process],
+        manager_disabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify base ComfyUI endpoints still work when manager is disabled."""
         base_url, _proc = manager_disabled_server
@@ -181,7 +181,7 @@ class TestManagerWithDisabledCustomNodes:
     def test_manager_works_with_disabled_custom_nodes(
         self,
         http: requests.Session,
-        manager_with_disabled_custom_nodes_server: tuple[str, Process],
+        manager_with_disabled_custom_nodes_server: tuple[str, subprocess.Popen],
     ):
         """Verify manager endpoints work when --disable-all-custom-nodes is set."""
         base_url, _proc = manager_with_disabled_custom_nodes_server
@@ -201,7 +201,7 @@ class TestManagerWithDisabledCustomNodes:
     def test_core_endpoints_work_with_disabled_custom_nodes(
         self,
         http: requests.Session,
-        manager_with_disabled_custom_nodes_server: tuple[str, Process],
+        manager_with_disabled_custom_nodes_server: tuple[str, subprocess.Popen],
     ):
         """Verify core ComfyUI endpoints still work."""
         base_url, _proc = manager_with_disabled_custom_nodes_server
@@ -220,7 +220,7 @@ class TestManagerMiddleware:
     def test_middleware_allows_normal_requests(
         self,
         http: requests.Session,
-        manager_enabled_server: tuple[str, Process],
+        manager_enabled_server: tuple[str, subprocess.Popen],
     ):
         """Verify middleware doesn't block normal ComfyUI requests."""
         base_url, _proc = manager_enabled_server

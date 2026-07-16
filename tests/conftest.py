@@ -3,14 +3,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-import multiprocessing
 import os
 import pathlib
+import pickle
+import socket
 import subprocess
 import tempfile
-import urllib
 from contextvars import ContextVar
-from multiprocessing import Process
 from typing import List, Any, Generator
 
 import pytest
@@ -35,12 +34,6 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
-
-
-def run_server(server_arguments: Configuration):
-    from comfy.cmd.main import _start_comfyui
-    import asyncio
-    asyncio.run(_start_comfyui(configuration=server_arguments))
 
 
 @pytest.fixture
@@ -198,7 +191,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
 
 
 @pytest.fixture(scope="module", autouse=False)
-def comfy_background_server(tmp_path_factory) -> Generator[tuple[Configuration, Process], Any, None]:
+def comfy_background_server(tmp_path_factory) -> Generator[tuple[Configuration, subprocess.Popen], Any, None]:
     tmp_path = tmp_path_factory.mktemp("comfy_background_server")
     # Start server
 
@@ -211,27 +204,45 @@ def comfy_background_server(tmp_path_factory) -> Generator[tuple[Configuration, 
 
 
 def comfy_background_server_from_config(configuration: Configuration):
-    server_process = multiprocessing.get_context('spawn').Process(target=run_server, args=(configuration,))
-    server_process.start()
-    # wait for http url to be ready
+    with tempfile.NamedTemporaryFile(prefix="comfyui-test-server-", suffix=".pickle", delete=False) as config_file:
+        pickle.dump(configuration, config_file)
+        config_path = pathlib.Path(config_file.name)
+
+    server_process = subprocess.Popen([
+        sys.executable,
+        "-m",
+        "tests.background_server",
+        str(config_path),
+    ])
+
     success = False
-    for i in range(60):
-        try:
-            with urllib.request.urlopen(f"http://{configuration.listen}:{configuration.port}/object_info") as response:
-                success = response.status == 200
-                if success:
+    try:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            return_code = server_process.poll()
+            if return_code is not None:
+                raise RuntimeError(f"Background server exited during startup with code {return_code}")
+            try:
+                with socket.create_connection((configuration.listen, configuration.port), timeout=1):
+                    success = True
                     break
-        except:
-            pass
-        time.sleep(1)
-    if not success:
-        raise Exception("Failed to start background server")
-    yield configuration, server_process
-    server_process.terminate()
-    server_process.join(timeout=10)
-    if server_process.is_alive():
-        server_process.kill()
-        server_process.join(timeout=5)
+            except OSError:
+                pass
+            time.sleep(1)
+
+        if not success:
+            raise RuntimeError("Failed to start background server within 60 seconds")
+        yield configuration, server_process
+    finally:
+        if server_process.poll() is None:
+            server_process.terminate()
+            try:
+                server_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server_process.kill()
+                server_process.wait(timeout=5)
+        config_path.unlink(missing_ok=True)
+
     import torch
     torch.cuda.empty_cache()
 
