@@ -121,13 +121,14 @@ jobs:
           uv pip install --torch-backend=auto ".[dev]" --inexact
       - name: Install custom nodes
         env:
+          UV_NO_BUILD_ISOLATION: "1"
           UV_NO_CACHE: "1"
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install --no-build-isolation-package sam2 --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
@@ -311,13 +312,14 @@ jobs:
           uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
       - name: Install custom nodes
         env:
+          UV_NO_BUILD_ISOLATION: "1"
           UV_NO_CACHE: "1"
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_PYTHON=/opt/venv/bin/python
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install --no-build-isolation-package sam2 --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -420,13 +422,14 @@ jobs:
           uv pip install --torch-backend=xpu "comfyui[dev]@${GITHUB_WORKSPACE}/src" --inexact
       - name: Install custom nodes
         env:
+          UV_NO_BUILD_ISOLATION: "1"
           UV_NO_CACHE: "1"
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
           export UV_SYSTEM_PYTHON=true
           export UV_OVERRIDE=overrides.txt
           export UV_EXCLUDE=excludes.txt
-          uv pip install --no-build-isolation-package sam2 --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           export UV_BREAK_SYSTEM_PACKAGES=true
@@ -543,9 +546,10 @@ jobs:
           C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
       - name: Install custom nodes
         env:
+          UV_NO_BUILD_ISOLATION: "1"
           UV_NO_CACHE: "1"
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --no-build-isolation-package sam2 --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install stable ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
@@ -594,6 +598,7 @@ jobs:
           uv pip install --torch-backend=auto --prerelease allow '.[dev]' --inexact
       - name: Install custom nodes
         env:
+          UV_NO_BUILD_ISOLATION: "1"
           UV_NO_CACHE: "1"
         run: |
           uv pip freeze | awk '/^(torch|torchvision|torchaudio|numpy|opencv)/' > overrides.txt || true
@@ -602,7 +607,7 @@ jobs:
           torchvision
           torchaudio
           EOF
-          uv pip install --no-build-isolation-package sam2 --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
+          uv pip install --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
       - name: Install VideoHelperSuite
         run: |
           for attempt in 1 2 3; do
