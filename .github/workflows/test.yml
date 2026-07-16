@@ -486,7 +486,7 @@ jobs:
     environment: "Testing"
     name: ${{ matrix.target.friendly_name }}
     runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     container:
       image: ${{ matrix.target.container }}
     strategy:
@@ -574,6 +574,12 @@ jobs:
           C:/venv/Scripts/ruff.exe check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
           C:/venv/Scripts/pylint.exe -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
       - name: Run unit tests
+        env:
+          # Importing Torch and the packaged nodes in a fresh Windows process
+          # takes longer than the normal readiness budget. Asset API tests
+          # share one package-scoped server, so this is paid once rather than
+          # once per module.
+          COMFYUI_TEST_SERVER_STARTUP_TIMEOUT: "240"
         run: |
           C:/venv/Scripts/python.exe -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:

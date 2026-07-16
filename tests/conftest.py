@@ -217,7 +217,8 @@ def comfy_background_server_from_config(configuration: Configuration):
 
     success = False
     try:
-        deadline = time.monotonic() + 60
+        startup_timeout = server_startup_timeout_seconds()
+        deadline = time.monotonic() + startup_timeout
         while time.monotonic() < deadline:
             return_code = server_process.poll()
             if return_code is not None:
@@ -231,7 +232,9 @@ def comfy_background_server_from_config(configuration: Configuration):
             time.sleep(1)
 
         if not success:
-            raise RuntimeError("Failed to start background server within 60 seconds")
+            raise RuntimeError(
+                f"Failed to start background server within {startup_timeout:g} seconds"
+            )
         yield configuration, server_process
     finally:
         if server_process.poll() is None:
@@ -245,6 +248,14 @@ def comfy_background_server_from_config(configuration: Configuration):
 
     import torch
     torch.cuda.empty_cache()
+
+
+def server_startup_timeout_seconds() -> float:
+    """Return the server readiness budget used by subprocess integration tests."""
+    value = float(os.environ.get("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT", "60"))
+    if value <= 0:
+        raise ValueError("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT must be positive")
+    return value
 
 
 @pytest.fixture(scope="session")

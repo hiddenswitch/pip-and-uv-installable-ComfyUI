@@ -34,7 +34,7 @@ def _make_base_dirs(root: Path) -> None:
         (root / sub).mkdir(parents=True, exist_ok=True)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def comfy_tmp_base_dir() -> Generator[Path, Any, None]:
     tmp = Path(tempfile.mkdtemp(prefix="comfyui-assets-tests-"))
     _make_base_dirs(tmp)
@@ -49,7 +49,7 @@ def comfy_tmp_base_dir() -> Generator[Path, Any, None]:
         tmp.rmdir()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     config = default_configuration()
 
@@ -73,7 +73,7 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     return config
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def comfy_url_and_proc(
     assets_server_config: Configuration,
 ) -> Generator[tuple[str, subprocess.Popen], Any, None]:

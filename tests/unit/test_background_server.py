@@ -7,6 +7,19 @@ import pytest
 from tests import conftest
 
 
+def test_background_server_startup_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT", "180")
+
+    assert conftest.server_startup_timeout_seconds() == 180
+
+
+def test_background_server_startup_timeout_must_be_positive(monkeypatch):
+    monkeypatch.setenv("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT", "0")
+
+    with pytest.raises(ValueError, match="must be positive"):
+        conftest.server_startup_timeout_seconds()
+
+
 def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = None

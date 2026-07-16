@@ -432,6 +432,7 @@ def test_serve_starts_and_reaches_ready():
     surface when the server actually starts, not just when --help is invoked.
     """
     from tests.unit._subprocess_helpers import spawn_comfyui_serve
+    from tests.conftest import server_startup_timeout_seconds
 
     port = _find_free_port()
     env = os.environ.copy()
@@ -440,7 +441,8 @@ def test_serve_starts_and_reaches_ready():
 
     process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
     try:
-        deadline = time.time() + 60
+        startup_timeout = server_startup_timeout_seconds()
+        deadline = time.time() + startup_timeout
         while time.time() < deadline:
             if process.poll() is not None:
                 pytest.fail(
@@ -454,7 +456,7 @@ def test_serve_starts_and_reaches_ready():
             except (urllib.error.URLError, ConnectionRefusedError, OSError):
                 time.sleep(0.5)
         pytest.fail(
-            f"comfyui serve did not become ready within 60s:\n{process.tail()}"
+            f"comfyui serve did not become ready within {startup_timeout:g}s:\n{process.tail()}"
         )
     finally:
         process.shutdown()
