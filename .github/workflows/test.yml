@@ -500,6 +500,7 @@ jobs:
       - name: Checkout git repo
         run: |
           git config --global credential.helper store
+          git config --global core.longpaths true
           echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
           git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
         env:

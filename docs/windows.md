@@ -83,11 +83,15 @@ Also, ARC now injects the job work volume itself. The Windows hook extension mus
 - name: Checkout git repo
   run: |
     git config --global credential.helper store
+    git config --global core.longpaths true
     echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
     git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+`core.longpaths` is required because generated Playwright cache paths can exceed
+the legacy Windows `MAX_PATH` limit during checkout.
 
 ### 5. Busybox `bash` doesn't support `--noprofile`
 
