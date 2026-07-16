@@ -576,12 +576,22 @@ jobs:
       - name: Run unit tests
         env:
           # Importing Torch and the packaged nodes in a fresh Windows process
-          # takes longer than the normal readiness budget. Asset API tests
-          # share one package-scoped server, so this is paid once rather than
-          # once per module.
+          # takes longer than the normal readiness budget.
           COMFYUI_TEST_SERVER_STARTUP_TIMEOUT: "240"
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          # Process-isolation integration suites are exercised by the Linux
+          # matrix. Each fresh Windows worker cold-imports Torch for ~3 minutes,
+          # making those suites take hours without adding Windows-specific
+          # coverage. Keep the broad in-process suite and real CLI startup smoke.
+          C:/venv/Scripts/python.exe -m pytest -v tests/unit \
+            --ignore=tests/unit/assets_test \
+            --ignore=tests/unit/manager_test \
+            --ignore=tests/unit/test_comfy_reconfigure.py \
+            --ignore=tests/unit/test_nodes_context.py \
+            --ignore=tests/unit/test_panics.py \
+            --ignore=tests/unit/test_process_pool.py \
+            --ignore=tests/unit/test_reboot_api.py \
+            --ignore=tests/unit/test_workflow_convert_playwright.py
   build_and_execute_macos:
     environment: "Testing"
     name: macOS Installation Tests
