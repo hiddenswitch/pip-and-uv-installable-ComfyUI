@@ -5,6 +5,7 @@ QWEN_IMAGE_LAYERED_MODEL_NAMES = {
     "qwen_2.5_vl_7b_fp8_scaled.safetensors",
     "qwen_image_layered_bf16.safetensors",
     "qwen_image_layered_fp8mixed.safetensors",
+    "qwen_image_layered_int8convrot.safetensors",
     "qwen_image_layered_vae.safetensors",
 }
 
