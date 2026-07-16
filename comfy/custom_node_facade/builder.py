@@ -4,8 +4,10 @@ from ..cmd.main_pre import tracer
 
 import asyncio
 import base64
+import copy
 import csv
 import functools
+import hashlib
 import html
 import io
 import ntpath
@@ -224,9 +226,109 @@ class GithubReleaseWheelProxySpec:
         return _simple_package_html(self.name, body)
 
 
+@dataclass(frozen=True)
+class PyPISdistRewriteProxySpec:
+    """Re-serve an sdist after removing invalid isolated-build dependencies."""
+
+    name: str
+    version: str
+    sdist_url: str
+    sha256: str
+    remove_build_requirements: tuple[str, ...]
+
+    @property
+    def filename(self) -> str:
+        return f"{_WHEEL_NAME_RE.sub('_', self.name)}-{self.version}.tar.gz"
+
+    def supports_cuda(self, cuda: str) -> bool:
+        del cuda
+        return True
+
+    async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
+        del session, cuda
+        target = f"/packages/pypi-rewrite/{self.filename}"
+        body = f'<a href="{html.escape(target, quote=True)}">{html.escape(self.filename)}</a><br/>'
+        return _simple_package_html(self.name, body)
+
+    async def build_sdist(self, session: aiohttp.ClientSession) -> bytes:
+        async with session.get(self.sdist_url) as response:
+            response.raise_for_status()
+            source = await response.read()
+        actual_sha256 = hashlib.sha256(source).hexdigest()
+        if actual_sha256 != self.sha256:
+            raise ValueError(
+                f"Unexpected {self.name} {self.version} sdist SHA256: {actual_sha256}"
+            )
+        return self.rewrite_sdist(source)
+
+    def rewrite_sdist(self, source: bytes) -> bytes:
+        output = io.BytesIO()
+        rewritten = False
+        with tarfile.open(fileobj=io.BytesIO(source), mode="r:gz") as source_tar, \
+             tarfile.open(fileobj=output, mode="w:gz") as output_tar:
+            for member in source_tar.getmembers():
+                data = source_tar.extractfile(member).read() if member.isfile() else None
+                if member.isfile() and member.name.rstrip("/").endswith("/pyproject.toml"):
+                    assert data is not None
+                    data = _remove_pyproject_build_requirements(
+                        data,
+                        self.remove_build_requirements,
+                    )
+                    rewritten = True
+                copied_member = copy.copy(member)
+                if data is not None:
+                    copied_member.size = len(data)
+                    output_tar.addfile(copied_member, io.BytesIO(data))
+                else:
+                    output_tar.addfile(copied_member)
+        if not rewritten:
+            raise ValueError(f"{self.name} {self.version} sdist has no pyproject.toml")
+        return output.getvalue()
+
+
+def _remove_pyproject_build_requirements(source: bytes, requirements: tuple[str, ...]) -> bytes:
+    text = source.decode("utf-8")
+    section_match = re.search(r"(?ms)^\[build-system\]\s*$.*?(?=^\[|\Z)", text)
+    if section_match is None:
+        raise ValueError("pyproject.toml has no [build-system] section")
+    section = section_match.group(0)
+    requires_match = re.search(r"(?ms)^requires\s*=\s*\[(.*?)^\s*\]", section)
+    if requires_match is None:
+        raise ValueError("pyproject.toml [build-system] has no requires array")
+
+    removals = {canonicalize_project_name(item) for item in requirements}
+    removed: set[str] = set()
+
+    def remove_entry(match: re.Match[str]) -> str:
+        requirement = match.group("requirement")
+        name = _parse_requirement_name(requirement)
+        if name in removals:
+            removed.add(name)
+            return ""
+        return match.group(0)
+
+    body = requires_match.group(1)
+    rewritten_body = re.sub(
+        r"(?P<entry>['\"](?P<requirement>[^'\"]+)['\"]\s*,?\s*)",
+        remove_entry,
+        body,
+    )
+    missing = removals - removed
+    if missing:
+        raise ValueError(f"Build requirements not found in pyproject.toml: {sorted(missing)}")
+    rewritten_section = section[:requires_match.start(1)] + rewritten_body + section[requires_match.end(1):]
+    return (text[:section_match.start()] + rewritten_section + text[section_match.end():]).encode("utf-8")
+
+
 from .triton_wheels import TritonProxySpec  # noqa: E402
 
-PyPIProxy = PyPIProxySpec | FlashAttentionProxySpec | TritonProxySpec | GithubReleaseWheelProxySpec
+PyPIProxy = (
+    PyPIProxySpec
+    | FlashAttentionProxySpec
+    | TritonProxySpec
+    | GithubReleaseWheelProxySpec
+    | PyPISdistRewriteProxySpec
+)
 
 # The fork repo whose releases host the built `comfyui` wheels.
 COMFYUI_RELEASE_REPO = "hiddenswitch/pip-and-uv-installable-ComfyUI"
@@ -236,6 +338,13 @@ PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
     # The fork's own package: `pip install comfyui --extra-index-url=.../simple/`.
     # Wheels are built and attached to GitHub releases by .github/workflows/build-wheel.yml.
     GithubReleaseWheelProxySpec(name="comfyui", repo=COMFYUI_RELEASE_REPO, asset_prefix="comfyui-"),
+    PyPISdistRewriteProxySpec(
+        name="sam2",
+        version="1.1.0",
+        sdist_url="https://files.pythonhosted.org/packages/ce/11/d07fc96688f731a85de6d5260e98b709051eded2b7b5667ae292530bcf90/sam2-1.1.0.tar.gz",
+        sha256="7e0ea252d43c10d853e3acfce0b5770ac683c30481bd6de311300e9d44f45b74",
+        remove_build_requirements=("torch",),
+    ),
     # triton: Linux serves PyPI manylinux triton; Windows serves woct0rdho
     # triton-windows wheels renamed to `triton` (CUDA-13 patched on the fly).
     TritonProxySpec(name="triton", rename_to_triton=True),
@@ -275,6 +384,12 @@ PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
 
 PYPI_PROXY_INDEX: dict[str, PyPIProxy] = {
     canonicalize_project_name(spec.name): spec for spec in PYPI_PROXY_PACKAGES
+}
+
+PYPI_SDIST_REWRITE_FILENAME_INDEX: dict[str, PyPISdistRewriteProxySpec] = {
+    spec.filename: spec
+    for spec in PYPI_PROXY_PACKAGES
+    if isinstance(spec, PyPISdistRewriteProxySpec)
 }
 
 _FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({

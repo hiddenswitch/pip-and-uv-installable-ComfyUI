@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import io
 import os
 import shutil
+import tarfile
 import types
 import zipfile
 from pathlib import Path
@@ -20,6 +22,7 @@ from comfy.custom_node_facade.builder import FlashAttentionProxySpec
 from comfy.custom_node_facade.builder import FacadeCacheStore
 from comfy.custom_node_facade.builder import PYPI_PROXY_INDEX
 from comfy.custom_node_facade.builder import PyPIProxySpec
+from comfy.custom_node_facade.builder import PyPISdistRewriteProxySpec
 from comfy.custom_node_facade.registry import FacadeProject, FacadeVersion
 from comfy.cmd.node_info import node_info
 from comfy.nodes.package import _extract_vanilla_custom_node_roots
@@ -32,6 +35,37 @@ def _make_zip_bytes(files: dict[str, bytes]) -> bytes:
         for path, data in files.items():
             archive.writestr(path, data)
     return buffer.getvalue()
+
+
+def _make_tar_gz_bytes(files: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, data in files.items():
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def test_sam2_proxy_removes_torch_only_from_isolated_build_requirements():
+    proxy = PYPI_PROXY_INDEX["sam2"]
+    assert isinstance(proxy, PyPISdistRewriteProxySpec)
+    source = _make_tar_gz_bytes({
+        "sam2-1.1.0/pyproject.toml": b"""[build-system]\nrequires = [\n    \"setuptools>=61.0\",\n    \"torch>=2.5.1\",\n]\nbuild-backend = \"setuptools.build_meta\"\n""",
+        "sam2-1.1.0/setup.py": b"REQUIRED_PACKAGES = ['torch>=2.5.1', 'torchvision>=0.20.1']\n",
+    })
+
+    rewritten = proxy.rewrite_sdist(source)
+
+    with tarfile.open(fileobj=io.BytesIO(rewritten), mode="r:gz") as archive:
+        pyproject = archive.extractfile("sam2-1.1.0/pyproject.toml").read().decode("utf-8")
+        setup_py = archive.extractfile("sam2-1.1.0/setup.py").read().decode("utf-8")
+    assert "torch" not in pyproject
+    assert "setuptools>=61.0" in pyproject
+    assert "'torch>=2.5.1'" in setup_py
+    assert "/packages/pypi-rewrite/sam2-1.1.0.tar.gz" in asyncio.run(
+        proxy.render_index(None, "cu130")  # type: ignore[arg-type]
+    )
 
 
 from comfy.custom_node_facade.builder import _strip_url_dependency

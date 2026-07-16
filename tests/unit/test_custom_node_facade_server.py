@@ -44,6 +44,19 @@ class _FakeProxy:
         return f"<html><body>{cuda}</body></html>"
 
 
+class _FakeSdistRewrite:
+    name = "sam2"
+    filename = "sam2-1.1.0.tar.gz"
+
+    def __init__(self):
+        self.calls = 0
+
+    async def build_sdist(self, session) -> bytes:
+        del session
+        self.calls += 1
+        return b"rewritten-sam2-sdist"
+
+
 def test_cache_storage_options_sets_s3_endpoint_only_for_s3_prefix():
     config = Configuration()
     config.pip_facade_cache_s3_endpoint_url = "http://seaweedfs-s3:8333"
@@ -77,6 +90,35 @@ async def test_serve_pip_warms_registry_before_reporting_ready(monkeypatch):
         health = await client.get("/healthz")
         assert health.status == 200
         assert await health.json() == {"ok": True, "live": True, "ready": True}
+    finally:
+        await client.close()
+
+
+async def test_rewritten_pypi_sdist_route_builds_once_and_uses_cache(monkeypatch, tmp_path):
+    rewrite = _FakeSdistRewrite()
+    monkeypatch.setattr(facade_server, "FacadeRegistry", _FakeRegistry)
+    monkeypatch.setattr(facade_server, "FacadeWheelBuilder", _FakeBuilder)
+    monkeypatch.setattr(
+        facade_server,
+        "PYPI_SDIST_REWRITE_FILENAME_INDEX",
+        {rewrite.filename: rewrite},
+    )
+    configuration = Configuration()
+    configuration.pip_facade_cache_prefix = str(tmp_path)
+    app = facade_server.create_facade_app(configuration=configuration)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        url = f"/packages/pypi-rewrite/{rewrite.filename}"
+        first = await client.get(url)
+        second = await client.get(url)
+        assert first.status == 200
+        assert second.status == 200
+        assert await first.read() == b"rewritten-sam2-sdist"
+        assert await second.read() == b"rewritten-sam2-sdist"
+        assert rewrite.calls == 1
+        assert (await client.get("/packages/pypi-rewrite/unknown.tar.gz")).status == 404
     finally:
         await client.close()
 

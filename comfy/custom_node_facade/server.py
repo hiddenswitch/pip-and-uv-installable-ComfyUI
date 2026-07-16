@@ -12,7 +12,14 @@ from aiohttp import web
 
 from ..component_model.configuration import Configuration
 from ..vendor.appdirs import user_cache_dir
-from .builder import FacadeCacheStore, FacadeWheelBuilder, PYPI_PROXY_INDEX, DEFAULT_CUDA_VARIANT, is_index_variant
+from .builder import (
+    DEFAULT_CUDA_VARIANT,
+    PYPI_PROXY_INDEX,
+    PYPI_SDIST_REWRITE_FILENAME_INDEX,
+    FacadeCacheStore,
+    FacadeWheelBuilder,
+    is_index_variant,
+)
 from .triton_wheels import TritonWheelBuilder, prewarm_targets as triton_prewarm_targets
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
@@ -69,6 +76,7 @@ def create_facade_app(
             application["facade_triton_builder"] = TritonWheelBuilder(session)
             application["facade_triton_cache"] = FacadeCacheStore(cache_prefix, storage_options=cache_storage_options)
             application["facade_triton_locks"] = {}
+            application["facade_pypi_rewrite_locks"] = {}
             with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
                 projects = await registry.list_projects()
                 warmup_span.set_attribute("facade.project_count", len(projects))
@@ -240,6 +248,29 @@ def create_facade_app(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
 
+    async def pypi_rewrite_package_download(request: web.Request) -> web.StreamResponse:
+        filename = request.match_info["filename"]
+        spec = PYPI_SDIST_REWRITE_FILENAME_INDEX.get(filename)
+        if spec is None:
+            raise web.HTTPNotFound(text="Unknown rewritten PyPI package")
+
+        cache: FacadeCacheStore = app["facade_triton_cache"]
+        path = cache.custom_path("pypi-rewrite", spec.name, filename)
+        locks: dict = app["facade_pypi_rewrite_locks"]
+        lock = locks.setdefault(filename, asyncio.Lock())
+        async with lock:
+            if not cache.exists(path):
+                session: aiohttp.ClientSession = app["facade_session"]
+                cache.write_bytes(path, await spec.build_sdist(session))
+            cached = cache.cached_wheel(path)
+        if cached.local_path is not None:
+            return web.FileResponse(path=cached.local_path)
+        return web.Response(
+            body=cache.read_bytes(path),
+            content_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/", index)
@@ -268,6 +299,7 @@ def create_facade_app(
     app.router.add_get("/simple/{first}/{second}/", simple_two_segments)
     app.router.add_get("/simple/{segment}/", simple_one_segment)
     app.router.add_get("/packages/triton/{cuda}/{filename}", triton_package_download)
+    app.router.add_get("/packages/pypi-rewrite/{filename}", pypi_rewrite_package_download)
     app.router.add_get("/packages/{project}/{version}/{filename}", package_download)
     app.router.add_get("/{segment}/", simple_one_segment)
     return app
