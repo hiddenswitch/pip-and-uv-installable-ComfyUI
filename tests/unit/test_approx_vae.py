@@ -1,10 +1,10 @@
-import shutil
-
 import pytest
-from huggingface_hub import hf_hub_download
+import torch
+from safetensors.torch import save_file
 
 from comfy.cli_args_types import Configuration
 from comfy.client.embedded_comfy_client import Comfy
+from comfy.taesd.taesd import Decoder, Encoder
 
 
 def build_workflow(vae_encoder_option="", vae_decoder_option=""):
@@ -102,17 +102,13 @@ async def test_approx_vae_found(tmp_path_factory):
             # should not attempt to download
             await comfy.queue_prompt_api(workflow)
 
-        # download both vaes
-        taesdxl_decoder_path = hf_hub_download("madebyollin/taesdxl", "taesdxl_decoder.safetensors")
-        taesdxl_encoder_path = hf_hub_download("madebyollin/taesdxl", "taesdxl_encoder.safetensors")
-        assert taesdxl_decoder_path is not None
-        assert taesdxl_encoder_path is not None
-
         vae_approx_dir = base_dir / "models" / "vae_approx"
         vae_approx_dir.mkdir(parents=True, exist_ok=True)
 
-        shutil.copy(taesdxl_encoder_path, vae_approx_dir / "taesdxl_encoder.safetensors")
-        shutil.copy(taesdxl_decoder_path, vae_approx_dir / "taesdxl_decoder.safetensors")
+        encoder = {name: torch.zeros_like(value) for name, value in Encoder().state_dict().items()}
+        decoder = {name: torch.zeros_like(value) for name, value in Decoder().state_dict().items()}
+        save_file(encoder, vae_approx_dir / "taesdxl_encoder.safetensors")
+        save_file(decoder, vae_approx_dir / "taesdxl_decoder.safetensors")
 
         # now should work
         await comfy.queue_prompt_api(workflow)
