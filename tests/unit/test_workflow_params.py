@@ -250,7 +250,7 @@ def test_class_type_roles_tags_ksampler_widgets():
             _api(
                 "3", "KSampler",
                 seed=42, steps=20, cfg=8.0,
-                sampler_name="euler", scheduler="normal", denoise=1.0,
+                sampler_name="euler", scheduler="normal", denoise=1,
                 model=["1", 0],
             ),
         ]
@@ -263,6 +263,7 @@ def test_class_type_roles_tags_ksampler_widgets():
     assert by_widget["sampler_name"].roles == {"sampler"}
     assert by_widget["scheduler"].roles == {"scheduler"}
     assert by_widget["denoise"].roles == {"denoise"}
+    assert by_widget["denoise"].type == "FLOAT"
     # All class_type_roles output sits at TIER_COMMON
     for p in out:
         assert p.tier == TIER_COMMON
@@ -1134,6 +1135,25 @@ def test_qwen_image_layered_sampler_parameter_values():
     cfg = params_by_role(params, "cfg")
     assert [(param.value, param.type) for param in steps] == [(20, "INT")]
     assert [(param.value, param.type) for param in cfg] == [(2.5, "FLOAT")]
+
+
+def test_qwen_image_layered_blueprint_sampler_parameter_values():
+    from comfy.nodes.package_typing import ExportedNodes
+
+    blueprint = (
+        Path(__file__).parents[2]
+        / "comfy"
+        / "blueprints"
+        / "Image to Layers(Qwen-Image-Layered).json"
+    )
+    workflow = json.loads(blueprint.read_text(encoding="utf-8"))
+    params = discover(workflow, node_mappings=ExportedNodes())
+
+    assert [(param.value, param.type) for param in params_by_role(params, "steps")] == [(20, "INT")]
+    assert [(param.value, param.type) for param in params_by_role(params, "cfg")] == [(2.5, "FLOAT")]
+    assert [(param.value, param.type) for param in params_by_role(params, "sampler")] == [("euler", "STRING")]
+    assert [(param.value, param.type) for param in params_by_role(params, "scheduler")] == [("simple", "STRING")]
+    assert [(param.value, param.type) for param in params_by_role(params, "denoise")] == [(1, "FLOAT")]
 
 
 def test_yt_bgswap_v01_image_loader_is_loadimage_node_42():

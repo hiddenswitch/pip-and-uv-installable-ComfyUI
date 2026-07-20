@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 
 def test_unknown_subgraph_widgets_align_with_serialized_value_types():
     node = {
-        "inputs": [
-            {"name": "steps", "type": "INT", "widget": {"name": "steps"}},
-            {"name": "cfg", "type": "FLOAT", "widget": {"name": "cfg"}},
-        ],
+        # Compression removes unlinked widget inputs before unknown nodes are
+        # mapped, so use the serialized type metadata retained at that point.
+        "inputs": [],
         "_widget_names_ordered": ["steps", "cfg"],
+        "_widget_types_ordered": ["INT", "FLOAT"],
     }
 
     assert _map_unknown_widgets(

@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 _DIRECT_ROLES: dict[tuple[str, str], str] = {}
+_ROLE_TYPES = {
+    "steps": "INT",
+    "cfg": "FLOAT",
+    "sampler": "STRING",
+    "scheduler": "STRING",
+    "denoise": "FLOAT",
+    "seed": "INT",
+    "width": "INT",
+    "height": "INT",
+    "batch_size": "INT",
+}
 
 
 def _seed_direct_roles() -> None:
@@ -240,7 +251,7 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
                         class_type=source_node.get("class_type") or "",
                         widget_name=source_widget,
                         value=source_value,
-                        type=_infer_type(source_value),
+                        type=_ROLE_TYPES.get(role, _infer_type(source_value)),
                         roles={role},
                         tier=TIER_COMMON,
                         flag_name=role.replace("_", "-"),
@@ -254,7 +265,7 @@ def class_type_roles(api: dict, ui: dict | None) -> list[Param]:
                     class_type=class_type,
                     widget_name=widget_name,
                     value=value,
-                    type=_infer_type(value),
+                    type=_ROLE_TYPES.get(role, _infer_type(value)),
                     roles={role},
                     tier=TIER_COMMON,
                     flag_name=role.replace("_", "-"),
@@ -819,7 +830,10 @@ def _merge(into: dict[tuple[str, str], Param], candidate: Param) -> None:
         existing.flag_name = candidate.flag_name
     if existing.label is None and candidate.label is not None:
         existing.label = candidate.label
-    if existing.type == "ANY" and candidate.type != "ANY":
+    if candidate.type != "ANY" and (
+        existing.type == "ANY"
+        or any(source.startswith("class_type_roles") for source in candidate.source_predicates)
+    ):
         existing.type = candidate.type
     if not existing.options and candidate.options:
         existing.options = candidate.options

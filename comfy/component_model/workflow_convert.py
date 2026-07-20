@@ -496,12 +496,14 @@ def _unknown_widget_value_matches_type(value, type_spec) -> bool:
 
 
 def _align_unknown_widget_values(node: dict, widgets_values: list, ordered_names: list[str]) -> list[object] | None:
-    widget_inputs = {
-        (inp.get('widget') or {}).get('name') or inp.get('name'): inp
-        for inp in node.get('inputs', []) or []
-        if isinstance(inp.get('widget'), dict)
-    }
-    types = [widget_inputs.get(name, {}).get('type') for name in ordered_names]
+    types = node.get('_widget_types_ordered')
+    if not isinstance(types, list) or len(types) != len(ordered_names):
+        widget_inputs = {
+            (inp.get('widget') or {}).get('name') or inp.get('name'): inp
+            for inp in node.get('inputs', []) or []
+            if isinstance(inp.get('widget'), dict)
+        }
+        types = [widget_inputs.get(name, {}).get('type') for name in ordered_names]
     if not all(types):
         return None
 
@@ -856,14 +858,17 @@ def _compress_widget_input_slots(workflow: dict) -> dict:
             if not isinstance(inputs, list):
                 continue
             widget_names_ordered: list[str] = []
+            widget_types_ordered: list[str] = []
             for inp in inputs:
                 widget = inp.get('widget')
                 if isinstance(widget, dict):
                     name = widget.get('name') or inp.get('name')
                     if isinstance(name, str):
                         widget_names_ordered.append(name)
+                        widget_types_ordered.append(inp.get('type'))
             if widget_names_ordered:
                 node['_widget_names_ordered'] = widget_names_ordered
+                node['_widget_types_ordered'] = widget_types_ordered
             compressed_inputs = [inp for inp in inputs if _matches_legacy_api_input(inp)]
             node['inputs'] = compressed_inputs
 
