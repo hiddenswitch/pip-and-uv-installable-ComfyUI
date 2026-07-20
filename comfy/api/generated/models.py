@@ -99,15 +99,18 @@ class PromptInfo(BaseModel):
 
 
 class QueueInfo(BaseModel):
-    queue_running: list[list[Any]] | None = Field(
-        None, description='Currently running queue items'
-    )
-    queue_pending: list[list[Any]] | None = Field(
-        None, description='Pending queue items (oldest first)'
-    )
+    queue_running: (
+        list[tuple[float, UUID, dict[str, Any], dict[str, Any], list[str]]] | None
+    ) = Field(None, description='Currently running queue items')
+    queue_pending: (
+        list[tuple[float, UUID, dict[str, Any], dict[str, Any], list[str]]] | None
+    ) = Field(None, description='Pending queue items (oldest first)')
 
 
 class QueueManageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     clear: bool | None = Field(None, description='If true, clear all pending items')
     delete: list[str] | None = Field(
         None, description='Array of prompt IDs to delete from queue'
@@ -121,8 +124,17 @@ class QueueManageResponse(BaseModel):
     cleared: bool | None = Field(None, description='Whether the queue was cleared.')
 
 
+class Prompt(BaseModel):
+    extra_data: dict[str, Any] | None = Field(
+        None,
+        description='Additional execution data (workflow removed from extra_pnginfo)',
+    )
+    priority: float | None = Field(None, description='Execution priority')
+    prompt_id: str | None = Field(None, description='The prompt ID')
+
+
 class HistoryEntry(BaseModel):
-    prompt: list[Any] | None = Field(
+    prompt: list[Any] | Prompt | None = Field(
         None,
         description='Prompt tuple: [number, prompt_id, prompt_graph, extra_data, output_node_ids]\n',
     )
@@ -135,9 +147,21 @@ class HistoryEntry(BaseModel):
     meta: dict[str, Any] | None = Field(
         None, description='Metadata about the execution and nodes'
     )
+    create_time: int | None = Field(
+        None, description='Job creation timestamp (Unix timestamp in milliseconds)'
+    )
+    prompt_id: str | None = Field(
+        None, description='Unique identifier for this prompt execution'
+    )
+    workflow_id: str | None = Field(
+        None, description='UUID identifying the workflow graph definition'
+    )
 
 
 class HistoryManageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     clear: bool | None = Field(None, description='If true, clear all history')
     delete: list[str] | None = Field(
         None, description='Array of prompt IDs to delete from history'
@@ -153,22 +177,39 @@ class Status(Enum):
 
 
 class ExecutionError(BaseModel):
-    node_id: str | None = Field(None, description='ID of the node that failed')
-    node_type: str | None = Field(None, description='Type name of the node')
-    exception_message: str | None = Field(
-        None, description='Human-readable error message'
+    node_id: str = Field(..., description='ID of the node that failed')
+    node_type: str = Field(..., description='Type name of the node')
+    exception_message: str = Field(..., description='Human-readable error message')
+    exception_type: str = Field(..., description='Python exception type')
+    traceback: list[str] = Field(..., description='Traceback lines')
+    current_inputs: dict[str, Any] = Field(
+        ...,
+        description='Input values at time of failure (empty object if not available)',
     )
-    exception_type: str | None = Field(None, description='Python exception type')
-    traceback: list[str] | None = Field(None, description='Traceback lines')
-    current_inputs: dict[str, Any] | None = None
-    current_outputs: dict[str, Any] | None = None
+    current_outputs: dict[str, Any] = Field(
+        ...,
+        description='Output values at time of failure (empty object if not available)',
+    )
 
 
 class PaginationInfo(BaseModel):
-    offset: int | None = None
-    limit: int | None = None
-    total: int | None = None
-    has_more: bool | None = None
+    offset: conint(ge=0) = Field(
+        ...,
+        deprecated=True,
+        description='Current offset (0-based). Deprecated: use cursor-based pagination.',
+    )
+    limit: conint(ge=1) = Field(..., description='Items per page')
+    total: conint(ge=0) = Field(
+        ...,
+        description='Total number of items matching filters (may be 0 when using cursor pagination)',
+    )
+    has_more: bool = Field(
+        ..., description='Whether more items are available beyond this page'
+    )
+    next_cursor: str | None = Field(
+        None,
+        description='Opaque cursor for the next page. Pass this value as the `after`\nquery parameter on the next request. Empty or absent when there\nare no more results.\n',
+    )
 
 
 class UploadResult(BaseModel):
@@ -225,11 +266,41 @@ class System(BaseModel):
         None,
         description='Installed and required versions for every comfy* package pinned in requirements.txt',
     )
+    cloud_version: str | None = Field(
+        None, description='Cloud ingest service version (commit hash)'
+    )
+    comfyui_frontend_version: str | None = Field(
+        None, description='ComfyUI frontend version (commit hash or tag)'
+    )
+    deploy_environment: str | None = Field(
+        None,
+        description='How this ComfyUI instance is deployed (e.g. cloud, local-git, local-portable, local-desktop)',
+    )
+    workflow_templates_version: str | None = Field(
+        None, description='Workflow templates version'
+    )
+
+
+class Device(BaseModel):
+    name: str = Field(..., description='Device name')
+    type: str = Field(..., description='Device type')
+    index: float = Field(
+        ...,
+        description="Device index within its type (e.g. CUDA ordinal for `cuda:0`,\n`cuda:1`). `null` for devices with no index, including the CPU\ndevice returned in `--cpu` mode (PyTorch's `torch.device('cpu').index`\nis `None`).\n",
+    )
+    vram_total: float | None = Field(None, description='Total VRAM in bytes')
+    vram_free: float | None = Field(None, description='Free VRAM in bytes')
+    torch_vram_total: float | None = Field(
+        None, description='Total PyTorch-managed VRAM in bytes'
+    )
+    torch_vram_free: float | None = Field(
+        None, description='Free PyTorch-managed VRAM in bytes'
+    )
 
 
 class SystemStatsResponse(BaseModel):
     system: System
-    devices: list[DeviceStats]
+    devices: list[Device]
 
 
 class NodeInfo(BaseModel):
@@ -279,13 +350,27 @@ class NodeInfo(BaseModel):
 
 
 class ModelFolder(BaseModel):
-    name: str = Field(..., description='Model folder type name (e.g. "checkpoints")')
-    folders: list[str] = Field(..., description='Filesystem paths for this model type')
+    name: str = Field(
+        ...,
+        description='Model folder type name (e.g. "checkpoints")',
+        examples=['checkpoints'],
+    )
+    folders: list[str] = Field(
+        ...,
+        description='Filesystem paths for this model type',
+        examples=[['checkpoints']],
+    )
+    extensions: list[str] = Field(
+        ...,
+        description='Registered file-extension allowlist. An empty array accepts any extension.',
+    )
 
 
 class ModelFile(BaseModel):
-    name: str = Field(..., description='Model filename')
-    pathIndex: int = Field(..., description="Index into the folder's paths array")
+    name: str = Field(..., description='Model filename', examples=['model.safetensors'])
+    pathIndex: int = Field(
+        ..., description="Index into the folder's paths array", examples=[0]
+    )
     modified: float | None = Field(None, description='File modification timestamp')
     created: float | None = Field(None, description='File creation timestamp')
     size: int | None = Field(None, description='File size in bytes')
@@ -327,6 +412,13 @@ class GetUserDataResponseFullFile(BaseModel):
 class Asset(BaseModel):
     id: UUID = Field(..., description='Unique identifier for the asset')
     name: str = Field(..., description='Name of the asset file')
+    loader_path: str | None = Field(
+        None,
+        description='The value a loader consumes to load this asset. Null when no loader can resolve the file.',
+    )
+    display_name: str | None = Field(
+        None, description='Human-facing label for the asset. Not unique.'
+    )
     hash: constr(pattern=r'^blake3:[a-f0-9]{64}$') | None = Field(
         None, description='Blake3 content hash of the asset (preferred over asset_hash)'
     )
@@ -358,11 +450,25 @@ class Asset(BaseModel):
     job_id: UUID | None = Field(
         None, description='ID of the job that created this asset'
     )
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
-    last_access_time: AwareDatetime | None = None
+    created_at: AwareDatetime = Field(
+        ..., description='Timestamp when the asset was created'
+    )
+    updated_at: AwareDatetime = Field(
+        ..., description='Timestamp when the asset was last updated'
+    )
+    last_access_time: AwareDatetime | None = Field(
+        None, description='Timestamp when the asset was last accessed'
+    )
     is_immutable: bool | None = Field(
         None, description='Whether this asset is immutable'
+    )
+    file_path: str | None = Field(
+        None,
+        description='Relative path in global-namespace-root form (e.g. "models/checkpoints/flux.safetensors")',
+    )
+    short_url: str | None = Field(
+        None,
+        description="Durable, owner-gated short link to this asset's content (relative `/api/s/{id}` path). Stable across the underlying signed URL's expiry — resolving it re-mints a fresh signed URL on every request — so it is safe to persist or share into chat, unlike `preview_url`. Only the minting user can resolve it. Omitted when the short-link surface is disabled or the asset has no resolvable content hash.",
     )
 
 
@@ -374,8 +480,8 @@ class AssetCreated(Asset):
 
 
 class AssetUpdated(BaseModel):
-    id: UUID
-    name: str | None = None
+    id: UUID = Field(..., description='Asset ID')
+    name: str | None = Field(None, description='Updated name of the asset')
     hash: constr(pattern=r'^blake3:[a-f0-9]{64}$') | None = Field(
         None, description='Blake3 content hash of the asset (preferred over asset_hash)'
     )
@@ -384,9 +490,11 @@ class AssetUpdated(BaseModel):
         deprecated=True,
         description='Deprecated: use `hash` instead. Blake3 hash of the asset content.',
     )
-    tags: list[str] | None = None
-    mime_type: str | None = None
-    user_metadata: dict[str, Any] | None = None
+    tags: list[str] | None = Field(None, description='Tags associated with the asset')
+    mime_type: str | None = Field(None, description='Updated MIME type of the asset')
+    user_metadata: dict[str, Any] | None = Field(
+        None, description='Updated custom metadata'
+    )
     prompt_id: UUID | None = Field(
         None,
         deprecated=True,
@@ -395,29 +503,45 @@ class AssetUpdated(BaseModel):
     job_id: UUID | None = Field(
         None, description='ID of the job that created this asset'
     )
-    updated_at: AwareDatetime
+    updated_at: AwareDatetime = Field(..., description='Timestamp of the update')
+    display_name: str | None = Field(
+        None,
+        description='Display name of the asset. Mirrors name for backwards compatibility.',
+    )
+    file_path: str | None = Field(
+        None,
+        description='Relative path in global-namespace-root form (e.g. "models/checkpoints/flux.safetensors")',
+    )
 
 
 class ListAssetsResponse(BaseModel):
-    assets: list[Asset]
-    total: int
-    has_more: bool
+    assets: list[Asset] = Field(..., description='List of assets matching the query')
+    total: int = Field(..., description='Total number of assets matching the filters')
+    has_more: bool = Field(
+        ..., description='Whether more assets are available beyond this page'
+    )
+    next_cursor: str | None = Field(
+        None,
+        description='Opaque cursor to pass as the `after` query parameter to fetch the\nnext page. Omitted from the response when there are no more results.\n',
+    )
 
 
 class TagInfo(BaseModel):
-    name: str
-    count: int
+    name: str = Field(..., description='Tag name')
+    count: int = Field(..., description='Number of assets using this tag')
 
 
 class ListTagsResponse(BaseModel):
-    tags: list[TagInfo]
-    total: int
-    has_more: bool
+    tags: list[TagInfo] = Field(..., description='List of tags')
+    total: int = Field(..., description='Total number of tags')
+    has_more: bool = Field(..., description='Whether more tags are available')
 
 
 class AssetTagHistogramResponse(BaseModel):
     tag_counts: dict[str, int] = Field(
-        ..., description='Map of tag names to occurrence counts'
+        ...,
+        description='Map of tag names to occurrence counts',
+        examples=[{'checkpoint': 32, 'lora': 193, 'vae': 6}],
     )
 
 
@@ -1260,10 +1384,22 @@ class Status7(Enum):
 
 
 class AssetInfo(BaseModel):
-    id: str
+    id: str = Field(..., description='Asset identifier.')
     filename: str
     mime_type: str | None = None
     size_bytes: int | None = None
+    in_library: bool | None = Field(
+        None, description='Whether the caller already owns this asset.'
+    )
+    model: bool | None = Field(None, description='Whether this asset is a model.')
+    name: str | None = None
+    preview_url: str | None = Field(
+        None, description='Signed URL for previewing the asset.'
+    )
+    public: bool | None = Field(
+        None, description='Whether this is a public (platform-provided) asset.'
+    )
+    storage_url: str | None = None
 
 
 class BulkRevokeAPIKeysResponse(BaseModel):
@@ -1275,7 +1411,9 @@ class CreateWorkflowVersionRequest(BaseModel):
         ...,
         description='Version number this change is based on (for optimistic concurrency).',
     )
-    workflow_json: dict[str, Any]
+    workflow_json: dict[str, Any] = Field(
+        ..., description='The updated ComfyUI workflow JSON'
+    )
 
 
 class WorkflowVersionResponse(BaseModel):
@@ -1291,7 +1429,9 @@ class WorkflowPublishInfo(BaseModel):
     share_id: str
     publish_time: AwareDatetime | None = None
     listed: bool
-    assets: list[AssetInfo]
+    assets: list[AssetInfo] = Field(
+        ..., description='Published assets (inputs and models).'
+    )
 
 
 class Status8(Enum):
@@ -1302,30 +1442,47 @@ class Status8(Enum):
 
 
 class TaskEntry(BaseModel):
-    id: UUID
-    task_name: str
-    status: Status8
-    create_time: AwareDatetime
-    started_at: AwareDatetime | None = None
-    completed_at: AwareDatetime | None = None
+    id: UUID = Field(..., description='Unique task identifier')
+    task_name: str = Field(..., description='Task type name (e.g., model_upload)')
+    status: Status8 = Field(..., description='Current task status')
+    create_time: AwareDatetime = Field(..., description='Task creation timestamp')
+    started_at: AwareDatetime | None = Field(
+        None, description='When task execution started (null if not started)'
+    )
+    completed_at: AwareDatetime | None = Field(
+        None, description='When task completed or failed (null if not finished)'
+    )
 
 
 class TaskResponse(BaseModel):
-    id: UUID
-    idempotency_key: str
-    task_name: str
-    payload: dict[str, Any]
-    status: Status8
-    result: dict[str, Any] | None = None
-    create_time: AwareDatetime
-    update_time: AwareDatetime
-    started_at: AwareDatetime | None = None
-    completed_at: AwareDatetime | None = None
+    id: UUID = Field(..., description='Unique task identifier')
+    idempotency_key: str = Field(
+        ..., description='Caller-provided key for idempotent task creation'
+    )
+    task_name: str = Field(..., description='Task type name (e.g., model_upload)')
+    payload: dict[str, Any] = Field(..., description='Task input data')
+    status: Status8 = Field(..., description='Current task status')
+    result: dict[str, Any] | None = Field(
+        None, description='Task output data (null if not completed)'
+    )
+    create_time: AwareDatetime = Field(..., description='Task creation timestamp')
+    update_time: AwareDatetime = Field(..., description='Task last update timestamp')
+    started_at: AwareDatetime | None = Field(
+        None, description='When task execution started (null if not started)'
+    )
+    completed_at: AwareDatetime | None = Field(
+        None, description='When task completed or failed (null if not finished)'
+    )
     error: str | None = None
+    error_message: str | None = Field(
+        None, description='Error message on failure (null if not failed)'
+    )
 
 
 class TasksListResponse(BaseModel):
-    tasks: list[TaskEntry]
+    tasks: list[TaskEntry] = Field(
+        ..., description='Array of tasks ordered by create_time'
+    )
     pagination: PaginationInfo
 
 
@@ -1377,7 +1534,7 @@ class GetUserDataResponseFull(RootModel[list[GetUserDataResponseFullFile]]):
     )
 
 
-class Prompt(BaseModel):
+class Prompt1(BaseModel):
     priority: float | None = Field(None, description='Execution priority')
     prompt_id: str | None = Field(None, description='The prompt ID')
     prompt: dict[str, Any] | None = Field(None, description='The workflow nodes')
@@ -1390,7 +1547,7 @@ class Prompt(BaseModel):
 
 
 class HistoryDetailEntry(BaseModel):
-    prompt: Prompt | None = Field(None, description='Full prompt execution data')
+    prompt: Prompt1 | None = Field(None, description='Full prompt execution data')
     outputs: dict[str, Any] | None = Field(
         None, description='Output data from execution (generated images, files, etc.)'
     )
@@ -1787,6 +1944,10 @@ class BindingErrorResponse(BaseModel):
 class ErrorResponse(BaseModel):
     code: str = Field(..., description='Machine-readable error code')
     message: str = Field(..., description='Human-readable error message')
+    details: dict[str, Any] | None = Field(
+        None,
+        description='Optional open object carrying structured, machine-readable context about the error (e.g. offending field names, validation specifics). Absent for most errors; consumers must not assume any particular shape.',
+    )
 
 
 class AcceptInviteResponse(BaseModel):
@@ -1948,6 +2109,13 @@ class FeedbackRequest(BaseModel):
     type: Type7 | None = Field(None, description='Feedback category')
     category: str | None = Field(None, description='Additional category metadata')
     message: str = Field(..., description='User-provided feedback message')
+    content: str | None = Field(None, description='The feedback content or message')
+    metadata: dict[str, Any] | None = Field(
+        None, description='Additional metadata about the feedback'
+    )
+    rating: conint(ge=1, le=5) | None = Field(
+        None, description="User's rating of ComfyUI Cloud experience (1-5 stars)"
+    )
 
 
 class InputSpec(RootModel[list[Any]]):
@@ -2230,6 +2398,59 @@ class ExecutionStatusAsDict(BaseModel):
     messages: list[str]
 
 
+class CreateWorkflowRequest(BaseModel):
+    default_view: DefaultView | None = Field(None, description='Default view mode')
+    description: str | None = Field(None, description='Description of the workflow')
+    forked_from_workflow_id: str | None = Field(
+        None, description='ID of the source workflow if forked'
+    )
+    forked_from_workflow_version_id: str | None = Field(
+        None, description='ID of the source workflow version if forked'
+    )
+    name: str | None = Field(None, description='Display name for the workflow')
+    workflow_json: dict[str, Any] = Field(..., description='The ComfyUI workflow JSON')
+
+
+class FeedbackResponse(BaseModel):
+    pass
+
+
+class ForkWorkflowRequest(BaseModel):
+    name: str | None = Field(None, description='Name for the forked workflow')
+    source_version: int = Field(..., description='Version number to fork from')
+
+
+class JobsCancelRequest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    job_ids: list[UUID] = Field(
+        ...,
+        description='Job identifiers (UUIDs) to cancel.',
+        max_length=100,
+        min_length=1,
+    )
+
+
+class JobsCancelResponse(BaseModel):
+    cancelled: list[str] = Field(
+        ...,
+        description='Job IDs for which a cancel event was successfully dispatched by this\ncall. Jobs already in a terminal or cancelling state are idempotently\nskipped and will not appear here.\n',
+    )
+
+
+class PublishWorkflowAssetsRequest(BaseModel):
+    asset_ids: list[str] = Field(
+        ..., description='IDs of assets (inputs and models) to snapshot.'
+    )
+
+
+class UpdateWorkflowRequest(BaseModel):
+    default_view: DefaultView | None = Field(None, description='New default view mode')
+    description: str | None = Field(None, description='New description')
+    name: str | None = Field(None, description='New display name')
+
+
 class PromptResponse(BaseModel):
     prompt_id: UUID | None = Field(
         None, description='Unique identifier for the prompt execution'
@@ -2271,14 +2492,33 @@ class JobEntry(BaseModel):
     )
 
 
+class ExecutionError1(ExecutionError):
+    node_id: str = Field(..., description='ID of the node that failed')
+    node_type: str = Field(..., description='Type name of the node')
+    exception_message: str = Field(..., description='Human-readable error message')
+    exception_type: str = Field(..., description='Python exception type')
+    traceback: list[str] = Field(..., description='Traceback lines')
+    current_inputs: dict[str, Any] = Field(
+        ...,
+        description='Input values at time of failure (empty object if not available)',
+    )
+    current_outputs: dict[str, Any] = Field(
+        ...,
+        description='Output values at time of failure (empty object if not available)',
+    )
+
+
 class JobDetailResponse(BaseModel):
-    id: UUID
-    status: Status
+    id: UUID = Field(..., description='Unique job identifier')
+    status: Status = Field(..., description='User-friendly job status')
     workflow: dict[str, Any] | None = Field(None, description='Full ComfyUI workflow')
     outputs: dict[str, Any] | None = Field(
         None, description='Full outputs object from execution'
     )
-    execution_error: ExecutionError | None = None
+    execution_error: ExecutionError1 | None = Field(
+        None,
+        description='Detailed execution error from ComfyUI (only for failed jobs with structured error data)',
+    )
     create_time: int | None = Field(
         None, description='Job creation timestamp (Unix milliseconds).'
     )
@@ -2293,10 +2533,31 @@ class JobDetailResponse(BaseModel):
         None,
         description='Workflow execution end timestamp (Unix milliseconds, terminal states only).',
     )
-    preview_output: dict[str, Any] | None = None
-    outputs_count: int | None = None
-    execution_status: dict[str, Any] | None = None
-    execution_meta: dict[str, Any] | None = None
+    preview_output: dict[str, Any] | None = Field(
+        None, description='Primary preview output (only for terminal states)'
+    )
+    outputs_count: int | None = Field(
+        None,
+        description='Total number of output files (omitted for non-terminal states)',
+    )
+    execution_status: dict[str, Any] | None = Field(
+        None,
+        description='ComfyUI execution status and timeline (only for terminal states)',
+    )
+    execution_meta: dict[str, Any] | None = Field(
+        None, description='Node-level execution metadata (only for terminal states)'
+    )
+    user_id: str | None = Field(
+        None,
+        description="ID of the user that owns this job (see the `workspace_id`\ndescription above for why this is always the caller's own id\non a successful response).\n",
+    )
+    workflow_id: str | None = Field(
+        None, description='UUID identifying the workflow graph definition'
+    )
+    workspace_id: str | None = Field(
+        None,
+        description="ID of the workspace that owns this job. A successful (200)\nresponse from this operation is only ever returned for the\ncaller's own job (see this operation's ownership-scoped\nquery), so this is always the caller's own workspace —\nconsumers that also need to correlate this job to its\nlive-progress broadcast channel (workspace+user scoped; see\nthe internal common/gateways/broadcast package) can use this\nvalue directly rather than resolving their own identity a\nsecond way.\n",
+    )
 
 
 class UserDataResponse(RootModel[GetUserDataResponseFullFile | str]):
@@ -2544,7 +2805,7 @@ class ExtraData(BaseModel):
     extra_pnginfo: ExtraPnginfo | None = None
 
 
-class Prompt1(RootModel[dict[str, PromptNode]]):
+class Prompt2(RootModel[dict[str, PromptNode]]):
     root: dict[str, PromptNode]
 
 
@@ -2561,7 +2822,7 @@ class JobWorkflowContainer(BaseModel):
     model_config = ConfigDict(
         extra='allow',
     )
-    prompt: Prompt1 | None = None
+    prompt: Prompt2 | None = None
     extra_data: ExtraData | None = None
 
 
