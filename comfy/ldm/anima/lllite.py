@@ -4,8 +4,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-import comfy.ops
-import comfy.utils
+from ... import ops
+from ... import utils
 
 
 MODULE_PATTERN = re.compile(r"lllite_dit_blocks_(\d+)_(self_attn_[qkv]_proj|cross_attn_q_proj|mlp_layer1)$")
@@ -114,7 +114,7 @@ class AnimaLLLiteModule(nn.Module):
         if x.shape[1] != cond_emb.shape[1]:
             raise ValueError(f"Anima LLLite sequence mismatch: model input has {x.shape[1]} tokens, control has {cond_emb.shape[1]}")
 
-        cond_local = cond_emb + comfy.ops.cast_to_input(self.depth_embed, cond_emb)
+        cond_local = cond_emb + ops.cast_to_input(self.depth_embed, cond_emb)
         hidden = F.silu(self.down(x))
         gamma, beta = self.cond_to_film(cond_local).chunk(2, dim=-1)
         hidden = self.mid(torch.cat((cond_local, hidden), dim=-1))
@@ -208,7 +208,7 @@ class AnimaLLLitePatch:
 
         target_height = x.shape[-2] * 8
         target_width = x.shape[-1] * 8
-        image = comfy.utils.common_upscale(
+        image = utils.common_upscale(
             self.image.movedim(-1, 1), target_width, target_height, "bicubic", crop="center"
         ).clamp(0.0, 1.0)
         image = image.to(device=x.device, dtype=x.dtype) * 2.0 - 1.0
@@ -219,7 +219,7 @@ class AnimaLLLitePatch:
                 mask = mask.unsqueeze(1)
             if mask.ndim != 4 or mask.shape[1] != 1:
                 raise ValueError(f"Anima LLLite mask must have one channel, got shape {tuple(mask.shape)}")
-            mask = comfy.utils.common_upscale(
+            mask = utils.common_upscale(
                 mask.float(), target_width, target_height, "nearest-exact", crop="center"
             )
             if mask.shape[0] != image.shape[0]:

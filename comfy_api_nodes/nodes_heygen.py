@@ -3,6 +3,7 @@ import uuid
 import torch
 from typing_extensions import override
 
+from comfy.cmd.server import PromptServer
 from comfy_api.latest import IO, ComfyExtension, Input
 from comfy_api_nodes.apis.heygen import (
     HEYGEN_AVATAR_MAP,
@@ -29,7 +30,6 @@ from comfy_api_nodes.util import (
     upload_video_to_comfyapi,
     validate_string,
 )
-from server import PromptServer
 
 _VIDEOS_PATH = "/proxy/heygen/v3/videos"
 _TRANSLATIONS_PATH = "/proxy/heygen/v3/video-translations"

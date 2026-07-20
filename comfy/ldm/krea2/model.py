@@ -15,7 +15,7 @@ from einops import rearrange
 import comfy.model_management
 import comfy.patcher_extension
 import comfy.ldm.common_dit
-import comfy.utils
+from ... import utils
 from comfy.ldm.flux.layers import EmbedND, timestep_embedding
 from comfy.ldm.flux.math import apply_rope
 from comfy.ldm.modules.attention import optimized_attention_masked
@@ -316,7 +316,7 @@ class SingleStreamDiT(nn.Module):
                 if ref.ndim == 5:
                     rb, rc, rt, rh5, rw5 = ref.shape
                     ref = ref.reshape(rb * rt, rc, rh5, rw5)
-                ref = comfy.utils.repeat_to_batch_size(ref, bs)
+                ref = utils.repeat_to_batch_size(ref, bs)
                 kontext, kontext_ids, _, _ = self.process_img(ref, index=index)
                 ref_tokens.append(kontext)
                 ref_pos.append(kontext_ids)

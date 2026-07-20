@@ -1,8 +1,8 @@
 import torch
 
-from comfy import sd1_clip
-import comfy.text_encoders.qwen_vl
-from comfy.text_encoders.qwen3vl import Qwen3VL, Qwen3VLTokenizer
+from .. import sd1_clip
+from . import qwen_vl
+from .qwen3vl import Qwen3VL, Qwen3VLTokenizer
 
 JOYIMAGE_VISION_BLOCK = "<|vision_start|><|image_pad|><|vision_end|>"
 JOYIMAGE_TEMPLATE_TEXT = (
@@ -25,7 +25,7 @@ class Qwen3VL8B_JoyImage(Qwen3VL):
 
     def preprocess_embed(self, embed, device):
         if embed["type"] == "image":
-            image, grid = comfy.text_encoders.qwen_vl.process_qwen2vl_images(
+            image, grid = qwen_vl.process_qwen2vl_images(
                 embed["data"], min_pixels=65536, max_pixels=16777216, patch_size=16,
                 image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5],
                 interpolation="bicubic",
@@ -54,9 +54,9 @@ class JoyImageTokenizer(Qwen3VLTokenizer):
 
 class _JoyImageClipModel(sd1_clip.SDClipModel):
     def __init__(self, device="cpu", layer="hidden", layer_idx=-1, dtype=None,
-                 attention_mask=True, model_options={}):
+                 attention_mask=True, model_options={}, textmodel_json_config=None):
         super().__init__(
-            device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={},
+            device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config or {},
             # JoyImage conditions on the pre-final-norm output of the last decoder layer.
             dtype=dtype, special_tokens={"pad": PAD_TOKEN}, layer_norm_hidden_state=False,
             model_class=Qwen3VL8B_JoyImage, enable_attention_masks=attention_mask,
@@ -65,10 +65,11 @@ class _JoyImageClipModel(sd1_clip.SDClipModel):
 
 
 class JoyImageTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
         super().__init__(
             device=device, dtype=dtype, name="qwen3vl_8b",
             clip_model=_JoyImageClipModel, model_options=model_options,
+            textmodel_json_config=textmodel_json_config,
         )
 
     def encode_token_weights(self, token_weight_pairs):
@@ -87,11 +88,11 @@ class JoyImageTEModel(sd1_clip.SD1ClipModel):
 
 def te(dtype_llama=None, llama_quantization_metadata=None):
     class JoyImageTEModel_(JoyImageTEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
             if dtype_llama is not None:
                 dtype = dtype_llama
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return JoyImageTEModel_

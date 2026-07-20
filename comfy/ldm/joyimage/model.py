@@ -6,11 +6,11 @@ import comfy_kitchen
 import torch
 import torch.nn as nn
 
-import comfy.ldm.common_dit
-import comfy.ops
-import comfy.patcher_extension
-from comfy.ldm.lightricks.model import GELU_approx, PixArtAlphaTextProjection, TimestepEmbedding, Timesteps
-from comfy.ldm.modules.attention import optimized_attention
+from ... import ops
+from ... import patcher_extension
+from .. import common_dit
+from ..lightricks.model import GELU_approx, PixArtAlphaTextProjection, TimestepEmbedding, Timesteps
+from ..modules.attention import optimized_attention
 
 
 class JoyImageModulate(nn.Module):
@@ -24,7 +24,7 @@ class JoyImageModulate(nn.Module):
     def forward(self, x: torch.Tensor) -> list:
         if x.ndim != 3:
             x = x.unsqueeze(1)
-        table = comfy.ops.cast_to_input(self.modulate_table, x)
+        table = ops.cast_to_input(self.modulate_table, x)
         return [o.squeeze(1) for o in (table + x).chunk(self.factor, dim=1)]
 
 
@@ -364,10 +364,10 @@ class JoyImageTransformer3DModel(nn.Module):
         **kwargs,
     ) -> torch.Tensor:
         transformer_options = {} if transformer_options is None else transformer_options.copy()
-        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        return patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
-            comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
+            patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(hidden_states, timestep, context, ref_latents, transformer_options, **kwargs)
 
     def _forward(
@@ -386,7 +386,7 @@ class JoyImageTransformer3DModel(nn.Module):
         component_sizes = []
         img_tokens = []
         for comp in components:
-            comp = comfy.ldm.common_dit.pad_to_patch_size(comp, self.patch_size)
+            comp = common_dit.pad_to_patch_size(comp, self.patch_size)
             _, _, ct, ch, cw = comp.shape
             component_sizes.append((ct // pt, ch // ph, cw // pw))
             tokens = self.img_in(comp).flatten(2).transpose(1, 2)  # (B, n_i, D)
