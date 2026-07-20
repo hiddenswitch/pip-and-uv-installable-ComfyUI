@@ -352,12 +352,17 @@ def _static_server(_server_port, _object_info_json):
 
 
 # ---------------------------------------------------------------------------
-# Session-scoped page fixture
+# Module-scoped page fixture
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def _app_page(_static_server, _object_info_json, _real_nodes):
-    """Create a Playwright browser page with the frontend loaded."""
+    """Create a Playwright browser page while this test module is active.
+
+    Playwright's synchronous API keeps its asyncio dispatcher running until
+    the context manager exits.  A session-scoped fixture therefore leaves a
+    running loop in the main thread when later pytest-asyncio tests start.
+    """
     port = _static_server
     base_url = f"http://127.0.0.1:{port}"
 
