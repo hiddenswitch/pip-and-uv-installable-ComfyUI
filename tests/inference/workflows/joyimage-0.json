@@ -1,0 +1,95 @@
+{
+  "3": {
+    "inputs": {
+      "unet_name": "joyai_image_edit_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader"
+  },
+  "4": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_joyimage_edit_int8_convrot.safetensors",
+      "type": "joyimage",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "5": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "6": {
+    "inputs": {
+      "clip": ["4", 0],
+      "vae": ["5", 0],
+      "images.image0": ["13", 0],
+      "prompt": "Add a small blue party hat while preserving the portrait."
+    },
+    "class_type": "TextEncodeJoyImageEdit"
+  },
+  "7": {
+    "inputs": {
+      "clip": ["4", 0],
+      "vae": ["5", 0],
+      "images.image0": ["13", 0],
+      "prompt": ""
+    },
+    "class_type": "TextEncodeJoyImageEdit"
+  },
+  "8": {
+    "inputs": {
+      "width": 256,
+      "height": 256,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage"
+  },
+  "9": {
+    "inputs": {
+      "seed": 42,
+      "steps": 1,
+      "cfg": 4.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["12", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["8", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "10": {
+    "inputs": {
+      "samples": ["9", 0],
+      "vae": ["5", 0]
+    },
+    "class_type": "VAEDecode"
+  },
+  "11": {
+    "inputs": {
+      "filename_prefix": "joyimage",
+      "images": ["10", 0]
+    },
+    "class_type": "SaveImage"
+  },
+  "12": {
+    "inputs": {
+      "strength": 1.0,
+      "model": ["3", 0]
+    },
+    "class_type": "CFGNorm"
+  },
+  "13": {
+    "inputs": {
+      "value": "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg",
+      "name": "",
+      "title": "",
+      "description": "",
+      "__required": true
+    },
+    "class_type": "ImageRequestParameter"
+  }
+}

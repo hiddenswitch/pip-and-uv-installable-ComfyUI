@@ -85,6 +85,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "ACEStep15": ("audio-0.json",),
     "Omnigen2": ("omnigen2-0.json",),
     "QwenImage": ("qwen-image-0.json", "qwen-image-1.json", "qwen-image-2.json", "qwen-image-edit-0.json", "qwen-image-multigpu-cfg-0.json"),
+    "JoyImage": ("joyimage-0.json",),
     "Ideogram4": ("ideogram4-0.json",),
     "Boogu": ("boogu-0.json",),
     "Krea2": ("krea2-0.json",),

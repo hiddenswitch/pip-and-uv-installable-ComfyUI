@@ -1060,6 +1060,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/flux1-kontext-dev_ComfyUI", "split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/FLUX.1-Krea-dev_ComfyUI", "split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/NewBie-image-Exp0.1_repackaged", "split_files/diffusion_models/NewBie-Image-Exp0.1-bf16.safetensors"),
+    HuggingFile("Comfy-Org/JoyAI-Image-Edit", "diffusion_models/joyai_image_edit_bf16.safetensors"),
+    HuggingFile("Comfy-Org/JoyAI-Image-Edit", "diffusion_models/joyai_image_edit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Layered_ComfyUI", "split_files/diffusion_models/qwen_image_layered_bf16.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Layered_ComfyUI", "split_files/diffusion_models/qwen_image_layered_fp8mixed.safetensors"),
     HuggingFile("appmana/qwen-image-layered-int8convrot", "qwen_image_layered_int8convrot.safetensors"),
@@ -1257,6 +1259,8 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     # Ideogram 4
     HuggingFile("Comfy-Org/Qwen3-VL", "text_encoders/qwen3vl_8b_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Qwen3-VL", "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"),
+    HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_bf16.safetensors"),
+    HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
