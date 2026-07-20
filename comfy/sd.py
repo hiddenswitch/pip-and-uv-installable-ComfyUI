@@ -86,6 +86,7 @@ from .text_encoders import gpt_oss
 from .text_encoders import ideogram4
 from .text_encoders import boogu
 from .text_encoders import krea2
+from .text_encoders import joyimage
 from .text_encoders import pixeldit
 from .text_encoders import qwen3vl
 from .text_encoders import sa3
@@ -1435,6 +1436,7 @@ class CLIPType(Enum):
     IDEOGRAM4 = 30
     BOOGU = 31
     KREA2 = 32
+    JOYIMAGE = 33
 
 
 @dataclasses.dataclass
@@ -1789,6 +1791,10 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 clip_data[0] = utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
                 clip_target.clip = krea2.te(**llama_detect(clip_data))
                 clip_target.tokenizer = krea2.Krea2Tokenizer
+            elif clip_type == CLIPType.JOYIMAGE and te_model == TEModel.QWEN3VL_8B:  # JoyImageEdit: full Qwen3-VL-8B, edit-conditioning template + drop_idx.
+                clip_data[0] = utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
+                clip_target.clip = joyimage.te(**llama_detect(clip_data))
+                clip_target.tokenizer = joyimage.JoyImageTokenizer
             elif clip_type in (CLIPType.FLUX, CLIPType.FLUX2):  # Flux2 Klein reuses the Qwen3-VL LM (3-layer tap -> 12288); visual unused.
                 klein_model_type = "qwen3_8b" if te_model == TEModel.QWEN3VL_8B else "qwen3_4b"
                 clip_target.clip = flux.klein_te(**llama_detect(clip_data), model_type=klein_model_type)

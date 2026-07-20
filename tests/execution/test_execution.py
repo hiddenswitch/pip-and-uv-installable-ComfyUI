@@ -594,6 +594,16 @@ class TestExecution:
         except Exception:
             pass  # Expected behavior
 
+    async def test_cached_outputs_without_client_id(self, client: ComfyClient, builder: GraphBuilder):
+        g = builder
+        image = g.node("StubImage", content="BLACK", height=32, width=32, batch_size=1)
+        output = g.node("SaveImage", images=image.out(0))
+
+        await client.run(g)
+        result = await client.run(g)
+
+        assert output.id in result.outputs
+
     async def _create_history_item(self, client, builder):
         g = GraphBuilder(prefix="offset_test")
         input_node = g.node(
