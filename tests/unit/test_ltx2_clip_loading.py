@@ -34,6 +34,16 @@ class TestLTX2TEModelDetection:
         result = detect_te_model(mock_sd)
         assert result == TEModel.GEMMA_3_12B, f"Expected GEMMA_3_12B, got {result}"
 
+    def test_detect_gemma4_12b_model(self):
+        """Verify Gemma4 12B's layer scalar distinguishes it from Gemma3 12B."""
+        mock_sd = {
+            "model.layers.0.post_feedforward_layernorm.weight": torch.zeros(1),
+            "model.layers.0.layer_scalar": torch.zeros(1),
+            "model.layers.47.self_attn.q_norm.weight": torch.zeros(1),
+        }
+        result = detect_te_model(mock_sd)
+        assert result == TEModel.GEMMA_4_12B, f"Expected GEMMA_4_12B, got {result}"
+
     def test_detect_gemma3_4b_model(self):
         """Verify Gemma3 4B model is detected correctly."""
         mock_sd = {
