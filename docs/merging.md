@@ -343,10 +343,21 @@ rg -n 'database-url|disable-assets-autoscan' comfy/cli_args.py comfy/cmd/cli.py
 Then commit in this order:
 
 1. Commit the upstream merge and conflict resolutions only.
-2. In a second commit, move files that Git could not relocate automatically with `git mv`.
-3. In later commits, make import fixes, tests, docs, or fork-specific cleanup.
+2. Move every file that Git could not relocate automatically with `git mv`, and commit each individual `git mv` immediately as its own move-only commit.
+3. Only after all move-only commits are recorded, make import fixes, tests, docs, formatting changes, or other fork-specific cleanup in later commits.
 
-Do not combine the merge and file moves into one commit. Keeping the move commit separate preserves useful history and makes later upstream merges less painful.
+Do not combine the merge and file moves, combine multiple `git mv` operations in one commit, or edit a moved file before committing its move. A move-only commit must contain exactly one relocation and no content changes. Editing, formatting, or fixing imports before the move is committed lowers rename similarity and can cause later upstream changes to be missed instead of applied to the relocated file. Verify each move with `git diff --cached --summary --find-renames` and expect an `R100` entry before committing it.
+
+Example:
+
+```bash
+git mv comfy_extras/nodes_example.py comfy_extras/nodes/nodes_example.py
+git diff --cached --summary --find-renames
+git commit -m "Move example node into package layout"
+
+# Only after every required move has its own commit:
+$EDITOR comfy_extras/nodes/nodes_example.py
+```
 
 ### Packaged Blueprints
 
@@ -685,7 +696,8 @@ Upstream sometimes adds new Python packages without `__init__.py` files. After m
 Our fork moves some top-level directories into `comfy/`. When upstream adds or modifies files in these directories:
 
 1. First, merge the upstream changes to the top-level location
-2. In a separate commit, `git mv` the files to the correct location
+2. `git mv` each file to the correct location and commit that single move immediately
+3. Do not modify any moved file until every required move has been committed separately
 
 Example: `app/assets` → `comfy/app/assets`
 
@@ -700,11 +712,11 @@ git mv comfy_extras/nodes_math.py comfy_extras/nodes/nodes_math.py
 git mv comfy_extras/nodes_sdpose.py comfy_extras/nodes/nodes_sdpose.py
 ```
 
-After moving them, fix their imports so they are valid from the `comfy_extras.nodes` package (see [Import Fixes](#import-fixes) below).
+After committing every move separately, fix their imports so they are valid from the `comfy_extras.nodes` package (see [Import Fixes](#import-fixes) below).
 
 Do not copy upstream's root `nodes.py` custom-node loader block into `comfy/nodes/base_nodes.py` when Git presents it as a directory-rename conflict. This fork keeps node loading under the package loader/facade paths; `base_nodes.py` should remain focused on core node definitions and mappings. For new upstream extra-node files, keep the merge commit faithful, then move `comfy_extras/nodes_*.py` into `comfy_extras/nodes/` in the separate move commit so the existing package scanner can discover them.
 
-This two-step approach keeps git history cleaner and makes conflicts easier to resolve.
+This sequencing keeps rename ancestry unambiguous, ensures later upstream edits follow the relocated file, and makes conflicts easier to resolve.
 
 Upstream may also still add tests under `tests-unit/`. Move those into `tests/unit/` in this fork, preserving the same relative structure.
 
