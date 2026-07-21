@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torchaudio.functional as AF
 import torchvision.transforms.functional as TVF
 import numpy as np
 from tokenizers import Tokenizer
@@ -1207,8 +1206,9 @@ class Gemma4_Tokenizer():
             waveform = waveform.unsqueeze(0)
         audio = waveform.float()
         if sample_rate != 16000:
-            audio = AF.resample(audio, sample_rate, 16000, resampling_method="sinc_interp_kaiser",
-                                lowpass_filter_width=121, rolloff=0.9568384289091556, beta=21.01531462440614)
+            import torchaudio.functional as audio_functional  # pylint: disable=import-error,import-outside-toplevel
+            audio = audio_functional.resample(audio, sample_rate, 16000, resampling_method="sinc_interp_kaiser",
+                                               lowpass_filter_width=121, rolloff=0.9568384289091556, beta=21.01531462440614)
         return audio.squeeze(0).contiguous()
 
     def _extract_audio_features(self, waveform, sample_rate):
