@@ -836,7 +836,11 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
     # SeedVR2
-    HuggingFile("Comfy-Org/SeedVR2", "vae/ema_vae_fp16.safetensors"),
+    HuggingFile(
+        "Comfy-Org/SeedVR2",
+        "vae/seedvr2_ema_vae_fp16.safetensors",
+        alternate_filenames=("ema_vae_fp16.safetensors",),
+    ),
     # Void video inpainting
     HuggingFile("Comfy-Org/void-model", "vae/cogvideox_vae.safetensors"),
     # Hunyuan Image
