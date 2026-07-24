@@ -1,0 +1,1 @@
+{"2":{"_meta":{"title":"Save Image"},"class_type":"SaveImage","inputs":{"filename_prefix":"comfyui-relight-product","images":["7",0]}},"3":{"_meta":{"title":"Load Image"},"class_type":"LoadImage","inputs":{"image":"gsc3_landscape.png"}},"7":{"_meta":{"title":"Load Image"},"class_type":"LoadImage","inputs":{"image":"gsc3_car.jpeg"}}}

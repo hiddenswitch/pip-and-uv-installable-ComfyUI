@@ -39,6 +39,15 @@ def test_unknown_subgraph_widgets_align_with_serialized_value_types():
     ) == {"steps": 20, "cfg": 2.5}
 
 
+def test_frontend_unknown_node_widgets_preserve_every_serialized_value():
+    assert _map_unknown_widgets(["model", 256, True, "randomize"]) == {
+        "UNKNOWN": "model",
+        "UNKNOWN_1": 256,
+        "UNKNOWN_2": True,
+        "UNKNOWN_3": "randomize",
+    }
+
+
 # ── helper: tiny node classes for testing ─────────────────────────────────────
 
 class _KSamplerLike:

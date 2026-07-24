@@ -67,7 +67,6 @@ _FRONTEND_INJECTED_WIDGETS: Final[MappingProxyType[str, tuple[tuple[str, object]
     "PreviewAudio": (("audioUI", ""),),
     "SaveAudioMP3": (("audioUI", ""),),
     "SaveAudioOpus": (("audioUI", ""),),
-    "SaveAudioAdvanced": (("audioUI", ""),),
     "Preview3D": (("image", ""),),
     "SaveGLB": (("image", ""),),
     "RecordAudio": (("audio", ""),),
@@ -560,7 +559,10 @@ def _map_unknown_widgets(widgets_values, node: dict | None = None) -> dict[str, 
                 return out
         if node is not None:
             return {f"widget_{i}": _wrap_value(v) for i, v in enumerate(widgets_values)}
-        return {"UNKNOWN": _wrap_value(__unknown_widget_value(widgets_values[-1]))}
+        return {
+            "UNKNOWN" if i == 0 else f"UNKNOWN_{i}": _wrap_value(__unknown_widget_value(value))
+            for i, value in enumerate(widgets_values)
+        }
     return {}
 
 
