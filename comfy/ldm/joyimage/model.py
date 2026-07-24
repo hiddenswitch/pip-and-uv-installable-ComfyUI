@@ -97,8 +97,8 @@ class JoyImageAttention(nn.Module):
         txt_q = self.txt_attn_q_norm(txt_q)
         txt_k = self.txt_attn_k_norm(txt_k)
 
-        img_q_scale, _, img_q_offload_stream = comfy.ops.cast_bias_weight(self.img_attn_q_norm, img_q, offloadable=True)
-        img_k_scale, _, img_k_offload_stream = comfy.ops.cast_bias_weight(self.img_attn_k_norm, img_k, offloadable=True)
+        img_q_scale, _, img_q_offload_stream = ops.cast_bias_weight(self.img_attn_q_norm, img_q, offloadable=True)
+        img_k_scale, _, img_k_offload_stream = ops.cast_bias_weight(self.img_attn_k_norm, img_k, offloadable=True)
         img_q, img_k = comfy_kitchen.rms_rope(
             img_q,
             img_k,
@@ -107,8 +107,8 @@ class JoyImageAttention(nn.Module):
             img_k_scale,
             self.img_attn_q_norm.eps,
         )
-        comfy.ops.uncast_bias_weight(self.img_attn_q_norm, img_q_scale, None, img_q_offload_stream)
-        comfy.ops.uncast_bias_weight(self.img_attn_k_norm, img_k_scale, None, img_k_offload_stream)
+        ops.uncast_bias_weight(self.img_attn_q_norm, img_q_scale, None, img_q_offload_stream)
+        ops.uncast_bias_weight(self.img_attn_k_norm, img_k_scale, None, img_k_offload_stream)
 
         joint_q = torch.cat([img_q, txt_q], dim=1)
         joint_k = torch.cat([img_k, txt_k], dim=1)
