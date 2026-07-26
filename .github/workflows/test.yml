@@ -172,9 +172,8 @@ jobs:
 #        run: |
 #          pytest -v tests/inference
   build_and_execute_amd:
-    # Paused while the self-hosted ROCm worker is down. Set the repository
-    # variable ENABLE_ROCM_TESTS=true when the rocm-7600-8gb runner is healthy.
-    if: ${{ vars.ENABLE_ROCM_TESTS == 'true' }}
+    # Disabled while the self-hosted rocm-7600-8gb worker is down.
+    if: false
     # rocm/pytorch:7.2.2 bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0 is
     # the canonical config — verified working on a direct kubectl Job on
     # the cluster's RX 7600 (gfx1102) node. On ARC ephemeral pods the same
