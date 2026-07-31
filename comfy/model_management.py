@@ -2308,19 +2308,27 @@ def supports_mxfp8_compute(device=None):
 
 
 def supports_int8_compute(device=None):
-    """INT8 tensor-core matmul support: NVIDIA sm_75 (Turing) and newer.
+    """INT8 matmul support: NVIDIA sm_75 (Turing) and newer, or Apple silicon
+    when comfy_kitchen registers its mps backend (int8-streaming Metal kernels;
+    torch-MPS itself has no aten::_int_mm).
 
-    Unlike fp8, this includes all of Ampere (sm_80/sm_86).
+    Unlike fp8, on NVIDIA this includes all of Ampere (sm_80/sm_86).
     """
-    if not is_nvidia():
-        return False
+    if is_nvidia():
+        try:
+            props = torch.cuda.get_device_properties(device)
+        except (RuntimeError, ValueError, AssertionError):
+            return False
+        return (props.major, props.minor) >= (7, 5)
 
-    try:
-        props = torch.cuda.get_device_properties(device)
-    except (RuntimeError, ValueError, AssertionError):
-        return False
+    if is_device_mps(device) or (device is None and mps_mode()):
+        try:
+            import comfy_kitchen
+        except ImportError:
+            return False
+        return comfy_kitchen.list_backends().get("mps", {}).get("available", False)
 
-    return (props.major, props.minor) >= (7, 5)
+    return False
 
 def supports_fp64(device=None):
     if is_device_mps(device):
