@@ -25,6 +25,8 @@ import comfy.ops
 import comfy.patcher_extension
 import comfy.quant_ops
 from comfy.ldm.modules.attention import optimized_attention
+from comfy.pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
+from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 
 FRAME_PER_TOKEN = (1, 4, 4, 4, 4)
 FRAME_RESCALE = 5.0 / 3.0
@@ -417,7 +419,8 @@ class MiniMaxH3Model(nn.Module):
                  rope_inv_freq_len=16, norm_eps=1e-5, qk_norm_eps=1e-5, final_norm_eps=1e-5,
                  sigma_shift_video=12.0, sigma_shift_audio=3.0,
                  adaln_curve_grid=None,
-                 image_model=None, dtype=None, device=None, operations=None, **kwargs):
+                 image_model=None, dtype=None, device=None, operations=None,
+                 pipeline_stage: PipelineStageConfig | None = None, **kwargs):
         super().__init__()
         self.dtype = dtype
         self.hidden_size = hidden_size
@@ -427,30 +430,48 @@ class MiniMaxH3Model(nn.Module):
         self.sigma_shift_video = sigma_shift_video
         self.sigma_shift_audio = sigma_shift_audio
         self.use_adaln_curves = adaln_curve_grid is not None
+        self.pipeline_stage = pipeline_stage
+        self.num_layers = num_layers
+        is_first_stage = pipeline_stage is None or pipeline_stage.is_first
+        is_last_stage = pipeline_stage is None or pipeline_stage.is_last
         # curve-form checkpoints replace the time embedder and full-width adaln weights with a small shared basis of the time-embedding curve
         curve = {"apply_silu": not self.use_adaln_curves,
                  "adaln_dtype": torch.float32 if self.use_adaln_curves else dtype}
         video_patch_dim = latents_dim * self.patch_size[0] * self.patch_size[1] * self.patch_size[2]
 
-        self.video_patch_proj = operations.Linear(video_patch_dim, hidden_size, bias=True, dtype=torch.float32, device=device)
-        self.audio_patch_proj = operations.Linear(audio_latents_dim, hidden_size, bias=True, dtype=torch.float32, device=device)
-        self.condition_proj = operations.Linear(text_dim, hidden_size, bias=True, dtype=dtype, device=device)
-        if self.use_adaln_curves:
-            self.register_buffer("adaln_t_table", torch.empty(adaln_curve_grid, time_embed_dim, dtype=torch.float32))
+        if is_first_stage:
+            self.video_patch_proj = operations.Linear(video_patch_dim, hidden_size, bias=True, dtype=torch.float32, device=device)
+            self.audio_patch_proj = operations.Linear(audio_latents_dim, hidden_size, bias=True, dtype=torch.float32, device=device)
+            self.condition_proj = operations.Linear(text_dim, hidden_size, bias=True, dtype=dtype, device=device)
+            if self.use_adaln_curves:
+                self.register_buffer("adaln_t_table", torch.empty(adaln_curve_grid, time_embed_dim, dtype=torch.float32))
+                self.time_embedder = PipelineMissingLayer()
+            else:
+                self.time_embedder = TimeEmbedder(timestep_input_dim, time_embed_hidden_size, time_embed_dim,
+                                                  dtype=torch.float32, device=device, operations=operations)
+            self.rope = nn.Module()
+            self.rope.register_buffer("inv_freq", torch.empty(rope_inv_freq_len, dtype=torch.float32))
+            self.token_refiner = TokenRefiner(token_refiner_num_layers, hidden_size, num_attention_heads,
+                                              attention_head_dim, ffn_hidden_size, norm_eps, qk_norm_eps,
+                                              final_norm_eps, dtype=dtype, device=device, operations=operations)
         else:
-            self.time_embedder = TimeEmbedder(timestep_input_dim, time_embed_hidden_size, time_embed_dim,
-                                              dtype=torch.float32, device=device, operations=operations)
-        self.rope = nn.Module()
-        self.rope.register_buffer("inv_freq", torch.empty(rope_inv_freq_len, dtype=torch.float32))
-        self.token_refiner = TokenRefiner(token_refiner_num_layers, hidden_size, num_attention_heads,
-                                          attention_head_dim, ffn_hidden_size, norm_eps, qk_norm_eps,
-                                          final_norm_eps, dtype=dtype, device=device, operations=operations)
+            self.video_patch_proj = PipelineMissingLayer()
+            self.audio_patch_proj = PipelineMissingLayer()
+            self.condition_proj = PipelineMissingLayer()
+            self.time_embedder = PipelineMissingLayer()
+            self.rope = PipelineMissingLayer()
+            self.token_refiner = PipelineMissingLayer()
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_attention_heads, attention_head_dim, ffn_hidden_size,
                      time_embed_dim, norm_eps, qk_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
-            for _ in range(num_layers)])
-        self.final_layer = FinalLayer(hidden_size, time_embed_dim, video_patch_dim, audio_latents_dim,
-                                      final_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
+            if pipeline_stage is None or pipeline_stage.start_layer <= index < pipeline_stage.end_layer
+            else PipelineMissingLayer()
+            for index in range(num_layers)])
+        if is_last_stage:
+            self.final_layer = FinalLayer(hidden_size, time_embed_dim, video_patch_dim, audio_latents_dim,
+                                          final_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
+        else:
+            self.final_layer = PipelineMissingLayer()
 
     def preprocess_text_embeds(self, text_states):
         """[B, L, text_dim] Qwen states -> [B, L, hidden] refined text embeds."""
@@ -496,6 +517,10 @@ class MiniMaxH3Model(nn.Module):
         return torch.cat(rows, dim=0) if rows else None
 
     def forward(self, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_first:
+            raise RuntimeError("Only the first MiniMax H3 pipeline stage accepts model inputs")
+        if self.pipeline_stage is not None and comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options):
+            raise ValueError("MiniMax H3 pipeline parallelism does not support diffusion-model wrappers")
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -503,6 +528,8 @@ class MiniMaxH3Model(nn.Module):
         ).execute(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
 
     def _forward(self, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        if self.pipeline_stage is not None and transformer_options.get("patches_replace"):
+            raise ValueError("MiniMax H3 pipeline parallelism does not support transformer block patches")
         video_x, audio_x = x[0], x[1]
         orig_t, orig_h, orig_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
         video_x = comfy.ldm.common_dit.pad_to_patch_size(video_x, self.patch_size)
@@ -611,11 +638,38 @@ class MiniMaxH3Model(nn.Module):
         # rotation table computed once per forward, consumed by the kitchen split-half rope
         rope_freqs = rope_rotation_table(self.rope_freqs(layout.position_ids, device), dtype)
 
-        # blocks
+        video_seg = next((a, b, t_row[seg_t["video"]]) for a, b, k in layout.segments if k == "video")
+        audio_seg = next((a, b, t_row[seg_t["audio"]]) for a, b, k in layout.segments if k == "audio")
+        slope_a = time_shift_slope(sigma_v, shift_v, shift_a)
+        start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
+        end_layer = self.num_layers if self.pipeline_stage is None else self.pipeline_stage.end_layer
+        h = self._run_blocks(h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer)
+
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
+            tensors = {"hidden_states": h, "t_emb": t_emb, "rope_freqs": rope_freqs, "slope_a": slope_a}
+            metadata = {
+                "mod_segments": tuple(mod_segments),
+                "video_seg": video_seg,
+                "audio_seg": audio_seg,
+                "latent_shape": (latent_t, lat_h, lat_w),
+                "original_shape": (orig_t, orig_h, orig_w),
+                "video_dtype": pack_pipeline_value(video_x.dtype, tensors, "video_dtype"),
+                "audio_dtype": pack_pipeline_value(audio_x.dtype, tensors, "audio_dtype"),
+                "transformer_options": pack_pipeline_value(transformer_options, tensors, "transformer_options"),
+            }
+            return PipelineIntermediateTensors(tensors, metadata)
+
+        return self._forward_exit(h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
+                                  orig_t, orig_h, orig_w, video_x.dtype, audio_x.dtype, slope_a)
+
+    def _run_blocks(self, h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer):
         patches_replace = transformer_options.get("patches_replace", {})
         blocks_replace = patches_replace.get("dit", {})
-        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(list(self.blocks), device, transformer_options)
-        for i, block in enumerate(self.blocks):
+        device = h.device
+        blocks = [self.blocks[index] for index in range(start_layer, end_layer)]
+        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(blocks, device, transformer_options)
+        for i in range(start_layer, end_layer):
+            block = self.blocks[i]
             comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, block)
             if ("double_block", i) in blocks_replace:
                 def block_wrap(args):
@@ -629,10 +683,34 @@ class MiniMaxH3Model(nn.Module):
                 h = block(h, t_emb, mod_segments, rope_freqs, transformer_options=transformer_options)
         if prefetch_queue is not None:
             comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, None)
+        return h
 
-        # target streams are single contiguous segments (audio then video, last two)
-        video_seg = next((a, b, t_row[seg_t["video"]]) for a, b, k in layout.segments if k == "video")
-        audio_seg = next((a, b, t_row[seg_t["audio"]]) for a, b, k in layout.segments if k == "audio")
+    def forward_pipeline_stage(self, intermediate: PipelineIntermediateTensors):
+        if self.pipeline_stage is None or self.pipeline_stage.is_first:
+            raise RuntimeError("MiniMax H3 pipeline continuation requires a non-first stage")
+        tensors = intermediate.tensors
+        metadata = intermediate.metadata
+        transformer_options = unpack_pipeline_value(metadata["transformer_options"], tensors)
+        h = self._run_blocks(
+            tensors["hidden_states"], tensors["t_emb"], metadata["mod_segments"], tensors["rope_freqs"],
+            transformer_options, self.pipeline_stage.start_layer, self.pipeline_stage.end_layer,
+        )
+        if not self.pipeline_stage.is_last:
+            tensors = dict(tensors)
+            tensors["hidden_states"] = h
+            return PipelineIntermediateTensors(tensors, metadata)
+        latent_t, lat_h, lat_w = metadata["latent_shape"]
+        orig_t, orig_h, orig_w = metadata["original_shape"]
+        return self._forward_exit(
+            h, tensors["t_emb"], metadata["video_seg"], metadata["audio_seg"], latent_t, lat_h, lat_w,
+            orig_t, orig_h, orig_w,
+            unpack_pipeline_value(metadata["video_dtype"], tensors),
+            unpack_pipeline_value(metadata["audio_dtype"], tensors),
+            tensors["slope_a"],
+        )
+
+    def _forward_exit(self, h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
+                      orig_t, orig_h, orig_w, video_dtype, audio_dtype, slope_a):
         v, a = self.final_layer(h, t_emb, video_seg, audio_seg)
 
         video_out = unpatchify_video(v, latent_t, lat_h // 2, lat_w // 2, self.latents_dim, self.patch_size)
@@ -642,5 +720,4 @@ class MiniMaxH3Model(nn.Module):
         # The sampler integrates the flat ODE dX/dsigma_v = (X - denoised)/sigma_v.
         # Scaling the audio velocity by d(sigma_a)/d(sigma_v) makes that ODE equal
         # to the audio stream's true ODE on its own shifted schedule.
-        slope_a = time_shift_slope(sigma_v, shift_v, shift_a).to(audio_out.dtype)
-        return [-video_out.to(video_x.dtype), (-slope_a) * audio_out.to(audio_x.dtype)]
+        return [-video_out.to(video_dtype), (-slope_a.to(audio_out.dtype)) * audio_out.to(audio_dtype)]

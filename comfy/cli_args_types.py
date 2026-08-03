@@ -99,7 +99,7 @@ class Configuration(dict):
         input_directory (Optional[str]): Directory for input files. When this is a relative path, it will be looked up relative to the cwd (current working directory) and all of the base_paths.
         auto_launch (bool): Auto-launch UI in the default browser. Defaults to False.
         disable_auto_launch (bool): Disable auto launching the browser.
-        cuda_device (Optional[int]): CUDA device ID. None means default device.
+        cuda_device (Optional[str]): CUDA device ID or comma-separated IDs. None means all visible devices.
         torch_device (Optional[str]): Torch device by name, e.g. "cuda:1", "cpu", "mps". Overrides cuda_device and cpu flags.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
         disable_cuda_malloc (bool): Disable cudaMallocAsync.
@@ -257,7 +257,7 @@ class Configuration(dict):
         self.input_directory: Optional[str] = None
         self.auto_launch: bool = False
         self.disable_auto_launch: bool = False
-        self.cuda_device: Optional[int] = None
+        self.cuda_device: Optional[str] = None
         self.torch_device: Optional[str] = None
         self.cuda_malloc: bool = True
         self.disable_cuda_malloc: bool = True

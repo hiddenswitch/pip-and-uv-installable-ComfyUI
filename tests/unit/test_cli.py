@@ -224,6 +224,30 @@ def test_workflows_run_workflow_specific_help_order():
     assert explanation < workflow_params < default_params, diagnostics
 
 
+def test_qwen_layered_help_keeps_colliding_cfg_and_steps_metadata():
+    workflow = "tests/inference/workflows/qwen-image-layered-pipeline-0.json"
+    result = runner.invoke(app, ["workflows", "run", workflow, "--help"], env={"COLUMNS": "220"})
+
+    assert result.exit_code == 0
+    out = " ".join(_plain(result.output).split())
+    assert re.search(r"--x-cfg\s+FLOAT\s+2\.5", out)
+    assert re.search(r"--x-steps\s+INT\s+20", out)
+    assert "--x-cfg FLOAT 'randomize'" not in out
+    assert "--x-steps INT 331728509923362" not in out
+
+
+def test_run_workflow_accepts_comma_separated_cuda_devices(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli_module, "_run_workflow_cli", lambda config, **kwargs: calls.append(config))
+
+    result = runner.invoke(app, [
+        "workflows", "run", "workflow.json", "--cuda-device", "1,0",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0].cuda_device == "1,0"
+
+
 def test_workflows_run_workflow_specific_help_accepts_png_workflow(tmp_path):
     Image = pytest.importorskip("PIL.Image")
     PngImagePlugin = pytest.importorskip("PIL.PngImagePlugin")

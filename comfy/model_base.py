@@ -249,6 +249,7 @@ class BaseModel(torch.nn.Module):
         self.device: torch.device = device
         self.operations: Optional[Operations]
         self.current_patcher: Optional[ModelManageable] = None
+        self.pipeline_executor = None
 
         if not unet_config.get("disable_unet_model_creation", False):
             if model_config.custom_operations is None:
@@ -335,7 +336,10 @@ class BaseModel(torch.nn.Module):
             self.current_patcher is not None and self.current_patcher.is_dynamic()
         )
 
-        model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
+        if self.pipeline_executor is None:
+            model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
+        else:
+            model_output = self.pipeline_executor.execute(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
         if len(model_output) > 1 and not torch.is_tensor(model_output):
             model_output, _ = utils.pack_latents(model_output)
 

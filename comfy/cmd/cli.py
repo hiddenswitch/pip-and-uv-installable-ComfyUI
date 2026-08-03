@@ -152,7 +152,7 @@ _DIRECTORY_OPTS: list[tuple] = [
 ]
 
 _DEVICE_OPTS: list[tuple] = [
-    ("cuda_device", Optional[int], typer.Option(None, "--cuda-device", help="Set the id of the cuda device this instance will use.")),
+    ("cuda_device", Optional[str], typer.Option(None, "--cuda-device", help="Select one CUDA device or an ordered comma-separated device list, e.g. 0 or 0,1.")),
     ("torch_device", Optional[str], typer.Option(None, "--torch-device", help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")),
     ("default_device", Optional[int], typer.Option(None, "--default-device", help="Set the id of the default device, all other devices will stay visible.")),
     ("cuda_malloc", bool, typer.Option(False, "--cuda-malloc/--no-cuda-malloc", help="Enable cudaMallocAsync.")),

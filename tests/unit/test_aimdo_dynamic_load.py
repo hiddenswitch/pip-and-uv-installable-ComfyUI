@@ -23,6 +23,7 @@ import comfy.memory_management as memory_management
 import comfy.model_base as model_base
 import comfy.model_management as model_management
 import comfy.ops as ops
+from comfy.model_patcher import ModelPatcher
 
 
 def _fake_basemodel_self(diffusion_model):
@@ -132,6 +133,33 @@ class TestStreamsInNativeDtype(unittest.TestCase):
     def test_none_is_not_native(self):
         self.assertFalse(ops._streams_in_native_dtype(None))
 
+    def test_vbar_cast_does_not_treat_empty_prefetch_slot_as_prefetched(self):
+        layer = ops.manual_cast.Linear(4, 4, bias=False, device="cpu")
+        layer._v = object()
+        self.assertIsNone(layer._prefetch)
+
+        def prepare_prefetch(modules, *args, **kwargs):
+            modules[0]._prefetch = {"signature": None}
+            return None
+
+        with (
+            mock.patch.object(ops, "cast_modules_with_vbar", side_effect=prepare_prefetch) as cast,
+            mock.patch.object(ops, "resolve_cast_module_with_vbar", return_value=(layer.weight, None)),
+            mock.patch.object(model_management, "device_supports_non_blocking", return_value=False),
+        ):
+            weight, bias, _ = ops.cast_bias_weight(
+                layer,
+                dtype=layer.weight.dtype,
+                device=torch.device("cuda:0"),
+                bias_dtype=layer.weight.dtype,
+                offloadable=True,
+            )
+
+        cast.assert_called_once()
+        self.assertIs(weight, layer.weight)
+        self.assertIsNone(bias)
+        self.assertIsNone(layer._prefetch)
+
     @unittest.skipUnless(
         ops.mixed_precision_quantization_available(),
         "requires comfy_kitchen-backed quantized tensors",
@@ -145,6 +173,32 @@ class TestStreamsInNativeDtype(unittest.TestCase):
             scale="recalculate",
         )
         self.assertTrue(ops._streams_in_native_dtype(qt))
+
+    @unittest.skipUnless(
+        ops.int8_quantization_available(),
+        "requires comfy_kitchen-backed INT8 tensors",
+    )
+    def test_int8_loading_list_uses_physical_not_logical_weight_size(self):
+        from comfy.quant_ops import QuantizedTensor
+
+        model = torch.nn.Module()
+        model.layer = ops.manual_cast.Linear(
+            16, 16, bias=False, dtype=torch.bfloat16, device="cpu"
+        )
+        weight = QuantizedTensor.from_float(
+            torch.randn(16, 16, dtype=torch.bfloat16),
+            "TensorWiseINT8Layout",
+            scale="recalculate",
+        )
+        model.layer.weight = torch.nn.Parameter(weight, requires_grad=False)
+        model.manual_cast_dtype = torch.bfloat16
+        patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+
+        [item] = patcher._load_list(for_dynamic=True)
+
+        self.assertEqual(item.module_size, weight.nbytes)
+        self.assertEqual(item.module_offload_mem, weight.nbytes)
+        self.assertLess(weight.nbytes, weight.numel() * weight.element_size())
 
 
 def _aimdo_runtime_available():

@@ -2303,6 +2303,15 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
 def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
     if model_options is None:
         model_options = {}
+    from .pipeline_parallel.loader import try_load_diffusion_model_pipeline
+
+    pipeline_model = try_load_diffusion_model_pipeline(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if pipeline_model is not None:
+        return pipeline_model
     sd, metadata = utils.load_torch_file(unet_path, return_metadata=True)
     model = load_diffusion_model_state_dict(sd, model_options=model_options, ckpt_path=unet_path, metadata=metadata, disable_dynamic=disable_dynamic)
     if model is None:

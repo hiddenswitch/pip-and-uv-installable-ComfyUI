@@ -667,6 +667,36 @@ current_loaded_models: Final[List["LoadedModel"]] = []
 
 DIRTY_MMAPS = set()
 
+
+def _loaded_model_is_reclaimable(loaded_model, device, keep_loaded) -> bool:
+    return (
+        (device is None or loaded_model.device == device)
+        and loaded_model not in keep_loaded
+        and not loaded_model.is_dead()
+    )
+
+
+def projected_dynamic_vram_available_memory(devices, keep_models=()):
+    """Project per-device capacity using the same keep/ejection predicate as a load."""
+    keep_models = tuple(keep_models)
+    keep_loaded = tuple(
+        loaded_model for loaded_model in current_loaded_models
+        if any(loaded_model.model is model for model in keep_models)
+    )
+    projected = {}
+    for device in devices:
+        available = memory_management.dynamic_vram_available_memory(device)
+        for loaded_model in current_loaded_models:
+            if not _loaded_model_is_reclaimable(loaded_model, device, keep_loaded):
+                continue
+            model = loaded_model.model
+            reclaimable = getattr(model, "reclaimable_non_vbar_memory", None)
+            if reclaimable is None:
+                reclaimable = model.loaded_size
+            available += int(reclaimable())
+        projected[device] = available
+    return projected
+
 PIN_PRESSURE_HYSTERESIS = 256 * 1024 * 1024
 
 #Freeing registerables on pressure does imply a GPU sync, so go big on
@@ -1018,10 +1048,9 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
 
     for i in range(len(current_loaded_models) - 1, -1, -1):
         shift_model = current_loaded_models[i]
-        if device is None or shift_model.device == device:
-            if shift_model not in keep_loaded and not shift_model.is_dead():
-                can_unload.append((-shift_model.model_offloaded_memory(), sys.getrefcount(shift_model.model), shift_model.model_memory(), i))
-                shift_model.currently_used = False
+        if _loaded_model_is_reclaimable(shift_model, device, keep_loaded):
+            can_unload.append((-shift_model.model_offloaded_memory(), sys.getrefcount(shift_model.model), shift_model.model_memory(), i))
+            shift_model.currently_used = False
 
     can_unload_sorted = sorted(can_unload)
     for x in can_unload_sorted:
@@ -1104,6 +1133,44 @@ def load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0,
         logger.debug(f"Loaded {to_load}")
 
 
+def prepare_device_model_loads(
+    total_memory_required,
+    *,
+    extra_mem,
+    minimum_memory_required,
+    free_for_dynamic,
+    total_pins_required=None,
+    total_ram_required=None,
+):
+    """Apply the normal pressure-driven load preparation on every target device."""
+    total_pins_required = total_pins_required or {}
+    total_ram_required = total_ram_required or {}
+    models_freed = []
+    for device, required in total_memory_required.items():
+        if device == torch.device("cpu"):
+            continue
+        models_freed += free_memory(
+            required * 1.1 + extra_mem,
+            device,
+            for_dynamic=free_for_dynamic,
+            pins_required=total_pins_required.get(device, 0),
+            ram_required=total_ram_required.get(device, 0),
+        )
+
+    for device in total_memory_required:
+        if device == torch.device("cpu"):
+            continue
+        if get_free_memory(device) < minimum_memory_required:
+            models_l = free_memory(
+                minimum_memory_required,
+                device,
+                for_dynamic=free_for_dynamic,
+            )
+            models_freed += models_l
+            logger.debug("{} models unloaded.".format(len(models_l)))
+    return models_freed
+
+
 def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0, force_patch_weights=False, minimum_memory_required=None, force_full_load=False) -> None:
     cleanup_models_gc()
     global vram_state
@@ -1170,52 +1237,68 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
         total_pins_required[device] = total_pins_required.get(device, 0) + pins_required
         total_ram_required[device] = total_ram_required.get(device, 0) + ram_required
 
-    for device in total_memory_required:
-        if device != torch.device("cpu"):
-            models_freed += free_memory(total_memory_required[device] * 1.1 + extra_mem,
-                                        device,
-                                        for_dynamic=free_for_dynamic,
-                                        pins_required=total_pins_required.get(device, 0),
-                                        ram_required=total_ram_required.get(device, 0))
+    models_freed += prepare_device_model_loads(
+        total_memory_required,
+        extra_mem=extra_mem,
+        minimum_memory_required=minimum_memory_required,
+        free_for_dynamic=free_for_dynamic,
+        total_pins_required=total_pins_required,
+        total_ram_required=total_ram_required,
+    )
 
-    for device in total_memory_required:
-        if device != torch.device("cpu"):
-            free_mem = get_free_memory(device)
-            if free_mem < minimum_memory_required:
-                models_l = free_memory(minimum_memory_required, device, for_dynamic=free_for_dynamic)
-                models_freed += models_l
-                logger.debug("{} models unloaded.".format(len(models_l)))
+    newly_loaded = []
+    try:
+        for loaded_model in models_to_load:
+            model = loaded_model.model
+            torch_dev = model.load_device
+            if is_device_cpu(torch_dev):
+                vram_set_state = VRAMState.DISABLED
+            else:
+                vram_set_state = vram_state
+            lowvram_model_memory = 0
+            if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
+                loaded_memory = loaded_model.model_loaded_memory()
+                current_free_mem = get_free_memory(torch_dev) + loaded_memory
 
-    for loaded_model in models_to_load:
-        model = loaded_model.model
-        torch_dev = model.load_device
-        if is_device_cpu(torch_dev):
-            vram_set_state = VRAMState.DISABLED
-        else:
-            vram_set_state = vram_state
-        lowvram_model_memory = 0
-        if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
-            loaded_memory = loaded_model.model_loaded_memory()
-            current_free_mem = get_free_memory(torch_dev) + loaded_memory
+                lowvram_model_memory = max(0, (current_free_mem - minimum_memory_required), min(current_free_mem * MIN_WEIGHT_MEMORY_RATIO, current_free_mem - minimum_inference_memory()))
+                lowvram_model_memory = lowvram_model_memory - loaded_memory
 
-            lowvram_model_memory = max(0, (current_free_mem - minimum_memory_required), min(current_free_mem * MIN_WEIGHT_MEMORY_RATIO, current_free_mem - minimum_inference_memory()))
-            lowvram_model_memory = lowvram_model_memory - loaded_memory
+                if lowvram_model_memory == 0:
+                    lowvram_model_memory = 0.1
 
-            if lowvram_model_memory == 0:
+            if vram_set_state == VRAMState.NO_VRAM:
                 lowvram_model_memory = 0.1
 
-        if vram_set_state == VRAMState.NO_VRAM:
-            lowvram_model_memory = 0.1
-
-        loaded_model.model_load(lowvram_model_memory, force_patch_weights=force_patch_weights)
-        vram_used = 0 if is_device_cpu(torch_dev) else loaded_model.model_loaded_memory()
-        ram_used = model.loaded_ram_size() if model.is_dynamic() else loaded_model.model_memory() - vram_used
-        detail("Model loaded: patcher=%s model=%s ram_mb=%.1f vram_mb=%.1f", model.__class__.__name__, model.model.__class__.__name__, ram_used / (1024 ** 2), vram_used / (1024 ** 2))
-        current_loaded_models.insert(0, loaded_model)
+            was_loaded = loaded_model in current_loaded_models
+            loaded_model.model_load(lowvram_model_memory, force_patch_weights=force_patch_weights)
+            vram_used = 0 if is_device_cpu(torch_dev) else loaded_model.model_loaded_memory()
+            ram_used = model.loaded_ram_size() if model.is_dynamic() else loaded_model.model_memory() - vram_used
+            detail("Model loaded: patcher=%s model=%s ram_mb=%.1f vram_mb=%.1f", model.__class__.__name__, model.model.__class__.__name__, ram_used / (1024 ** 2), vram_used / (1024 ** 2))
+            if was_loaded:
+                current_loaded_models.remove(loaded_model)
+            current_loaded_models.insert(0, loaded_model)
+            if not was_loaded:
+                newly_loaded.append(loaded_model)
+    except Exception:
+        # A load request can contain a group of cooperating models on different
+        # devices. Keep that request atomic: if a later model fails, do not leave
+        # earlier members resident with only part of the group usable.
+        _rollback_newly_loaded_models(newly_loaded)
+        raise
 
     span = get_current_span()
     span.set_attribute("models_to_load", list(map(str, models_to_load)))
     span.set_attribute("models_freed", list(map(str, models_freed)))
+
+
+def _rollback_newly_loaded_models(newly_loaded: Sequence[LoadedModel]) -> None:
+    for loaded_model in reversed(newly_loaded):
+        if loaded_model in current_loaded_models:
+            current_loaded_models.remove(loaded_model)
+        try:
+            loaded_model.model_unload()
+        except Exception:
+            logger.exception("Failed to unload a model while rolling back a grouped load")
 
 
 @_deprecate_method(message="Use load_models_gpu instead", version="0.0.2")
@@ -1695,20 +1778,7 @@ def reset_cast_buffers():
     for loaded_model in current_loaded_models:
         model = loaded_model.model
         if model is not None and model.is_dynamic():
-            pin_state = model.model.dynamic_pins[model.load_device]
-
-            if pin_state["active"]:
-                for subset in ("weights", "weights-loaded"):
-                    *_, buckets = pin_state[subset]
-                    for size, bucket in list(buckets.items()):
-                        bucket[:] = [ entry for entry in bucket if entry[-1] is not None ]
-                        if not bucket:
-                            del buckets[size]
-
-            pin_state["active"] = False
-            model.partially_unload_ram(1e30, subsets=[ "patches", "patches-loaded" ])
-            for subset in ("patches", "patches-loaded"):
-                pin_state[subset] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, pinned_hostbuf_size(model.model_size())), [], [-1], [0], [0], {})
+            model.reset_dynamic_buffers()
 
     STREAM_CAST_BUFFERS.clear()
     STREAM_AIMDO_CAST_BUFFERS.clear()

@@ -10,6 +10,8 @@ from ..flux.layers import EmbedND
 from ..lightricks.model import TimestepEmbedding, Timesteps
 from ..modules.attention import optimized_attention_masked
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
+from ...pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
+from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 from ..flux.math import apply_rope1
 
 
@@ -360,6 +362,7 @@ class QwenImageTransformer2DModel(nn.Module):
             final_layer=True,use_additional_t_cond=False, dtype=None,
             device=None,
             operations=None,
+            pipeline_stage: PipelineStageConfig | None = None,
     ):
         super().__init__()
         self.dtype = dtype
@@ -368,21 +371,30 @@ class QwenImageTransformer2DModel(nn.Module):
         self.out_channels = out_channels or in_channels
         self.inner_dim = num_attention_heads * attention_head_dim
         self.default_ref_method = default_ref_method
+        self.pipeline_stage = pipeline_stage
+        self.num_layers = num_layers
+        is_first_stage = pipeline_stage is None or pipeline_stage.is_first
+        is_last_stage = pipeline_stage is None or pipeline_stage.is_last
 
-        self.pe_embedder = EmbedND(dim=attention_head_dim, theta=10000, axes_dim=list(axes_dims_rope))
-
-        self.time_text_embed = QwenTimestepProjEmbeddings(
-            embedding_dim=self.inner_dim,
-            pooled_projection_dim=pooled_projection_dim,
-            use_additional_t_cond=use_additional_t_cond,
-            dtype=dtype,
-            device=device,
-            operations=operations
-        )
-
-        self.txt_norm = operations.RMSNorm(joint_attention_dim, eps=1e-6, dtype=dtype, device=device)
-        self.img_in = operations.Linear(in_channels, self.inner_dim, dtype=dtype, device=device)
-        self.txt_in = operations.Linear(joint_attention_dim, self.inner_dim, dtype=dtype, device=device)
+        if is_first_stage:
+            self.pe_embedder = EmbedND(dim=attention_head_dim, theta=10000, axes_dim=list(axes_dims_rope))
+            self.time_text_embed = QwenTimestepProjEmbeddings(
+                embedding_dim=self.inner_dim,
+                pooled_projection_dim=pooled_projection_dim,
+                use_additional_t_cond=use_additional_t_cond,
+                dtype=dtype,
+                device=device,
+                operations=operations
+            )
+            self.txt_norm = operations.RMSNorm(joint_attention_dim, eps=1e-6, dtype=dtype, device=device)
+            self.img_in = operations.Linear(in_channels, self.inner_dim, dtype=dtype, device=device)
+            self.txt_in = operations.Linear(joint_attention_dim, self.inner_dim, dtype=dtype, device=device)
+        else:
+            self.pe_embedder = PipelineMissingLayer()
+            self.time_text_embed = PipelineMissingLayer()
+            self.txt_norm = PipelineMissingLayer()
+            self.img_in = PipelineMissingLayer()
+            self.txt_in = PipelineMissingLayer()
 
         self.transformer_blocks = nn.ModuleList([
             QwenImageTransformerBlock(
@@ -393,15 +405,20 @@ class QwenImageTransformer2DModel(nn.Module):
                 device=device,
                 operations=operations
             )
-            for _ in range(num_layers)
+            if pipeline_stage is None or pipeline_stage.start_layer <= index < pipeline_stage.end_layer
+            else PipelineMissingLayer()
+            for index in range(num_layers)
         ])
 
-        if self.default_ref_method == "index_timestep_zero":
+        if is_first_stage and self.default_ref_method == "index_timestep_zero":
             self.register_buffer("__index_timestep_zero__", torch.tensor([]))
 
-        if final_layer:
+        if final_layer and is_last_stage:
             self.norm_out = LastLayer(self.inner_dim, self.inner_dim, dtype=dtype, device=device, operations=operations)
             self.proj_out = operations.Linear(self.inner_dim, patch_size * patch_size * self.out_channels, bias=True, dtype=dtype, device=device)
+        else:
+            self.norm_out = PipelineMissingLayer()
+            self.proj_out = PipelineMissingLayer()
 
     def process_img(self, x, index=0, h_offset=0, w_offset=0):
         bs, c, t, h, w = x.shape
@@ -432,6 +449,10 @@ class QwenImageTransformer2DModel(nn.Module):
     def forward(self, x, timestep, context, attention_mask=None, ref_latents=None, additional_t_cond=None, transformer_options=None, **kwargs):
         if transformer_options is None:
             transformer_options = {}
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_first:
+            raise RuntimeError("Only the first Qwen Image pipeline stage accepts model inputs")
+        if self.pipeline_stage is not None and get_all_wrappers(WrappersMP.DIFFUSION_MODEL, transformer_options):
+            raise ValueError("Qwen Image pipeline parallelism does not support diffusion-model wrappers")
         return WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -452,6 +473,8 @@ class QwenImageTransformer2DModel(nn.Module):
     ):
         if transformer_options is None:
             transformer_options = {}
+        if self.pipeline_stage is not None and (transformer_options.get("patches") or transformer_options.get("patches_replace")):
+            raise ValueError("Qwen Image pipeline parallelism does not support transformer block patches")
         timestep = timesteps
         encoder_hidden_states = context
         encoder_hidden_states_mask = attention_mask
@@ -528,9 +551,65 @@ class QwenImageTransformer2DModel(nn.Module):
         image_rotary_emb = self.pe_embedder(ids).to(x.dtype).contiguous()
         del ids, txt_ids, img_ids
 
-        transformer_options["total_blocks"] = len(self.transformer_blocks)
+        start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
+        end_layer = self.num_layers if self.pipeline_stage is None else self.pipeline_stage.end_layer
+        hidden_states, encoder_hidden_states = self._run_blocks(
+            hidden_states,
+            encoder_hidden_states,
+            encoder_hidden_states_mask,
+            temb,
+            image_rotary_emb,
+            timestep_zero_index,
+            transformer_options,
+            control,
+            x,
+            start_layer,
+            end_layer,
+        )
+
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
+            tensors = {
+                "hidden_states": hidden_states,
+                "encoder_hidden_states": encoder_hidden_states,
+                "temb": temb,
+                "image_rotary_emb": image_rotary_emb,
+            }
+            if encoder_hidden_states_mask is not None:
+                tensors["encoder_hidden_states_mask"] = encoder_hidden_states_mask
+            metadata = {
+                "has_encoder_hidden_states_mask": encoder_hidden_states_mask is not None,
+                "timestep_zero_index": timestep_zero_index,
+                "num_embeds": num_embeds,
+                "orig_shape": tuple(orig_shape),
+                "target_shape": tuple(x.shape),
+                "transformer_options": pack_pipeline_value(transformer_options, tensors, "transformer_options"),
+                "control": pack_pipeline_value(control, tensors, "control"),
+            }
+            return PipelineIntermediateTensors(tensors, metadata)
+
+        return self._forward_exit(hidden_states, temb, timestep_zero_index, num_embeds, orig_shape, tuple(x.shape))
+
+    def _run_blocks(
+            self,
+            hidden_states,
+            encoder_hidden_states,
+            encoder_hidden_states_mask,
+            temb,
+            image_rotary_emb,
+            timestep_zero_index,
+            transformer_options,
+            control,
+            x,
+            start_layer,
+            end_layer,
+    ):
+        patches_replace = transformer_options.get("patches_replace", {})
+        patches = transformer_options.get("patches", {})
+        blocks_replace = patches_replace.get("dit", {})
+        transformer_options["total_blocks"] = self.num_layers
         transformer_options["block_type"] = "double"
-        for i, block in enumerate(self.transformer_blocks):
+        for i in range(start_layer, end_layer):
+            block = self.transformer_blocks[i]
             transformer_options["block_index"] = i
             if ("double_block", i) in blocks_replace:
                 def block_wrap(args):
@@ -565,6 +644,43 @@ class QwenImageTransformer2DModel(nn.Module):
                     if add is not None:
                         hidden_states[:, :add.shape[1]] += add
 
+        return hidden_states, encoder_hidden_states
+
+    def forward_pipeline_stage(self, intermediate: PipelineIntermediateTensors):
+        if self.pipeline_stage is None or self.pipeline_stage.is_first:
+            raise RuntimeError("Qwen Image pipeline continuation requires a non-first stage")
+        tensors = intermediate.tensors
+        metadata = intermediate.metadata
+        transformer_options = unpack_pipeline_value(metadata["transformer_options"], tensors)
+        control = unpack_pipeline_value(metadata["control"], tensors)
+        hidden_states, encoder_hidden_states = self._run_blocks(
+            tensors["hidden_states"],
+            tensors["encoder_hidden_states"],
+            tensors.get("encoder_hidden_states_mask"),
+            tensors["temb"],
+            tensors["image_rotary_emb"],
+            metadata["timestep_zero_index"],
+            transformer_options,
+            control,
+            None,
+            self.pipeline_stage.start_layer,
+            self.pipeline_stage.end_layer,
+        )
+        if not self.pipeline_stage.is_last:
+            tensors = dict(tensors)
+            tensors["hidden_states"] = hidden_states
+            tensors["encoder_hidden_states"] = encoder_hidden_states
+            return PipelineIntermediateTensors(tensors, metadata)
+        return self._forward_exit(
+            hidden_states,
+            tensors["temb"],
+            metadata["timestep_zero_index"],
+            metadata["num_embeds"],
+            metadata["orig_shape"],
+            metadata["target_shape"],
+        )
+
+    def _forward_exit(self, hidden_states, temb, timestep_zero_index, num_embeds, orig_shape, target_shape):
         if timestep_zero_index is not None:
             temb = temb.chunk(2, dim=0)[0]
 
@@ -573,4 +689,4 @@ class QwenImageTransformer2DModel(nn.Module):
 
         hidden_states = hidden_states[:, :num_embeds].view(orig_shape[0], orig_shape[-3], orig_shape[-2] // 2, orig_shape[-1] // 2, orig_shape[1], 2, 2)
         hidden_states = hidden_states.permute(0, 4, 1, 2, 5, 3, 6)
-        return hidden_states.reshape(orig_shape)[:, :, :, :x.shape[-2], :x.shape[-1]]
+        return hidden_states.reshape(orig_shape)[:, :, :, :target_shape[-2], :target_shape[-1]]

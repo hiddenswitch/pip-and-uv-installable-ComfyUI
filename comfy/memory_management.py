@@ -188,6 +188,28 @@ def _aimdo_enabled() -> bool:
 def aimdo_enabled() -> bool:
     return _aimdo_enabled()
 
+
+def dynamic_vram_available_memory(device: torch.device) -> int:
+    """Memory DynamicVRAM can make available without inventing a second budget."""
+    from . import model_management
+
+    available = int(model_management.get_free_memory(device))
+    if aimdo_enabled():
+        import comfy_aimdo.model_vbar
+
+        aimdo_device = device.index if getattr(device, "type", None) == "cuda" else None
+        available += int(comfy_aimdo.model_vbar.vbars_analyze(aimdo_device))
+    return available
+
+
+def dynamic_vram_projected_available_memory(device: torch.device, keep_models=()) -> int:
+    """Compatibility wrapper for model management's generalized load projection."""
+    from . import model_management
+
+    return model_management.projected_dynamic_vram_available_memory(
+        (device,), keep_models=keep_models
+    )[device]
+
 extra_ram_release_callback = None
 RAM_CACHE_HEADROOM = 0
 

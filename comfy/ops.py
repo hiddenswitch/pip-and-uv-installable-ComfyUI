@@ -684,7 +684,7 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
         return format_return((weight, bias, (None, None, None)), offloadable)
 
     elif s._v is not None and s.weight.device != device:
-        prefetched = hasattr(s, "_prefetch")
+        prefetched = getattr(s, "_prefetch", None) is not None
         offload_stream = None
         offload_device = None
         if not prefetched:

@@ -1,5 +1,6 @@
 import logging
 import importlib
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +20,23 @@ if dynamic_vram_requested() and not dynamic_vram_supported():
     logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
     memory_management.aimdo_allocator = None
 elif enables_dynamic_vram() and model_management.get_torch_device().type == "cuda":
-    torch_device = model_management.get_torch_device()
     torch.cuda.init()
-    device_index = torch_device.index if torch_device.index is not None else torch.cuda.current_device()
+    torch_devices = tuple(
+        device for device in model_management.get_all_torch_devices()
+        if device.type == "cuda"
+    )
+    device_indices = tuple(
+        device.index if device.index is not None else torch.cuda.current_device()
+        for device in torch_devices
+    )
+    worker_device_indices = os.environ.get("COMFY_AIMDO_DEVICE_INDICES")
+    if worker_device_indices:
+        device_indices = tuple(int(index) for index in worker_device_indices.split(","))
 
     simple_vram_headroom = None if args.reserve_vram is None else int(args.reserve_vram * 1024 ** 3)
     try:
         control_initialized = comfy_aimdo.control.init(simple_vram_headroom=simple_vram_headroom)
-    except TypeError:
+    except (AttributeError, TypeError):
         # comfy-aimdo 0.4.9 protocol.
         control_initialized = comfy_aimdo.control.init()
 
@@ -36,10 +46,13 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
         importlib.reload(comfy_aimdo.vram_buffer)
 
     try:
-        device_initialized = comfy_aimdo.control.init_device((device_index, int(args.vram_headroom * 1024 ** 3)))
+        device_initialized = comfy_aimdo.control.init_devices([
+            (device_index, int(args.vram_headroom * 1024 ** 3))
+            for device_index in device_indices
+        ])
     except TypeError:
         # comfy-aimdo 0.4.9 protocol.
-        device_initialized = comfy_aimdo.control.init_device(device_index)
+        device_initialized = comfy_aimdo.control.init_device(device_indices[0])
 
     if comfy_aimdo.control.lib is not None and device_initialized:
         if args.verbose == 'DEBUG':
