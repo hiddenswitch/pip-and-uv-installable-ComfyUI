@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from ..modules.attention import optimized_attention
 from ... import model_management
+from ... import ops
 from ... import quant_ops
 
 def rope(pos: torch.Tensor, dim: int, theta: int) -> torch.Tensor:
@@ -111,11 +112,17 @@ class ErnieImageAttention(nn.Module):
         query = q_flat.view(B, S, self.heads, self.head_dim)
         key = k_flat.view(B, S, self.heads, self.head_dim)
 
-        query = self.norm_q(query)
-        key = self.norm_k(key)
-
-        if image_rotary_emb is not None:
-            query, key = quant_ops.ck.apply_rope_split_half(query, key, image_rotary_emb)
+        if image_rotary_emb is not None and not model_management.in_training:
+            q_scale, _, q_offload_stream = ops.cast_bias_weight(self.norm_q, query, offloadable=True)
+            k_scale, _, k_offload_stream = ops.cast_bias_weight(self.norm_k, key, offloadable=True)
+            query, key = quant_ops.ck.rms_rope_split_half(query, key, image_rotary_emb, q_scale, k_scale, self.norm_q.eps)
+            ops.uncast_bias_weight(self.norm_q, q_scale, None, q_offload_stream)
+            ops.uncast_bias_weight(self.norm_k, k_scale, None, k_offload_stream)
+        else:
+            query = self.norm_q(query)
+            key = self.norm_k(key)
+            if image_rotary_emb is not None:
+                query, key = quant_ops.ck.apply_rope_split_half(query, key, image_rotary_emb)
 
         q_flat = query.reshape(B, S, -1)
         k_flat = key.reshape(B, S, -1)

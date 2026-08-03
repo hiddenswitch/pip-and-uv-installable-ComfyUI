@@ -42,16 +42,16 @@ class MageFlowTokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
 
 
 class MageFlowQwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
-    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_4b"):
-        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type=model_type)
+    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_4b", textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type=model_type, textmodel_json_config=textmodel_json_config)
         # apply the final RMSNorm to the tapped last layer (HF last_hidden_state)
         self.layer_norm_hidden_state = True
 
 
 class MageFlowTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
         clip_model = lambda **kw: MageFlowQwen3VLClipModel(**kw, model_type="qwen3vl_4b")  # noqa: E731
-        super().__init__(device=device, dtype=dtype, name="qwen3vl_4b", clip_model=clip_model, model_options=model_options)
+        super().__init__(device=device, dtype=dtype, name="qwen3vl_4b", clip_model=clip_model, model_options=model_options, textmodel_json_config=textmodel_json_config)
 
     def encode_token_weights(self, token_weight_pairs, template_end=-1):
         # Strip the system + user-opening prefix (reference drop_idx: 34 t2i / 64 edit).
@@ -82,13 +82,13 @@ class MageFlowTEModel(sd1_clip.SD1ClipModel):
         return out, pooled, extra
 
 
-def te(dtype_llama=None, llama_quantization_metadata=None):
+def te(dtype_llama=None, llama_quantization_metadata=None, **kwargs):
     class MageFlowTEModel_(MageFlowTEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if dtype_llama is not None:
                 dtype = dtype_llama
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return MageFlowTEModel_

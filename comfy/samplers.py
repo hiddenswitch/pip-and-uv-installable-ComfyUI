@@ -21,6 +21,7 @@ from . import utils
 from .context_windows import ContextHandlerABC
 from .controlnet import ControlBase
 from .hooks import EnumHookMode, HookGroup
+from .internal_logging import detail
 from .extra_samplers import uni_pc
 from .k_diffusion import sampling as k_diffusion_sampling
 from .model_base import BaseModel
@@ -995,10 +996,17 @@ class KSAMPLER(Sampler):
 
         noise = model_wrap.inner_model.model_sampling.noise_scaling(sigmas[0], noise, latent_image, self.max_denoise(model_wrap, sigmas))
 
-        k_callback = None
         total_steps = len(sigmas) - 1
-        if callback is not None:
-            k_callback = lambda x: callback(x["i"], x["denoised"], x["x"], total_steps)
+        first_step = True
+
+        def k_callback(state):
+            nonlocal first_step
+            if first_step:
+                sampler_name = getattr(self.sampler_function, "__name__", self.sampler_function.__class__.__name__)
+                detail("First sampler step: model=%s sampler=%s step=%s total_steps=%s cfg=%s seed=%s sigma=%s sigma_hat=%s latent_shape=%s denoised_shape=%s", model_wrap.model_patcher.model.__class__.__name__, sampler_name, state["i"], total_steps, model_wrap.cfg, extra_args.get("seed"), state.get("sigma"), state.get("sigma_hat"), tuple(state["x"].shape), tuple(state["denoised"].shape))
+                first_step = False
+            if callback is not None:
+                callback(state["i"], state["denoised"], state["x"], total_steps)
 
         samples = self.sampler_function(model_k, noise, sigmas, extra_args=extra_args, callback=k_callback, disable=disable_pbar, **self.extra_options)
         samples = model_wrap.inner_model.model_sampling.inverse_noise_scaling(sigmas[-1], samples)
@@ -1297,10 +1305,21 @@ class CFGGuider:
 
             start = time.perf_counter()
             if latent_image.is_nested:
+                sampler_shapes = [tuple(latent.shape) for latent in latent_image.unbind()]
                 latent_image, latent_shapes = utils.pack_latents(latent_image.unbind())
                 noise, _ = utils.pack_latents(noise.unbind())
             else:
                 latent_shapes = [latent_image.shape]
+                sampler_shapes = [tuple(latent_image.shape)]
+            detail("Sampler: model=%s latent_shapes=%s", self.model_patcher.model.__class__.__name__, sampler_shapes)
+
+            if len(latent_shapes) > 1 and callback is not None:
+                packed_callback = callback
+
+                def callback(step, x0, x, total_steps):
+                    x0 = NestedTensor(utils.unpack_latents(x0, latent_shapes))
+                    x = NestedTensor(utils.unpack_latents(x, latent_shapes))
+                    return packed_callback(step, x0, x, total_steps)
 
             if denoise_mask is not None:
                 if denoise_mask.is_nested:

@@ -170,6 +170,14 @@ def is_previewable(media_type: str, item: dict) -> bool:
     return False
 
 
+def is_text_preview(media_type: str, item: dict) -> bool:
+    """Return whether a previewable item is textual rather than visual media."""
+    if media_type == 'text':
+        return True
+    filename = item.get('filename', '').lower()
+    return any(filename.endswith(ext) for ext in TEXT_EXTENSIONS)
+
+
 def normalize_queue_item(item, status: str) -> dict:
     """Convert queue item (tuple OR dict) to unified job dict.
 
@@ -277,8 +285,10 @@ def get_outputs_summary(outputs: dict) -> tuple[int, Optional[dict]]:
     Returns (outputs_count, preview_output).
 
     Preview priority (matching frontend):
-    1. type="output" with previewable media
-    2. Any previewable media
+    1. type="output" visual media
+    2. any other previewable visual media
+    3. saved text files
+    4. raw text
 
     Text content entries (strings under 'text') are preview-only metadata,
     matching the frontend's METADATA_KEYS: they can serve as the fallback
@@ -287,6 +297,8 @@ def get_outputs_summary(outputs: dict) -> tuple[int, Optional[dict]]:
     count = 0
     preview_output = None
     fallback_preview = None
+    text_file_fallback = None
+    text_fallback = None
 
     for node_id, node_outputs in outputs.items():
         if not isinstance(node_outputs, dict):
@@ -303,7 +315,7 @@ def get_outputs_summary(outputs: dict) -> tuple[int, Optional[dict]]:
                     if normalized is None:
                         # Not a 3D file string — check for text preview
                         if media_type == 'text':
-                            if preview_output is None:
+                            if text_fallback is None:
                                 if isinstance(item, tuple):
                                     text_value = item[0] if item else ''
                                 else:
@@ -314,8 +326,7 @@ def get_outputs_summary(outputs: dict) -> tuple[int, Optional[dict]]:
                                     'nodeId': node_id,
                                     'mediaType': media_type
                                 }
-                                if fallback_preview is None:
-                                    fallback_preview = enriched
+                                text_fallback = enriched
                         continue
                     # normalize_output_item returned a dict (e.g. 3D file)
                     item = normalized
@@ -332,12 +343,15 @@ def get_outputs_summary(outputs: dict) -> tuple[int, Optional[dict]]:
                     }
                     if 'mediaType' not in item:
                         enriched['mediaType'] = media_type
-                    if item.get('type') == 'output':
+                    if is_text_preview(media_type, item):
+                        if text_file_fallback is None:
+                            text_file_fallback = enriched
+                    elif item.get('type') == 'output':
                         preview_output = enriched
                     elif fallback_preview is None:
                         fallback_preview = enriched
 
-    return count, preview_output or fallback_preview
+    return count, preview_output or fallback_preview or text_file_fallback or text_fallback
 
 
 def apply_sorting(jobs: list[dict], sort_by: str, sort_order: str) -> list[dict]:

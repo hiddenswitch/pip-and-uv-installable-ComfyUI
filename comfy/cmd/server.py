@@ -685,18 +685,18 @@ class PromptServer(ExecutorToClientProgress):
 
                         safe_filename = filename.replace("\\", "\\\\").replace('"', '\\"')
                         disposition = f'filename="{safe_filename}"'
+                        headers = {"X-Content-Type-Options": "nosniff"}
+                        sec_fetch_dest = request.headers.get("Sec-Fetch-Dest")
                         if folder_paths.is_dangerous_content_type(content_type):
-                            content_type = 'application/octet-stream'
-                            disposition = f'attachment; filename="{safe_filename}"'
+                            headers["Vary"] = "Sec-Fetch-Dest"
+                            headers["Cache-Control"] = "no-store"
+                            if not folder_paths.renders_safely_as_image(content_type, sec_fetch_dest):
+                                content_type = 'application/octet-stream'
+                                disposition = f'attachment; filename="{safe_filename}"'
 
-                        return web.FileResponse(
-                            file,
-                            headers={
-                                "Content-Disposition": disposition,
-                                "Content-Type": content_type,
-                                "X-Content-Type-Options": "nosniff",
-                            }
-                        )
+                        headers["Content-Disposition"] = disposition
+                        headers["Content-Type"] = content_type
+                        return web.FileResponse(file, headers=headers)
             return web.Response(status=404)
 
         @routes.get("/view_metadata/{folder_name}")

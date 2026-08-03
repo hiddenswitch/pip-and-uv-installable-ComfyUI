@@ -29,6 +29,7 @@ a1111:
 #     clip_vision: models/clip_vision/
 #     configs: models/configs/
 #     controlnet: models/controlnet/
+#     datasets: datasets/
 #     embeddings: models/embeddings/
 #     loras: models/loras/
 #     upscale_models: models/upscale_models/

@@ -4,7 +4,6 @@ import pytest
 
 from comfy_api_nodes import nodes_anthropic, nodes_bytedance, nodes_openrouter, nodes_runway
 from comfy_api_nodes.apis.anthropic import AnthropicMessagesResponse
-from comfy_api_nodes.apis.openrouter import OpenRouterChatResponse, OpenRouterUsage
 
 
 def _schema_input(node, input_id):
@@ -79,14 +78,15 @@ async def test_seed_audio_selected_model_is_sent_in_request(monkeypatch):
     assert captured["request"].model == "seed-audio-1.0-multilingual"
 
 
-def test_openrouter_new_models_and_billing_multiplier():
+def test_openrouter_new_models_use_authoritative_gateway_billing():
     slugs = {spec.slug for spec in nodes_openrouter.MODELS}
 
     assert "openai/gpt-5.6-sol-pro" in slugs
     assert "google/gemini-3.5-flash" in slugs
     assert "deepseek/deepseek-v4-pro" in slugs
-    response = OpenRouterChatResponse(usage=OpenRouterUsage(cost=2.0))
-    assert nodes_openrouter._calculate_price(response) == pytest.approx(2.86)
+    # Pricing is now supplied by the gateway's X-Comfy-Credits-Used header;
+    # the old client-side 1.43 multiplier must not be reintroduced.
+    assert not hasattr(nodes_openrouter, "_calculate_price")
 
 
 @pytest.mark.parametrize(

@@ -71,6 +71,8 @@ from .ldm.pixeldit.model import PixDiT_T2I
 from .ldm.pixeldit.pid import PidNet
 from .ldm.pixart.pixartms import PixArtMS
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
+from .ldm.mage_flow.model import MageFlowTransformer2DModel
+from .ldm.minimax import model as minimax_model
 from .ldm.joyimage.model import JoyImageTransformer3DModel
 from .ldm.ideogram4.model import Ideogram4Transformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
@@ -256,6 +258,7 @@ class BaseModel(torch.nn.Module):
                 operations = model_config.custom_operations
             self.operations = operations
             self.diffusion_model = unet_model(**unet_config, device=device, operations=operations)
+            self.diffusion_model.requires_grad_(False)
             self.diffusion_model.eval()
             if model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
@@ -2204,6 +2207,57 @@ class Hunyuan3Dv2_1(BaseModel):
             out['guidance'] = conds.CONDRegular(torch.FloatTensor([guidance]))
         return out
 
+
+class MiniMaxH3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=minimax_model.MiniMaxH3Model)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn")
+        if cross_attn is not None:
+            cross_attn = self.diffusion_model.preprocess_text_embeds(
+                cross_attn.to(device=kwargs["device"], dtype=self.get_dtype_inference())
+            )
+            out["c_crossattn"] = CONDRegular(cross_attn)
+
+        latent_shapes = kwargs.get("latent_shapes")
+        if latent_shapes is not None:
+            out["latent_shapes"] = CONDConstant(latent_shapes)
+
+        payload = {}
+        tags = kwargs.get("minimax_token_tags")
+        if tags is not None:
+            payload["text_token_tags"] = tags
+        keyframes = kwargs.get("minimax_keyframes")
+        if keyframes is not None:
+            payload["keyframes"] = keyframes
+            payload["frame_count"] = kwargs.get("minimax_frame_count")
+            payload["cond_video_latents"] = [kf["latent"] for kf in keyframes]
+        refs = kwargs.get("minimax_refs")
+        if refs is not None:
+            payload["refs"] = refs
+            payload["cond_video_latents"] = [ref["latent"] for ref in refs if "latent" in ref]
+            payload["cond_audio_latents"] = [ref["audio_latent"] for ref in refs if ref.get("audio_latent") is not None]
+        if kwargs.get("minimax_visual_cond_noise_aug") is not None:
+            payload["visual_cond_noise_aug"] = kwargs["minimax_visual_cond_noise_aug"]
+        if kwargs.get("minimax_audio_cond_noise_aug") is not None:
+            payload["audio_cond_noise_aug"] = kwargs["minimax_audio_cond_noise_aug"]
+        payload["seed"] = kwargs.get("seed", 0)
+        if cross_attn is not None and latent_shapes is not None and len(latent_shapes) > 1:
+            video_shape = latent_shapes[0]
+            payload["layout"] = minimax_model.PackedLayout(
+                cross_attn.shape[1], video_shape[2], (video_shape[3] + 1) // 2 * 2,
+                (video_shape[4] + 1) // 2 * 2, latent_shapes[1][-1],
+                keyframes=payload.get("keyframes"), refs=payload.get("refs"),
+                frame_count=payload.get("frame_count"),
+            )
+        out["minimax_payload"] = CONDConstant(payload)
+        return out
+
+    def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
+        return latent_image
+
 class TripoSplat(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=LatentSeqMMFlowModel)
@@ -2392,8 +2446,8 @@ class Boogu(Omnigen2):
         self.memory_usage_factor_conds = ("ref_latents",)
 
 class QwenImage(BaseModel):
-    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=QwenImageTransformer2DModel)
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None, unet_model=QwenImageTransformer2DModel):
+        super().__init__(model_config, model_type, device=device, unet_model=unet_model)
         self.memory_usage_factor_conds = ("ref_latents",)
 
     def extra_conds(self, **kwargs):
@@ -2416,11 +2470,21 @@ class QwenImage(BaseModel):
                 out['ref_latents_method'] = conds.CONDConstant(ref_latents_method)
         return out
 
+
+class MageFlow(QwenImage):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=MageFlowTransformer2DModel)
+
+    def process_timestep(self, timestep, **kwargs):
+        # Mage builds its timestep frequency table in bf16; preserve that
+        # behavior on devices whose model compute dtype falls back to fp32.
+        return timestep.to(torch.bfloat16)
+
     def extra_conds_shapes(self, **kwargs):
         out = {}
         ref_latents = kwargs.get("reference_latents", None)
         if ref_latents is not None:
-            out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
+            out['ref_latents'] = list([1, 128, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 128])
         return out
 
 

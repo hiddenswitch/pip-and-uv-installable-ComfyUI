@@ -14,12 +14,12 @@ import math
 import torch
 import torchaudio
 
-import nodes
 import comfy.model_management
 import comfy.model_sampling
 import comfy.nested_tensor
 import comfy.utils
-import node_helpers
+from comfy import node_helpers
+from comfy.nodes.common import MAX_RESOLUTION
 from comfy_api.latest import ComfyExtension, io
 
 CANVAS_MULTIPLE = 32
@@ -85,8 +85,8 @@ class EmptyMiniMaxH3LatentAV(io.ComfyNode):
             category="model/latent/minimax",
             description="Joint video+audio latent for MiniMax H3. Duration snaps to the model's 17k+5 frame grid at 24 fps.",
             inputs=[
-                io.Int.Input("width", default=1344, min=32, max=nodes.MAX_RESOLUTION, step=32),
-                io.Int.Input("height", default=768, min=32, max=nodes.MAX_RESOLUTION, step=32),
+                io.Int.Input("width", default=1344, min=32, max=MAX_RESOLUTION, step=32),
+                io.Int.Input("height", default=768, min=32, max=MAX_RESOLUTION, step=32),
                 io.Int.Input("length", default=124, min=5, max=3600, step=17, tooltip="Frame count at 24 fps, snapped up to the model's 17k+5 grid (124 = ~5s; trained range is ~124-362, longer is untested)"),
             ],
             outputs=[io.Latent.Output()],
@@ -111,8 +111,8 @@ class MiniMaxH3ImageToVideo(io.ComfyNode):
                 io.Clip.Input("clip"),
                 io.Vae.Input("vae"),
                 io.String.Input("prompt", multiline=True, dynamic_prompts=True),
-                io.Int.Input("width", default=1344, min=32, max=nodes.MAX_RESOLUTION, step=32),
-                io.Int.Input("height", default=768, min=32, max=nodes.MAX_RESOLUTION, step=32),
+                io.Int.Input("width", default=1344, min=32, max=MAX_RESOLUTION, step=32),
+                io.Int.Input("height", default=768, min=32, max=MAX_RESOLUTION, step=32),
                 io.Int.Input("length", default=124, min=5, max=3600, step=17, tooltip="Frame count at 24 fps, snapped up to the model's 17k+5 grid (124 = ~5s; trained range is ~124-362, longer is untested)"),
                 io.Image.Input("first_frame", optional=True),
                 io.Image.Input("last_frame", optional=True),
@@ -172,8 +172,8 @@ class MiniMaxH3ReferenceToVideo(io.ComfyNode):
                 io.Vae.Input("vae"),
                 io.Vae.Input("audio_vae"),
                 io.String.Input("prompt", multiline=True, dynamic_prompts=True),
-                io.Int.Input("width", default=1344, min=32, max=nodes.MAX_RESOLUTION, step=32),
-                io.Int.Input("height", default=768, min=32, max=nodes.MAX_RESOLUTION, step=32),
+                io.Int.Input("width", default=1344, min=32, max=MAX_RESOLUTION, step=32),
+                io.Int.Input("height", default=768, min=32, max=MAX_RESOLUTION, step=32),
                 io.Int.Input("length", default=124, min=5, max=3600, step=17, tooltip="Frame count at 24 fps, (124 = ~5s, trained range is ~124-362)"),
                 io.Combo.Input("ref_image_size", options=["match", "max"], default="match",
                     tooltip="Reference image sizing. 'match' scales each ref (down only, keeping aspect) to the generation's pixel area; 'max' uses the reference pipeline's 2048px short edge for best identity fidelity. Reference tokens ride through every sampling step, so 'max' can be several times slower."),

@@ -42,6 +42,8 @@ from .text_encoders import hidream_o1
 from .text_encoders import ideogram4
 from .text_encoders import boogu
 from .text_encoders import krea2
+from .text_encoders import mage_flow
+from .text_encoders import minimax
 from .text_encoders import joyimage
 
 
@@ -1025,6 +1027,27 @@ class LTXAV(LTXV):
         return out
 
 
+class MiniMaxH3(supported_models_base.BASE):
+    unet_config = {"image_model": "minimax_h3"}
+    sampling_settings = {"shift": 12.0}
+    unet_extra_config = {}
+    latent_format = latent_formats.MiniMaxH3AV
+    memory_usage_factor = 0.114
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.MiniMaxH3(self, device=device)
+
+    def clip_target(self, state_dict=None, prefix=""):
+        if state_dict is None:
+            state_dict = {}
+        pref = self.text_encoder_key_prefix[0]
+        detected = hunyuan_video.llama_detect(state_dict, f"{pref}qwen3vl_32b.transformer.")
+        return supported_models_base.ClipTarget(minimax.MiniMaxH3Tokenizer, minimax.te(**detected))
+
+
 class HunyuanVideo(supported_models_base.BASE):
     unet_config = {
         "image_model": "hunyuan_video",
@@ -1920,6 +1943,27 @@ class Omnigen2(supported_models_base.BASE):
         return supported_models_base.ClipTarget(omnigen2.Omnigen2Tokenizer, omnigen2.te(**hunyuan_detect))
 
 
+class MageFlow(supported_models_base.BASE):
+    unet_config = {"image_model": "mage_flow"}
+    sampling_settings = {"multiplier": 1.0, "shift": 6.0}
+    memory_usage_factor = 6.5
+    unet_extra_config = {}
+    latent_format = latent_formats.Flux2
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.MageFlow(self, device=device)
+
+    def clip_target(self, state_dict=None):
+        if state_dict is None:
+            state_dict = {}
+        pref = self.text_encoder_key_prefix[0]
+        detected = hunyuan_video.llama_detect(state_dict, f"{pref}qwen3vl_4b.transformer.")
+        return supported_models_base.ClipTarget(mage_flow.MageFlowTokenizer, mage_flow.te(**detected))
+
+
 class QwenImage(supported_models_base.BASE):
     unet_config = {
         "image_model": "qwen_image",
@@ -2512,6 +2556,7 @@ models = [
     GenmoMochi,
     LTXV,
     LTXAV,
+    MiniMaxH3,
     HunyuanVideo15_SR_Distilled,
     HunyuanVideo15,
     HunyuanImage21Refiner,
@@ -2556,6 +2601,7 @@ models = [
     ACEStep15,
     Omnigen2,
     Boogu,
+    MageFlow,
     QwenImage,
     JoyImage,
     Ideogram4,

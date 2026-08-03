@@ -26,9 +26,9 @@ covered by pinning the helper its closure calls.
 import pytest
 from aiohttp import web
 
-import folder_paths
-from app.assets.api import routes as asset_routes
-from app.assets.services.schemas import DownloadResolutionResult
+from comfy.cmd import folder_paths
+from comfy.app.assets.api import routes as asset_routes
+from comfy.app.assets.services.schemas import DownloadResolutionResult
 
 
 # Every Sec-Fetch-Dest that must keep the forced download. 'document' is the

@@ -5,6 +5,7 @@ from typing import Any, Optional
 import torch
 
 import comfy.model_management
+import comfy.ops
 import comfy.utils
 from comfy.ldm.hunyuan_video.upsampler import HunyuanVideo15SRModel
 from comfy.ldm.lightricks.latent_upsampler import LatentUpsampler
@@ -126,8 +127,9 @@ class LatentUpscaleModelLoader:
             model.load_sd(sd)
         elif "post_upsample_res_blocks.0.conv2.bias" in sd:
             config = json.loads(metadata["config"])
-            model = LatentUpsampler.from_config(config).to(dtype=comfy.model_management.vae_dtype(allowed_dtypes=[torch.bfloat16, torch.float32]))
-            model.load_state_dict(sd)
+            model = LatentUpsampler.from_config(config, operations=comfy.ops.disable_weight_init).to(dtype=comfy.model_management.vae_dtype(allowed_dtypes=[torch.bfloat16, torch.float32]))
+            comfy.model_management.archive_model_dtypes(model)
+            model.load_state_dict(sd, assign=True)
         else:
             raise ValueError(f"Unknown latent upscale model format in {model_name}")
 

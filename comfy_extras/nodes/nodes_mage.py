@@ -1,9 +1,9 @@
 from typing_extensions import override
 
 import comfy.utils
-import node_helpers
 import torch
 import comfy.model_management
+from comfy import node_helpers
 from comfy_api.latest import ComfyExtension, io
 
 

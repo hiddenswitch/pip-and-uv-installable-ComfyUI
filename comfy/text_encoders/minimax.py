@@ -100,8 +100,10 @@ class MiniMaxQwen3VL(Qwen3VL):
 
 
 class MiniMaxH3ClipModel(comfy.sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, model_options={}):
-        super().__init__(device=device, layer="last", layer_idx=None, textmodel_json_config={},
+    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, model_options={}, textmodel_json_config=None):
+        if textmodel_json_config is None:
+            textmodel_json_config = {}
+        super().__init__(device=device, layer="last", layer_idx=None, textmodel_json_config=textmodel_json_config,
                          dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False,
                          model_class=MiniMaxQwen3VL, enable_attention_masks=False,
                          return_attention_masks=False, model_options=model_options)
@@ -117,9 +119,10 @@ class MiniMaxH3ClipModel(comfy.sd1_clip.SDClipModel):
 
 
 class MiniMaxH3TEModel(comfy.sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
         super().__init__(device=device, dtype=dtype, name="qwen3vl_32b",
-                         clip_model=MiniMaxH3ClipModel, model_options=model_options)
+                         clip_model=MiniMaxH3ClipModel, model_options=model_options,
+                         textmodel_json_config=textmodel_json_config)
 
 
 class MiniMaxH3Tokenizer(comfy.sd1_clip.SD1Tokenizer):
@@ -191,11 +194,11 @@ class MiniMaxH3Tokenizer(comfy.sd1_clip.SD1Tokenizer):
 
 def te(dtype_llama=None, llama_quantization_metadata=None, **kwargs):
     class MiniMaxH3TEModel_(MiniMaxH3TEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if dtype_llama is not None:
                 dtype = dtype_llama
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return MiniMaxH3TEModel_

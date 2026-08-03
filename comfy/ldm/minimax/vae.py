@@ -228,8 +228,8 @@ class Attention(nn.Module):
         qkv = qkv.view(batch_size, seq_len, -1, 3 * self.dim_head)
         query, key, value = torch.chunk(qkv, 3, dim=-1)
 
-        query = comfy.rmsnorm.rms_norm(query, self.norm_q.weight, self.norm_q.eps)
-        key = comfy.rmsnorm.rms_norm(key, self.norm_k.weight, self.norm_k.eps)
+        query = self.norm_q(query)
+        key = self.norm_k(key)
 
         if rotary_pos_emb is not None:
             rot = rotary_pos_emb.shape[-3] * 2
@@ -253,8 +253,10 @@ class TransformerBlock(nn.Module):
         self.scale2 = nn.Parameter(torch.empty(dim))
 
     def forward(self, x, rotary_pos_emb=None):
-        x = x.addcmul_(self.attn(comfy.rmsnorm.rms_norm(x, self.norm1.weight, self.norm1.eps), rotary_pos_emb), self.scale1)
-        return x.addcmul_(self.ff(comfy.rmsnorm.rms_norm(x, self.norm2.weight, self.norm2.eps)), self.scale2)
+        scale1 = comfy.ops.cast_to_input(self.scale1, x)
+        scale2 = comfy.ops.cast_to_input(self.scale2, x)
+        x = x.addcmul_(self.attn(self.norm1(x), rotary_pos_emb), scale1)
+        return x.addcmul_(self.ff(self.norm2(x)), scale2)
 
 
 class ViT3DDecoder(nn.Module):
@@ -289,7 +291,8 @@ class ViT3DDecoder(nn.Module):
         num_patches = h.shape[1]
         num_suffix = 1 + self.num_register_tokens
 
-        h = torch.cat([h, self.register_tokens.expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
+        register_tokens = comfy.ops.cast_to_input(self.register_tokens, h)
+        h = torch.cat([h, register_tokens.expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
 
         img_ids = create_token_ids((latent_T, latent_H, latent_W), x.device, x.dtype).expand(B, -1, -1)
         suffix_ids = torch.zeros((B, num_suffix, 3), device=x.device, dtype=img_ids.dtype)

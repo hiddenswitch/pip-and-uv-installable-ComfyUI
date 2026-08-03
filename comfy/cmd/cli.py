@@ -271,7 +271,7 @@ _TELEMETRY_OPTS: list[tuple] = [
 ]
 
 _LOGGING_OPTS: list[tuple] = [
-    ("logging_level", str, typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Specifies the logging level.")),
+    ("logging_level", str, typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "DETAIL", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Specifies the logging level.")),
     ("debug_hang", bool, typer.Option(False, "--debug-hang/--no-debug-hang", help="Enable stack trace dumps on Ctrl-C for debugging hangs.")),
 ]
 
@@ -1766,7 +1766,7 @@ def list_models_cmd(
     base_directory: Optional[str] = typer.Option(None, "--base-directory", help="Base directory."),
     base_paths: Optional[list[str]] = typer.Option(None, "--base-paths", help="Additional base paths."),
     extra_model_paths_config: Optional[list[str]] = typer.Option(None, "--extra-model-paths-config", help="Extra model paths config."),
-    logging_level: str = typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Logging level."),
+    logging_level: str = typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "DETAIL", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Logging level."),
 ):
     """List known downloadable models."""
     if check_exists:
