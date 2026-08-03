@@ -110,7 +110,15 @@ class StackTraceLogger(logging.Logger):
 
 
 def get_log_level(level):
-    return internal_logging.DETAIL if level == "DETAIL" else logging.getLevelNamesMapping()[level]
+    if level == "DETAIL":
+        return internal_logging.DETAIL
+    get_level_names = getattr(logging, "getLevelNamesMapping", None)
+    if get_level_names is not None:
+        return get_level_names()[level]
+    resolved = logging.getLevelName(level)
+    if isinstance(resolved, int):
+        return resolved
+    raise KeyError(level)
 
 
 def setup_logger(log_level: str = 'INFO', file_outputs=None, capacity: int = 300, use_stdout: bool = False):
