@@ -8,6 +8,7 @@ from .memory import (
 from .runtime import (
     AbstractBaseDeviceRuntime,
     AbstractBasePipelineBufferPool,
+    AbstractBasePendingPipelineIntermediate,
     AbstractBasePipelineExecutor,
     AbstractBasePipelineOperations,
     AbstractBasePipelineStageRunner,
@@ -21,6 +22,13 @@ from .distributed import (
     TorchDistributedPipelineExecutor,
     TorchDistributedPipelineOperations,
     TorchDistributedProcessGroupCoordinator,
+)
+from .external import (
+    AbstractBaseExternalPipelineRuntime,
+    ExternalTorchDistributedPipelineOperations,
+    ExternalTorchDistributedRuntime,
+    get_external_pipeline_runtime,
+    initialize_external_pipeline_runtime,
 )
 from .stages import (
     AbstractBasePipelineStageSpec,
@@ -47,7 +55,9 @@ from .types import (
 __all__ = [
     "AbstractBaseCheckpointReader",
     "AbstractBaseDeviceRuntime",
+    "AbstractBaseExternalPipelineRuntime",
     "AbstractBasePipelineBufferPool",
+    "AbstractBasePendingPipelineIntermediate",
     "AbstractBasePipelineExecutor",
     "AbstractBasePipelineMemoryCoordinator",
     "AbstractBasePipelineOperations",
@@ -60,6 +70,8 @@ __all__ = [
     "ComfyDynamicVRAMStageMemoryEstimator",
     "DevicePipelineBufferPool",
     "DirectPipelineStageRunner",
+    "ExternalTorchDistributedPipelineOperations",
+    "ExternalTorchDistributedRuntime",
     "MiniMaxH3PipelineStageSpec",
     "PipelineIntermediateSchema",
     "PipelineDeviceMemoryBudget",
@@ -79,6 +91,8 @@ __all__ = [
     "TorchDistributedPipelineOperations",
     "TorchDistributedProcessGroupCoordinator",
     "deserialize_pipeline_metadata",
+    "get_external_pipeline_runtime",
     "get_pipeline_stage_spec",
+    "initialize_external_pipeline_runtime",
     "serialize_pipeline_metadata",
 ]

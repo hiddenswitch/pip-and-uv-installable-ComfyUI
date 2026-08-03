@@ -6,6 +6,8 @@ import os
 import torch
 
 from comfy import model_detection, model_management, utils
+from comfy.distributed.config import resolve_distributed_configuration
+from comfy.execution_context import current_execution_context
 from comfy.model_patcher import get_model_patcher_class
 
 from .checkpoint import SafetensorsCheckpointReader
@@ -349,6 +351,20 @@ def try_load_diffusion_model_pipeline(
     current = model_management.get_torch_device()
     available = model_management.get_all_torch_devices()
     devices = tuple([current] + [device for device in available if device != current])
+    runtime_configuration = current_execution_context().configuration
+    distributed = resolve_distributed_configuration(runtime_configuration)
+    requested_size = distributed.pipeline_parallel_size
+    if requested_size > 1:
+        if requested_size > len(devices):
+            raise RuntimeError(
+                f"Pipeline parallel size {requested_size} exceeds the {len(devices)} available devices"
+            )
+        devices = devices[:requested_size]
+    elif (
+        runtime_configuration is not None
+        and runtime_configuration.pipeline_parallel_size == 1
+    ):
+        return None
     if len(devices) < 2:
         return None
 

@@ -7,14 +7,30 @@ import torch
 
 from comfy import model_management
 
-from .runtime import AbstractBaseDeviceRuntime, AbstractBasePipelineBufferPool, AbstractBasePipelineOperations, AbstractBasePipelineStageRunner, AbstractBasePipelineTransport, DevicePipelineBufferPool, SingleProcessPipelineExecutor
-from .types import PipelineIntermediateSchema, deserialize_pipeline_metadata, serialize_pipeline_metadata
+from .runtime import AbstractBaseDeviceRuntime, AbstractBasePendingPipelineIntermediate, AbstractBasePipelineBufferPool, AbstractBasePipelineOperations, AbstractBasePipelineStageRunner, AbstractBasePipelineTransport, DevicePipelineBufferPool, SingleProcessPipelineExecutor
+from .types import PipelineIntermediateSchema, PipelineIntermediateTensors, deserialize_pipeline_metadata, serialize_pipeline_metadata
 
 
 @dataclass
 class _CudaCopyCompletion:
     event: torch.cuda.Event
     source: torch.Tensor
+
+
+class CudaPendingPipelineIntermediate(AbstractBasePendingPipelineIntermediate):
+    def __init__(self, runtime, tensors, metadata, completions, destination):
+        self.runtime = runtime
+        self.tensors = tensors
+        self.metadata = metadata
+        self.completions = completions
+        self.destination = destination
+
+    def wait(self) -> PipelineIntermediateTensors:
+        for completion in self.completions:
+            self.runtime.wait(completion, self.destination)
+        result = PipelineIntermediateTensors(dict(self.tensors), self.metadata)
+        self.completions = ()
+        return result
 
 
 class CudaDeviceRuntime(AbstractBaseDeviceRuntime):
@@ -72,11 +88,37 @@ class CudaPeerPipelineTransport(AbstractBasePipelineTransport):
         schema: PipelineIntermediateSchema,
         destination: torch.device,
     ) -> Mapping[str, torch.Tensor]:
-        output = self.buffers.acquire(schema, destination)
-        completions = [self.runtime.copy(tensor, output[name]) for name, tensor in tensors.items()]
+        output, completions = self._begin_tensor_transfer(tensors, schema, destination)
         for completion in completions:
             self.runtime.wait(completion, destination)
         return output
+
+    def _begin_tensor_transfer(self, tensors, schema, destination):
+        output = self.buffers.acquire(schema, destination)
+        completions = tuple(
+            self.runtime.copy(tensor, output[name])
+            for name, tensor in tensors.items()
+        )
+        return output, completions
+
+    def begin_transfer(self, intermediate, destination):
+        schema = intermediate.schema()
+        schema.validate(intermediate.tensors, intermediate.metadata)
+        output, completions = self._begin_tensor_transfer(
+            intermediate.tensors,
+            schema,
+            destination,
+        )
+        metadata = deserialize_pipeline_metadata(
+            serialize_pipeline_metadata(intermediate.metadata)
+        )
+        return CudaPendingPipelineIntermediate(
+            self.runtime,
+            output,
+            metadata,
+            completions,
+            destination,
+        )
 
     def close(self) -> None:
         self.buffers.clear()

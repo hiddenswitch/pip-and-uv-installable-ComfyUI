@@ -101,6 +101,14 @@ class Configuration(dict):
         disable_auto_launch (bool): Disable auto launching the browser.
         cuda_device (Optional[str]): CUDA device ID or comma-separated IDs. None means all visible devices.
         torch_device (Optional[str]): Torch device by name, e.g. "cuda:1", "cpu", "mps". Overrides cuda_device and cpu flags.
+        rank (Optional[int]): Global process rank. Defaults to the canonical RANK environment variable.
+        world_size (Optional[int]): Total process count. Defaults to the canonical WORLD_SIZE environment variable.
+        local_rank (Optional[int]): Node-local process rank. Defaults to LOCAL_RANK.
+        local_world_size (Optional[int]): Number of local processes. Defaults to LOCAL_WORLD_SIZE.
+        master_addr (Optional[str]): Process-group rendezvous host. Defaults to MASTER_ADDR.
+        master_port (Optional[int]): Process-group rendezvous port. Defaults to MASTER_PORT.
+        pipeline_parallel_size (Optional[int]): Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.
+        distributed_executor_backend (str): Pipeline executor selection: auto, peer, mp, or external_launcher.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
         disable_cuda_malloc (bool): Disable cudaMallocAsync.
         dont_upcast_attention (bool): Disable upcasting of attention.
@@ -259,6 +267,14 @@ class Configuration(dict):
         self.disable_auto_launch: bool = False
         self.cuda_device: Optional[str] = None
         self.torch_device: Optional[str] = None
+        self.rank: Optional[int] = None
+        self.world_size: Optional[int] = None
+        self.local_rank: Optional[int] = None
+        self.local_world_size: Optional[int] = None
+        self.master_addr: Optional[str] = None
+        self.master_port: Optional[int] = None
+        self.pipeline_parallel_size: Optional[int] = None
+        self.distributed_executor_backend: str = "auto"
         self.cuda_malloc: bool = True
         self.disable_cuda_malloc: bool = True
         self.dont_upcast_attention: bool = False

@@ -44,7 +44,39 @@ class AbstractBasePipelineBufferPool(ABC):
         raise NotImplementedError
 
 
+class AbstractBasePendingPipelineIntermediate(ABC):
+    """An intermediate whose device transfer has been enqueued, not synchronized."""
+
+    @abstractmethod
+    def wait(self) -> PipelineIntermediateTensors:
+        raise NotImplementedError
+
+
+class ImmediatePipelineIntermediate(AbstractBasePendingPipelineIntermediate):
+    def __init__(self, intermediate: PipelineIntermediateTensors):
+        self.intermediate = intermediate
+
+    def wait(self) -> PipelineIntermediateTensors:
+        return self.intermediate
+
+
 class AbstractBasePipelineTransport(ABC):
+    def begin_transfer(
+        self,
+        intermediate: PipelineIntermediateTensors,
+        destination: torch.device,
+    ) -> AbstractBasePendingPipelineIntermediate:
+        """Enqueue a transfer and return its stage-consumption boundary.
+
+        Backends with asynchronous transports override this method. The default
+        keeps existing synchronous transports usable through the same runner.
+        """
+        schema = intermediate.schema()
+        return ImmediatePipelineIntermediate(PipelineIntermediateTensors(
+            dict(self.transfer(intermediate.tensors, schema, destination)),
+            self.transfer_metadata(intermediate.metadata, destination),
+        ))
+
     @abstractmethod
     def transfer(
         self,
@@ -161,12 +193,11 @@ class SingleProcessPipelineExecutor(AbstractBasePipelineExecutor):
                 raise TypeError("A non-final pipeline stage must return PipelineIntermediateTensors")
             schema = output.schema()
             schema.validate(output.tensors, output.metadata)
-            tensors = self.transport.transfer(output.tensors, schema, stage_plan.device)
-            metadata = self.transport.transfer_metadata(output.metadata, stage_plan.device)
+            pending = self.transport.begin_transfer(output, stage_plan.device)
             output = self.stage_runner.run(
                 stage,
                 stage_plan.device,
-                PipelineIntermediateTensors(dict(tensors), metadata),
+                pending.wait(),
             )
         if isinstance(output, PipelineIntermediateTensors):
             raise TypeError("The final pipeline stage returned intermediate tensors")
@@ -174,13 +205,15 @@ class SingleProcessPipelineExecutor(AbstractBasePipelineExecutor):
         structure = pack_pipeline_value(output, tensors, "pipeline_output")
         if not tensors:
             return output
-        schema = PipelineIntermediateTensors(tensors, {}).schema()
-        tensors = self.transport.transfer(tensors, schema, self.plan.stages[0].device)
-        output_metadata = self.transport.transfer_metadata(
-            {"structure": structure},
+        pending = self.transport.begin_transfer(
+            PipelineIntermediateTensors(tensors, {"structure": structure}),
             self.plan.stages[0].device,
         )
-        return unpack_pipeline_value(output_metadata["structure"], tensors)
+        transferred = pending.wait()
+        return unpack_pipeline_value(
+            transferred.metadata["structure"],
+            transferred.tensors,
+        )
 
     def close(self) -> None:
         self.transport.close()

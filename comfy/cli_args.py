@@ -69,6 +69,14 @@ parser.add_argument("--cuda-device", type=str, default=None, metavar="DEVICE_ID"
 parser.add_argument("--torch-device", type=str, default=None, metavar="DEVICE",
                     help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")
 parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device, all other devices will stay visible.")
+parser.add_argument("--rank", type=int, default=None, help="Global process rank. Defaults to RANK.")
+parser.add_argument("--world-size", type=int, default=None, help="Total process count. Defaults to WORLD_SIZE.")
+parser.add_argument("--local-rank", "--local_rank", type=int, default=None, help="Node-local process rank. Defaults to LOCAL_RANK.")
+parser.add_argument("--local-world-size", type=int, default=None, help="Number of local processes. Defaults to LOCAL_WORLD_SIZE.")
+parser.add_argument("--master-addr", type=str, default=None, help="Process-group rendezvous host. Defaults to MASTER_ADDR.")
+parser.add_argument("--master-port", type=int, default=None, help="Process-group rendezvous port. Defaults to MASTER_PORT.")
+parser.add_argument("--pipeline-parallel-size", type=int, default=None, help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")
+parser.add_argument("--distributed-executor-backend", choices=("auto", "peer", "mp", "external_launcher"), default="auto", help="Pipeline executor backend.")
 
 cm_group = parser.add_mutually_exclusive_group()
 cm_group.add_argument("--cuda-malloc", action="store_true", help="Enable cudaMallocAsync.")

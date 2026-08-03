@@ -14,6 +14,7 @@ from comfy.model_management_types import LoadingListItem
 from comfy.model_patcher import ModelPatcher
 from comfy.pipeline_parallel import (
     AbstractBaseDeviceRuntime,
+    AbstractBasePendingPipelineIntermediate,
     AbstractBasePipelineTransport,
     AbstractBasePipelineStageRunner,
     DevicePipelineBufferPool,
@@ -31,7 +32,11 @@ from comfy.pipeline_parallel.types import PipelineIntermediateTensors, PipelineP
 from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 from comfy.pipeline_parallel.patcher import get_pipeline_model_patcher_class
 from comfy.pipeline_parallel.memory import ComfyDynamicVRAMStageMemoryEstimator, ComfyPipelineMemoryCoordinator
-from comfy.pipeline_parallel.distributed import RemotePipelineStageModel
+from comfy.pipeline_parallel.distributed import (
+    RemotePipelineStageModel,
+    TorchDistributedProcessGroupCoordinator,
+    _DistributedCompletion,
+)
 from comfy.pipeline_parallel.operations import PipelineOperationsMux
 
 
@@ -277,6 +282,47 @@ def test_single_process_executor_injects_transport_and_reuses_buffers():
     assert transport.closed
 
 
+def test_single_process_executor_consumes_pending_intermediate_at_stage_boundary():
+    events = []
+
+    class Pending(AbstractBasePendingPipelineIntermediate):
+        def __init__(self, intermediate):
+            self.intermediate = intermediate
+
+        def wait(self):
+            events.append("wait")
+            return self.intermediate
+
+    class DeferredTransport(FakePipelineTransport):
+        def begin_transfer(self, intermediate, destination):
+            del destination
+            events.append("begin")
+            return Pending(intermediate)
+
+    device = torch.device("cpu")
+    plan = PipelinePartitionPlan("test", (
+        PipelineStagePlan(0, device, 0, 1, 1, frozenset()),
+        PipelineStagePlan(1, device, 1, 2, 1, frozenset()),
+    ))
+
+    def first(value):
+        return PipelineIntermediateTensors({"hidden": value}, {})
+
+    def second(intermediate):
+        events.append("stage")
+        return intermediate.tensors["hidden"]
+
+    executor = SingleProcessPipelineExecutor(
+        plan,
+        (first, second),
+        DeferredTransport(FakeDeviceRuntime()),
+    )
+
+    executor.execute(torch.tensor([1]))
+
+    assert events == ["begin", "wait", "stage", "begin", "wait"]
+
+
 def test_pipeline_transport_does_not_share_mutable_metadata_between_stages():
     device = torch.device("cpu")
     plan = PipelinePartitionPlan("test", (
@@ -368,6 +414,26 @@ def test_pipeline_operations_mux_selects_first_supported_provider():
     selected = Provider(True)
 
     assert PipelineOperationsMux((fallback, selected)).select((torch.device("cpu"),)) is selected
+
+
+def test_distributed_completion_waits_for_nccl_work_before_compute_stream(monkeypatch):
+    events = []
+
+    class Work:
+        def wait(self):
+            events.append("work")
+
+    class Stream:
+        def wait_event(self, event):
+            events.append(event)
+
+    coordinator = object.__new__(TorchDistributedProcessGroupCoordinator)
+    coordinator.device = torch.device("cuda:0")
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda _device: Stream())
+
+    coordinator.wait((_DistributedCompletion("event", (Work(),)),))
+
+    assert events == ["work", "event"]
 
 
 def test_pipeline_metadata_uuid_is_encoded_without_shared_object_state():

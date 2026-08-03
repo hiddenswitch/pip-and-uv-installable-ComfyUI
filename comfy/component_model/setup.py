@@ -14,6 +14,7 @@ import sys
 import warnings
 
 from ..cli_args_types import Configuration
+from ..distributed.config import resolve_distributed_configuration
 
 logger = logging.getLogger(__name__)
 _dumping_traceback = False
@@ -130,14 +131,42 @@ def setup_cuda_devices(config: Configuration):
         logger.info("Set oneapi device selector to: %s", config.oneapi_device_selector)
 
 
+def prepare_distributed_environment(config: Configuration):
+    """Apply launcher identity before torch, nodes, or DynamicVRAM initialize."""
+    distributed = resolve_distributed_configuration(config)
+    if not distributed.externally_launched:
+        return distributed
+    if distributed.is_first_pipeline_stage:
+        aimdo_devices = range(distributed.local_world_size)
+    else:
+        aimdo_devices = (distributed.local_rank,)
+    os.environ["COMFY_AIMDO_DEVICE_INDICES"] = ",".join(
+        str(index) for index in aimdo_devices
+    )
+    if not distributed.is_first_pipeline_stage:
+        config.disable_all_custom_nodes = True
+    return distributed
+
+
+def setup_distributed_runtime(distributed):
+    from ..distributed.runtime import initialize_distributed_runtime
+    return initialize_distributed_runtime(distributed)
+
+
+def setup_distributed_device(distributed):
+    from ..distributed.runtime import select_distributed_device
+    select_distributed_device(distributed)
+
+
 def setup_guess_settings(config: Configuration):
     if config.guess_settings:
         from .guess_settings import apply_guess_settings
         apply_guess_settings(config)
 
 
-def setup_cuda_malloc():
-    from ..cmd import cuda_malloc  # noqa: F401
+def setup_cuda_malloc(config: Configuration):
+    from ..cmd import cuda_malloc
+    cuda_malloc.configure(config)
 
 
 _tracing_initialized = False
@@ -263,7 +292,7 @@ def setup_pre_torch(config: Configuration):
     setup_debug_hang(config)
     setup_guess_settings(config)
     setup_cuda_devices(config)
-    setup_cuda_malloc()
+    setup_cuda_malloc(config)
 
 
 def setup_post_torch(config: Configuration):

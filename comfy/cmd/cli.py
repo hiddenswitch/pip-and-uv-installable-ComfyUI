@@ -33,6 +33,7 @@ from ..cli_args_types import (
     VRAM_MODES, PRECISION_MODES, UNET_MODES, VAE_MODES, TEXT_ENC_MODES,
     ATTENTION_MODES, UPCAST_MODES, FP8_MATERIALIZATION_MODES,
 )
+from ..distributed.config import DISTRIBUTED_EXECUTOR_BACKENDS
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,17 @@ _DEVICE_OPTS: list[tuple] = [
     ("enable_triton_backend", bool, typer.Option(False, "--enable-triton-backend/--no-enable-triton-backend", help="Enable the Triton backend in comfy-kitchen.")),
     ("disable_triton_backend", bool, typer.Option(False, "--disable-triton-backend", help="Force-disable the comfy-kitchen Triton backend.")),
     ("fp8_materialization", str, typer.Option("auto", "--fp8-materialization", envvar="COMFYUI_FP8_MATERIALIZATION", help=f"Select how FP8 weights are materialized to bf16/fp16/fp32. Choices: {', '.join(FP8_MATERIALIZATION_MODES)}. auto is reserved for benchmark-selected lowerings; torch uses the graph-visible torch op; comfy_kitchen uses comfy_kitchen's registered backend.")),
+]
+
+_DISTRIBUTED_OPTS: list[tuple] = [
+    ("rank", Optional[int], typer.Option(None, "--rank", envvar="RANK", help="Global process rank. Defaults to the torchrun RANK environment variable.")),
+    ("world_size", Optional[int], typer.Option(None, "--world-size", envvar="WORLD_SIZE", help="Total process count. Defaults to the torchrun WORLD_SIZE environment variable.")),
+    ("local_rank", Optional[int], typer.Option(None, "--local-rank", "--local_rank", envvar="LOCAL_RANK", help="Node-local process rank. The dashed spelling is canonical; the underscored spelling is accepted for older launchers.")),
+    ("local_world_size", Optional[int], typer.Option(None, "--local-world-size", envvar="LOCAL_WORLD_SIZE", help="Number of processes on this node. Defaults to LOCAL_WORLD_SIZE.")),
+    ("master_addr", Optional[str], typer.Option(None, "--master-addr", envvar="MASTER_ADDR", help="Process-group rendezvous host. Defaults to MASTER_ADDR.")),
+    ("master_port", Optional[int], typer.Option(None, "--master-port", envvar="MASTER_PORT", help="Process-group rendezvous port. Defaults to MASTER_PORT.")),
+    ("pipeline_parallel_size", Optional[int], typer.Option(None, "--pipeline-parallel-size", "-pp", envvar="COMFYUI_PIPELINE_PARALLEL_SIZE", help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")),
+    ("distributed_executor_backend", str, typer.Option("auto", "--distributed-executor-backend", envvar="COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND", click_type=click.Choice(DISTRIBUTED_EXECUTOR_BACKENDS), help="Pipeline executor backend: auto, peer, mp, or external_launcher.")),
 ]
 
 _VRAM_OPTS: list[tuple] = [
@@ -358,7 +370,7 @@ _RUN_BLOCK_RUNTIME_PACKAGE_INSTALLATION_OPTION = typer.Option(
 )
 
 _COMPUTE_OPTS = (
-    _DEVICE_OPTS + _VRAM_OPTS + _PRECISION_OPTS + _ATTENTION_OPTS +
+    _DEVICE_OPTS + _DISTRIBUTED_OPTS + _VRAM_OPTS + _PRECISION_OPTS + _ATTENTION_OPTS +
     _MEMORY_OPTS + _CACHE_OPTS + _PREVIEW_OPTS + _PERF_OPTS
 )
 
@@ -414,6 +426,34 @@ def _set_config_context(config: Configuration):
     from ..execution_context import comfyui_execution_context, current_execution_context
     ctx = replace(current_execution_context(), configuration=config)
     comfyui_execution_context.set(ctx)
+
+
+@contextlib.contextmanager
+def _application_runtime(config: Configuration):
+    """Initialize one shared application/distributed lifecycle for every runner."""
+    from ..component_model.setup import (
+        prepare_distributed_environment,
+        setup_distributed_device,
+        setup_distributed_runtime,
+        setup_post_torch,
+        setup_pre_torch,
+    )
+
+    distributed = prepare_distributed_environment(config)
+    setup_pre_torch(config)
+    setup_distributed_device(distributed)
+    _set_config_context(config)
+    runtime = setup_distributed_runtime(distributed)
+    setup_post_torch(config)
+    try:
+        if runtime is not None and not runtime.is_driver:
+            runtime.run_worker_service()
+            yield False
+        else:
+            yield True
+    finally:
+        if runtime is not None:
+            runtime.close()
 
 
 def _validate_mutex(params: dict, group_name: str, fields: tuple[str, ...]):
@@ -693,8 +733,6 @@ def serve(
       comfyui serve --fp32-vae --use-sage-attention
       comfyui serve --workflows my_workflow.json --prompt "a sunset" --steps 20
     """
-    from ..component_model.setup import setup_pre_torch, setup_post_torch
-
     _daemon = daemon
     _pid_file = pid_file
     _log_file = log_file
@@ -711,18 +749,20 @@ def serve(
     _parse_plugin_args(ctx, config)
 
     if _daemon:
+        from ..distributed.config import resolve_distributed_configuration
+        if resolve_distributed_configuration(config).externally_launched:
+            raise typer.BadParameter("--daemon cannot be combined with an external distributed launcher")
         from .daemon import daemonize, default_pid_file, default_log_file
         daemonize(_pid_file or default_pid_file(), _log_file or default_log_file())
 
-    setup_pre_torch(config)
-    _set_config_context(config)
-    setup_post_torch(config)
-
-    from .main import _start_comfyui
-    try:
-        asyncio.run(_start_comfyui(configuration=config))
-    except KeyboardInterrupt:
-        pass
+    with _application_runtime(config) as run_driver:
+        if not run_driver:
+            return
+        from .main import _start_comfyui
+        try:
+            asyncio.run(_start_comfyui(configuration=config))
+        except KeyboardInterrupt:
+            pass
 
 
 
@@ -746,8 +786,6 @@ def worker(
       comfyui worker --distributed-queue-connection-uri amqp://guest:guest@rabbitmq:5672/
       comfyui worker --distributed-queue-connection-uri amqp://... --guess-settings
     """
-    from ..component_model.setup import setup_pre_torch, setup_post_torch
-
     params = _collect_params(locals(), kwargs)
 
     if params.get("otel_service_version") is None:
@@ -759,15 +797,14 @@ def worker(
     config.distributed_queue_frontend = False
     _parse_plugin_args(ctx, config)
 
-    setup_pre_torch(config)
-    _set_config_context(config)
-    setup_post_torch(config)
-
-    from ..entrypoints.worker import run_worker
-    try:
-        asyncio.run(run_worker(config))
-    except KeyboardInterrupt:
-        pass
+    with _application_runtime(config) as run_driver:
+        if not run_driver:
+            return
+        from ..entrypoints.worker import run_worker
+        try:
+            asyncio.run(run_worker(config))
+        except KeyboardInterrupt:
+            pass
 
 
 
@@ -1541,52 +1578,46 @@ def _plain_index_to_raw_index(text: str, plain_index: int) -> int:
 
 
 def _run_workflow_cli(config, *, all: bool = False, dry_run: bool = False) -> None:
-    from ..component_model.setup import setup_pre_torch, setup_post_torch
-
-    # Publish the parsed config to the execution context BEFORE anything
-    # (including --all's pip resolution) imports a comfy module that reads
-    # args at module-import time — e.g. comfy.model_management latches its
-    # VRAM state from args.{novram,lowvram,...} at import. Running
-    # _install_workflow_requirements first made --novram/--lowvram silently
-    # no-op because model_management saw the default Configuration.
-    _set_config_context(config)
+    from ..distributed.config import resolve_distributed_configuration
+    distributed = resolve_distributed_configuration(config)
+    if distributed.externally_launched and (all or dry_run):
+        raise typer.BadParameter("--all and --dry-run must run before an external distributed launch")
 
     if all:
+        # Package resolution can import modules that read args at import time.
+        _set_config_context(config)
         custom_node_packages = _install_workflow_requirements(config.workflows, dry_run=dry_run)
     else:
         custom_node_packages = []
 
-    setup_pre_torch(config)
-    setup_post_torch(config)
-
-    from ..component_model.entrypoints_common import configure_application_paths
-    configure_application_paths(config)
-
-    if all:
-        # After torch is available we know cu128 vs cu130, so do this here
-        # rather than alongside _install_workflow_requirements.
-        if not dry_run:
-            _install_workflow_stable_abi_extensions(config.workflows)
-        # Auto-discover existing models on disk before checking what to download.
-        # Discovery + classification + folder_paths registration runs every time
-        # --all is requested, so subsequent _download_workflow_models() calls
-        # find locally-resolved files via folder_paths.get_full_path().
-        classifications, scan_summary = _auto_register_existing_models()
-        planned = _download_workflow_models(config.workflows, dry_run=dry_run)
-        if dry_run:
-            _print_dry_run_plan(config.workflows, classifications, scan_summary, planned, custom_node_packages)
+    with _application_runtime(config) as run_driver:
+        if not run_driver:
             return
 
-    from ..execution_context import context_configuration
-    from ..nodes.package import import_all_nodes_in_workspace
-    with context_configuration(config):
-        import_all_nodes_in_workspace(raise_on_failure=False)
+        from ..component_model.entrypoints_common import configure_application_paths
+        configure_application_paths(config)
 
-    from ..entrypoints.workflow import run_workflows
-    try:
-        asyncio.run(run_workflows(config.workflows, configuration=config))
-    except KeyboardInterrupt:
-        pass
+        if all:
+            # After torch is available we know cu128 vs cu130, so do this here
+            # rather than alongside _install_workflow_requirements.
+            if not dry_run:
+                _install_workflow_stable_abi_extensions(config.workflows)
+            classifications, scan_summary = _auto_register_existing_models()
+            planned = _download_workflow_models(config.workflows, dry_run=dry_run)
+            if dry_run:
+                _print_dry_run_plan(config.workflows, classifications, scan_summary, planned, custom_node_packages)
+                return
+
+        from ..execution_context import context_configuration
+        from ..nodes.package import import_all_nodes_in_workspace
+        with context_configuration(config):
+            import_all_nodes_in_workspace(raise_on_failure=False)
+
+        from ..entrypoints.workflow import run_workflows
+        try:
+            asyncio.run(run_workflows(config.workflows, configuration=config))
+        except KeyboardInterrupt:
+            pass
 
 
 def _run_workflow_command(

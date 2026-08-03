@@ -18,7 +18,9 @@ The loader reads the safetensors header first and makes a provisional contiguous
 
 The selected device order is the pipeline order. Automatic partitioning compares each prospective stage's DynamicVRAM weight geometry against the memory DynamicVRAM can make available on that device. The capacity signal includes allocator-free memory plus the device's reclaimable Aimdo VBAR residency, so externally occupied or differently loaded GPUs can receive asymmetric block ranges. The optimizer minimizes the worst per-device pressure and then overflow; equal layer counts and equal checkpoint byte counts are not objectives. If a stage is larger than resident capacity, its normal DynamicVRAM patcher streams and evicts weights on that GPU.
 
-At each boundary the executor asks an injected pipeline-operations provider to transfer the activation payload. The operations mux selects asynchronous CUDA peer copies when adjacent devices support them. Otherwise it can select process-peer execution: one rank and model stage per device, a Gloo control group, and `torch.distributed` tensor sends through an NCCL group. NCCL chooses its own NVLink, PCIe, or network transport. Both providers use destination-owned buffers and a fresh serialized metadata representation; the process-peer provider does not share Python tensor state between ranks. Quantized and mixed-precision model operations remain independently injected, so pipeline transport composes with INT8 ConvRot instead of replacing its linear operations.
+At each boundary the executor asks an injected pipeline-operations provider to transfer the activation payload. The operations mux selects asynchronous CUDA peer copies when adjacent devices support them. Otherwise it can select process-peer execution: one rank and model stage per device, a Gloo control group, and `torch.distributed` tensor sends through an NCCL group. NCCL chooses its own NVLink, PCIe, or network transport. Both providers produce the same pending-intermediate object: it owns destination buffers, serialized metadata, source references, and the completion event until the consuming stage waits on it. CUDA peer and NCCL communication use side streams; the compute stream waits at consumption rather than synchronizing the host. This follows the deferred-receive pattern used by vLLM's V2 pipeline runner.
+
+Both providers use destination-owned buffers and a fresh serialized metadata representation; the process-peer provider does not share Python tensor state between ranks. Quantized and mixed-precision model operations remain independently injected, so pipeline transport composes with INT8 ConvRot instead of replacing its linear operations.
 
 Pipeline stages participate in ComfyUI memory management as a group. Their weights are patched and loaded independently on their assigned devices, LoRA weight patches are routed to the owning stage, and a partial grouped load is rolled back if a later stage fails. A process-peer stage is represented by a remote model-manageable object, so ordinary per-device pressure loads, partially unloads, and resets it through the same request as local stages. Models already occupying either GPU, including text encoders, are ejected only when that generalized pressure decision needs their memory. Rank processes and reusable activation buffers survive sampler cleanup and are released with the owning model executor. The final denoised result is returned to the first stage's device so the normal sampler contract is unchanged.
 
@@ -34,6 +36,35 @@ The inference regression workflow is `tests/inference/workflows/qwen-image-layer
 comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
   --cuda-device 0,1 --image input/example.png --steps 1
 ```
+
+### Launcher topology
+
+ComfyUI uses the process identity standardized by `torchrun` and TorchElastic. CLI values take precedence over the canonical environment, which takes precedence over compatible PMI, Open MPI, MVAPICH, and Slurm aliases.
+
+| CLI | Canonical environment | Meaning |
+|---|---|---|
+| `--rank` | `RANK` | Global process and pipeline-stage rank. |
+| `--world-size` | `WORLD_SIZE` | Total process count. |
+| `--local-rank` | `LOCAL_RANK` | Rank on this host. `--local_rank` is accepted for older launchers. |
+| `--local-world-size` | `LOCAL_WORLD_SIZE` | Process count on this host. |
+| `--master-addr` | `MASTER_ADDR` | Rendezvous host. |
+| `--master-port` | `MASTER_PORT` | Rendezvous port. |
+| `--pipeline-parallel-size`, `-pp` | `COMFYUI_PIPELINE_PARALLEL_SIZE` | Pipeline-stage count; defaults to world size under an external launcher. |
+| `--distributed-executor-backend` | `COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND` | `auto`, single-process `peer`, internal `mp`, or `external_launcher`. |
+
+An external launch currently maps one process to one pipeline stage, so pipeline size must equal world size. Rank zero is the ComfyUI driver and owns the first stage; the last rank owns model output. Other ranks disable custom nodes and remain in the rank service. On one host, rank zero keeps visibility of every selected GPU so the existing DynamicVRAM decision maker can compare all device budgets; every other rank initializes only its local Aimdo device. Model residency is still requested through the ordinary grouped model-manager path.
+
+Use `torchrun` without changing the workflow:
+
+```shell
+CUDA_VISIBLE_DEVICES=0,1 torchrun --standalone --nproc-per-node=2 \
+  --no-python "$(command -v comfyui)" run-workflow \
+  tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --image input/example.png --pipeline-parallel-size 2 \
+  --disable-all-custom-nodes
+```
+
+`serve`, `worker`, and `run-workflow` share the same startup lifecycle and topology resolver. `--daemon` is intentionally rejected under an external launcher. Multi-host external pipeline stages and hybrid data/pipeline topology are not implemented yet.
 
 ## Getting Started
 

@@ -43,6 +43,23 @@ def test_serve_help():
     assert "--daemon" in out or "-d" in out
 
 
+def test_serve_help_exposes_canonical_distributed_topology():
+    result = runner.invoke(app, ["serve", "--help"], env={"COLUMNS": "240"})
+    assert result.exit_code == 0
+    out = _plain(result.output)
+    for option in (
+        "--rank",
+        "--world-size",
+        "--local-rank",
+        "--local-world-size",
+        "--master-addr",
+        "--master-port",
+        "--pipeline-parallel-size",
+        "--distributed-executor-backend",
+    ):
+        assert option in out
+
+
 def test_start_delegates_to_serve_daemon(monkeypatch):
     calls = []
 
