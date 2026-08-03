@@ -5,10 +5,10 @@ import os
 
 import torch
 
-from comfy import model_detection, model_management, utils
-from comfy.distributed.config import resolve_distributed_configuration
-from comfy.execution_context import current_execution_context
-from comfy.model_patcher import get_model_patcher_class
+from .. import model_detection, model_management, utils
+from ..distributed.config import resolve_distributed_configuration
+from ..execution_context import current_execution_context
+from ..model_patcher import get_model_patcher_class
 
 from .checkpoint import SafetensorsCheckpointReader
 from .distributed import RemotePipelineStageModel

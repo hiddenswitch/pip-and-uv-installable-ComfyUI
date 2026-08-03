@@ -5,7 +5,7 @@ from typing import Sequence
 
 import torch
 
-from comfy import model_management
+from .. import model_management
 
 from .types import PipelineDeviceMemoryBudget, PipelineModelMemoryGeometry, PipelinePartitionPlan, PipelineStageMemoryGeometry
 

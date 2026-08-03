@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from comfy.model_patcher import get_model_patcher_class
+from ..model_patcher import get_model_patcher_class
 
 
 class PipelineModelPatcherMixin:

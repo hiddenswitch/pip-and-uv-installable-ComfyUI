@@ -4,7 +4,7 @@ import multiprocessing.connection
 import os
 import sys
 
-from comfy.distributed.config import resolve_distributed_configuration
+from ..distributed.config import resolve_distributed_configuration
 
 from .distributed import _worker_main
 

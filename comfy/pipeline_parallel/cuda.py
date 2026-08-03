@@ -5,7 +5,7 @@ from typing import Mapping
 
 import torch
 
-from comfy import model_management
+from .. import model_management
 
 from .runtime import AbstractBaseDeviceRuntime, AbstractBasePendingPipelineIntermediate, AbstractBasePipelineBufferPool, AbstractBasePipelineOperations, AbstractBasePipelineStageRunner, AbstractBasePipelineTransport, DevicePipelineBufferPool, SingleProcessPipelineExecutor
 from .types import PipelineIntermediateSchema, PipelineIntermediateTensors, deserialize_pipeline_metadata, serialize_pipeline_metadata

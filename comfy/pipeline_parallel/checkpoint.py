@@ -8,7 +8,7 @@ from typing import Collection, Mapping
 
 import torch
 
-from comfy import utils
+from .. import utils
 
 from .types import TensorDescriptor
 

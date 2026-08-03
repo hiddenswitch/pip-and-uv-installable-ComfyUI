@@ -9,7 +9,7 @@ import traceback
 import torch
 import torch.distributed as dist
 
-from comfy.distributed.config import DistributedConfiguration
+from ..distributed.config import DistributedConfiguration
 
 from .distributed import (
     TorchDistributedPipelineExecutor,
@@ -95,7 +95,7 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
         )
         self._closed = False
 
-        from comfy import model_management
+        from .. import model_management
 
         model_management.set_torch_device(self.device)
         logger.info(

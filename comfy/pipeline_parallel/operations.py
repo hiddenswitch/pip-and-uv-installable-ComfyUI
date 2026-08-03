@@ -4,8 +4,8 @@ from collections.abc import Sequence
 
 import torch
 
-from comfy.distributed.config import resolve_distributed_configuration
-from comfy.execution_context import current_execution_context
+from ..distributed.config import resolve_distributed_configuration
+from ..execution_context import current_execution_context
 
 from .cuda import CudaPeerPipelineOperations
 from .distributed import TorchDistributedPipelineOperations

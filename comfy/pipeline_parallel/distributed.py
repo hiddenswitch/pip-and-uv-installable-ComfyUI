@@ -16,8 +16,8 @@ from typing import Mapping, Sequence
 import torch
 import torch.distributed as dist
 
-from comfy.distributed.config import DistributedConfiguration, resolve_distributed_configuration
-from comfy.model_management_types import ModelManageableStub
+from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
+from ..model_management_types import ModelManageableStub
 
 from .runtime import AbstractBasePipelineExecutor, AbstractBasePipelineOperations
 from .types import (
@@ -542,10 +542,10 @@ def _worker_main(
         coordinator = TorchDistributedProcessGroupCoordinator(rank, device, device_group)
 
         os.environ["COMFY_AIMDO_DEVICE_INDICES"] = str(device.index)
-        from comfy import model_management
+        from .. import model_management
 
         model_management.set_torch_device(device)
-        import comfy.aimdo_integration  # noqa: F401
+        from .. import aimdo_integration  # noqa: F401
 
         patcher, geometry = _load_worker_stage(load_spec, rank)
         ready.send({"kind": "ready", "geometry": geometry})
