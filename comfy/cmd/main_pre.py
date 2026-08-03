@@ -260,7 +260,9 @@ def _create_tracer():
 
 def _configure_logging():
     logging_level = args.logging_level
-    logger.setup_logger(logging_level)
+    # DETAIL remains available as a console level, but upstream no longer
+    # creates a detail log file unless one is explicitly configured.
+    logger.setup_logger(logging_level, file_outputs=[])
 
 args: Configuration
 

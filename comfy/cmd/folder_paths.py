@@ -174,6 +174,7 @@ def init_default_paths(folder_names_and_paths: FolderNames, configuration: Optio
         ModelPaths(["gligen"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["upscale_models"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["custom_nodes"], folder_name_base_path_subdir=construct_path(""), supported_extensions=set()),
+        ModelPaths(["datasets"], folder_name_base_path_subdir=construct_path(""), supported_extensions=set()),
         ModelPaths(["hypernetworks"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["photomaker"], supported_extensions=set(supported_pt_extensions)),
         ModelPaths(["classifiers"], supported_extensions=set()),
@@ -332,6 +333,13 @@ def is_dangerous_content_type(content_type: str | None) -> bool:
         return False
     normalized = content_type.split(";", 1)[0].strip().lower()
     return normalized in DANGEROUS_CONTENT_TYPES or normalized.endswith("+xml") or normalized.endswith("/xml")
+
+
+def renders_safely_as_image(content_type: str | None, sec_fetch_dest: str | None) -> bool:
+    """Return whether a dangerous type is safe in the browser's static image mode."""
+    if sec_fetch_dest != "image":
+        return False
+    return (content_type or "").split(";", 1)[0].strip().lower() == "image/svg+xml"
 
 
 def is_within_directory(directory: str, target: str) -> bool:
@@ -558,6 +566,15 @@ def get_save_image_path(filename_prefix, output_dir, image_width=0, image_height
     filename = os.path.basename(os.path.normpath(filename_prefix))
 
     full_output_folder = str(os.path.join(output_dir, subfolder))
+
+    if not is_within_directory(output_dir, full_output_folder):
+        err = (
+            "**** ERROR: Saving image outside the output folder is not allowed."
+            f"\n full_output_folder: {os.path.abspath(full_output_folder)}"
+            f"\n         output_dir: {output_dir}"
+        )
+        logging.error(err)
+        raise Exception(err)
 
     try:
         counter = max(filter(lambda a: a[1][:-1] == filename and a[1][-1] == "_", map(map_filename, os.listdir(full_output_folder))))[0] + 1

@@ -815,6 +815,9 @@ KNOWN_APPROX_VAES: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="vae_approx")
 
 KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_video_vae_fp16.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_audio_vae_fp32.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "vae/mage_flow_vae_bf16.safetensors"),
     HuggingFile("stabilityai/sdxl-vae", "sdxl_vae.safetensors", alternate_filenames=("sdxl.fp16.vae.safetensors",)),
     HuggingFile("stabilityai/sd-vae-ft-mse-original", "vae-ft-mse-840000-ema-pruned.safetensors"),
     # this is the flux VAE
@@ -901,6 +904,11 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_edit_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_edit_turbo_int8_convrot.safetensors"),
     HuggingFile("ByteDance/Hyper-SD", "Hyper-SDXL-1step-Unet-Comfyui.fp16.safetensors"),
     HuggingFile("black-forest-labs/FLUX.1-schnell", "flux1-schnell.safetensors", alternate_filenames=("main/flux1-schnell.safetensors",)),
     HuggingFile("black-forest-labs/FLUX.1-dev", "flux1-dev.safetensors", alternate_filenames=("main/flux1-dev.safetensors",)),
@@ -1209,6 +1217,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("bertbobson/Sulphur-2-base-INT8-ConvRot", "sulphur_distil_INT8_ConvRot.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-H3", "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "text_encoders/qwen3vl_4b_bf16.safetensors"),
     # todo: is this correct?
     HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp16.safetensors"),
     HuggingFile("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn.safetensors", alternate_filenames=("main/t5xxl_fp8_e4m3fn.safetensors",)),

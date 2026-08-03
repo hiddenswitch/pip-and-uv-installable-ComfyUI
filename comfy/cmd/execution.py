@@ -55,8 +55,10 @@ from comfy_execution.validation import validate_node_input
 from .. import interruption
 from .. import memory_management
 from .. import model_management
+from .. import model_patcher as model_patcher_module
 from .. import model_prefetch
 from ..cli_args_types import LatentPreviewMethod
+from ..internal_logging import detail
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue
 from ..component_model.executor_types import ExecutorToClientProgress, ValidationTuple, ValidateInputsTuple, \
     ValidationErrorDict, NodeErrorsDictValue, ValidationErrorExtraInfoDict, FormattedValue, RecursiveExecutionTuple, \
@@ -790,6 +792,7 @@ class PromptExecutor:
         self.cache_args = cache_args or {}
         self.cache_type = cache_type
         self.server = server
+        self.prompt_model_tracker = model_patcher_module.PromptModelTracker()
         self.raise_exceptions = False
         self.reset()
         self.history_result: HistoryResultDict | None = None
@@ -893,6 +896,7 @@ class PromptExecutor:
             extra_data = {}
 
         interruption.interrupt_current_processing(False)
+        self.prompt_model_tracker.start()
 
         if "client_id" in extra_data:
             self.server.client_id = extra_data["client_id"]
@@ -935,7 +939,7 @@ class PromptExecutor:
                 pending_async_nodes = {}  # TODO - Unify this with pending_subgraph_results
                 ui_node_outputs = {}
                 executed = set()
-                execution_list = ExecutionList(dynamic_prompt, self.caches.outputs)
+                execution_list = ExecutionList(dynamic_prompt, self.caches.outputs, self.prompt_model_tracker.add)
                 current_outputs = self.caches.outputs.all_node_ids()
                 for node_id in list(execute_outputs):
                     execution_list.add_node(node_id)
@@ -999,7 +1003,10 @@ class PromptExecutor:
                 if model_management.DISABLE_SMART_MEMORY:
                     model_management.unload_all_models()
         finally:
+            if self.cache_type == CacheType.RAM_PRESSURE:
+                detail("RAM cache evictions: prompt=%s active=%s full=%s", prompt_id, self.caches.outputs.active_evictions, self.caches.outputs.full_evictions)
             memory_management.set_ram_cache_release_state(None, 0)
+            self.prompt_model_tracker.end()
             self._notify_prompt_lifecycle("end", prompt_id)
 
     @property

@@ -156,6 +156,37 @@ class TestMixedPrecisionOps(unittest.TestCase):
         self.assertEqual(bias.dtype, torch.bfloat16)
 
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
+    def test_convrot_int8_embedding_keeps_quantized_storage_for_row_dequantization(self):
+        """ConvRot embeddings must reach the row-dequantization kernel as INT8, not compute dtype."""
+        embedding = ops.mixed_precision_ops({}, compute_dtype=torch.bfloat16).Embedding(
+            8,
+            256,
+            device="cpu",
+            dtype=torch.bfloat16,
+        )
+        quant_config = {
+            "format": "int8_tensorwise",
+            "convrot": True,
+            "convrot_groupsize": 256,
+        }
+        state_dict = {
+            "weight": torch.randint(-127, 128, (8, 256), dtype=torch.int8),
+            "weight_scale": torch.ones(8, 1, dtype=torch.float32),
+            "comfy_quant": torch.tensor(
+                list(json.dumps(quant_config).encode("utf-8")),
+                dtype=torch.uint8,
+            ),
+        }
+        embedding.load_state_dict(state_dict, strict=True)
+
+        self.assertIsInstance(embedding.weight, QuantizedTensor)
+        output = embedding(torch.tensor([[0, 3, 7]], dtype=torch.long))
+
+        self.assertEqual(embedding.weight._qdata.dtype, torch.int8)
+        self.assertEqual(output.shape, (1, 3, 256))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+    @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_force_cast_does_not_disable_quantized_inference(self):
         """Manual cast flags should not turn fp8 mixed-precision inference into full-weight dequantization."""
         layer = ops.mixed_precision_ops({}).Linear(10, 20, device="cpu", dtype=torch.bfloat16)
