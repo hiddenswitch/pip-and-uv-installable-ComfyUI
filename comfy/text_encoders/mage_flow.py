@@ -11,8 +11,8 @@ import numbers
 
 import torch
 
-import comfy.text_encoders.qwen3vl
-from comfy import sd1_clip
+from .. import sd1_clip
+from . import qwen3vl
 
 MAGE_VISION_BLOCK = "<|vision_start|><|image_pad|><|vision_end|>"
 
@@ -20,7 +20,7 @@ MAGE_T2I_TEMPLATE = "<|im_start|>system\nDescribe the image by detailing the col
 MAGE_EDIT_TEMPLATE = "<|im_start|>system\nDescribe the key features of the input image (color, shape, size, texture, objects, background), then explain how the user's text instruction should alter or modify the image. Generate a new image that meets the user's requirements while maintaining consistency with the original input where appropriate.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
 
 
-class MageFlowTokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
+class MageFlowTokenizer(qwen3vl.Qwen3VLTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, model_type="qwen3vl_4b")
         self.llama_template = MAGE_T2I_TEMPLATE
@@ -41,7 +41,7 @@ class MageFlowTokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
         return super().tokenize_with_weights(text, return_word_ids=return_word_ids, llama_template=llama_template, images=images, prevent_empty_text=prevent_empty_text, thinking=thinking, **kwargs)
 
 
-class MageFlowQwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
+class MageFlowQwen3VLClipModel(qwen3vl.Qwen3VLClipModel):
     def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, model_type="qwen3vl_4b", textmodel_json_config=None):
         super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type=model_type, textmodel_json_config=textmodel_json_config)
         # apply the final RMSNorm to the tapped last layer (HF last_hidden_state)

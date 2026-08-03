@@ -23,7 +23,7 @@ import math
 
 import torch
 import torch.nn.functional as F
-import comfy.sd1_clip
+from .. import sd1_clip
 from .qwen3vl import Qwen3VL, Qwen3VLSDTokenizer
 
 VISION_START = 151652
@@ -99,7 +99,7 @@ class MiniMaxQwen3VL(Qwen3VL):
                                dtype=dtype, embeds_info=embeds_info, **kwargs)
 
 
-class MiniMaxH3ClipModel(comfy.sd1_clip.SDClipModel):
+class MiniMaxH3ClipModel(sd1_clip.SDClipModel):
     def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, model_options={}, textmodel_json_config=None):
         if textmodel_json_config is None:
             textmodel_json_config = {}
@@ -118,14 +118,14 @@ class MiniMaxH3ClipModel(comfy.sd1_clip.SDClipModel):
         return out
 
 
-class MiniMaxH3TEModel(comfy.sd1_clip.SD1ClipModel):
+class MiniMaxH3TEModel(sd1_clip.SD1ClipModel):
     def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
         super().__init__(device=device, dtype=dtype, name="qwen3vl_32b",
                          clip_model=MiniMaxH3ClipModel, model_options=model_options,
                          textmodel_json_config=textmodel_json_config)
 
 
-class MiniMaxH3Tokenizer(comfy.sd1_clip.SD1Tokenizer):
+class MiniMaxH3Tokenizer(sd1_clip.SD1Tokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         tokenizer = lambda *a, **kw: Qwen3VLSDTokenizer(*a, **kw, embedding_size=5120, embedding_key="qwen3vl_32b")
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, name="qwen3vl_32b", tokenizer=tokenizer)
