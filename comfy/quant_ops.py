@@ -245,6 +245,11 @@ try:
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
 
     _CK_QUANTIZED_TENSOR_DEQUANTIZE = QuantizedTensor.dequantize
+    from comfy_kitchen.tensor import base as _ck_tensor_base
+
+    _CK_QUANTIZED_TENSOR_COPY = _ck_tensor_base._DISPATCH_TABLE[
+        torch.ops.aten.copy_.default
+    ]
 
     @torch.compiler.disable
     def _quantized_tensor_dequantize_eager(qtensor: QuantizedTensor) -> torch.Tensor:
@@ -262,6 +267,19 @@ try:
         return _CK_QUANTIZED_TENSOR_DEQUANTIZE(qtensor)
 
     QuantizedTensor.dequantize = _quantized_tensor_dequantize_compile_safe
+
+    @torch.compiler.disable
+    def _quantized_tensor_copy_eager(qtensor, copy_args, copy_kwargs):
+        # Dynamic VRAM copies the packed storage and layout tensors in place.
+        # AOTAutograd cannot functionalize mutations of wrapper-subclass inputs
+        # whose logical dtype differs from the packed storage dtype. Keep that
+        # short materialization operation eager; the surrounding transformer
+        # graph remains compilable.
+        return _CK_QUANTIZED_TENSOR_COPY(qtensor, copy_args, copy_kwargs)
+
+    _ck_tensor_base._DISPATCH_TABLE[
+        torch.ops.aten.copy_.default
+    ] = _quantized_tensor_copy_eager
 except Exception as e:
     logger.debug(f"Failed to import comfy_kitchen, Error: {e}, fp8 and fp4 support will not be available.")
     _CK_AVAILABLE = False

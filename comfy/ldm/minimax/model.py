@@ -30,7 +30,6 @@ from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_v
 from comfy.xdit import (
     gather_sequence,
     install_ulysses_attention_override,
-    local_padding_mask,
     localize_segments,
     split_sequence,
 )
@@ -56,6 +55,29 @@ def time_shift_slope(sigma, from_shift, to_shift):
     """
     base = sigma / (from_shift + sigma * (1.0 - from_shift))
     return (to_shift * (1.0 + (from_shift - 1.0) * base) ** 2) / (from_shift * (1.0 + (to_shift - 1.0) * base) ** 2)
+
+
+def _timestep_rows(
+    sigma_v,
+    shift_v,
+    shift_a,
+    visual_augmentation,
+    audio_augmentation,
+    has_visual_conditioning,
+    has_audio_conditioning,
+):
+    """Build fixed semantic timestep rows without specializing on sigma values."""
+    t_v = 1.0 - sigma_v
+    t_a = 1.0 - time_shift_sigma(sigma_v, shift_v, shift_a)
+    names = ["video", "audio"]
+    values = [t_v, t_a]
+    if has_visual_conditioning:
+        names.append("visual_condition")
+        values.append(torch.clamp(t_v, min=visual_augmentation))
+    if has_audio_conditioning:
+        names.append("audio_condition")
+        values.append(torch.clamp(t_a, min=audio_augmentation))
+    return {name: index for index, name in enumerate(names)}, torch.stack(values)
 
 
 def patchify_video(latent, patch_size=(1, 2, 2)):
@@ -589,20 +611,29 @@ class MiniMaxH3Model(nn.Module):
         shift_v = float(transformer_options.get("minimax_h3_sigma_shift_video", self.sigma_shift_video))
         shift_a = float(transformer_options.get("minimax_h3_sigma_shift_audio", self.sigma_shift_audio))
         sigma_v = (timestep.flatten()[0] / 1000.0).float().clamp(min=1e-6)
-        t_v = float(1.0 - sigma_v)
-        t_a = float(1.0 - time_shift_sigma(sigma_v, shift_v, shift_a))
-
-        # distinct timesteps are known analytically: text/pad follow video, cond rows pin near 1
+        # Timestep row identities are structural. Keep their values as tensors
+        # so torch.compile can reuse one graph across the sampler's sigma values.
         vis_aug = float(payload.get("visual_cond_noise_aug", VISUAL_COND_TIMESTEP))
         aud_aug = float(payload.get("audio_cond_noise_aug", AUDIO_COND_TIMESTEP))
         has_vis_cond = any(k in ("cond", "ref_img") for _, _, k in layout.segments)
         has_aud_cond = any(k == "ref_audio" for _, _, k in layout.segments)
-        seg_t = {"text": t_v, "video": t_v, "audio": t_a,
-                 "cond": max(t_v, vis_aug), "ref_img": max(t_v, vis_aug),
-                 "ref_audio": max(t_a, aud_aug)}
-        unique_t = sorted({t_v, t_a} | ({seg_t["cond"]} if has_vis_cond else set())
-                          | ({seg_t["ref_audio"]} if has_aud_cond else set()))
-        t_row = {t: i for i, t in enumerate(unique_t)}
+        t_row, t_vals = _timestep_rows(
+            sigma_v,
+            shift_v,
+            shift_a,
+            vis_aug,
+            aud_aug,
+            has_vis_cond,
+            has_aud_cond,
+        )
+        seg_t = {
+            "text": "video",
+            "video": "video",
+            "audio": "audio",
+            "cond": "visual_condition",
+            "ref_img": "visual_condition",
+            "ref_audio": "audio_condition",
+        }
         seg_tag = {"text": 1, "video": 0, "audio": 2, "cond": 0, "ref_img": 0, "ref_audio": 2}
 
         text_tags = payload.get("text_token_tags")
@@ -660,7 +691,7 @@ class MiniMaxH3Model(nn.Module):
                 h[a:b] = audio_embed[aoff:aoff + n]
                 aoff += n
 
-        t_vals = torch.tensor(unique_t, dtype=torch.float32, device=device)
+        t_vals = t_vals.to(dtype=torch.float32, device=device)
         if self.use_adaln_curves:
             # adaln projections consume interpolated coordinates of the time-embedding curve
             table = comfy.model_management.cast_to(self.adaln_t_table, device=device)
@@ -673,8 +704,8 @@ class MiniMaxH3Model(nn.Module):
         # rotation table computed once per forward, consumed by the kitchen split-half rope
         rope_freqs = rope_rotation_table(self.rope_freqs(layout.position_ids, device), dtype)
 
-        video_seg = next((a, b, t_row[seg_t["video"]]) for a, b, k in layout.segments if k == "video")
-        audio_seg = next((a, b, t_row[seg_t["audio"]]) for a, b, k in layout.segments if k == "audio")
+        video_seg = next((a, b, t_row["video"]) for a, b, k in layout.segments if k == "video")
+        audio_seg = next((a, b, t_row["audio"]) for a, b, k in layout.segments if k == "audio")
         slope_a = time_shift_slope(sigma_v, shift_v, shift_a)
         sequence_padding = 0
         if self.xdit_sequence_parallel is not None:
@@ -697,17 +728,7 @@ class MiniMaxH3Model(nn.Module):
             install_ulysses_attention_override(
                 transformer_options,
                 parallel,
-                (
-                    local_padding_mask(
-                        layout.seq_len,
-                        sequence_padding,
-                        parallel,
-                        h.dtype,
-                        h.device,
-                    )
-                    if sequence_padding
-                    else None
-                ),
+                sequence_padding=sequence_padding,
             )
 
         start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer

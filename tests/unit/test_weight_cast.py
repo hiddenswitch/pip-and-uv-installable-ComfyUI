@@ -142,6 +142,14 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
     assert "comfy_weight.release" in graph_text
 
 
+def test_comfy_weight_release_ops_do_not_claim_to_mutate_model_outputs():
+    release_schema = str(torch.ops.comfy_weight.release_.default._schema)
+    release_tensor_schema = str(torch.ops.comfy_weight.release_tensor_.default._schema)
+
+    assert "!" not in release_schema
+    assert "!" not in release_tensor_schema
+
+
 def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
@@ -1394,6 +1402,32 @@ def test_fp8_materialization_rejects_unknown_mode(monkeypatch):
             torch.ones((), dtype=torch.float32),
             torch.bfloat16,
         )
+
+
+def test_quantized_tensor_copy_stays_outside_aot_functionalization():
+    from comfy.quant_ops import QuantizedTensor, TensorWiseINT8Layout
+
+    def quantized(values):
+        qdata = torch.tensor(values, dtype=torch.int8)
+        params = TensorWiseINT8Layout.Params(
+            scale=torch.ones((), dtype=torch.float32),
+            orig_dtype=torch.bfloat16,
+            orig_shape=tuple(qdata.shape),
+        )
+        return QuantizedTensor(qdata, "TensorWiseINT8Layout", params)
+
+    destination = quantized([[0, 0], [0, 0]])
+    source = quantized([[1, 2], [3, 4]])
+
+    def copy_quantized(dst, src):
+        dst.copy_(src)
+        return dst
+
+    compiled = torch.compile(copy_quantized, backend="eager")
+    result = compiled(destination, source)
+
+    assert torch.equal(result._qdata, source._qdata)
+    assert torch.equal(result.params.scale, source.params.scale)
 
 
 def test_direct_materialize_prefetch_allows_dtype_changing_weight(monkeypatch):

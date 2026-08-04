@@ -596,6 +596,10 @@ def _dump_scheduled_graph_if_requested(gm: torch.fx.GraphModule) -> None:
                     elif "release_" in name and len(args) >= 3:
                         detail = f" module={args[1]} invocation={args[2]}"
                 handle.write(f"{index:05d} {node.op} {_target_name(node)} {node.name}{detail}\n")
+                stack_trace = node.meta.get("stack_trace")
+                if stack_trace:
+                    for line in str(stack_trace).rstrip().splitlines():
+                        handle.write(f"      {line}\n")
     except Exception:
         logger.exception("Failed to dump scheduled weight prefetch graph to %s", dump_path)
 

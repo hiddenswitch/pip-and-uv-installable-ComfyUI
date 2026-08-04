@@ -648,11 +648,11 @@ _LIB.define(
     **_TORCH_OP_TAG_KWARGS_SINGLE,
 )
 _LIB.define(
-    "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
+    "release_(Tensor output, int module_key, int invocation_id) -> ()",
     **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(
-    "release_tensor_(Tensor(a!) output, Tensor module_key, int invocation_id) -> ()",
+    "release_tensor_(Tensor output, Tensor module_key, int invocation_id) -> ()",
     **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(

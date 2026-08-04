@@ -72,6 +72,7 @@ def ulysses_attention(
     value: torch.Tensor,
     attention_function,
     mask=None,
+    sequence_padding: int = 0,
 ):
     """Run native Comfy attention between xDiT Ulysses all-to-alls.
 
@@ -86,6 +87,16 @@ def ulysses_attention(
         key,
         value,
     )
+    padded_sequence = query.shape[2]
+    if sequence_padding:
+        if mask is not None:
+            raise ValueError(
+                "Ulysses suffix trimming cannot be combined with an attention mask"
+            )
+        real_sequence = padded_sequence - sequence_padding
+        query = query[:, :, :real_sequence]
+        key = key[:, :, :real_sequence]
+        value = value[:, :, :real_sequence]
     if mask is not None:
         mask = parallel.operations.all_gather(mask.contiguous(), dim=-1)
     local_heads = query.shape[1]
@@ -96,6 +107,11 @@ def ulysses_attention(
         local_heads,
         query.shape[-1],
     ).permute(0, 2, 1, 3).contiguous()
+    if sequence_padding:
+        output = torch.nn.functional.pad(
+            output,
+            (0, 0, 0, sequence_padding),
+        )
     output = _output_all_to_all(parallel, output)
     return output.transpose(1, 2).flatten(2)
 
@@ -119,7 +135,7 @@ def _combine_attention_masks(mask, padding_mask):
     return mask + padding_mask.to(mask.dtype)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class UlyssesAttentionOverride:
     """Comfy attention-dispatch override backed by Ulysses collectives.
 
@@ -131,6 +147,7 @@ class UlyssesAttentionOverride:
 
     parallel: XDiTSequenceParallelConfig
     padding_mask: torch.Tensor | None = None
+    sequence_padding: int = 0
 
     def __call__(
         self,
@@ -170,6 +187,7 @@ class UlyssesAttentionOverride:
                 **kwargs,
             ),
             mask=mask,
+            sequence_padding=self.sequence_padding,
         )
         if skip_output_reshape:
             return _reshape_to_heads(output, heads)
@@ -180,7 +198,8 @@ def install_ulysses_attention_override(
     transformer_options: dict,
     parallel: XDiTSequenceParallelConfig,
     padding_mask: torch.Tensor | None = None,
+    sequence_padding: int = 0,
 ) -> None:
     transformer_options["optimized_attention_override"] = (
-        UlyssesAttentionOverride(parallel, padding_mask)
+        UlyssesAttentionOverride(parallel, padding_mask, sequence_padding)
     )

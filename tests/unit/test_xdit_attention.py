@@ -11,6 +11,7 @@ from comfy.xdit import (
     local_padding_mask,
     split_sequence,
 )
+from comfy.xdit.attention import install_ulysses_attention_override
 
 
 class _ThreadedCollectives:
@@ -210,5 +211,121 @@ def test_ulysses_attention_masks_sequence_padding():
             list(executor.map(rank_inputs, range(size))),
             dim=1,
         )[:, : query.shape[2]]
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_ulysses_attention_trims_suffix_padding_before_native_attention():
+    torch.manual_seed(13)
+    size = 2
+    query = torch.randn(1, 4, 5, 8)
+    key = torch.randn_like(query)
+    value = torch.randn_like(query)
+    expected = _native_attention(
+        query,
+        key,
+        value,
+        query.shape[1],
+        skip_reshape=True,
+    )
+    collectives = _ThreadedCollectives(size)
+    native_lengths = []
+
+    def rank_inputs(rank):
+        operations = _SimulatedUlyssesOperations(collectives, rank)
+        parallel = XDiTSequenceParallelConfig(operations)
+        local_query, padding = split_sequence(query, parallel, 2)
+        local_key, _ = split_sequence(key, parallel, 2)
+        local_value, _ = split_sequence(value, parallel, 2)
+
+        @wrap_attn
+        def recording_attention(
+            local_query,
+            local_key,
+            local_value,
+            heads,
+            mask=None,
+            skip_reshape=False,
+            skip_output_reshape=False,
+            **_kwargs,
+        ):
+            assert mask is None
+            assert skip_reshape
+            native_lengths.append(local_query.shape[2])
+            output = F.scaled_dot_product_attention(
+                local_query,
+                local_key,
+                local_value,
+            )
+            if skip_output_reshape:
+                return output
+            return output.transpose(1, 2).flatten(2)
+
+        return recording_attention(
+            local_query,
+            local_key,
+            local_value,
+            query.shape[1],
+            skip_reshape=True,
+            transformer_options={
+                "optimized_attention_override": UlyssesAttentionOverride(
+                    parallel,
+                    sequence_padding=padding,
+                )
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=size) as executor:
+        actual = torch.cat(
+            list(executor.map(rank_inputs, range(size))),
+            dim=1,
+        )[:, : query.shape[2]]
+
+    assert native_lengths == [5, 5]
+    torch.testing.assert_close(actual, expected)
+
+
+def test_ulysses_override_is_traceable_by_torch_compile():
+    class SingleRankOperations:
+        rank = 0
+        world_size = 1
+
+        @staticmethod
+        def all_to_all(tensor):
+            return tensor
+
+        @staticmethod
+        def all_gather(tensor, dim):
+            del dim
+            return tensor
+
+    parallel = XDiTSequenceParallelConfig(SingleRankOperations())
+
+    def attention_with_override(query, key, value):
+        options = {}
+        install_ulysses_attention_override(options, parallel)
+        return _native_attention(
+            query,
+            key,
+            value,
+            query.shape[1],
+            skip_reshape=True,
+            transformer_options=options,
+        )
+
+    query = torch.randn(1, 2, 4, 8)
+    key = torch.randn_like(query)
+    value = torch.randn_like(query)
+    expected = attention_with_override(query, key, value)
+    torch._dynamo.reset()
+    try:
+        compiled = torch.compile(
+            attention_with_override,
+            backend="eager",
+            fullgraph=True,
+        )
+        actual = compiled(query, key, value)
+    finally:
+        torch._dynamo.reset()
 
     torch.testing.assert_close(actual, expected)

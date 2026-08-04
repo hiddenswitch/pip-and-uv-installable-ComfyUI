@@ -30,11 +30,21 @@ def _free_tcp_init_method() -> str:
 
 def _without_execution_caches(value):
     if isinstance(value, dict):
-        return {
+        cleaned = {
             key: _without_execution_caches(item)
             for key, item in value.items()
             if key != "layout"
         }
+        wrappers = cleaned.get("wrappers")
+        if isinstance(wrappers, dict):
+            apply_model = wrappers.get("apply_model")
+            if isinstance(apply_model, dict):
+                apply_model.pop("torch.compile", None)
+                if not apply_model:
+                    wrappers.pop("apply_model", None)
+            if not wrappers:
+                cleaned.pop("wrappers", None)
+        return cleaned
     if isinstance(value, list):
         return [_without_execution_caches(item) for item in value]
     if isinstance(value, tuple):
@@ -82,8 +92,9 @@ def _broadcast_tensors(operations, tensors=None, descriptors=None):
 
 
 class TorchDistributedModelParallelExecutor:
-    def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes):
+    def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes, root_patcher=None):
         self.root_model = root_model
+        self.root_patcher = root_patcher
         self.operations = operations
         self.coordinator = coordinator
         self.workers = tuple(workers)
@@ -91,6 +102,30 @@ class TorchDistributedModelParallelExecutor:
         self.devices = tuple(devices)
         self.rank_sizes = tuple(rank_sizes)
         self._closed = False
+        self._device_group_active = True
+
+    def configure_torch_compile(self, compile_kwargs, root_patcher=None):
+        root_patcher = root_patcher or self.root_patcher
+        if root_patcher is None:
+            raise RuntimeError("Model-parallel compiler requires its root model patcher")
+        for rank in range(1, len(self.devices)):
+            response = self.remote_rank_command(
+                rank,
+                {"kind": "configure_torch_compile", "compile_kwargs": compile_kwargs},
+            )
+            if response["kind"] == "error":
+                raise RuntimeError(
+                    f"Model-parallel rank {rank} failed to configure torch.compile:\n"
+                    f"{response['traceback']}"
+                )
+        from comfy_api.torch_helpers.torch_compile import compile_model_for_execution
+
+        self.root_model, root_strategy = compile_model_for_execution(
+            root_patcher,
+            self.root_model,
+            compile_kwargs,
+        )
+        return {"diffusion_model": root_strategy}
 
     def execute(self, *args, **kwargs):
         return self.execute_method("forward", *args, **kwargs)
@@ -114,12 +149,37 @@ class TorchDistributedModelParallelExecutor:
         })
         tensors = _broadcast_tensors(self.operations, tensors=tensors)
         args, kwargs = unpack_pipeline_value(structure, tensors)
-        output = getattr(self.root_model, method)(*args, **kwargs)
+        try:
+            output = getattr(self.root_model, method)(*args, **kwargs)
+        except BaseException:
+            # A peer can already be blocked in a model collective when the
+            # root rank fails (for example, during lazy torch compilation).
+            # Abort the NCCL group so that peer leaves that collective and can
+            # return to the control loop instead of hanging the workflow.
+            self._abort_device_group()
+            raise
         for rank in range(1, len(self.devices)):
             response = self.coordinator.receive_object(rank)
             if response["kind"] == "error":
                 raise RuntimeError(f"Tensor-parallel rank {rank} failed:\n{response['traceback']}")
         return output
+
+    def _abort_device_group(self):
+        if not self._device_group_active:
+            return
+        self._device_group_active = False
+        try:
+            abort_process_group = getattr(
+                dist.distributed_c10d,
+                "_abort_process_group",
+                None,
+            )
+            if abort_process_group is not None:
+                abort_process_group(self.operations.process_group)
+            else:
+                self.operations.process_group.abort()
+        except Exception:
+            pass
 
     def remote_rank_command(self, rank, command):
         self.coordinator.broadcast_command({"kind": "rank_model", "rank": rank, "command": command})
@@ -153,11 +213,14 @@ class TorchDistributedModelParallelExecutor:
                 worker_pool.shutdown(wait=True)
             else:
                 worker_pool.shutdown(wait=True)
-        if dist.is_initialized():
+        if dist.is_initialized() and self._device_group_active:
             try:
                 dist.destroy_process_group(self.operations.process_group)
             finally:
+                self._device_group_active = False
                 dist.destroy_process_group()
+        elif dist.is_initialized():
+            dist.destroy_process_group()
 
     def __del__(self):
         self.close()
@@ -275,6 +338,7 @@ class _ObjectCoordinator:
 
 
 def _run_worker(operations, coordinator, patcher, span_name):
+    execution_model = patcher.model.diffusion_model
     while True:
         command = coordinator.broadcast_command()
         with distributed_command_span(
@@ -315,6 +379,21 @@ def _run_worker(operations, coordinator, patcher, span_name):
                             patcher.partially_unload(patcher.offload_device, model_command["memory_to_free"])
                         elif model_command["kind"] == "reset_dynamic_buffers":
                             patcher.reset_dynamic_buffers()
+                        elif model_command["kind"] == "configure_torch_compile":
+                            from comfy_api.torch_helpers.torch_compile import (
+                                compile_model_for_execution,
+                            )
+
+                            execution_model, strategy = compile_model_for_execution(
+                                patcher,
+                                execution_model,
+                                model_command["compile_kwargs"],
+                            )
+                            coordinator.send_object(
+                                {"kind": "rank_model", "strategy": strategy},
+                                0,
+                            )
+                            continue
                         coordinator.send_object({"kind": "rank_model", "loaded_size": patcher.loaded_size()}, 0)
                     except Exception:
                         coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
@@ -331,7 +410,7 @@ def _run_worker(operations, coordinator, patcher, span_name):
                 try:
                     tensors = _broadcast_tensors(operations, descriptors=command["descriptors"])
                     args, kwargs = unpack_pipeline_value(command["structure"], tensors)
-                    getattr(patcher.model.diffusion_model, command["method"])(*args, **kwargs)
+                    getattr(execution_model, command["method"])(*args, **kwargs)
                     coordinator.send_object({"kind": "done"}, 0)
                 except Exception:
                     coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
@@ -469,7 +548,7 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
             rank_sizes.append(response["size"])
         return root, TorchDistributedModelParallelExecutor(
             root.model.diffusion_model, operations, _ObjectCoordinator(), workers,
-            connections, devices, rank_sizes,
+            connections, devices, rank_sizes, root_patcher=root,
         )
     except Exception:
         for worker_pool, _worker_future in workers:

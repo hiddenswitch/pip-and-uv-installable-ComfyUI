@@ -28,6 +28,7 @@ class _FakePatcher(HooksSupportStub):
         self.added = []
         self.callbacks = {}
         self.module = torch.nn.Linear(1, 1)
+        self.model = None
 
     def clone(self, disable_dynamic=False):
         clone = type(self)()
@@ -112,6 +113,38 @@ def test_set_torch_compile_wrapper_keeps_mode_without_options(monkeypatch):
 
     assert calls[0]["mode"] == "reduce-overhead"
     assert "options" not in calls[0]
+
+
+def test_set_torch_compile_wrapper_configures_model_parallel_ranks():
+    class RecordingModelParallelExecutor:
+        def __init__(self):
+            self.calls = []
+
+        def configure_torch_compile(self, compile_kwargs, root_patcher=None):
+            self.calls.append((compile_kwargs, root_patcher))
+            return {"diffusion_model": "module"}
+
+    executor = RecordingModelParallelExecutor()
+    patcher = _FakePatcher()
+    patcher.model = type("BaseModel", (), {"pipeline_executor": executor})()
+
+    set_torch_compile_wrapper(
+        patcher,
+        keys=["diffusion_model"],
+        backend="inductor",
+        mode="max-autotune",
+    )
+
+    assert executor.calls == [({
+        "backend": "inductor",
+        "mode": "max-autotune",
+        "fullgraph": False,
+    }, patcher)]
+    assert patcher.model_options[TORCH_COMPILE_STRATEGY] == {
+        "diffusion_model": "module"
+    }
+    wrapper = patcher.get_wrappers(WrappersMP.APPLY_MODEL, "torch.compile")[0]
+    assert wrapper(lambda value: value + 1, 2) == 3
 
 
 def test_set_torch_compile_wrapper_compiles_top_level_model_with_apply_wrapper(monkeypatch):

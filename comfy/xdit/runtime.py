@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
+import torch.distributed._functional_collectives as functional_collectives
 
 
 class AbstractBaseXDiTSequenceParallelOperations(ABC):
@@ -55,34 +56,27 @@ class TorchDistributedUlyssesOperations(
         return self._world_size
 
     @staticmethod
-    def _complete(completion, tensor: torch.Tensor) -> None:
-        if tensor.device.type == "cuda":
-            completion.block_current_stream()
-        else:
-            completion.wait()
+    def _wait(tensor: torch.Tensor) -> torch.Tensor:
+        if isinstance(
+            tensor,
+            functional_collectives.AsyncCollectiveTensor,
+        ):
+            return tensor.wait()
+        return tensor
 
     def all_to_all(self, tensor: torch.Tensor) -> torch.Tensor:
-        import torch.distributed as dist
-
-        output = torch.empty_like(tensor)
-        completion = dist.all_to_all_single(
-            output,
+        output = functional_collectives.all_to_all_single(
             tensor,
+            output_split_sizes=None,
+            input_split_sizes=None,
             group=self.process_group,
-            async_op=True,
         )
-        self._complete(completion, output)
-        return output
+        return self._wait(output)
 
     def all_gather(self, tensor: torch.Tensor, dim: int) -> torch.Tensor:
-        import torch.distributed as dist
-
-        outputs = [torch.empty_like(tensor) for _ in range(self.world_size)]
-        completion = dist.all_gather(
-            outputs,
+        output = functional_collectives.all_gather_tensor(
             tensor.contiguous(),
+            gather_dim=dim,
             group=self.process_group,
-            async_op=True,
         )
-        self._complete(completion, tensor)
-        return torch.cat(outputs, dim=dim)
+        return self._wait(output)

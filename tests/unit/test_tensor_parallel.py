@@ -1,5 +1,6 @@
 import threading
 
+import pytest
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
 
@@ -17,6 +18,7 @@ from comfy.tensor_parallel.distributed import (
     TorchDistributedTensorParallelExecutor,
     _ObjectCoordinator,
     _broadcast_tensors,
+    _without_execution_caches,
 )
 
 
@@ -41,6 +43,11 @@ class RecordingRootModel:
     def forward(self, value):
         self.value = value
         return value
+
+
+class FailingRootModel:
+    def forward(self):
+        raise RuntimeError("rank zero failed")
 
 
 class PreprocessingDiffusion(torch.nn.Module):
@@ -250,6 +257,55 @@ def test_tensor_parallel_root_uses_collective_prepared_inputs(monkeypatch):
 
     assert output.item() == 3
     assert root.value.item() == 3
+
+
+def test_model_parallel_root_failure_aborts_device_group(monkeypatch):
+    aborted = []
+    monkeypatch.setattr(
+        "comfy.tensor_parallel.distributed.dist.distributed_c10d._abort_process_group",
+        aborted.append,
+    )
+    operations = type("Operations", (), {"process_group": "nccl"})()
+    executor = TorchDistributedTensorParallelExecutor(
+        FailingRootModel(), operations, RecordingCoordinator(), (), (),
+        (torch.device("cpu"),), (0,),
+    )
+
+    with pytest.raises(RuntimeError, match="rank zero failed"):
+        executor.execute()
+
+    assert aborted == ["nccl"]
+    assert executor._device_group_active is False
+
+
+def test_model_parallel_transport_removes_only_rank_local_compile_wrapper():
+    compile_wrapper = lambda executor, *args, **kwargs: executor(*args, **kwargs)
+    extension_wrapper = object()
+    value = {
+        "transformer_options": {
+            "wrappers": {
+                "apply_model": {
+                    "torch.compile": [compile_wrapper],
+                    "extension": [extension_wrapper],
+                },
+                "diffusion_model": {"extension": [extension_wrapper]},
+            },
+            "layout": object(),
+            "seed": 42,
+        }
+    }
+
+    cleaned = _without_execution_caches(value)
+
+    options = cleaned["transformer_options"]
+    assert "layout" not in options
+    assert options["wrappers"]["apply_model"] == {
+        "extension": [extension_wrapper]
+    }
+    assert options["wrappers"]["diffusion_model"] == {
+        "extension": [extension_wrapper]
+    }
+    assert options["seed"] == 42
 
 
 def test_tensor_parallel_finish_execution_releases_all_ranks(monkeypatch):
