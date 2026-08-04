@@ -10,7 +10,6 @@ from typing import Final, Optional
 from comfyui_workflow_templates import get_asset_path, iter_templates
 from rich.console import Console
 from rich.table import Table
-from ..nodes.package import _extract_vanilla_custom_node_roots
 from ..component_model.workflow_convert import convert_ui_to_api
 from ..component_model.prompt_utils import (
     _TEXT_ENCODE_FIELDS,
@@ -101,6 +100,8 @@ def _templates_from_custom_nodes() -> list[TemplateInfo]:
 
 
 def _facade_custom_node_roots() -> list[str]:
+    from ..nodes.package import _extract_vanilla_custom_node_roots
+
     roots: list[str] = []
     for entry_point in entry_points().select(group="comfyui.custom_nodes"):
         try:
@@ -289,13 +290,23 @@ def _build_example_invocation(tmpl: TemplateInfo, include_all: bool = True) -> s
 
 
 def resolve_template(name_or_id: str, extra_dirs: list[str] = None) -> str:
-    templates = get_all_templates(extra_dirs)
+    package_templates = _templates_from_package()
+
+    for t in package_templates:
+        if t.template_id == name_or_id:
+            return t.path
+
+    lower = name_or_id.lower()
+    for t in package_templates:
+        if t.name.lower() == lower:
+            return t.path
+
+    templates = package_templates + _templates_from_custom_nodes() + _templates_from_dirs(extra_dirs or [])
 
     for t in templates:
         if t.template_id == name_or_id:
             return t.path
 
-    lower = name_or_id.lower()
     for t in templates:
         if t.name.lower() == lower:
             return t.path

@@ -12,6 +12,7 @@ from comfy.cmd.workflow_templates import (
     _facade_custom_node_roots,
     _populate_supported_params,
     _templates_from_custom_nodes,
+    resolve_template,
 )
 
 
@@ -225,6 +226,21 @@ class TestFiltering:
 
 
 class TestCustomNodeWorkflowDiscovery:
+    def test_exact_package_template_does_not_scan_custom_nodes(self, monkeypatch):
+        template = TemplateInfo(
+            name="Official workflow",
+            source="package",
+            path="official.json",
+            template_id="official_workflow",
+        )
+        monkeypatch.setattr("comfy.cmd.workflow_templates._templates_from_package", lambda: [template])
+        monkeypatch.setattr(
+            "comfy.cmd.workflow_templates._templates_from_custom_nodes",
+            lambda: pytest.fail("exact package template should not scan custom nodes"),
+        )
+
+        assert resolve_template("official_workflow") == "official.json"
+
     def test_facade_custom_node_roots_from_entrypoints(self, tmp_path, monkeypatch):
         vendor_root = tmp_path / "_vendor"
         vendor_root.mkdir()
