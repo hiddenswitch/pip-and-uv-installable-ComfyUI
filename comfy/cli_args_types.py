@@ -108,6 +108,7 @@ class Configuration(dict):
         master_addr (Optional[str]): Process-group rendezvous host. Defaults to MASTER_ADDR.
         master_port (Optional[int]): Process-group rendezvous port. Defaults to MASTER_PORT.
         pipeline_parallel_size (Optional[int]): Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.
+        tensor_parallel_size (int): Number of tensor-parallel ranks. Defaults to one.
         distributed_executor_backend (str): Pipeline executor selection: auto, peer, mp, or external_launcher.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
         disable_cuda_malloc (bool): Disable cudaMallocAsync.
@@ -274,6 +275,7 @@ class Configuration(dict):
         self.master_addr: Optional[str] = None
         self.master_port: Optional[int] = None
         self.pipeline_parallel_size: Optional[int] = None
+        self.tensor_parallel_size: int = 1
         self.distributed_executor_backend: str = "auto"
         self.cuda_malloc: bool = True
         self.disable_cuda_malloc: bool = True

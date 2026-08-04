@@ -23,11 +23,11 @@ def _first_int(environment: Mapping[str, str], names: tuple[str, ...], default: 
 
 @dataclass(frozen=True)
 class DistributedConfiguration:
-    """Canonical process and pipeline identity for one ComfyUI process.
+    """Canonical process and model-parallel identity for one ComfyUI process.
 
     The process fields follow the environment contract used by ``torchrun``.
-    ComfyUI currently has one model-parallel dimension, so a launched process'
-    pipeline rank is its global rank and its pipeline size defaults to world size.
+    Pipeline-major, tensor-minor rank ordering matches the model-runner topology:
+    ``global_rank = pipeline_rank * tensor_parallel_size + tensor_rank``.
     """
 
     rank: int = 0
@@ -37,6 +37,7 @@ class DistributedConfiguration:
     master_addr: str = "127.0.0.1"
     master_port: int = 29500
     pipeline_parallel_size: int = 1
+    tensor_parallel_size: int = 1
     executor_backend: str = "auto"
     externally_launched: bool = False
 
@@ -53,9 +54,13 @@ class DistributedConfiguration:
             )
         if self.pipeline_parallel_size < 1:
             raise ValueError("pipeline parallel size must be at least one")
-        if self.externally_launched and self.pipeline_parallel_size != self.world_size:
+        if self.tensor_parallel_size < 1:
+            raise ValueError("tensor parallel size must be at least one")
+        if self.pipeline_parallel_size > 1 and self.tensor_parallel_size > 1:
+            raise ValueError("hybrid pipeline and tensor parallelism is not implemented")
+        if self.externally_launched and self.pipeline_parallel_size * self.tensor_parallel_size != self.world_size:
             raise ValueError(
-                "external launch currently requires pipeline parallel size to equal world size"
+                "external launch requires pipeline size times tensor size to equal world size"
             )
         if self.executor_backend not in DISTRIBUTED_EXECUTOR_BACKENDS:
             raise ValueError(
@@ -67,7 +72,13 @@ class DistributedConfiguration:
     @property
     def pipeline_rank(self) -> int:
         if self.externally_launched:
-            return self.rank
+            return self.rank // self.tensor_parallel_size
+        return 0
+
+    @property
+    def tensor_rank(self) -> int:
+        if self.externally_launched:
+            return self.rank % self.tensor_parallel_size
         return 0
 
     @property
@@ -90,6 +101,8 @@ class DistributedConfiguration:
             "LOCAL_WORLD_SIZE": str(self.local_world_size),
             "MASTER_ADDR": self.master_addr,
             "MASTER_PORT": str(self.master_port),
+            "COMFYUI_PIPELINE_PARALLEL_SIZE": str(self.pipeline_parallel_size),
+            "COMFYUI_TENSOR_PARALLEL_SIZE": str(self.tensor_parallel_size),
         }
 
 
@@ -140,7 +153,10 @@ class CanonicalDistributedConfigurationProvider(
 
         pipeline_size = self._configured_int(configuration, "pipeline_parallel_size")
         if pipeline_size is None:
-            pipeline_size = world_size
+            pipeline_size = _first_int(environment, ("COMFYUI_PIPELINE_PARALLEL_SIZE",), world_size)
+        tensor_size = self._configured_int(configuration, "tensor_parallel_size")
+        if tensor_size is None:
+            tensor_size = _first_int(environment, ("COMFYUI_TENSOR_PARALLEL_SIZE",), 1)
         backend = self._configured_value(configuration, "distributed_executor_backend") or "auto"
         master_addr = self._configured_value(configuration, "master_addr") or environment.get("MASTER_ADDR") or "127.0.0.1"
         master_port = self._configured_int(configuration, "master_port")
@@ -169,6 +185,7 @@ class CanonicalDistributedConfigurationProvider(
             master_addr=str(master_addr),
             master_port=master_port,
             pipeline_parallel_size=pipeline_size,
+            tensor_parallel_size=tensor_size,
             executor_backend=str(backend),
             externally_launched=externally_launched,
         )

@@ -62,8 +62,13 @@ providers use the same grouped DynamicVRAM pressure decisions and compose with
 the checkpoint's mixed-precision or quantized operations. Launching the same
 ordinary workflow with `torchrun` uses canonical `RANK`, `WORLD_SIZE`,
 `LOCAL_RANK`, `LOCAL_WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`; use
-`--pipeline-parallel-size` only to override the inferred stage count. This is local PP, not
-RabbitMQ prompt distribution and not tensor parallelism. See
+`--pipeline-parallel-size` only to override the inferred stage count. MiniMax H3
+also supports transparent Megatron-style TP with `--tensor-parallel-size 2` and
+an ordered two-device list. TP is injected by decorating the checkpoint's normal
+Comfy operations provider: QKV/gate-up use section-aware column-parallel linears,
+output/down use row-parallel linears, and NCCL reductions compose with INT8
+ConvRot and per-rank DynamicVRAM. There is no TP workflow node. This is local
+model parallelism, not RabbitMQ prompt distribution. See
 `docs/distributed.md` for the memory model and restrictions.
 
 ## How the pieces fit
@@ -1745,6 +1750,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-mp.jsonl \
   --cuda-device 1,0 --pipeline-parallel-size 2 \
   --distributed-executor-backend mp \
   --disable-all-custom-nodes --disable-progress --seed 42
+
 ```
 
 On the two RTX A5000 test host (23,028 MiB reported per GPU), the Qwen
@@ -1779,6 +1785,14 @@ OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-mp.jsonl \
   --cuda-device 1,0 --pipeline-parallel-size 2 \
   --distributed-executor-backend mp \
   --disable-all-custom-nodes --disable-progress --seed 42
+
+# TP=2, Megatron-style sharded linears / torch.distributed
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-tp2.jsonl \
+  comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
+  --steps 20 --float-duration 5 --set 115.inputs.megapixels=0.4 \
+  --cuda-device 1,0 --tensor-parallel-size 2 \
+  --pipeline-parallel-size 1 --distributed-executor-backend mp \
+  --disable-all-custom-nodes --disable-progress --seed 42
 ```
 
 These overrides turn the compact CI fixture into the normal official geometry:
@@ -1790,6 +1804,14 @@ GPU, 0.10031 it/s with peer PP=2, and 0.09420 it/s with multiprocessing PP=2.
 The corresponding sampler durations were 178.877, 199.381, and 212.312 seconds.
 Single-GPU DynamicVRAM is fastest for this batch-1 workload; PP provides model
 capacity, while its stages remain serial within each diffusion step.
+
+The TP=2 run loaded one 9.83 GiB diffusion-weight shard per rank. During the
+normal sampler both A5000s stayed compute-active with roughly 15.7 and 16.3 GiB
+resident, including activations. Its 20-step `Sampler Invoke` span was 135.730
+seconds, or 0.14735 it/s. Relative to TP=1, TP=2 reduced sampler latency by
+24.1% and increased throughput by 31.8%. The compact one-step fixture also ran
+through VAE decode and produced an MP4, which validates the transparent workflow
+path in addition to the sampler-only performance comparison.
 
 For broader workflow diagnosis, the other spans to look for are:
 

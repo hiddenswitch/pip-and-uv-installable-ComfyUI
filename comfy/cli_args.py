@@ -76,6 +76,7 @@ parser.add_argument("--local-world-size", type=int, default=None, help="Number o
 parser.add_argument("--master-addr", type=str, default=None, help="Process-group rendezvous host. Defaults to MASTER_ADDR.")
 parser.add_argument("--master-port", type=int, default=None, help="Process-group rendezvous port. Defaults to MASTER_PORT.")
 parser.add_argument("--pipeline-parallel-size", type=int, default=None, help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")
+parser.add_argument("--tensor-parallel-size", type=int, default=1, help="Number of tensor-parallel ranks. One keeps the ordinary model path.")
 parser.add_argument("--distributed-executor-backend", choices=("auto", "peer", "mp", "external_launcher"), default="auto", help="Pipeline executor backend.")
 
 cm_group = parser.add_mutually_exclusive_group()

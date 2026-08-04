@@ -2,7 +2,7 @@
 
 This package supports multi-processing across machines using RabbitMQ. This means you can launch multiple ComfyUI backend workers and queue prompts against them from multiple frontends.
 
-It also supports local pipeline parallel inference for selected diffusion transformers. These are separate features: RabbitMQ distributes whole prompts among workers, while pipeline parallelism splits one model invocation across devices in one worker.
+It also supports local pipeline and tensor parallel inference for selected diffusion transformers. These are separate features: RabbitMQ distributes whole prompts among workers, pipeline parallelism splits transformer blocks across devices, and tensor parallelism shards individual matrix multiplications across devices.
 
 ## Local Pipeline Parallel Models
 
@@ -12,7 +12,7 @@ Pipeline parallelism is transparent. Keep the ordinary **Load Diffusion Model** 
 comfyui --cuda-device 0,1
 ```
 
-Supported Qwen Image checkpoints (including Qwen Image Layered) and MiniMax H3 then use one contiguous stage per selected device. Selecting one device keeps the ordinary single-device DynamicVRAM path. Tensor-parallel execution is not yet implemented.
+Supported Qwen Image checkpoints (including Qwen Image Layered) and MiniMax H3 then use one contiguous stage per selected device. Selecting one device keeps the ordinary single-device DynamicVRAM path.
 
 The loader reads the safetensors header first and makes a provisional contiguous partition so it can materialize only each stage's owned tensors. In the single-process path it then measures those loaded modules through the same stored-versus-materialized weight geometry used by DynamicVRAM and replans if the real geometry changes a boundary. Entry layers live on the first stage, exit layers live on the last stage, and no complete checkpoint state dict is materialized. INT8 ConvRot and ordinary safetensors checkpoints use the same ownership path.
 
@@ -28,7 +28,7 @@ Current restrictions:
 
 - automatic local selection currently requires CUDA devices; the process-peer provider additionally requires an available NCCL `torch.distributed` backend;
 - diffusion-model wrappers and transformer block replacement patches are rejected because they may require cross-stage Python execution; ordinary weight LoRAs are supported;
-- tensor parallelism and multi-host stage discovery are not yet implemented.
+- hybrid tensor plus pipeline parallelism and multi-host stage discovery are not yet implemented.
 
 The inference regression workflow is `tests/inference/workflows/qwen-image-layered-pipeline-0.json`. For example, on a two-GPU host:
 
@@ -36,6 +36,28 @@ The inference regression workflow is `tests/inference/workflows/qwen-image-layer
 comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
   --cuda-device 0,1 --image input/example.png --steps 1
 ```
+
+## Local Tensor Parallel Models
+
+Tensor parallelism is also transparent to the workflow. MiniMax H3 safetensors checkpoints support Megatron-style TP when an explicit tensor-parallel size and an ordered device list are selected:
+
+```shell
+comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
+  --cuda-device 0,1 --tensor-parallel-size 2 \
+  --disable-all-custom-nodes
+```
+
+There is no tensor-parallel workflow node. The loader decorates the checkpoint's normal Comfy operations provider. MiniMax QKV and gate/up projections become section-aware column-parallel linears; attention output and MLP down projections become row-parallel linears whose partial hidden states are summed through an injected collective. This composes with mixed-precision INT8 ConvRot operations and DynamicVRAM instead of replacing either one. Each rank loads a copied 9.83 GiB shard of the pruned MiniMax INT8 ConvRot checkpoint, and each rank remains an ordinary model-manageable participant on its own device.
+
+The internal multiprocessing executor uses a Gloo control group and an NCCL device group. CPU inputs are broadcast through Gloo, CUDA inputs and activations through NCCL, and row-parallel reductions are asynchronous, out-of-place NCCL all-reduces whose completion is attached to the current compute stream. NCCL selects NVLink, PCIe, or another available transport. MiniMax's token-refiner preprocessing is executed on every rank through the same model-call executor as denoising, because it contains the same TP-sharded attention and MLP projections.
+
+Current restrictions:
+
+- MiniMax H3 is the first supported TP model family;
+- TP currently requires CUDA, NCCL, a safetensors checkpoint, and the internal multiprocessing executor;
+- tensor-parallel LoRA patch routing and hybrid TP+PP are not yet implemented.
+
+On two 24 GB RTX A5000 GPUs, the normal MiniMax benchmark (0.4 MP, five seconds/124 frames, 20 steps, SageAttention, seed 42) completed the sampler in 135.730 seconds at 0.14735 it/s with TP=2. The same checkpoint and workflow measured 178.877 seconds at 0.11181 it/s with TP=1: TP=2 reduced sampler latency by 24.1% and increased sampling throughput by 31.8%. See `llms.txt`, “Measuring performance with OpenTelemetry,” for the reproducible commands and measurement rules.
 
 ### Launcher topology
 
@@ -50,6 +72,7 @@ ComfyUI uses the process identity standardized by `torchrun` and TorchElastic. C
 | `--master-addr` | `MASTER_ADDR` | Rendezvous host. |
 | `--master-port` | `MASTER_PORT` | Rendezvous port. |
 | `--pipeline-parallel-size`, `-pp` | `COMFYUI_PIPELINE_PARALLEL_SIZE` | Pipeline-stage count; defaults to world size under an external launcher. |
+| `--tensor-parallel-size`, `-tp` | `COMFYUI_TENSOR_PARALLEL_SIZE` | Tensor-parallel rank count; defaults to one. |
 | `--distributed-executor-backend` | `COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND` | `auto`, single-process `peer`, internal `mp`, or `external_launcher`. |
 
 An external launch currently maps one process to one pipeline stage, so pipeline size must equal world size. Rank zero is the ComfyUI driver and owns the first stage; the last rank owns model output. Other ranks disable custom nodes and remain in the rank service. On one host, rank zero keeps visibility of every selected GPU so the existing DynamicVRAM decision maker can compare all device budgets; every other rank initializes only its local Aimdo device. Model residency is still requested through the ordinary grouped model-manager path.

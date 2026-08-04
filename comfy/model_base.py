@@ -298,6 +298,16 @@ class BaseModel(torch.nn.Module):
             get_all_wrappers(WrappersMP.APPLY_MODEL, transformer_options)
         ).execute(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
 
+    def execute_diffusion_model(self, method, *args, **kwargs):
+        if self.pipeline_executor is None:
+            return getattr(self.diffusion_model, method)(*args, **kwargs)
+        execute_method = getattr(self.pipeline_executor, "execute_method", None)
+        if execute_method is not None:
+            return execute_method(method, *args, **kwargs)
+        if method != "forward":
+            return getattr(self.diffusion_model, method)(*args, **kwargs)
+        return self.pipeline_executor.execute(*args, **kwargs)
+
     def _apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
         sigma = t
         xc = self.model_sampling.calculate_input(sigma, x)
@@ -336,10 +346,10 @@ class BaseModel(torch.nn.Module):
             self.current_patcher is not None and self.current_patcher.is_dynamic()
         )
 
-        if self.pipeline_executor is None:
-            model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
-        else:
-            model_output = self.pipeline_executor.execute(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
+        model_output = self.execute_diffusion_model(
+            "forward", xc, t, context=context, control=control,
+            transformer_options=transformer_options, **extra_conds
+        )
         if len(model_output) > 1 and not torch.is_tensor(model_output):
             model_output, _ = utils.pack_latents(model_output)
 
@@ -2220,7 +2230,8 @@ class MiniMaxH3(BaseModel):
         out = super().extra_conds(**kwargs)
         cross_attn = kwargs.get("cross_attn")
         if cross_attn is not None:
-            cross_attn = self.diffusion_model.preprocess_text_embeds(
+            cross_attn = self.execute_diffusion_model(
+                "preprocess_text_embeds",
                 cross_attn.to(device=kwargs["device"], dtype=self.get_dtype_inference())
             )
             out["c_crossattn"] = CONDRegular(cross_attn)

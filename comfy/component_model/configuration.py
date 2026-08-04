@@ -21,6 +21,9 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "directml",
     "cpu",
     "torch_device",
+    "pipeline_parallel_size",
+    "tensor_parallel_size",
+    "distributed_executor_backend",
     "disable_xformers",
     # todo: this is the default, so it will be omitted
     # "use_pytorch_cross_attention",

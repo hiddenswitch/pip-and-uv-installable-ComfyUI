@@ -2303,8 +2303,16 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
 def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
     if model_options is None:
         model_options = {}
+    from .tensor_parallel.loader import try_load_diffusion_model_tensor_parallel
     from .pipeline_parallel.loader import try_load_diffusion_model_pipeline
 
+    tensor_parallel_model = try_load_diffusion_model_tensor_parallel(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if tensor_parallel_model is not None:
+        return tensor_parallel_model
     pipeline_model = try_load_diffusion_model_pipeline(
         unet_path,
         model_options=model_options,

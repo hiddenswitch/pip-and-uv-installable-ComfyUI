@@ -18,6 +18,7 @@ class TensorDescriptor:
     shape: tuple[int, ...]
     dtype: torch.dtype
     nbytes: int
+    device_type: str = "cuda"
 
 
 @dataclass(frozen=True)

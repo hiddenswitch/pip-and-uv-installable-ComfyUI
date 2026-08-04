@@ -176,6 +176,7 @@ _DISTRIBUTED_OPTS: list[tuple] = [
     ("master_addr", Optional[str], typer.Option(None, "--master-addr", envvar="MASTER_ADDR", help="Process-group rendezvous host. Defaults to MASTER_ADDR.")),
     ("master_port", Optional[int], typer.Option(None, "--master-port", envvar="MASTER_PORT", help="Process-group rendezvous port. Defaults to MASTER_PORT.")),
     ("pipeline_parallel_size", Optional[int], typer.Option(None, "--pipeline-parallel-size", "-pp", envvar="COMFYUI_PIPELINE_PARALLEL_SIZE", help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")),
+    ("tensor_parallel_size", int, typer.Option(1, "--tensor-parallel-size", "-tp", envvar="COMFYUI_TENSOR_PARALLEL_SIZE", help="Number of tensor-parallel ranks. One keeps the ordinary model path.")),
     ("distributed_executor_backend", str, typer.Option("auto", "--distributed-executor-backend", envvar="COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND", click_type=click.Choice(DISTRIBUTED_EXECUTOR_BACKENDS), help="Pipeline executor backend: auto, peer, mp, or external_launcher.")),
 ]
 

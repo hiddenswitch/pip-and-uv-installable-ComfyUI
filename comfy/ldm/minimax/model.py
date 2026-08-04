@@ -147,13 +147,22 @@ def rope_rotation_table(angles, dtype):
 class Attention(nn.Module):
     def __init__(self, hidden, heads, head_dim, eps, dtype=None, device=None, operations=None):
         super().__init__()
-        self.heads = heads
+        tensor_parallel = getattr(operations, "tensor_parallel", None)
+        self.heads = heads if tensor_parallel is None else heads // tensor_parallel.size
         self.head_dim = head_dim
         inner = heads * head_dim
-        self.qkv_proj = operations.Linear(hidden, inner * 3, bias=False, dtype=dtype, device=device)
+        if tensor_parallel is None:
+            self.qkv_proj = operations.Linear(hidden, inner * 3, bias=False, dtype=dtype, device=device)
+            self.out_proj = operations.Linear(inner, hidden, bias=False, dtype=dtype, device=device)
+        else:
+            self.qkv_proj = operations.ColumnParallelLinear(
+                hidden, inner * 3, bias=False, sections=3, dtype=dtype, device=device
+            )
+            self.out_proj = operations.RowParallelLinear(
+                inner, hidden, bias=False, dtype=dtype, device=device
+            )
         self.q_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
-        self.out_proj = operations.Linear(inner, hidden, bias=False, dtype=dtype, device=device)
 
     def forward(self, x, rope_freqs=None, transformer_options={}):
         s = x.shape[0]
@@ -187,8 +196,17 @@ class Attention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, hidden, ffn, dtype=None, device=None, operations=None):
         super().__init__()
-        self.fc1 = operations.Linear(hidden, ffn * 2, bias=False, dtype=dtype, device=device)
-        self.fc2 = operations.Linear(ffn, hidden, bias=False, dtype=dtype, device=device)
+        tensor_parallel = getattr(operations, "tensor_parallel", None)
+        if tensor_parallel is None:
+            self.fc1 = operations.Linear(hidden, ffn * 2, bias=False, dtype=dtype, device=device)
+            self.fc2 = operations.Linear(ffn, hidden, bias=False, dtype=dtype, device=device)
+        else:
+            self.fc1 = operations.ColumnParallelLinear(
+                hidden, ffn * 2, bias=False, sections=2, dtype=dtype, device=device
+            )
+            self.fc2 = operations.RowParallelLinear(
+                ffn, hidden, bias=False, dtype=dtype, device=device
+            )
 
     def forward(self, x):
         return comfy.ops.linear_input_act(self.fc2, self.fc1(x), "swiglu")
@@ -431,6 +449,10 @@ class MiniMaxH3Model(nn.Module):
         self.sigma_shift_audio = sigma_shift_audio
         self.use_adaln_curves = adaln_curve_grid is not None
         self.pipeline_stage = pipeline_stage
+        tensor_parallel = getattr(operations, "tensor_parallel", None)
+        if tensor_parallel is not None:
+            if num_attention_heads % tensor_parallel.size or ffn_hidden_size % tensor_parallel.size:
+                raise ValueError("MiniMax H3 attention heads and FFN width must divide tensor parallel size")
         self.num_layers = num_layers
         is_first_stage = pipeline_stage is None or pipeline_stage.is_first
         is_last_stage = pipeline_stage is None or pipeline_stage.is_last

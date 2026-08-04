@@ -59,6 +59,11 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
     def __init__(self, configuration: DistributedConfiguration):
         if not configuration.externally_launched:
             raise ValueError("External runtime requires a launcher-provided process identity")
+        if configuration.tensor_parallel_size != 1:
+            raise NotImplementedError(
+                "External-launcher tensor parallelism is not implemented; "
+                "use the internal multiprocessing executor"
+            )
         if configuration.local_world_size != configuration.world_size:
             raise NotImplementedError(
                 "External pipeline launching currently supports one node; "
