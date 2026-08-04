@@ -353,6 +353,33 @@ def test_prompt_polarity_falls_back_to_sole_encoder_for_positive():
     assert "negative_prompt" not in roles
 
 
+@pytest.mark.parametrize(
+    "class_type",
+    ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo"],
+)
+def test_prompt_polarity_recognizes_minimax_h3_conditioning_prompt(class_type):
+    api = {
+        "conditioning": {
+            "class_type": class_type,
+            "inputs": {"prompt": "original prompt"},
+        },
+        "sampler": {
+            "class_type": "KSampler",
+            "inputs": {"positive": ["conditioning", 0]},
+        },
+    }
+
+    params = discover(api)
+    prompt_params = params_by_role(params, "prompt")
+    assert [(p.node_id, p.widget_name) for p in prompt_params] == [
+        ("conditioning", "prompt")
+    ]
+
+    out = apply_role(api, "prompt", "replacement", params=params)
+    assert out["conditioning"]["inputs"]["prompt"] == "replacement"
+    assert api["conditioning"]["inputs"]["prompt"] == "original prompt"
+
+
 def test_prompt_polarity_emits_nothing_when_no_text_encoder():
     api = dict([_api("1", "Foo", x=1)])
     assert list(prompt_polarity(api, None)) == []

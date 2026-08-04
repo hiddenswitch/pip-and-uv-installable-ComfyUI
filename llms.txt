@@ -1567,6 +1567,13 @@ fetch failure.
 
 - https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt — covers both text-to-video and image-to-video: Entity+Scene+Motion formula, aesthetic/style extensions, sound formula for 2.5/2.6, reference-to-video, multi-shot
 
+**MiniMax H3 (MiniMax / Comfy-Org)**
+
+- https://platform.minimax.io/docs/guides/video-generation — official H3 generation guide and limits, vendored as `docs/prompting_guides/minimax_h3_video_generation.md`: text-to-video prompts define the video's content and motion; place camera instructions such as `[pan]`, `[zoom]`, or `[static]` immediately after the description they control. H3 accepts 4-15 seconds and prompts up to 7,000 characters.
+- `comfyui workflows run video_minimax_h3_t2v --help` — the shipped local workflow's model-specific guide and canonical example prompt. Read it before writing an H3 prompt; it also documents the duration-to-frame alignment and native canvas limits.
+- For useful audiovisual results, follow the shipped prompt's structure in one detailed block: visual medium/style and overall look; scene overview with subject, setting, and action; a chronological or timestamped shot list; camera angle/movement and cut behavior; synchronized dialogue, ambience, sound effects, and music; then exclusions such as no text, subtitles, logos, or watermarks. Describe visible motion explicitly instead of relying on abstract mood words. For a continuous shot, use one camera instruction; for a multi-shot clip, make every cut and time interval explicit. H3 generates video and stereo audio jointly, so prompt the soundtrack rather than treating it as post-production.
+- The bundled workflow converts seconds to 24 fps and rounds upward to H3's valid `17k+5` frame grid. For example, `--float-duration 10` produces 243 frames (10.125 seconds), not exactly 240 frames. Keep comparisons on the same prompt, seed, duration, resolution, step count, and attention backend.
+
 **Qwen-Image / Qwen-Image-Edit (Alibaba)**
 
 - https://www.alibabacloud.com/help/en/model-studio/qwen-image-edit-guide — image-edit instruction examples, `prompt_extend` and `negative_prompt` semantics (API-reference-shaped, but authoritative for the edit template syntax)
