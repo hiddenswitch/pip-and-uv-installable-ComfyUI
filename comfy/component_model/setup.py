@@ -170,6 +170,7 @@ def setup_cuda_malloc(config: Configuration):
 
 
 _tracing_initialized = False
+_tracing_provider = None
 
 
 def setup_tracing(config: Configuration):
@@ -185,6 +186,7 @@ def setup_tracing(config: Configuration):
 
 
 def _setup_tracing_impl(config: Configuration):
+    global _tracing_provider
     from opentelemetry import trace, metrics
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -215,7 +217,10 @@ def _setup_tracing_impl(config: Configuration):
 
     trace.set_tracer_provider(provider)
 
-    endpoint = config.otel_exporter_otlp_endpoint
+    endpoint = (
+        config.otel_exporter_otlp_endpoint
+        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    )
     if endpoint and endpoint.startswith("file://"):
         from .otel_file_exporter import FileSpanExporter
         exporter = FileSpanExporter(endpoint.removeprefix("file://"))
@@ -226,6 +231,7 @@ def _setup_tracing_impl(config: Configuration):
 
     processor = BatchSpanProcessor(exporter)
     provider.add_span_processor(processor)
+    _tracing_provider = provider
 
     metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
     if metrics_endpoint:
@@ -246,6 +252,19 @@ def _setup_tracing_impl(config: Configuration):
             inst.instrument()
 
     provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
+
+
+def shutdown_tracing(timeout_millis: int = 30000):
+    """Flush and close the configured tracer provider at CLI lifecycle exit."""
+    global _tracing_provider
+    provider = _tracing_provider
+    if provider is None:
+        return
+    try:
+        provider.force_flush(timeout_millis=timeout_millis)
+    finally:
+        provider.shutdown()
+        _tracing_provider = None
 
 
 def setup_fsspec():
@@ -296,6 +315,11 @@ def setup_pre_torch(config: Configuration):
 
 
 def setup_post_torch(config: Configuration):
+    # Tracing must be configured before imports such as model_management and
+    # aimdo_integration touch functions decorated with the lazy main_pre tracer.
+    # Otherwise that first access installs an exporter-less provider and the
+    # CLI's configured endpoint arrives too late.
+    setup_tracing(config)
     setup_warning_filters()
     setup_logging_filters()
     setup_logging(config)
@@ -309,4 +333,3 @@ def setup_post_torch(config: Configuration):
     # torch >= 2.8 and --disable-dynamic-vram, so this is a no-op when
     # unsupported or disabled.
     from .. import aimdo_integration  # noqa: F401
-    setup_tracing(config)

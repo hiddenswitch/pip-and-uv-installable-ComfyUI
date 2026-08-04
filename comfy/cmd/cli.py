@@ -279,7 +279,7 @@ _NODE_OPTS: list[tuple] = [
 _TELEMETRY_OPTS: list[tuple] = [
     ("otel_service_name", str, typer.Option("comfyui", "--otel-service-name", envvar="OTEL_SERVICE_NAME", help="OpenTelemetry service.name for emitted spans. Use a distinct value per benchmark run, e.g. comfyui-torch-2.12.0, so file-collected traces are easy to filter.")),
     ("otel_service_version", Optional[str], typer.Option(None, "--otel-service-version", envvar="OTEL_SERVICE_VERSION", help="OpenTelemetry service.version for emitted spans. Use this to record the tested ComfyUI build, torch version, or package revision.")),
-    ("otel_exporter_otlp_endpoint", Optional[str], typer.Option(None, "--otel-exporter-otlp-endpoint", envvar="OTEL_EXPORTER_OTLP_ENDPOINT", help="Enable trace export. Use file:///tmp/comfyui-traces.jsonl for direct local JSONL spans, or an OTLP/HTTP collector endpoint such as http://127.0.0.1:4318. Inspect spans such as Execute Node, Load Models GPU, and Execute Prompt for precise durations.")),
+    ("otel_exporter_otlp_endpoint", Optional[str], typer.Option(None, "--otel-exporter-otlp-endpoint", envvar="OTEL_EXPORTER_OTLP_ENDPOINT", help="Enable trace export. Use file:///tmp/comfyui-traces.jsonl for direct local JSONL spans, or an OTLP/HTTP collector endpoint such as http://127.0.0.1:4318.")),
 ]
 
 _LOGGING_OPTS: list[tuple] = [
@@ -433,6 +433,7 @@ def _application_runtime(config: Configuration):
     """Initialize one shared application/distributed lifecycle for every runner."""
     from ..component_model.setup import (
         prepare_distributed_environment,
+        shutdown_tracing,
         setup_distributed_device,
         setup_distributed_runtime,
         setup_post_torch,
@@ -454,6 +455,7 @@ def _application_runtime(config: Configuration):
     finally:
         if runtime is not None:
             runtime.close()
+        shutdown_tracing()
 
 
 def _validate_mutex(params: dict, group_name: str, fields: tuple[str, ...]):

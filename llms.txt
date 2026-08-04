@@ -1687,16 +1687,74 @@ For local measurement, use a `file://` endpoint. ComfyUI writes one
 JSON object per span to that path:
 
 ```bash
-comfyui serve --daemon \
-  --otel-service-name comfyui-bench \
-  --otel-service-version "$(git rev-parse --short HEAD)" \
-  --otel-exporter-otlp-endpoint file:///tmp/comfyui-traces.jsonl
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/comfyui-traces.jsonl \
+  comfyui run-workflow <workflow> --disable-progress
 ```
 
-For clean benchmark numbers, start the daemon once, submit a warmup job,
-then submit the measured job with a different seed. Inspect the file
-exporter output after the measured job completes. The spans to look for
-are:
+Use the canonical environment spelling for benchmark runs so every
+multi-process rank inherits the same OpenTelemetry setting. The CLI lifecycle
+flushes the batch exporter before exit, so the JSONL is complete when the
+command returns.
+
+For sampling throughput, use only the `Sampler Invoke` span. It starts
+immediately before the sampler executor and ends immediately after it; it
+does not contain text encoding, model materialization/offload, VAE decode,
+custom-node loading, or CLI startup. Do not use process wall time, `Sampling`,
+`Execute Prompt`, or `Execute Node` to report sampling it/s. `Sampler Invoke`
+contains:
+
+- `sampling.steps`
+- `sampling.elapsed_seconds`
+- `sampling.seconds_per_step`
+- `sampling.steps_per_second` (the value to report as it/s)
+- `sampling.seed` and `sampler.class`
+
+Extract the sampler records with normal Python from the active environment:
+
+```bash
+python -c 'import json,sys; [print(s["attributes"]) for s in map(json.loads, open(sys.argv[1])) if s["name"] == "Sampler Invoke"]' /tmp/comfyui-traces.jsonl
+```
+
+Keep the workflow, step count, latent dimensions, batch size, seed, sampler,
+scheduler, CFG, attention backend, compilation settings, model files, and
+ordered device list identical. Run a warmup and multiple measured samples
+when comparing kernels; report every measured sample plus the median. Never
+silently discard the first sample. For batch-1 pipeline parallelism, stages
+execute serially within each diffusion step, so PP primarily provides model
+capacity; it should not be presented as a latency speedup unless the trace
+actually shows one.
+
+Qwen Image Layered 20-step benchmark commands (custom nodes disabled):
+
+```bash
+# One 24 GB GPU
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-single.jsonl \
+  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --cuda-device 1 --disable-all-custom-nodes --disable-progress --seed 42
+
+# PP=2, one process with asynchronous device-to-device transfers
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-peer.jsonl \
+  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --cuda-device 1,0 --pipeline-parallel-size 2 \
+  --distributed-executor-backend peer \
+  --disable-all-custom-nodes --disable-progress --seed 42
+
+# PP=2, launcher-managed multiprocessing / torch.distributed
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-mp.jsonl \
+  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --cuda-device 1,0 --pipeline-parallel-size 2 \
+  --distributed-executor-backend mp \
+  --disable-all-custom-nodes --disable-progress --seed 42
+```
+
+On the two RTX A5000 test host (23,028 MiB reported per GPU), the Qwen
+Layered int8-convrot diffusion checkpoint contains 19.14 GiB of tensors and
+materializes as about 19,603 MiB of resident diffusion weights on one GPU.
+A 20-step seed-42 trace measured 0.5070 it/s on one GPU and 0.4912 it/s with
+the peer PP=2 backend. The multiprocessing PP=2 backend measured 0.4894 it/s.
+Those are sampler-only numbers, not end-to-end times.
+
+For broader workflow diagnosis, the other spans to look for are:
 
 | Span | What it measures |
 |---|---|
@@ -1706,7 +1764,7 @@ are:
 | `Free Memory` | Time spent freeing/offloading memory. |
 | HTTP client/server spans | Submit/poll API overhead. |
 
-To extract node timings from the JSONL output, read each line as a span
+To extract other timings from the JSONL output, read each line as a span
 object and use `duration_ms` or compute
 `end_time_unix_nano - start_time_unix_nano`. Group `Execute Node` spans
 by `attributes["class_type"]`, and filter to the trace containing the

@@ -1191,6 +1191,14 @@ def cast_transformer_options(transformer_options: dict[str], device=None, dtype=
                             for cast in casts:
                                 wc_list[i] = wc_list[i].to(cast)
 
+def _set_sampling_timing_attributes(span, step_count: int, elapsed: float) -> None:
+    span.set_attribute("sampling.elapsed_seconds", elapsed)
+    if step_count > 0:
+        span.set_attribute("sampling.seconds_per_step", elapsed / step_count)
+        if elapsed > 0:
+            span.set_attribute("sampling.steps_per_second", step_count / elapsed)
+
+
 class CFGGuider:
     def __init__(self, model_patcher: ModelPatcher):
         self.model_patcher = model_patcher
@@ -1247,9 +1255,7 @@ class CFGGuider:
             start = time.perf_counter()
             samples = executor.execute(self, sigmas, extra_args, callback, noise, latent_image, denoise_mask, disable_pbar)
             elapsed = time.perf_counter() - start
-            span.set_attribute("sampling.elapsed_seconds", elapsed)
-            if step_count > 0:
-                span.set_attribute("sampling.seconds_per_step", elapsed / step_count)
+            _set_sampling_timing_attributes(span, step_count, elapsed)
         return self.inner_model.process_latent_out(samples.to(torch.float32))
 
     def outer_sample(self, noise, latent_image, sampler, sigmas, denoise_mask=None, callback=None, disable_pbar=False, seed=None, latent_shapes=None):
@@ -1372,9 +1378,7 @@ class CFGGuider:
                 output = NestedTensor(utils.unpack_latents(output, latent_shapes))
 
             elapsed = time.perf_counter() - start
-            span.set_attribute("sampling.elapsed_seconds", elapsed)
-            if step_count > 0:
-                span.set_attribute("sampling.seconds_per_step", elapsed / step_count)
+            _set_sampling_timing_attributes(span, step_count, elapsed)
             return output
 
 
