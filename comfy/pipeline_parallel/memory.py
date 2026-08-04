@@ -30,6 +30,16 @@ class ComfyPipelineMemoryCoordinator(AbstractBasePipelineMemoryCoordinator):
         )
 
 
+class ExternalPipelineMemoryCoordinator(AbstractBasePipelineMemoryCoordinator):
+    """Ask every external launcher rank for its current DynamicVRAM budget."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+    def budgets(self, devices: Sequence[torch.device]) -> tuple[PipelineDeviceMemoryBudget, ...]:
+        return self.runtime.probe_memory_budgets(devices)
+
+
 class AbstractBasePipelineStageMemoryEstimator(ABC):
     @abstractmethod
     def estimate(self, stage_spec, plan: PipelinePartitionPlan, patchers: Sequence[object]) -> PipelineModelMemoryGeometry:

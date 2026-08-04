@@ -4,6 +4,7 @@ from .memory import (
     AbstractBasePipelineStageMemoryEstimator,
     ComfyDynamicVRAMStageMemoryEstimator,
     ComfyPipelineMemoryCoordinator,
+    ExternalPipelineMemoryCoordinator,
 )
 from .runtime import (
     AbstractBaseDeviceRuntime,
@@ -25,6 +26,8 @@ from .distributed import (
 )
 from .external import (
     AbstractBaseExternalPipelineRuntime,
+    AbstractBaseExternalPipelinePlacementProvider,
+    CudaExternalPipelinePlacementProvider,
     ExternalTorchDistributedPipelineOperations,
     ExternalTorchDistributedRuntime,
     get_external_pipeline_runtime,
@@ -32,6 +35,7 @@ from .external import (
 )
 from .stages import (
     AbstractBasePipelineStageSpec,
+    Flux2PipelineStageSpec,
     MiniMaxH3PipelineStageSpec,
     QwenImagePipelineStageSpec,
     get_pipeline_stage_spec,
@@ -56,6 +60,7 @@ __all__ = [
     "AbstractBaseCheckpointReader",
     "AbstractBaseDeviceRuntime",
     "AbstractBaseExternalPipelineRuntime",
+    "AbstractBaseExternalPipelinePlacementProvider",
     "AbstractBasePipelineBufferPool",
     "AbstractBasePendingPipelineIntermediate",
     "AbstractBasePipelineExecutor",
@@ -67,11 +72,14 @@ __all__ = [
     "AbstractBasePipelineTransport",
     "AbstractBaseProcessGroupCoordinator",
     "ComfyPipelineMemoryCoordinator",
+    "CudaExternalPipelinePlacementProvider",
     "ComfyDynamicVRAMStageMemoryEstimator",
     "DevicePipelineBufferPool",
     "DirectPipelineStageRunner",
     "ExternalTorchDistributedPipelineOperations",
     "ExternalTorchDistributedRuntime",
+    "ExternalPipelineMemoryCoordinator",
+    "Flux2PipelineStageSpec",
     "MiniMaxH3PipelineStageSpec",
     "PipelineIntermediateSchema",
     "PipelineDeviceMemoryBudget",

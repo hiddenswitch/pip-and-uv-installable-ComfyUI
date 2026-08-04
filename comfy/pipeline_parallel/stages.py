@@ -167,10 +167,65 @@ class MiniMaxH3PipelineStageSpec(_ContiguousBlockStageSpec):
     exit_prefixes = ("final_layer.",)
 
 
+class Flux2PipelineStageSpec(AbstractBasePipelineStageSpec):
+    model_family = "flux2"
+    double_block_count = 8
+    single_block_count = 48
+    block_count = double_block_count + single_block_count
+    _double_pattern = re.compile(r"^double_blocks\.(\d+)\.")
+    _single_pattern = re.compile(r"^single_blocks\.(\d+)\.")
+
+    def plan(
+        self,
+        tensors: Mapping[str, TensorDescriptor],
+        config: PipelineParallelConfig,
+        memory_budgets: Sequence[PipelineDeviceMemoryBudget] | None = None,
+        model_memory_geometry: PipelineModelMemoryGeometry | None = None,
+    ) -> PipelinePartitionPlan:
+        double_indices = {
+            int(match.group(1))
+            for key in tensors
+            if (match := self._double_pattern.match(key))
+        }
+        single_indices = {
+            int(match.group(1))
+            for key in tensors
+            if (match := self._single_pattern.match(key))
+        }
+        if (
+            double_indices != set(range(self.double_block_count))
+            or single_indices != set(range(self.single_block_count))
+        ):
+            raise ValueError(
+                "Flux2 pipeline parallelism currently supports Flux2 Dev's "
+                "8 double-stream and 48 single-stream blocks"
+            )
+        return super().plan(
+            tensors,
+            config,
+            memory_budgets,
+            model_memory_geometry,
+        )
+
+    def block_index(self, key: str) -> int | None:
+        match = self._double_pattern.match(key)
+        if match:
+            return int(match.group(1))
+        match = self._single_pattern.match(key)
+        if match:
+            return self.double_block_count + int(match.group(1))
+        return None
+
+    def non_block_stage(self, key: str, stage_count: int) -> int:
+        return stage_count - 1 if key.startswith("final_layer.") else 0
+
+
 @lru_cache(maxsize=None)
 def get_pipeline_stage_spec(image_model: str) -> AbstractBasePipelineStageSpec:
     if image_model == "qwen_image":
         return QwenImagePipelineStageSpec()
     if image_model == "minimax_h3":
         return MiniMaxH3PipelineStageSpec()
+    if image_model == "flux2":
+        return Flux2PipelineStageSpec()
     raise ValueError(f"Pipeline parallel loading is not supported for {image_model}")

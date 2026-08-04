@@ -222,6 +222,10 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
         """Return True if this model uses dynamic VRAM management."""
         ...
 
+    def manages_own_device_memory(self) -> bool:
+        """Return True when residency decisions execute in another process."""
+        ...
+
     def reset_dynamic_buffers(self): ...
 
 
@@ -320,6 +324,9 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
         Return True if this model uses dynamic VRAM management.
         Dynamic models use virtual BAR for on-demand weight loading.
         """
+        return False
+
+    def manages_own_device_memory(self) -> bool:
         return False
 
     def reset_dynamic_buffers(self):

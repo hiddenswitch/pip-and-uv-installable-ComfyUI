@@ -1226,6 +1226,8 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
     total_pins_required = {}
     total_ram_required = {}
     for loaded_model in models_to_load:
+        if getattr(loaded_model.model, "manages_own_device_memory", lambda: False)():
+            continue
         device = loaded_model.device
         total_memory_required[device] = total_memory_required.get(device, 0) + loaded_model.model_memory_required(device)
         resident_memory, model_memory = loaded_model.model.model_mmap_residency()
@@ -1256,7 +1258,15 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
             else:
                 vram_set_state = vram_state
             lowvram_model_memory = 0
-            if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
+            self_managed_device = getattr(
+                model,
+                "manages_own_device_memory",
+                lambda: False,
+            )()
+            if self_managed_device:
+                # The remote rank applies its own DynamicVRAM pressure decision.
+                lowvram_model_memory = 0
+            elif lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
                 loaded_memory = loaded_model.model_loaded_memory()
                 current_free_mem = get_free_memory(torch_dev) + loaded_memory
 
@@ -1266,7 +1276,7 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
                 if lowvram_model_memory == 0:
                     lowvram_model_memory = 0.1
 
-            if vram_set_state == VRAMState.NO_VRAM:
+            if not self_managed_device and vram_set_state == VRAMState.NO_VRAM:
                 lowvram_model_memory = 0.1
 
             was_loaded = loaded_model in current_loaded_models

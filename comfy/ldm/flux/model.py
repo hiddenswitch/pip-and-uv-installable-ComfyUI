@@ -7,12 +7,19 @@ from torch import Tensor, nn
 from einops import rearrange, repeat
 from ..common_dit import pad_to_patch_size
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
+from ...pipeline_parallel import (
+    PipelineIntermediateTensors,
+    PipelineMissingLayer,
+    PipelineStageConfig,
+)
+from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 
 from .layers import (
     DoubleStreamBlock,
     EmbedND,
     LastLayer,
     MLPEmbedder,
+    ModulationOut,
     SingleStreamBlock,
     timestep_embedding,
     Modulation,
@@ -61,16 +68,47 @@ def invert_slices(slices, length):
     return result
 
 
+def _transport_modulation(value):
+    if isinstance(value, ModulationOut):
+        return ("modulation", value.shift, value.scale, value.gate)
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_transport_modulation(item) for item in value))
+    return value
+
+
+def _restore_modulation(value):
+    if isinstance(value, tuple) and value and value[0] == "modulation":
+        return ModulationOut(*value[1:])
+    if isinstance(value, tuple) and value and value[0] == "tuple":
+        return tuple(_restore_modulation(item) for item in value[1])
+    return value
+
+
 class Flux(nn.Module):
     """
     Transformer model for flow matching on sequences.
     """
 
-    def __init__(self, image_model=None, final_layer=True, dtype=None, device=None, operations=None, **kwargs):
+    def __init__(
+        self,
+        image_model=None,
+        final_layer=True,
+        dtype=None,
+        device=None,
+        operations=None,
+        pipeline_stage: PipelineStageConfig | None = None,
+        **kwargs,
+    ):
         super().__init__()
         self.dtype = dtype
         params = FluxParams(**kwargs)
         self.params = params
+        self.pipeline_stage = pipeline_stage
+        self.num_double_blocks = params.depth
+        self.num_single_blocks = params.depth_single_blocks
+        self.num_blocks = self.num_double_blocks + self.num_single_blocks
+        is_first_stage = pipeline_stage is None or pipeline_stage.is_first
+        is_last_stage = pipeline_stage is None or pipeline_stage.is_last
         self.patch_size = params.patch_size
         self.in_channels = params.in_channels * params.patch_size * params.patch_size
         self.out_channels = params.out_channels * params.patch_size * params.patch_size
@@ -83,20 +121,25 @@ class Flux(nn.Module):
             raise ValueError(f"Got {params.axes_dim} but expected positional dim {pe_dim}")
         self.hidden_size = params.hidden_size
         self.num_heads = params.num_heads
-        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
-        self.img_in = operations.Linear(self.in_channels, self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device)
-        self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device, operations=operations)
-        if params.vec_in_dim is not None:
+        if is_first_stage:
+            self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
+            self.img_in = operations.Linear(self.in_channels, self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device)
+            self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device, operations=operations)
+        else:
+            self.pe_embedder = PipelineMissingLayer()
+            self.img_in = PipelineMissingLayer()
+            self.time_in = PipelineMissingLayer()
+        if params.vec_in_dim is not None and is_first_stage:
             self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size, dtype=dtype, device=device, operations=operations)
         else:
             self.vector_in = None
 
         self.guidance_in = (
             MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device, operations=operations) if params.guidance_embed else nn.Identity()
-        )
-        self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device)
+        ) if is_first_stage else PipelineMissingLayer()
+        self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, bias=params.ops_bias, dtype=dtype, device=device) if is_first_stage else PipelineMissingLayer()
 
-        if params.txt_norm:
+        if params.txt_norm and is_first_stage:
             self.txt_norm = operations.RMSNorm(params.context_in_dim, dtype=dtype, device=device)
         else:
             self.txt_norm = None
@@ -113,22 +156,25 @@ class Flux(nn.Module):
                     proj_bias=params.ops_bias,
                     yak_mlp=params.yak_mlp,
                     dtype=dtype, device=device, operations=operations
-                )
-                for _ in range(params.depth)
+                ) if pipeline_stage is None or pipeline_stage.start_layer <= index < pipeline_stage.end_layer else PipelineMissingLayer()
+                for index in range(params.depth)
             ]
         )
 
         self.single_blocks = nn.ModuleList(
             [
                 SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio, modulation=params.global_modulation is False, mlp_silu_act=params.mlp_silu_act, bias=params.ops_bias, yak_mlp=params.yak_mlp, dtype=dtype, device=device, operations=operations)
-                for _ in range(params.depth_single_blocks)
+                if pipeline_stage is None or pipeline_stage.start_layer <= params.depth + index < pipeline_stage.end_layer else PipelineMissingLayer()
+                for index in range(params.depth_single_blocks)
             ]
         )
 
-        if final_layer:
+        if final_layer and is_last_stage:
             self.final_layer = LastLayer(self.hidden_size, 1, self.out_channels, bias=params.ops_bias, dtype=dtype, device=device, operations=operations)
+        else:
+            self.final_layer = PipelineMissingLayer()
 
-        if params.global_modulation:
+        if params.global_modulation and is_first_stage:
             self.double_stream_modulation_img = Modulation(
                 self.hidden_size,
                 double=True,
@@ -144,6 +190,10 @@ class Flux(nn.Module):
             self.single_stream_modulation = Modulation(
                 self.hidden_size, double=False, bias=False, dtype=dtype, device=device, operations=operations
             )
+        elif params.global_modulation:
+            self.double_stream_modulation_img = PipelineMissingLayer()
+            self.double_stream_modulation_txt = PipelineMissingLayer()
+            self.single_stream_modulation = PipelineMissingLayer()
 
     def forward_orig(
             self,
@@ -166,6 +216,8 @@ class Flux(nn.Module):
             transformer_options = transformer_options.copy()
         patches = transformer_options.get("patches", {})
         patches_replace = transformer_options.get("patches_replace", {})
+        if self.pipeline_stage is not None and (patches or patches_replace):
+            raise ValueError("Flux pipeline parallelism does not support transformer block patches")
         if img.ndim != 3 or txt.ndim != 3:
             raise ValueError("Input img and txt tensors must have 3 dimensions.")
 
@@ -202,6 +254,7 @@ class Flux(nn.Module):
         vec_orig = vec
         txt_vec = vec
         extra_kwargs = {}
+        modulation_dims = None
         if timestep_zero_index is not None:
             modulation_dims = []
             batch = vec.shape[0] // 2
@@ -214,106 +267,307 @@ class Flux(nn.Module):
             extra_kwargs["modulation_dims_img"] = modulation_dims
             txt_vec = vec[:batch]
 
+        double_vec = vec
+        single_vec = vec_orig
         if self.params.global_modulation:
-            vec = (self.double_stream_modulation_img(vec_orig), self.double_stream_modulation_txt(txt_vec))
+            double_vec = (
+                self.double_stream_modulation_img(vec_orig),
+                self.double_stream_modulation_txt(txt_vec),
+            )
+            single_vec, _ = self.single_stream_modulation(vec_orig)
 
+        start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
+        end_layer = self.num_blocks if self.pipeline_stage is None else self.pipeline_stage.end_layer
+        return self._run_block_range(
+            img,
+            txt,
+            vec_orig,
+            double_vec,
+            single_vec,
+            pe,
+            attn_mask,
+            transformer_options,
+            control,
+            modulation_dims,
+            start_layer,
+            end_layer,
+        )
+
+    def _run_block_range(
+        self,
+        img,
+        txt,
+        vec_orig,
+        double_vec,
+        single_vec,
+        pe,
+        attn_mask,
+        transformer_options,
+        control,
+        modulation_dims,
+        start_layer,
+        end_layer,
+        txt_len=None,
+        target=None,
+    ):
+        patches_replace = transformer_options.get("patches_replace", {})
         blocks_replace = patches_replace.get("dit", {})
-        transformer_options["total_blocks"] = len(self.double_blocks)
+        double_end = min(end_layer, self.num_double_blocks)
+        transformer_options["total_blocks"] = self.num_double_blocks
         transformer_options["block_type"] = "double"
-        for i, block in enumerate(self.double_blocks):
-            transformer_options["block_index"] = i
-            if ("double_block", i) in blocks_replace:
-                def block_wrap_1(args):
-                    out = {}
-                    out["img"], out["txt"] = block(img=args["img"],
-                                                   txt=args["txt"],
-                                                   vec=args["vec"],
-                                                   pe=args["pe"],
-                                                   attn_mask=args.get("attn_mask"),
-                                                   transformer_options=args.get("transformer_options"),
-                                                   **extra_kwargs)
-                    return out
+        double_extra = {}
+        if modulation_dims is not None:
+            double_extra["modulation_dims_img"] = modulation_dims
 
-                out = blocks_replace[("double_block", i)]({"img": img,
-                                                           "txt": txt,
-                                                           "vec": vec,
-                                                           "pe": pe,
-                                                           "attn_mask": attn_mask,
-                                                           "transformer_options": transformer_options},
-                                                          {"original_block": block_wrap_1})
-                txt = out["txt"]
-                img = out["img"]
+        for index in range(start_layer, double_end):
+            block = self.double_blocks[index]
+            transformer_options["block_index"] = index
+            if ("double_block", index) in blocks_replace:
+                def block_wrap(args):
+                    block_img, block_txt = block(
+                        img=args["img"],
+                        txt=args["txt"],
+                        vec=args["vec"],
+                        pe=args["pe"],
+                        attn_mask=args.get("attn_mask"),
+                        transformer_options=args.get("transformer_options"),
+                        **double_extra,
+                    )
+                    return {"img": block_img, "txt": block_txt}
+
+                out = blocks_replace[("double_block", index)](
+                    {
+                        "img": img,
+                        "txt": txt,
+                        "vec": double_vec,
+                        "pe": pe,
+                        "attn_mask": attn_mask,
+                        "transformer_options": transformer_options,
+                    },
+                    {"original_block": block_wrap},
+                )
+                img, txt = out["img"], out["txt"]
             else:
-                img, txt = block(img=img,
-                                 txt=txt,
-                                 vec=vec,
-                                 pe=pe,
-                                 attn_mask=attn_mask,
-                                 transformer_options=transformer_options,
-                                 **extra_kwargs)
+                img, txt = block(
+                    img=img,
+                    txt=txt,
+                    vec=double_vec,
+                    pe=pe,
+                    attn_mask=attn_mask,
+                    transformer_options=transformer_options,
+                    **double_extra,
+                )
 
-            if control is not None:  # Controlnet
-                control_i = control.get("input")
-                if i < len(control_i):
-                    add = control_i[i]
-                    if add is not None:
-                        img[:, :add.shape[1]] += add
+            if control is not None:
+                control_input = control.get("input")
+                if index < len(control_input):
+                    addition = control_input[index]
+                    if addition is not None:
+                        img[:, :addition.shape[1]] += addition
 
-        if img.dtype == torch.float16:
-            img = torch.nan_to_num(img, nan=0.0, posinf=65504, neginf=-65504)
+        if end_layer <= self.num_double_blocks:
+            if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
+                return self._pipeline_intermediate(
+                    img,
+                    txt,
+                    vec_orig,
+                    double_vec,
+                    single_vec,
+                    pe,
+                    attn_mask,
+                    transformer_options,
+                    control,
+                    modulation_dims,
+                    txt_len,
+                    target,
+                )
+            raise RuntimeError("Flux block range ended before the output stage")
 
-        img = torch.cat((txt, img), 1)
+        if txt is not None:
+            if img.dtype == torch.float16:
+                img = torch.nan_to_num(img, nan=0.0, posinf=65504, neginf=-65504)
+            txt_len = txt.shape[1]
+            img = torch.cat((txt, img), 1)
+            txt = None
+        if txt_len is None:
+            raise RuntimeError("Flux single-stream continuation is missing the text length")
 
-        if self.params.global_modulation:
-            vec, _ = self.single_stream_modulation(vec_orig)
-
-        extra_kwargs = {}
-        if timestep_zero_index is not None:
-            lambda a: 0 if a == 0 else a + txt.shape[1]
-            modulation_dims_combined = list(map(lambda x: (0 if x[0] == 0 else x[0] + txt.shape[1], x[1] + txt.shape[1], x[2]), modulation_dims))
-            extra_kwargs["modulation_dims"] = modulation_dims_combined
-
-        transformer_options["total_blocks"] = len(self.single_blocks)
+        single_extra = {}
+        if modulation_dims is not None:
+            single_extra["modulation_dims"] = [
+                (
+                    0 if item[0] == 0 else item[0] + txt_len,
+                    item[1] + txt_len,
+                    item[2],
+                )
+                for item in modulation_dims
+            ]
+        transformer_options["total_blocks"] = self.num_single_blocks
         transformer_options["block_type"] = "single"
-        transformer_options["img_slice"] = [txt.shape[1], img.shape[1]]
-        for i, block in enumerate(self.single_blocks):
-            transformer_options["block_index"] = i
-            if ("single_block", i) in blocks_replace:
-                def block_wrap_2(args):
-                    out = {}
-                    out["img"] = block(args["img"],
-                                       vec=args["vec"],
-                                       pe=args["pe"],
-                                       attn_mask=args.get("attn_mask"),
-                                       transformer_options=args.get("transformer_options"),
-                                       **extra_kwargs)
-                    return out
+        transformer_options["img_slice"] = [txt_len, img.shape[1]]
+        single_start = max(0, start_layer - self.num_double_blocks)
+        single_end = min(
+            self.num_single_blocks,
+            end_layer - self.num_double_blocks,
+        )
+        for index in range(single_start, single_end):
+            block = self.single_blocks[index]
+            transformer_options["block_index"] = index
+            if ("single_block", index) in blocks_replace:
+                def block_wrap(args):
+                    return {
+                        "img": block(
+                            args["img"],
+                            vec=args["vec"],
+                            pe=args["pe"],
+                            attn_mask=args.get("attn_mask"),
+                            transformer_options=args.get("transformer_options"),
+                            **single_extra,
+                        )
+                    }
 
-                out = blocks_replace[("single_block", i)]({"img": img,
-                                                           "vec": vec,
-                                                           "pe": pe,
-                                                           "attn_mask": attn_mask,
-                                                           "transformer_options": transformer_options},
-                                                          {"original_block": block_wrap_2})
+                out = blocks_replace[("single_block", index)](
+                    {
+                        "img": img,
+                        "vec": single_vec,
+                        "pe": pe,
+                        "attn_mask": attn_mask,
+                        "transformer_options": transformer_options,
+                    },
+                    {"original_block": block_wrap},
+                )
                 img = out["img"]
             else:
-                img = block(img, vec=vec, pe=pe, attn_mask=attn_mask, transformer_options=transformer_options, **extra_kwargs)
+                img = block(
+                    img,
+                    vec=single_vec,
+                    pe=pe,
+                    attn_mask=attn_mask,
+                    transformer_options=transformer_options,
+                    **single_extra,
+                )
 
-            if control is not None:  # Controlnet
-                control_o = control.get("output")
-                if i < len(control_o):
-                    add = control_o[i]
-                    if add is not None:
-                        img[:, txt.shape[1]: txt.shape[1] + add.shape[1], ...] += add
+            if control is not None:
+                control_output = control.get("output")
+                if index < len(control_output):
+                    addition = control_output[index]
+                    if addition is not None:
+                        img[:, txt_len:txt_len + addition.shape[1], ...] += addition
 
-        img = img[:, txt.shape[1]:, ...]
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
+            return self._pipeline_intermediate(
+                img,
+                None,
+                vec_orig,
+                double_vec,
+                single_vec,
+                pe,
+                attn_mask,
+                transformer_options,
+                control,
+                modulation_dims,
+                txt_len,
+                target,
+            )
+        return self._forward_exit(img, vec_orig, modulation_dims, txt_len, target)
 
+    def _pipeline_intermediate(
+        self,
+        img,
+        txt,
+        vec_orig,
+        double_vec,
+        single_vec,
+        pe,
+        attn_mask,
+        transformer_options,
+        control,
+        modulation_dims,
+        txt_len,
+        target,
+    ):
+        tensors = {"img": img, "vec_orig": vec_orig}
+        if txt is not None:
+            tensors["txt"] = txt
+        if pe is not None:
+            tensors["pe"] = pe
+        if attn_mask is not None:
+            tensors["attn_mask"] = attn_mask
+        metadata = {
+            "has_txt": txt is not None,
+            "has_pe": pe is not None,
+            "has_attn_mask": attn_mask is not None,
+            "txt_len": txt_len,
+            "modulation_dims": modulation_dims,
+            "double_vec": pack_pipeline_value(
+                _transport_modulation(double_vec), tensors, "double_vec"
+            ),
+            "single_vec": pack_pipeline_value(
+                _transport_modulation(single_vec), tensors, "single_vec"
+            ),
+            "transformer_options": pack_pipeline_value(
+                transformer_options, tensors, "transformer_options"
+            ),
+            "control": pack_pipeline_value(control, tensors, "control"),
+        }
+        if target is not None:
+            metadata.update(target)
+        return PipelineIntermediateTensors(tensors, metadata)
+
+    def forward_pipeline_stage(self, intermediate: PipelineIntermediateTensors):
+        if self.pipeline_stage is None or self.pipeline_stage.is_first:
+            raise RuntimeError("Flux pipeline continuation requires a non-first stage")
+        tensors = intermediate.tensors
+        metadata = intermediate.metadata
+        transformer_options = unpack_pipeline_value(
+            metadata["transformer_options"], tensors
+        )
+        control = unpack_pipeline_value(metadata["control"], tensors)
+        double_vec = _restore_modulation(
+            unpack_pipeline_value(metadata["double_vec"], tensors)
+        )
+        single_vec = _restore_modulation(
+            unpack_pipeline_value(metadata["single_vec"], tensors)
+        )
+        target = {
+            name: metadata[name]
+            for name in ("img_tokens", "h_len", "w_len", "h_orig", "w_orig")
+            if name in metadata
+        }
+        return self._run_block_range(
+            tensors["img"],
+            tensors.get("txt"),
+            tensors["vec_orig"],
+            double_vec,
+            single_vec,
+            tensors.get("pe"),
+            tensors.get("attn_mask"),
+            transformer_options,
+            control,
+            metadata["modulation_dims"],
+            self.pipeline_stage.start_layer,
+            self.pipeline_stage.end_layer,
+            txt_len=metadata["txt_len"],
+            target=target,
+        )
+
+    def _forward_exit(self, img, vec_orig, modulation_dims, txt_len, target=None):
+        img = img[:, txt_len:, ...]
         extra_kwargs = {}
-        if timestep_zero_index is not None:
+        if modulation_dims is not None:
             extra_kwargs["modulation_dims"] = modulation_dims
-
-        img = self.final_layer(img, vec_orig, **extra_kwargs)  # (N, T, patch_size ** 2 * out_channels)
-        return img
+        img = self.final_layer(img, vec_orig, **extra_kwargs)
+        if not target:
+            return img
+        img = img[:, :target["img_tokens"]]
+        return rearrange(
+            img,
+            "b (h w) (c ph pw) -> b c (h ph) (w pw)",
+            h=target["h_len"],
+            w=target["w_len"],
+            ph=self.patch_size,
+            pw=self.patch_size,
+        )[:, :, :target["h_orig"], :target["w_orig"]]
 
     def process_img(self, x, index=0, h_offset=0, w_offset=0, transformer_options=None):
         if transformer_options is None:
@@ -350,6 +604,12 @@ class Flux(nn.Module):
     def forward(self, x, timestep, context, y=None, guidance=None, ref_latents=None, control=None, transformer_options=None, **kwargs):
         if transformer_options is None:
             transformer_options = {}
+        if self.pipeline_stage is not None and not self.pipeline_stage.is_first:
+            raise RuntimeError("Only the first Flux pipeline stage accepts model inputs")
+        if self.pipeline_stage is not None and get_all_wrappers(
+            WrappersMP.DIFFUSION_MODEL, transformer_options
+        ):
+            raise ValueError("Flux pipeline parallelism does not support diffusion-model wrappers")
         return WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -414,5 +674,14 @@ class Flux(nn.Module):
                 txt_ids[:, :, i] = torch.linspace(0, context.shape[1] - 1, steps=context.shape[1], device=x.device, dtype=torch.float32)
 
         out = self.forward_orig(img, img_ids, context, txt_ids, timestep, y, guidance, control, timestep_zero_index=timestep_zero_index, transformer_options=transformer_options, attn_mask=kwargs.get("attention_mask", None))
+        if isinstance(out, PipelineIntermediateTensors):
+            out.metadata.update({
+                "img_tokens": img_tokens,
+                "h_len": h_len,
+                "w_len": w_len,
+                "h_orig": h_orig,
+                "w_orig": w_orig,
+            })
+            return out
         out = out[:, :img_tokens]
         return rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_len, w=w_len, ph=self.patch_size, pw=self.patch_size)[:, :, :h_orig, :w_orig]

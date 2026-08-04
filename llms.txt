@@ -49,8 +49,10 @@ equivalent.
 
 For a supported diffusion transformer, keep the ordinary `UNETLoader` and
 select multiple devices at process startup, for example `--cuda-device 0,1`.
-Qwen Image (including Layered) and MiniMax H3 then use transparent local PP;
-selecting one device keeps ordinary DynamicVRAM offloading. Stage placement
+Qwen Image (including Layered), MiniMax H3, and Flux2 Dev then use transparent
+exact PP; selecting one device keeps ordinary DynamicVRAM offloading. Flux2 Dev
+maps its eight double-stream and 48 single-stream blocks into one ordered stage
+space. Stage placement
 uses DynamicVRAM's loaded-module geometry and per-device available-memory
 signal and may be asymmetric; there is no PP workflow node or byte-balance
 control. Injected pipeline operations select asynchronous CUDA peer copies
@@ -60,7 +62,8 @@ the payload and completion event alive while side-stream communication runs;
 the consuming compute stream waits only at the next stage boundary. Both
 providers use the same grouped DynamicVRAM pressure decisions and compose with
 the checkpoint's mixed-precision or quantized operations. Launching the same
-ordinary workflow with `torchrun` uses canonical `RANK`, `WORLD_SIZE`,
+ordinary workflow with `torchrun` can place one stage/rank on each local or
+remote host and uses canonical `RANK`, `WORLD_SIZE`,
 `LOCAL_RANK`, `LOCAL_WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`; use
 `--pipeline-parallel-size` only to override the inferred stage count. MiniMax H3
 also supports transparent Megatron-style TP with `--tensor-parallel-size 2` and
@@ -68,7 +71,9 @@ an ordered two-device list. TP is injected by decorating the checkpoint's normal
 Comfy operations provider: QKV/gate-up use section-aware column-parallel linears,
 output/down use row-parallel linears, and NCCL reductions compose with INT8
 ConvRot and per-rank DynamicVRAM. There is no TP workflow node. This is local
-model parallelism, not RabbitMQ prompt distribution. See
+model parallelism, not RabbitMQ prompt distribution. In a multi-host launch,
+rank zero collects each rank's local DynamicVRAM budget before partitioning;
+remote rank devices are never treated as locally queryable CUDA indices. See
 `docs/distributed.md` for the memory model and restrictions.
 
 ## How the pieces fit

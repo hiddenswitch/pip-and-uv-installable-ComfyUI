@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from datetime import timedelta
 import gc
 import logging
@@ -18,10 +19,53 @@ from .distributed import (
     _run_worker_commands,
 )
 from .runtime import AbstractBasePipelineOperations
+from .types import PipelineDeviceMemoryBudget
 
 
 logger = logging.getLogger(__name__)
 _runtime: ExternalTorchDistributedRuntime | None = None
+
+
+class AbstractBaseExternalPipelinePlacementProvider(ABC):
+    """Map launcher ranks to logical stages and rank-local accelerators."""
+
+    @abstractmethod
+    def local_device(self, configuration: DistributedConfiguration) -> torch.device:
+        raise NotImplementedError
+
+    @abstractmethod
+    def logical_devices(
+        self,
+        configuration: DistributedConfiguration,
+    ) -> tuple[torch.device, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def available_weight_bytes(self, device: torch.device) -> int:
+        raise NotImplementedError
+
+
+class CudaExternalPipelinePlacementProvider(
+    AbstractBaseExternalPipelinePlacementProvider
+):
+    """CUDA placement using canonical TorchElastic rank identities."""
+
+    def local_device(self, configuration: DistributedConfiguration) -> torch.device:
+        return torch.device("cuda", configuration.local_rank)
+
+    def logical_devices(
+        self,
+        configuration: DistributedConfiguration,
+    ) -> tuple[torch.device, ...]:
+        # These are stable planner identities, not devices rank zero may access.
+        # Every stage resolves its identity to its own LOCAL_RANK before loading.
+        return tuple(torch.device("cuda", rank) for rank in range(configuration.world_size))
+
+    def available_weight_bytes(self, device: torch.device) -> int:
+        from .. import model_management
+
+        projected = model_management.projected_dynamic_vram_available_memory((device,))
+        return max(1, int(projected[device]))
 
 
 class AbstractBaseExternalPipelineRuntime(ABC):
@@ -40,6 +84,18 @@ class AbstractBaseExternalPipelineRuntime(ABC):
     def is_driver(self) -> bool:
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def logical_devices(self) -> tuple[torch.device, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def probe_memory_budgets(
+        self,
+        devices,
+    ) -> tuple[PipelineDeviceMemoryBudget, ...]:
+        raise NotImplementedError
+
     @abstractmethod
     def run_worker_service(self) -> None:
         raise NotImplementedError
@@ -56,7 +112,11 @@ class AbstractBaseExternalPipelineRuntime(ABC):
 class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
     """Long-lived process groups and rank service created by torchrun et al."""
 
-    def __init__(self, configuration: DistributedConfiguration):
+    def __init__(
+        self,
+        configuration: DistributedConfiguration,
+        placement_provider: AbstractBaseExternalPipelinePlacementProvider | None = None,
+    ):
         if not configuration.externally_launched:
             raise ValueError("External runtime requires a launcher-provided process identity")
         if configuration.tensor_parallel_size != 1:
@@ -64,16 +124,15 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
                 "External-launcher tensor parallelism is not implemented; "
                 "use the internal multiprocessing executor"
             )
-        if configuration.local_world_size != configuration.world_size:
-            raise NotImplementedError(
-                "External pipeline launching currently supports one node; "
-                "LOCAL_WORLD_SIZE must equal WORLD_SIZE"
-            )
         if not torch.cuda.is_available() or not dist.is_nccl_available():
             raise RuntimeError("External pipeline launching requires CUDA and NCCL")
 
         self._configuration = configuration
-        self._device = torch.device("cuda", configuration.local_rank)
+        self.placement_provider = (
+            placement_provider or CudaExternalPipelinePlacementProvider()
+        )
+        self._device = self.placement_provider.local_device(configuration)
+        self._logical_devices = self.placement_provider.logical_devices(configuration)
         torch.cuda.set_device(self.device)
         if not dist.is_initialized():
             dist.init_process_group(
@@ -91,7 +150,9 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
                 "Existing torch.distributed process group does not match canonical configuration"
             )
         self.device_group = dist.new_group(
-            ranks=list(range(configuration.world_size)), backend="nccl"
+            ranks=list(range(configuration.world_size)),
+            backend="nccl",
+            device_id=self.device,
         )
         self.coordinator = TorchDistributedProcessGroupCoordinator(
             configuration.rank,
@@ -122,6 +183,39 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
     def is_driver(self) -> bool:
         return self.configuration.is_first_pipeline_stage
 
+    @property
+    def logical_devices(self) -> tuple[torch.device, ...]:
+        return self._logical_devices
+
+    def _local_available_weight_bytes(self) -> int:
+        return self.placement_provider.available_weight_bytes(self.device)
+
+    def probe_memory_budgets(
+        self,
+        devices,
+    ) -> tuple[PipelineDeviceMemoryBudget, ...]:
+        devices = tuple(devices)
+        if not self.is_driver:
+            raise RuntimeError("Only pipeline rank zero can probe all stage budgets")
+        if devices != self.logical_devices:
+            raise ValueError(
+                f"External pipeline devices {devices} do not match launcher stages "
+                f"{self.logical_devices}"
+            )
+        self.coordinator.broadcast_command({"kind": "probe_memory"})
+        available = [self._local_available_weight_bytes()]
+        for rank in range(1, self.configuration.world_size):
+            response = self.coordinator.receive_object(rank)
+            if response.get("kind") != "memory_budget":
+                raise RuntimeError(
+                    f"External pipeline rank {rank} failed to report memory: {response!r}"
+                )
+            available.append(int(response["available_weight_bytes"]))
+        return tuple(
+            PipelineDeviceMemoryBudget(device, max(1, size))
+            for device, size in zip(devices, available, strict=True)
+        )
+
     def run_worker_service(self) -> None:
         if self.is_driver:
             raise RuntimeError("Pipeline rank zero is the ComfyUI driver, not a worker")
@@ -130,6 +224,15 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
             command = self.coordinator.broadcast_command()
             if command["kind"] == "close":
                 break
+            if command["kind"] == "probe_memory":
+                self.coordinator.send_object(
+                    {
+                        "kind": "memory_budget",
+                        "available_weight_bytes": self._local_available_weight_bytes(),
+                    },
+                    0,
+                )
+                continue
             if command["kind"] != "load_pipeline":
                 raise RuntimeError(
                     f"External pipeline rank {rank} expected a load command, got {command!r}"
@@ -141,6 +244,12 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
                     raise RuntimeError(
                         f"External pipeline rank {rank} received stage {load_spec.stage_index}"
                     )
+                stages = list(load_spec.plan.stages)
+                stages[rank] = replace(stages[rank], device=self.device)
+                load_spec = replace(
+                    load_spec,
+                    plan=replace(load_spec.plan, stages=tuple(stages)),
+                )
                 patcher, geometry = _load_worker_stage(load_spec, rank)
                 self.coordinator.send_object(
                     {"kind": "ready", "geometry": geometry}, 0

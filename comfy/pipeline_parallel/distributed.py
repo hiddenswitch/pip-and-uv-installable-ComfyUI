@@ -318,7 +318,17 @@ class TorchDistributedPipelineExecutor(AbstractBasePipelineExecutor):
 class RemotePipelineStageModel(ModelManageableStub):
     """Model-manager view of a stage whose weights live in another rank."""
 
-    def __init__(self, executor, rank, device, size, dtype, dynamic, ckpt_name=None):
+    def __init__(
+        self,
+        executor,
+        rank,
+        device,
+        size,
+        dtype,
+        dynamic,
+        ckpt_name=None,
+        self_managed_device=False,
+    ):
         self.executor = executor
         self.rank = rank
         self.load_device = device
@@ -328,6 +338,7 @@ class RemotePipelineStageModel(ModelManageableStub):
         self.dtype = dtype
         self.dynamic = dynamic
         self.ckpt_name = ckpt_name
+        self.self_managed_device = self_managed_device
         self._loaded_size = 0
         self._current_device = self.offload_device
 
@@ -359,6 +370,9 @@ class RemotePipelineStageModel(ModelManageableStub):
 
     def is_dynamic(self):
         return self.dynamic
+
+    def manages_own_device_memory(self):
+        return self.self_managed_device
 
     def reset_dynamic_buffers(self):
         self.executor.remote_stage_command(self.rank, {"kind": "reset_dynamic_buffers"})
@@ -393,6 +407,7 @@ class RemotePipelineStageModel(ModelManageableStub):
             "kind": "load",
             "extra_memory": extra_memory,
             "force_patch_weights": force_patch_weights,
+            "manage_device_memory": self.self_managed_device,
         })
         previous = self._loaded_size
         self._loaded_size = int(response["loaded_size"])
@@ -457,11 +472,19 @@ def _run_worker_commands(coordinator, rank, world_size, device, patcher):
                 try:
                     stage_command = command["command"]
                     if stage_command["kind"] == "load":
-                        patcher.partially_load(
-                            device,
-                            stage_command["extra_memory"],
-                            force_patch_weights=stage_command["force_patch_weights"],
-                        )
+                        if stage_command.get("manage_device_memory", False):
+                            from .. import model_management
+
+                            model_management.load_models_gpu(
+                                [patcher],
+                                force_patch_weights=stage_command["force_patch_weights"],
+                            )
+                        else:
+                            patcher.partially_load(
+                                device,
+                                stage_command["extra_memory"],
+                                force_patch_weights=stage_command["force_patch_weights"],
+                            )
                     elif stage_command["kind"] == "unload":
                         patcher.partially_unload(
                             patcher.offload_device,

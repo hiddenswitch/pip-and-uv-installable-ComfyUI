@@ -4,7 +4,7 @@ This package supports multi-processing across machines using RabbitMQ. This mean
 
 It also supports local pipeline and tensor parallel inference for selected diffusion transformers. These are separate features: RabbitMQ distributes whole prompts among workers, pipeline parallelism splits transformer blocks across devices, and tensor parallelism shards individual matrix multiplications across devices.
 
-## Local Pipeline Parallel Models
+## Exact Pipeline Parallel Models
 
 Pipeline parallelism is transparent. Keep the ordinary **Load Diffusion Model** (`UNETLoader`) in the workflow and select more than one local device when starting ComfyUI:
 
@@ -12,7 +12,11 @@ Pipeline parallelism is transparent. Keep the ordinary **Load Diffusion Model** 
 comfyui --cuda-device 0,1
 ```
 
-Supported Qwen Image checkpoints (including Qwen Image Layered) and MiniMax H3 then use one contiguous stage per selected device. Selecting one device keeps the ordinary single-device DynamicVRAM path.
+Supported Qwen Image checkpoints (including Qwen Image Layered), MiniMax H3,
+and Flux2 Dev then use one contiguous stage per selected device. Selecting one
+device keeps the ordinary single-device DynamicVRAM path. Flux2 Dev's eight
+double-stream and 48 single-stream blocks are treated as one ordered 56-block
+sequence; other Flux2 geometries are rejected instead of being guessed.
 
 The loader reads the safetensors header first and makes a provisional contiguous partition so it can materialize only each stage's owned tensors. In the single-process path it then measures those loaded modules through the same stored-versus-materialized weight geometry used by DynamicVRAM and replans if the real geometry changes a boundary. Entry layers live on the first stage, exit layers live on the last stage, and no complete checkpoint state dict is materialized. INT8 ConvRot and ordinary safetensors checkpoints use the same ownership path.
 
@@ -28,7 +32,7 @@ Current restrictions:
 
 - automatic local selection currently requires CUDA devices; the process-peer provider additionally requires an available NCCL `torch.distributed` backend;
 - diffusion-model wrappers and transformer block replacement patches are rejected because they may require cross-stage Python execution; ordinary weight LoRAs are supported;
-- hybrid tensor plus pipeline parallelism and multi-host stage discovery are not yet implemented.
+- hybrid tensor plus pipeline parallelism is not yet implemented.
 
 The inference regression workflow is `tests/inference/workflows/qwen-image-layered-pipeline-0.json`. For example, on a two-GPU host:
 
@@ -95,7 +99,15 @@ ComfyUI uses the process identity standardized by `torchrun` and TorchElastic. C
 | `--tensor-parallel-size`, `-tp` | `COMFYUI_TENSOR_PARALLEL_SIZE` | Tensor-parallel rank count; defaults to one. |
 | `--distributed-executor-backend` | `COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND` | `auto`, single-process `peer`, internal `mp`, or `external_launcher`. |
 
-An external launch currently maps one process to one pipeline stage, so pipeline size must equal world size. Rank zero is the ComfyUI driver and owns the first stage; the last rank owns model output. Other ranks disable custom nodes and remain in the rank service. On one host, rank zero keeps visibility of every selected GPU so the existing DynamicVRAM decision maker can compare all device budgets; every other rank initializes only its local Aimdo device. Model residency is still requested through the ordinary grouped model-manager path.
+An external launch maps one process to one pipeline stage, so pipeline size must
+equal world size. Rank zero is the ComfyUI driver and owns the first stage; the
+last rank owns model output. Other ranks disable custom nodes and remain in the
+rank service. Each process binds to `cuda:LOCAL_RANK`. Before partitioning,
+rank zero asks every rank for the memory its local DynamicVRAM allocator can
+make available, so planning sees all stages without rank zero querying a remote
+host's CUDA device. Once assigned, each rank makes its ordinary local
+DynamicVRAM pressure decision when its stage is loaded; existing text encoders
+or other models are ejected only when that pressure requires it.
 
 Use `torchrun` without changing the workflow:
 
@@ -107,7 +119,36 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --standalone --nproc-per-node=2 \
   --disable-all-custom-nodes
 ```
 
-`serve`, `worker`, and `run-workflow` share the same startup lifecycle and topology resolver. `--daemon` is intentionally rejected under an external launcher. Multi-host external pipeline stages and hybrid data/pipeline topology are not implemented yet.
+`serve`, `worker`, and `run-workflow` share the same startup lifecycle and
+topology resolver. `--daemon` is intentionally rejected under an external
+launcher. Hybrid data/pipeline topology is not implemented yet.
+
+For two hosts with one GPU each, run the same workflow command on both hosts.
+The checkpoint, workflow, inputs, and ComfyUI code must be available at the
+same paths. Replace the address with rank zero's routable address:
+
+```shell
+# Host 0
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=2 --nproc-per-node=1 \
+  --node-rank=0 --master-addr=10.0.0.10 --master-port=29500 \
+  --no-python "$(command -v comfyui)" run-workflow \
+  tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --image input/example.png --pipeline-parallel-size 2
+
+# Host 1
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=2 --nproc-per-node=1 \
+  --node-rank=1 --master-addr=10.0.0.10 --master-port=29500 \
+  --no-python "$(command -v comfyui)" run-workflow \
+  tests/inference/workflows/qwen-image-layered-pipeline-0.json \
+  --image input/example.png --pipeline-parallel-size 2
+```
+
+NCCL selects its network transport. On a 10 GbE network, set standard NCCL
+interface variables only when automatic interface discovery selects the wrong
+NIC. This exact pipeline mode transfers one activation payload at each stage
+boundary per denoising step. It is the first network-capable MVP; sequence
+parallel methods such as Ulysses and PipeFusion are separate future operations
+providers, not changes to the native model forward.
 
 ## Getting Started
 

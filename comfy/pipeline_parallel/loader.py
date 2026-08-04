@@ -17,6 +17,7 @@ from .memory import (
     AbstractBasePipelineStageMemoryEstimator,
     ComfyDynamicVRAMStageMemoryEstimator,
     ComfyPipelineMemoryCoordinator,
+    ExternalPipelineMemoryCoordinator,
 )
 from .patcher import get_pipeline_model_patcher_class
 from .operations import select_pipeline_operations
@@ -300,6 +301,9 @@ def load_diffusion_model_pipeline(
         stages.extend(patcher.model.diffusion_model.forward_pipeline_stage for patcher in stage_patchers[1:])
         executor = pipeline_operations.create_executor(plan, stages)
     if pipeline_operations.uses_worker_processes:
+        self_managed_remote_devices = resolve_distributed_configuration(
+            current_execution_context().configuration
+        ).externally_launched
         remote_stages = [
             RemotePipelineStageModel(
                 executor,
@@ -309,6 +313,7 @@ def load_diffusion_model_pipeline(
                 dtype,
                 not disable_dynamic,
                 os.path.basename(unet_path),
+                self_managed_device=self_managed_remote_devices,
             )
             for stage in plan.stages[1:]
         ]
@@ -348,30 +353,44 @@ def try_load_diffusion_model_pipeline(
     if os.path.splitext(os.fspath(unet_path))[1].lower() not in (".safetensors", ".sft"):
         return None
 
-    current = model_management.get_torch_device()
-    available = model_management.get_all_torch_devices()
-    devices = tuple([current] + [device for device in available if device != current])
     runtime_configuration = current_execution_context().configuration
     distributed = resolve_distributed_configuration(runtime_configuration)
     requested_size = distributed.pipeline_parallel_size
-    if requested_size > 1:
-        if requested_size > len(devices):
-            raise RuntimeError(
-                f"Pipeline parallel size {requested_size} exceeds the {len(devices)} available devices"
-            )
-        devices = devices[:requested_size]
-    elif (
-        runtime_configuration is not None
-        and runtime_configuration.pipeline_parallel_size == 1
-    ):
-        return None
+    if distributed.externally_launched:
+        from .external import get_external_pipeline_runtime
+
+        runtime = get_external_pipeline_runtime()
+        if runtime is None:
+            raise RuntimeError("External-launcher pipeline runtime has not been initialized")
+        devices = runtime.logical_devices
+        memory_coordinator = memory_coordinator or ExternalPipelineMemoryCoordinator(runtime)
+    else:
+        current = model_management.get_torch_device()
+        available = model_management.get_all_torch_devices()
+        devices = tuple([current] + [device for device in available if device != current])
+        if requested_size > 1:
+            if requested_size > len(devices):
+                raise RuntimeError(
+                    f"Pipeline parallel size {requested_size} exceeds the "
+                    f"{len(devices)} available devices"
+                )
+            devices = devices[:requested_size]
+        elif (
+            runtime_configuration is not None
+            and runtime_configuration.pipeline_parallel_size == 1
+        ):
+            return None
     if len(devices) < 2:
         return None
 
     reader = SafetensorsCheckpointReader(unet_path)
     detection_state, metadata, _prefix = _normalize_detection_state(reader)
     model_config = model_detection.model_config_from_unet(detection_state, "", metadata=metadata)
-    if model_config is None or model_config.unet_config.get("image_model") not in ("qwen_image", "minimax_h3"):
+    if model_config is None or model_config.unet_config.get("image_model") not in (
+        "qwen_image",
+        "minimax_h3",
+        "flux2",
+    ):
         return None
 
     return load_diffusion_model_pipeline(

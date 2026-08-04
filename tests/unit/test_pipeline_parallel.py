@@ -8,8 +8,10 @@ import torch
 
 import comfy.ops as comfy_ops
 from comfy import model_management
+from comfy.distributed.config import DistributedConfiguration
 from comfy.ldm.qwen_image.model import QwenImageTransformer2DModel
 from comfy.ldm.minimax.model import MiniMaxH3Model
+from comfy.ldm.flux.model import Flux
 from comfy.model_management_types import LoadingListItem
 from comfy.model_patcher import ModelPatcher
 from comfy.pipeline_parallel import (
@@ -18,6 +20,7 @@ from comfy.pipeline_parallel import (
     AbstractBasePipelineTransport,
     AbstractBasePipelineStageRunner,
     DevicePipelineBufferPool,
+    Flux2PipelineStageSpec,
     MiniMaxH3PipelineStageSpec,
     PipelineParallelConfig,
     QwenImagePipelineStageSpec,
@@ -28,14 +31,19 @@ from comfy.pipeline_parallel import (
     serialize_pipeline_metadata,
 )
 from comfy.pipeline_parallel.types import PipelineDeviceMemoryBudget, PipelineModelMemoryGeometry
-from comfy.pipeline_parallel.types import PipelineIntermediateTensors, PipelinePartitionPlan, PipelineStageConfig, PipelineStagePlan
+from comfy.pipeline_parallel.types import PipelineIntermediateTensors, PipelinePartitionPlan, PipelineStageConfig, PipelineStagePlan, PipelineWorkerLoadSpec
 from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 from comfy.pipeline_parallel.patcher import get_pipeline_model_patcher_class
 from comfy.pipeline_parallel.memory import ComfyDynamicVRAMStageMemoryEstimator, ComfyPipelineMemoryCoordinator
+from comfy.pipeline_parallel.memory import ExternalPipelineMemoryCoordinator
 from comfy.pipeline_parallel.distributed import (
     RemotePipelineStageModel,
     TorchDistributedProcessGroupCoordinator,
     _DistributedCompletion,
+)
+from comfy.pipeline_parallel.external import (
+    CudaExternalPipelinePlacementProvider,
+    ExternalTorchDistributedRuntime,
 )
 from comfy.pipeline_parallel.operations import PipelineOperationsMux
 
@@ -73,6 +81,52 @@ def test_minimax_partition_balances_checkpoint_bytes_not_layer_count():
 
     assert (plan.stages[0].end_layer, 10 - plan.stages[0].end_layer) != (5, 5)
     assert max(stage.checkpoint_bytes for stage in plan.stages) <= 2000
+
+
+def test_flux2_pipeline_partition_flattens_double_and_single_blocks():
+    tensors = {
+        "img_in.weight": descriptor(10),
+        "final_layer.linear.weight": descriptor(10),
+    }
+    tensors.update(
+        {
+            f"double_blocks.{index}.img_attn.qkv.weight": descriptor(100)
+            for index in range(8)
+        }
+    )
+    tensors.update(
+        {
+            f"single_blocks.{index}.linear1.weight": descriptor(100)
+            for index in range(48)
+        }
+    )
+    spec = Flux2PipelineStageSpec()
+
+    assert spec.block_index("double_blocks.7.img_attn.qkv.weight") == 7
+    assert spec.block_index("single_blocks.0.linear1.weight") == 8
+    assert spec.block_index("single_blocks.47.linear1.weight") == 55
+    plan = spec.plan(tensors, PipelineParallelConfig(("cpu", "meta")))
+    assert "img_in.weight" in plan.stages[0].owned_keys
+    assert "final_layer.linear.weight" in plan.stages[-1].owned_keys
+
+
+def test_flux2_pipeline_rejects_non_dev_block_geometry():
+    tensors = {
+        f"double_blocks.{index}.weight": descriptor(1)
+        for index in range(8)
+    }
+    tensors.update(
+        {
+            f"single_blocks.{index}.weight": descriptor(1)
+            for index in range(24)
+        }
+    )
+
+    with pytest.raises(ValueError, match="currently supports Flux2 Dev"):
+        Flux2PipelineStageSpec().plan(
+            tensors,
+            PipelineParallelConfig(("cpu", "meta")),
+        )
 
 
 def test_partition_tracks_dynamic_vram_device_capacity_instead_of_equal_bytes():
@@ -164,6 +218,117 @@ def test_comfy_pipeline_memory_coordinator_uses_projected_dynamic_vram_accountin
 
     assert calls == [(torch.device("cpu"), torch.device("meta"))]
     assert [budget.available_weight_bytes for budget in budgets] == [100, 50]
+
+
+def test_external_pipeline_placement_uses_global_rank_as_logical_device():
+    configuration = DistributedConfiguration(
+        rank=0,
+        world_size=2,
+        local_rank=0,
+        local_world_size=1,
+        pipeline_parallel_size=2,
+        externally_launched=True,
+    )
+    provider = CudaExternalPipelinePlacementProvider()
+
+    assert provider.local_device(configuration) == torch.device("cuda:0")
+    assert provider.logical_devices(configuration) == (
+        torch.device("cuda:0"),
+        torch.device("cuda:1"),
+    )
+
+
+def test_external_pipeline_memory_coordinator_combines_rank_local_budgets():
+    class PlacementProvider:
+        def available_weight_bytes(self, device):
+            assert device == torch.device("cuda:0")
+            return 700
+
+    class Coordinator:
+        def __init__(self):
+            self.commands = []
+
+        def broadcast_command(self, command):
+            self.commands.append(command)
+
+        def receive_object(self, rank):
+            assert rank == 1
+            return {"kind": "memory_budget", "available_weight_bytes": 300}
+
+    devices = (torch.device("cuda:0"), torch.device("cuda:1"))
+    runtime = object.__new__(ExternalTorchDistributedRuntime)
+    runtime._configuration = DistributedConfiguration(
+        rank=0,
+        world_size=2,
+        local_rank=0,
+        local_world_size=1,
+        pipeline_parallel_size=2,
+        externally_launched=True,
+    )
+    runtime._device = torch.device("cuda:0")
+    runtime._logical_devices = devices
+    runtime.placement_provider = PlacementProvider()
+    runtime.coordinator = Coordinator()
+
+    budgets = ExternalPipelineMemoryCoordinator(runtime).budgets(devices)
+
+    assert runtime.coordinator.commands == [{"kind": "probe_memory"}]
+    assert [budget.available_weight_bytes for budget in budgets] == [700, 300]
+
+
+def test_external_worker_resolves_logical_stage_to_rank_local_device(monkeypatch):
+    plan = PipelinePartitionPlan(
+        "qwen_image",
+        (
+            PipelineStagePlan(0, torch.device("cuda:0"), 0, 1, 1, frozenset()),
+            PipelineStagePlan(1, torch.device("cuda:1"), 1, 2, 1, frozenset()),
+        ),
+    )
+    load_spec = PipelineWorkerLoadSpec(
+        checkpoint_path="model.safetensors",
+        plan=plan,
+        stage_index=1,
+        model_options={},
+        disable_dynamic=False,
+        dtype=torch.bfloat16,
+    )
+
+    class Coordinator:
+        def broadcast_command(self):
+            return {"kind": "load_pipeline", "worker_load_specs": (load_spec,)}
+
+        def send_object(self, value, rank):
+            assert rank == 0
+            assert value["kind"] == "ready"
+
+    loaded = []
+
+    def load_stage(resolved, rank):
+        assert rank == 1
+        loaded.append(resolved.plan.stages[1].device)
+        return object(), object()
+
+    monkeypatch.setattr("comfy.pipeline_parallel.external._load_worker_stage", load_stage)
+    monkeypatch.setattr(
+        "comfy.pipeline_parallel.external._run_worker_commands",
+        lambda *_args: "close",
+    )
+    runtime = object.__new__(ExternalTorchDistributedRuntime)
+    runtime._configuration = DistributedConfiguration(
+        rank=1,
+        world_size=2,
+        local_rank=0,
+        local_world_size=1,
+        pipeline_parallel_size=2,
+        externally_launched=True,
+    )
+    runtime._device = torch.device("cuda:0")
+    runtime.coordinator = Coordinator()
+    runtime.close = lambda: None
+
+    runtime.run_worker_service()
+
+    assert loaded == [torch.device("cuda:0")]
 
 
 def test_projected_dynamic_vram_capacity_includes_ejectable_loaded_models(monkeypatch):
@@ -532,6 +697,70 @@ def test_remote_pipeline_stage_uses_model_manager_load_and_unload_contract():
     assert [command[1]["kind"] for command in executor.commands] == ["load", "unload", "unload"]
 
 
+def test_external_remote_pipeline_stage_delegates_memory_policy_to_rank():
+    class FakeExecutor:
+        def __init__(self):
+            self.command = None
+
+        def remote_stage_command(self, rank, command):
+            assert rank == 1
+            self.command = command
+            return {"kind": "stage_model", "loaded_size": 100}
+
+    executor = FakeExecutor()
+    remote = RemotePipelineStageModel(
+        executor,
+        rank=1,
+        device=torch.device("cuda:1"),
+        size=100,
+        dtype=torch.bfloat16,
+        dynamic=True,
+        self_managed_device=True,
+    )
+
+    remote.partially_load(remote.load_device, 10**12)
+
+    assert remote.manages_own_device_memory()
+    assert executor.command["manage_device_memory"] is True
+
+
+def test_model_manager_does_not_query_remote_rank_logical_device(monkeypatch):
+    class FakeExecutor:
+        def remote_stage_command(self, _rank, command):
+            return {
+                "kind": "stage_model",
+                "loaded_size": 100 if command["kind"] == "load" else 0,
+            }
+
+    remote = RemotePipelineStageModel(
+        FakeExecutor(),
+        rank=7,
+        device=torch.device("cuda:7"),
+        size=100,
+        dtype=torch.bfloat16,
+        dynamic=True,
+        self_managed_device=True,
+    )
+    prepared = []
+    monkeypatch.setattr(model_management, "current_loaded_models", [])
+    monkeypatch.setattr(model_management, "cleanup_models_gc", lambda: None)
+    monkeypatch.setattr(
+        model_management,
+        "prepare_device_model_loads",
+        lambda required, **_kwargs: prepared.append(required) or [],
+    )
+    monkeypatch.setattr(
+        model_management,
+        "get_free_memory",
+        lambda device: pytest.fail(f"queried rank-logical device {device}"),
+    )
+
+    model_management._load_models_gpu([remote], minimum_memory_required=1)
+
+    assert prepared == [{}]
+    assert remote.loaded_size() == 100
+
+
 def test_pipeline_cleanup_keeps_injected_executor_alive_between_samples():
     class RootModule(torch.nn.Module):
         def __init__(self):
@@ -658,6 +887,63 @@ def test_minimax_two_stage_forward_matches_unpartitioned(monkeypatch):
     actual = executor.execute([video, audio], timestep, context)
     torch.testing.assert_close(actual[0], expected[0])
     torch.testing.assert_close(actual[1], expected[1])
+
+
+def test_flux2_two_stage_forward_matches_unpartitioned(monkeypatch):
+    monkeypatch.setattr("comfy.ldm.flux.layers.attention", _test_flux_attention)
+    kwargs = {
+        "in_channels": 4,
+        "out_channels": 4,
+        "vec_in_dim": 4,
+        "context_in_dim": 8,
+        "hidden_size": 12,
+        "mlp_ratio": 2.0,
+        "num_heads": 2,
+        "depth": 2,
+        "depth_single_blocks": 2,
+        "axes_dim": [2, 2, 2],
+        "theta": 10000,
+        "patch_size": 1,
+        "qkv_bias": True,
+        "guidance_embed": False,
+        "txt_ids_dims": [],
+        "global_modulation": True,
+        "txt_norm": True,
+        "dtype": torch.float32,
+        "device": "cpu",
+        "operations": comfy_ops.disable_weight_init,
+    }
+    torch.manual_seed(13)
+    full = Flux(**kwargs)
+    for parameter in full.parameters():
+        torch.nn.init.uniform_(parameter, -0.05, 0.05)
+
+    first = Flux(**kwargs, pipeline_stage=PipelineStageConfig(0, 2, 0, 3))
+    second = Flux(**kwargs, pipeline_stage=PipelineStageConfig(1, 2, 3, 4))
+    first.load_state_dict(full.state_dict(), strict=False)
+    second.load_state_dict(full.state_dict(), strict=False)
+    plans = (
+        PipelineStagePlan(0, torch.device("cpu"), 0, 3, 1, frozenset()),
+        PipelineStagePlan(1, torch.device("cpu"), 3, 4, 1, frozenset()),
+    )
+    executor = SingleProcessPipelineExecutor(
+        PipelinePartitionPlan("flux2", plans),
+        (first, second.forward_pipeline_stage),
+        FakePipelineTransport(FakeDeviceRuntime()),
+    )
+    image = torch.randn(1, 4, 2, 2)
+    timestep = torch.tensor([0.5])
+    context = torch.randn(1, 3, 8)
+    pooled = torch.randn(1, 4)
+
+    expected = full(image, timestep, context, pooled)
+    actual = executor.execute(image, timestep, context, pooled)
+    torch.testing.assert_close(actual, expected)
+
+
+def _test_flux_attention(query, key, value, pe=None, mask=None, **kwargs):
+    del pe, kwargs
+    return _test_attention(query, key, value, query.shape[1], mask=mask)
 
 
 def _test_minimax_attention(self, x, rope_freqs=None, transformer_options=None):
