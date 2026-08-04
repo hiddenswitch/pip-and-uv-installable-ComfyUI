@@ -642,6 +642,44 @@ def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypat
     assert calls[0][5]["prefetch_hint"] is False
 
 
+def test_dynamic_vbar_undersized_allocation_releases_successful_fault(monkeypatch):
+    from comfy import ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = (object(), 0, 1)
+    layer._v_signature = None
+    signature = object()
+    unpinned = []
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_fault",
+        lambda allocation: signature,
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_signature_compare",
+        lambda left, right: False,
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_unpin",
+        lambda allocation: unpinned.append(allocation),
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.torch,
+        "aimdo_to_tensor",
+        lambda allocation, device: torch.empty(1, dtype=torch.uint8),
+    )
+
+    ops.cast_modules_with_vbar(
+        [layer], torch.float32, torch.device("cpu"), torch.float32, False,
+        prefetch_hint=True,
+    )
+
+    assert unpinned == [layer._v]
+    assert layer._prefetch is None
+
+
 def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypatch):
     from comfy import ops
 
@@ -782,6 +820,35 @@ def test_vbar_release_defers_unpin_until_cuda_event_completes(monkeypatch):
         events[0].complete = True
         ops._drain_deferred_vbar_unpins(block=False)
         assert unpinned == [layer._v]
+        assert ops._DEFERRED_VBAR_UNPINS == []
+    finally:
+        ops._DEFERRED_VBAR_UNPINS.clear()
+
+
+def test_finish_weight_cast_execution_waits_for_deferred_unpins(monkeypatch):
+    from comfy import ops
+
+    class FakeEvent:
+        synchronized = False
+
+        def synchronize(self):
+            self.synchronized = True
+
+    event = FakeEvent()
+    allocation = ("vbar", 0, 4096)
+    unpinned = []
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_unpin",
+        lambda value: unpinned.append(value),
+    )
+    ops._DEFERRED_VBAR_UNPINS[:] = [(event, allocation)]
+
+    try:
+        ops.finish_weight_cast_execution()
+
+        assert event.synchronized
+        assert unpinned == [allocation]
         assert ops._DEFERRED_VBAR_UNPINS == []
     finally:
         ops._DEFERRED_VBAR_UNPINS.clear()

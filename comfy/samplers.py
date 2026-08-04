@@ -1288,6 +1288,7 @@ class CFGGuider:
                 self.model_patcher.cleanup()
                 for multigpu_patcher in multigpu_patchers:
                     multigpu_patcher.cleanup()
+                self.model_patcher.model.finish_execution()
 
         sampler_helpers.cleanup_models(self.conds, self.loaded_models)
         del self.inner_model

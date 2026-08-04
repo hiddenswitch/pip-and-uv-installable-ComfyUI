@@ -547,7 +547,7 @@ def resolve_weight_bias(
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
     weight = _custom_op_return(weight)
-    bias = _custom_op_return(bias)
+    bias = bias.clone()
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 
@@ -588,7 +588,7 @@ def resolve_prefetched_weight_bias(
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
     weight = _custom_op_return(weight)
-    bias = _custom_op_return(bias)
+    bias = bias.clone()
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 

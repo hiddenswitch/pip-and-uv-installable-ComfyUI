@@ -253,6 +253,16 @@ def _drain_deferred_vbar_unpins(block=False):
     _DEFERRED_VBAR_UNPINS[:] = pending
 
 
+def finish_weight_cast_execution():
+    """Finish deferred weight releases at an outer execution boundary.
+
+    Individual layer releases remain asynchronous. Callers use this only after
+    the produced tensors are no longer being extended by more model work, so
+    dynamic-VRAM pins cannot leak into the next model's residency decision.
+    """
+    _drain_deferred_vbar_unpins(block=True)
+
+
 # FIXME: add n=1 cache hit fast path
 def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blocking, want_requant=False, dedicated_buffer=False, prefetch_hint=False):
     offload_stream = None
@@ -506,6 +516,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
                 want_requant,
                 dynamic_vram_fp8_policy(),
             )
+            comfy_aimdo.model_vbar.vbar_unpin(s._v)
             xfer_dest = None
             signature = None
             prefetch["signature"] = None

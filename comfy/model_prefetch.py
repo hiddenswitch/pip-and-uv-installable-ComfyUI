@@ -33,6 +33,12 @@ def cleanup_prefetch_queues():
                 cleanup_prefetched_modules(comfy_modules)
     PREFETCH_QUEUES = []
 
+
+def finish_model_execution():
+    """Release asynchronous weight state at an outer model boundary."""
+    cleanup_prefetch_queues()
+    ops.finish_weight_cast_execution()
+
 def prefetch_queue_pop(queue, device, module):
     if queue is None:
         return

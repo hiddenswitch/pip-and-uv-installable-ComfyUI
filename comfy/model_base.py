@@ -26,6 +26,7 @@ import torch
 from . import conds
 from . import latent_formats
 from . import model_management
+from . import model_prefetch
 from . import ops
 from . import utils
 from .conds import CONDRegular, CONDConstant
@@ -307,6 +308,12 @@ class BaseModel(torch.nn.Module):
         if method != "forward":
             return getattr(self.diffusion_model, method)(*args, **kwargs)
         return self.pipeline_executor.execute(*args, **kwargs)
+
+    def finish_execution(self):
+        if self.pipeline_executor is None:
+            model_prefetch.finish_model_execution()
+            return
+        self.pipeline_executor.finish_execution()
 
     def _apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
         sigma = t
