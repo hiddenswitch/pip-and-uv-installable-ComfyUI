@@ -1,6 +1,7 @@
 import concurrent.futures
 import contextvars
 import multiprocessing
+import os
 import pickle
 import logging
 from functools import partial
@@ -15,6 +16,16 @@ logger = logging.getLogger(__name__)
 def _wrap_with_context(context_data: bytes, func: Callable, *args, **kwargs) -> Any:
     new_ctx: contextvars.Context = pickle.loads(context_data)
     return new_ctx.run(func, *args, **kwargs)
+
+
+def _run_with_environment(
+    environment: dict[str, str],
+    function: Callable,
+    args: tuple,
+    kwargs: dict,
+) -> Any:
+    os.environ.update(environment)
+    return function(*args, **kwargs)
 
 
 class ProcessPoolExecutor(ProcessPool, Executor):
@@ -52,3 +63,20 @@ class ProcessPoolExecutor(ProcessPool, Executor):
 
     def submit(self, fn, /, *args, **kwargs) -> concurrent.futures.Future:
         return self.schedule(fn, args=list(args), kwargs=kwargs, timeout=None)
+
+    def submit_with_environment(
+        self,
+        environment: dict[str, str],
+        function: Callable,
+        /,
+        *args,
+        **kwargs,
+    ) -> concurrent.futures.Future:
+        """Run a child task with the caller's context and canonical environment."""
+        return self.submit(
+            _run_with_environment,
+            dict(environment),
+            function,
+            tuple(args),
+            kwargs,
+        )

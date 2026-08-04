@@ -1,6 +1,7 @@
 import threading
 
 import torch
+from torch._subclasses.fake_tensor import FakeTensorMode
 
 import comfy.ops as comfy_ops
 from comfy.ldm.minimax.model import Attention, MLP
@@ -8,10 +9,15 @@ from comfy.model_base import MiniMaxH3
 from comfy.tensor_parallel import (
     AbstractBaseTensorParallelOperations,
     TensorParallelConfig,
+    TorchDistributedTensorParallelOperations,
     shard_minimax_h3_state_dict,
     tensor_parallel_operations,
 )
-from comfy.tensor_parallel.distributed import _broadcast_tensors
+from comfy.tensor_parallel.distributed import (
+    TorchDistributedTensorParallelExecutor,
+    _ObjectCoordinator,
+    _broadcast_tensors,
+)
 
 
 class RecordingExecutor:
@@ -21,6 +27,20 @@ class RecordingExecutor:
     def execute_method(self, method, *args, **kwargs):
         self.calls.append((method, args, kwargs))
         return args[0] * 2
+
+
+class RecordingCoordinator:
+    def broadcast_command(self, command):
+        self.command = command
+
+    def receive_object(self, rank):
+        return {"kind": "done"}
+
+
+class RecordingRootModel:
+    def forward(self, value):
+        self.value = value
+        return value
 
 
 class PreprocessingDiffusion(torch.nn.Module):
@@ -33,9 +53,13 @@ class PreprocessingDiffusion(torch.nn.Module):
 class CompletedBroadcast:
     def __init__(self):
         self.waited = False
+        self.stream_blocked = False
 
     def wait(self):
         self.waited = True
+
+    def block_current_stream(self):
+        self.stream_blocked = True
 
 
 class ThreadCollective:
@@ -156,6 +180,119 @@ def test_tensor_parallel_cpu_inputs_use_control_group(monkeypatch):
     assert result["seed"].device.type == "cpu"
     assert calls[0][2] == "gloo"
     assert calls[0][4].waited
+
+
+def test_tensor_parallel_gpu_inputs_move_to_rank_device_before_collective(monkeypatch):
+    calls = []
+
+    def broadcast(tensor, src, group, async_op):
+        completion = CompletedBroadcast()
+        calls.append((tensor, src, group, async_op, completion))
+        return completion
+
+    monkeypatch.setattr("comfy.tensor_parallel.distributed.dist.broadcast", broadcast)
+    operations = type("Operations", (), {
+        "device": torch.device("cuda", 1),
+        "control_process_group": "gloo",
+        "process_group": "nccl",
+    })()
+
+    with FakeTensorMode():
+        result = _broadcast_tensors(
+            operations,
+            tensors={"latent": torch.empty(2, device="cuda:0")},
+        )
+
+    assert result["latent"].device == torch.device("cuda", 1)
+    assert calls[0][0].device == torch.device("cuda", 1)
+    assert calls[0][2] == "nccl"
+    assert calls[0][4].stream_blocked
+
+
+def test_tensor_parallel_sum_reduces_owned_output_in_place(monkeypatch):
+    calls = []
+
+    def all_reduce(tensor, group, async_op):
+        completion = CompletedBroadcast()
+        calls.append((tensor, group, async_op, completion))
+        return completion
+
+    monkeypatch.setattr("torch.distributed.all_reduce", all_reduce)
+    operations = TorchDistributedTensorParallelOperations(
+        0, 2, torch.device("cpu"), "nccl"
+    )
+    tensor = torch.randn(3, 4)
+
+    result = operations.sum(tensor)
+
+    assert result is tensor
+    assert calls[0][:3] == (tensor, "nccl", True)
+    assert calls[0][3].stream_blocked
+
+
+def test_tensor_parallel_root_uses_collective_prepared_inputs(monkeypatch):
+    monkeypatch.setattr(
+        "comfy.tensor_parallel.distributed._broadcast_tensors",
+        lambda operations, tensors: {name: tensor + 1 for name, tensor in tensors.items()},
+    )
+    root = RecordingRootModel()
+    executor = TorchDistributedTensorParallelExecutor(
+        root,
+        object(),
+        RecordingCoordinator(),
+        (),
+        (),
+        (torch.device("cpu"), torch.device("cpu")),
+        (0, 0),
+    )
+
+    output = executor.execute(torch.tensor(2))
+
+    assert output.item() == 3
+    assert root.value.item() == 3
+
+
+def test_tensor_parallel_finish_execution_releases_all_ranks(monkeypatch):
+    coordinator = RecordingCoordinator()
+    finished = []
+    monkeypatch.setattr(
+        "comfy.model_prefetch.finish_model_execution",
+        lambda: finished.append("root"),
+    )
+    executor = TorchDistributedTensorParallelExecutor(
+        RecordingRootModel(), object(), coordinator, (), (),
+        (torch.device("cpu"), torch.device("cpu")), (0, 0),
+    )
+
+    executor.finish_execution()
+
+    assert coordinator.command["kind"] == "finish_execution"
+    assert finished == ["root"]
+
+
+def test_tensor_parallel_commands_propagate_trace_context(monkeypatch):
+    values_seen = []
+
+    def inject(carrier, context):
+        del context
+        carrier["traceparent"] = "00-test"
+
+    def broadcast_object_list(values, src):
+        del src
+        values_seen.extend(values)
+
+    monkeypatch.setattr("comfy.distributed.tracing.propagate.inject", inject)
+    monkeypatch.setattr(
+        "comfy.tensor_parallel.distributed.dist.broadcast_object_list",
+        broadcast_object_list,
+    )
+
+    _ObjectCoordinator().broadcast_command({"kind": "execute"})
+
+    assert values_seen == [{
+        "kind": "execute",
+        "trace_context": {"traceparent": "00-test"},
+    }]
 
 
 def test_minimax_tensor_parallel_attention_and_mlp_match_full_model(monkeypatch):

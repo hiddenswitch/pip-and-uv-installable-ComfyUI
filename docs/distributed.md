@@ -51,13 +51,33 @@ There is no tensor-parallel workflow node. The loader decorates the checkpoint's
 
 The internal multiprocessing executor uses a Gloo control group and an NCCL device group. CPU inputs are broadcast through Gloo, CUDA inputs and activations through NCCL, and row-parallel reductions are asynchronous, out-of-place NCCL all-reduces whose completion is attached to the current compute stream. NCCL selects NVLink, PCIe, or another available transport. MiniMax's token-refiner preprocessing is executed on every rank through the same model-call executor as denoising, because it contains the same TP-sharded attention and MLP projections.
 
+Internal workers receive their accelerator assignment as a stable device UUID
+rather than a parent-process logical CUDA index. They resolve that identity in
+their own visibility namespace before creating the NCCL group. This keeps
+ordered lists such as `--cuda-device 1,0` correct even when the parent imported
+Torch before applying `CUDA_VISIBLE_DEVICES`. `LOCAL_RANK` remains the canonical
+process rank on the host and is not overloaded as a device identifier. PP and
+TP share this device-identity provider.
+
+W3C OpenTelemetry context is injected into TP process commands and extracted by
+each rank. Worker-command spans are therefore children of the sampler or model
+operation that issued them instead of unrelated traces.
+
 Current restrictions:
 
 - MiniMax H3 is the first supported TP model family;
 - TP currently requires CUDA, NCCL, a safetensors checkpoint, and the internal multiprocessing executor;
 - tensor-parallel LoRA patch routing and hybrid TP+PP are not yet implemented.
 
-On two 24 GB RTX A5000 GPUs, the normal MiniMax benchmark (0.4 MP, five seconds/124 frames, 20 steps, SageAttention, seed 42) completed the sampler in 135.730 seconds at 0.14735 it/s with TP=2. The same checkpoint and workflow measured 178.877 seconds at 0.11181 it/s with TP=1: TP=2 reduced sampler latency by 24.1% and increased sampling throughput by 31.8%. See `llms.txt`, “Measuring performance with OpenTelemetry,” for the reproducible commands and measurement rules.
+On two 24 GB RTX A5000 GPUs, the unchanged shipped `video_minimax_h3_t2v`
+template (0.4 MP, five seconds/124 frames, 20 steps, SageAttention, seed
+556589502035082) completed the sampler in 121.917 seconds at 0.16405 it/s with
+TP=2. The same template measured 218.726 seconds at 0.09144 it/s with TP=1:
+TP=2 reduced sampler latency by 44.3% and increased sampling throughput by
+79.4% in that run. GPU 0 had an unrelated graphical workload during the TP=2
+measurement, so rerun on idle GPUs for controlled hardware comparisons. See
+`llms.txt`, “Measuring performance with OpenTelemetry,” for exact commands and
+measurement rules.
 
 ### Launcher topology
 

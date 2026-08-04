@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import concurrent.futures
 from datetime import timedelta
 import gc
 import multiprocessing.connection
 import os
 import secrets
 import socket
-import subprocess
-import sys
 import traceback
 
 import torch
 import torch.distributed as dist
 
 from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
+from ..distributed.device import accelerator_device_provider
+from ..distributed.executors import ContextVarProcessPoolExecutor
+from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
 from ..pipeline_parallel.types import TensorDescriptor, pack_pipeline_value, unpack_pipeline_value
 from .runtime import TorchDistributedTensorParallelOperations
@@ -42,7 +44,13 @@ def _without_execution_caches(value):
 
 def _broadcast_tensors(operations, tensors=None, descriptors=None):
     if descriptors is None:
-        prepared = {name: tensor.contiguous() for name, tensor in tensors.items()}
+        prepared = {
+            name: tensor.to(
+                device=tensor.device if tensor.device.type == "cpu" else operations.device,
+                non_blocking=True,
+            ).contiguous()
+            for name, tensor in tensors.items()
+        }
     else:
         prepared = {
             name: torch.empty(
@@ -74,11 +82,11 @@ def _broadcast_tensors(operations, tensors=None, descriptors=None):
 
 
 class TorchDistributedTensorParallelExecutor:
-    def __init__(self, root_model, operations, coordinator, processes, connections, devices, rank_sizes):
+    def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes):
         self.root_model = root_model
         self.operations = operations
         self.coordinator = coordinator
-        self.processes = tuple(processes)
+        self.workers = tuple(workers)
         self.connections = tuple(connections)
         self.devices = tuple(devices)
         self.rank_sizes = tuple(rank_sizes)
@@ -104,7 +112,8 @@ class TorchDistributedTensorParallelExecutor:
             "structure": structure,
             "descriptors": descriptors,
         })
-        _broadcast_tensors(self.operations, tensors=tensors)
+        tensors = _broadcast_tensors(self.operations, tensors=tensors)
+        args, kwargs = unpack_pipeline_value(structure, tensors)
         output = getattr(self.root_model, method)(*args, **kwargs)
         for rank in range(1, len(self.devices)):
             response = self.coordinator.receive_object(rank)
@@ -116,18 +125,34 @@ class TorchDistributedTensorParallelExecutor:
         self.coordinator.broadcast_command({"kind": "rank_model", "rank": rank, "command": command})
         return self.coordinator.receive_object(rank)
 
+    def finish_execution(self):
+        self.coordinator.broadcast_command({"kind": "finish_execution"})
+        from .. import model_prefetch
+
+        model_prefetch.finish_model_execution()
+        for rank in range(1, len(self.devices)):
+            response = self.coordinator.receive_object(rank)
+            if response["kind"] == "error":
+                raise RuntimeError(
+                    f"Tensor-parallel rank {rank} failed to finish execution:\n"
+                    f"{response['traceback']}"
+                )
+
     def close(self):
         if self._closed:
             return
         self._closed = True
         if dist.is_initialized():
             self.coordinator.broadcast_command({"kind": "close"})
-        for process in self.processes:
+        for worker_pool, worker_future in self.workers:
             try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-                process.wait(timeout=5)
+                worker_future.result(timeout=10)
+            except concurrent.futures.TimeoutError:
+                worker_pool.shutdown(wait=False)
+            except Exception:
+                worker_pool.shutdown(wait=True)
+            else:
+                worker_pool.shutdown(wait=True)
         if dist.is_initialized():
             try:
                 dist.destroy_process_group(self.operations.process_group)
@@ -230,6 +255,8 @@ class RemoteTensorParallelRankModel(ModelManageableStub):
 
 class _ObjectCoordinator:
     def broadcast_command(self, command=None):
+        if command is not None:
+            command = inject_trace_context(command)
         values = [command]
         dist.broadcast_object_list(values, src=0)
         return values[0]
@@ -246,34 +273,52 @@ class _ObjectCoordinator:
 def _run_worker(operations, coordinator, patcher):
     while True:
         command = coordinator.broadcast_command()
-        if command["kind"] == "close":
-            return
-        if command["kind"] == "rank_model":
-            if command["rank"] != operations.rank:
-                continue
-            try:
-                model_command = command["command"]
-                if model_command["kind"] == "load":
-                    patcher.partially_load(
-                        operations.device,
-                        model_command["extra_memory"],
-                        force_patch_weights=model_command["force_patch_weights"],
-                    )
-                elif model_command["kind"] == "unload":
-                    patcher.partially_unload(patcher.offload_device, model_command["memory_to_free"])
-                elif model_command["kind"] == "reset_dynamic_buffers":
-                    patcher.reset_dynamic_buffers()
-                coordinator.send_object({"kind": "rank_model", "loaded_size": patcher.loaded_size()}, 0)
-            except Exception:
-                coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
-            continue
-        try:
-            tensors = _broadcast_tensors(operations, descriptors=command["descriptors"])
-            args, kwargs = unpack_pipeline_value(command["structure"], tensors)
-            getattr(patcher.model.diffusion_model, command["method"])(*args, **kwargs)
-            coordinator.send_object({"kind": "done"}, 0)
-        except Exception:
-            coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+        with distributed_command_span(
+            command,
+            "Tensor Parallel Rank Command",
+            {
+                "distributed.rank": operations.rank,
+                "distributed.world_size": operations.world_size,
+                "comfy.command.kind": command["kind"],
+            },
+        ):
+                if command["kind"] == "close":
+                    return
+                if command["kind"] == "rank_model":
+                    if command["rank"] != operations.rank:
+                        continue
+                    try:
+                        model_command = command["command"]
+                        if model_command["kind"] == "load":
+                            patcher.partially_load(
+                                operations.device,
+                                model_command["extra_memory"],
+                                force_patch_weights=model_command["force_patch_weights"],
+                            )
+                        elif model_command["kind"] == "unload":
+                            patcher.partially_unload(patcher.offload_device, model_command["memory_to_free"])
+                        elif model_command["kind"] == "reset_dynamic_buffers":
+                            patcher.reset_dynamic_buffers()
+                        coordinator.send_object({"kind": "rank_model", "loaded_size": patcher.loaded_size()}, 0)
+                    except Exception:
+                        coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+                    continue
+                if command["kind"] == "finish_execution":
+                    try:
+                        from .. import model_prefetch
+
+                        model_prefetch.finish_model_execution()
+                        coordinator.send_object({"kind": "done"}, 0)
+                    except Exception:
+                        coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+                    continue
+                try:
+                    tensors = _broadcast_tensors(operations, descriptors=command["descriptors"])
+                    args, kwargs = unpack_pipeline_value(command["structure"], tensors)
+                    getattr(patcher.model.diffusion_model, command["method"])(*args, **kwargs)
+                    coordinator.send_object({"kind": "done"}, 0)
+                except Exception:
+                    coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
 
 
 def worker_main(host, port, authkey):
@@ -281,12 +326,15 @@ def worker_main(host, port, authkey):
     distributed = resolve_distributed_configuration(environment=os.environ)
     rank = distributed.rank
     connection.send(rank)
-    world_size, init_method, load_spec = connection.recv()
-    device = torch.device("cuda", distributed.local_rank)
-    torch.cuda.set_device(device)
+    world_size, init_method, load_spec, device_identity = connection.recv()
+    device_provider = accelerator_device_provider(device_identity.device_type)
+    device = device_provider.resolve(device_identity)
+    device_provider.select(device)
     dist.init_process_group("gloo", init_method=init_method, rank=rank, world_size=world_size,
                             timeout=timedelta(minutes=5))
-    device_group = dist.new_group(ranks=list(range(world_size)), backend="nccl")
+    device_group = dist.new_group(
+        ranks=list(range(world_size)), backend="nccl", device_id=device
+    )
     operations = TorchDistributedTensorParallelOperations(
         rank, world_size, device, device_group, dist.group.WORLD
     )
@@ -314,40 +362,48 @@ def worker_main(host, port, authkey):
 
 def launch_tensor_parallel(load_spec, devices, load_root):
     size = len(devices)
+    device_provider = accelerator_device_provider(devices[0].type)
+    device_identities = tuple(device_provider.identify(device) for device in devices)
     init_method = _free_tcp_init_method()
     authkey = secrets.token_bytes(32)
     listener = multiprocessing.connection.Listener(("127.0.0.1", 0), authkey=authkey)
     host, port = listener.address
     master_host, master_port = init_method.removeprefix("tcp://").rsplit(":", 1)
-    processes = []
+    workers = []
     connections = [None] * (size - 1)
     for rank in range(1, size):
-        environment = os.environ.copy()
-        environment.update(DistributedConfiguration(
+        environment = DistributedConfiguration(
             rank=rank,
             world_size=size,
-            local_rank=devices[rank].index,
+            local_rank=rank,
             local_world_size=size,
             master_addr=master_host,
             master_port=int(master_port),
             pipeline_parallel_size=1,
             tensor_parallel_size=size,
             executor_backend="mp",
-        ).canonical_environment())
-        environment["COMFY_AIMDO_DEVICE_INDICES"] = str(devices[rank].index)
-        processes.append(subprocess.Popen(
-            (sys.executable, "-m", "comfy.tensor_parallel.worker", str(host), str(port), authkey.hex()),
-            cwd=os.getcwd(), env=environment,
-        ))
+        ).canonical_environment()
+        worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
+        worker_future = worker_pool.submit_with_environment(
+            environment,
+            worker_main,
+            str(host),
+            str(port),
+            authkey.hex(),
+        )
+        workers.append((worker_pool, worker_future))
     try:
         for _ in range(size - 1):
             connection = listener.accept()
             rank = connection.recv()
             connections[rank - 1] = connection
-            connection.send((size, init_method, load_spec))
+            connection.send((size, init_method, load_spec, device_identities[rank]))
+        device_provider.select(devices[0])
         dist.init_process_group("gloo", init_method=init_method, rank=0, world_size=size,
                                 timeout=timedelta(minutes=5))
-        device_group = dist.new_group(ranks=list(range(size)), backend="nccl")
+        device_group = dist.new_group(
+            ranks=list(range(size)), backend="nccl", device_id=devices[0]
+        )
         operations = TorchDistributedTensorParallelOperations(
             0, size, devices[0], device_group, dist.group.WORLD
         )
@@ -361,12 +417,12 @@ def launch_tensor_parallel(load_spec, devices, load_root):
                 raise RuntimeError(f"Tensor-parallel rank {rank} failed to load:\n{response['traceback']}")
             rank_sizes.append(response["size"])
         return root, TorchDistributedTensorParallelExecutor(
-            root.model.diffusion_model, operations, _ObjectCoordinator(), processes,
+            root.model.diffusion_model, operations, _ObjectCoordinator(), workers,
             connections, devices, rank_sizes,
         )
     except Exception:
-        for process in processes:
-            process.terminate()
+        for worker_pool, _worker_future in workers:
+            worker_pool.shutdown(wait=False)
         if dist.is_initialized():
             dist.destroy_process_group()
         raise

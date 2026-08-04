@@ -1813,6 +1813,36 @@ seconds, or 0.14735 it/s. Relative to TP=1, TP=2 reduced sampler latency by
 through VAE decode and produced an MP4, which validates the transparent workflow
 path in addition to the sampler-only performance comparison.
 
+To compare the unchanged official MiniMax H3 text-to-video template instead of
+the inference fixture, upgrade the workflow-template packages and run the
+shipped workflow twice without prompt, seed, step, duration, or resolution
+overrides:
+
+```bash
+# TP=1
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-t2v-tp1.jsonl \
+  comfyui workflows run video_minimax_h3_t2v \
+  --cuda-device 1 --tensor-parallel-size 1 --pipeline-parallel-size 1 \
+  --disable-all-custom-nodes --disable-progress
+
+# TP=2
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-t2v-tp2.jsonl \
+  comfyui workflows run video_minimax_h3_t2v \
+  --cuda-device 1,0 --tensor-parallel-size 2 --pipeline-parallel-size 1 \
+  --distributed-executor-backend mp \
+  --disable-all-custom-nodes --disable-progress
+```
+
+The shipped defaults use the template's detailed action-trailer prompt, seed
+556589502035082, 0.4 MP 16:9 output (864x480), five seconds/124 frames, and 20
+steps. Keep those inputs unchanged when comparing execution modes.
+
+Internal process commands carry W3C trace context. `Tensor Parallel Rank
+Command` spans emitted by worker ranks share the originating sampler trace and
+name the rank, world size, and command kind. This lets a JSONL trace distinguish
+model work from a rank load, collective, or residency command across the
+process boundary.
+
 For broader workflow diagnosis, the other spans to look for are:
 
 | Span | What it measures |

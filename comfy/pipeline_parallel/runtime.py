@@ -106,6 +106,10 @@ class AbstractBasePipelineExecutor(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def finish_execution(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
     def close(self) -> None:
         raise NotImplementedError
 
@@ -217,3 +221,8 @@ class SingleProcessPipelineExecutor(AbstractBasePipelineExecutor):
 
     def close(self) -> None:
         self.transport.close()
+
+    def finish_execution(self) -> None:
+        from .. import model_prefetch
+
+        model_prefetch.finish_model_execution()

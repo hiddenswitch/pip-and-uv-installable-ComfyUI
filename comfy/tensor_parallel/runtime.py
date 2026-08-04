@@ -20,7 +20,6 @@ class AbstractBaseTensorParallelOperations(ABC):
     def sum(self, tensor: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-
 class TorchDistributedTensorParallelOperations(AbstractBaseTensorParallelOperations):
     """Tensor collectives backed by an injected torch.distributed group."""
 
@@ -43,7 +42,6 @@ class TorchDistributedTensorParallelOperations(AbstractBaseTensorParallelOperati
     def sum(self, tensor: torch.Tensor) -> torch.Tensor:
         import torch.distributed as dist
 
-        output = tensor.clone()
-        completion = dist.all_reduce(output, group=self.process_group, async_op=True)
+        completion = dist.all_reduce(tensor, group=self.process_group, async_op=True)
         completion.block_current_stream()
-        return output
+        return tensor

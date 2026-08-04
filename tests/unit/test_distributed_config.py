@@ -1,13 +1,23 @@
 import os
+from types import SimpleNamespace
 
 import pytest
+import torch
 
 from comfy.cli_args_types import Configuration
 from comfy.distributed.config import (
     CanonicalDistributedConfigurationProvider,
     DistributedConfiguration,
 )
+from comfy.distributed.device import CudaAcceleratorDeviceProvider
+from comfy.distributed.executors import ContextVarProcessPoolExecutor
 from comfy.component_model.setup import prepare_distributed_environment
+from comfy.execution_context import context_configuration, current_execution_context
+
+
+def _child_configuration_and_rank():
+    configuration = current_execution_context().configuration
+    return configuration.use_sage_attention, os.environ["RANK"]
 
 
 def test_torchrun_environment_is_the_canonical_process_identity():
@@ -167,3 +177,36 @@ def test_external_rank_prepares_aimdo_and_custom_node_scope(
 
     assert os.environ["COMFY_AIMDO_DEVICE_INDICES"] == expected_devices
     assert configuration.disable_all_custom_nodes is custom_nodes_disabled
+
+
+def test_cuda_device_identity_survives_worker_visibility_reordering(monkeypatch):
+    properties = {
+        0: SimpleNamespace(uuid="physical-0"),
+        1: SimpleNamespace(uuid="physical-1"),
+    }
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda device: properties[torch.device(device).index],
+    )
+    provider = CudaAcceleratorDeviceProvider()
+    identity = provider.identify(torch.device("cuda", 1))
+
+    properties[0], properties[1] = properties[1], properties[0]
+
+    assert provider.resolve(identity) == torch.device("cuda", 0)
+
+
+def test_context_process_worker_inherits_configuration_and_rank_environment():
+    worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
+    try:
+        with context_configuration(Configuration(use_sage_attention=True)):
+            result = worker_pool.submit_with_environment(
+                {"RANK": "1"},
+                _child_configuration_and_rank,
+            ).result(timeout=30)
+    finally:
+        worker_pool.shutdown(wait=True)
+
+    assert result == (True, "1")

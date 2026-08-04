@@ -18,8 +18,8 @@ def main():
     )
     rank = distributed.rank
     connection.send(rank)
-    world_size, init_method, load_spec = connection.recv()
-    _worker_main(rank, world_size, init_method, load_spec, connection)
+    world_size, init_method, load_spec, device_identity = connection.recv()
+    _worker_main(rank, world_size, init_method, load_spec, device_identity, connection)
 
 
 if __name__ == "__main__":

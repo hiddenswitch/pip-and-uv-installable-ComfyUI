@@ -1,22 +1,24 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import concurrent.futures
 from datetime import timedelta
 import logging
 import multiprocessing.connection
 import os
 import secrets
 import socket
-import subprocess
-import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Sequence
 
 import torch
 import torch.distributed as dist
 
 from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
+from ..distributed.device import AcceleratorDeviceIdentity, accelerator_device_provider
+from ..distributed.executors import ContextVarProcessPoolExecutor
+from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
 
 from .runtime import AbstractBasePipelineExecutor, AbstractBasePipelineOperations
@@ -78,6 +80,8 @@ class TorchDistributedProcessGroupCoordinator(AbstractBaseProcessGroupCoordinato
         self._communication_stream = torch.cuda.Stream(device=device)
 
     def broadcast_command(self, command=None):
+        if command is not None:
+            command = inject_trace_context(command)
         values = [command]
         dist.broadcast_object_list(values, src=0)
         return values[0]
@@ -198,7 +202,7 @@ class TorchDistributedPipelineExecutor(AbstractBasePipelineExecutor):
         plan,
         first_stage,
         coordinator,
-        processes,
+        workers,
         ready_connections,
         device_group,
         worker_geometries,
@@ -209,7 +213,7 @@ class TorchDistributedPipelineExecutor(AbstractBasePipelineExecutor):
         self._plan = plan
         self.first_stage = first_stage
         self.coordinator = coordinator
-        self.processes = tuple(processes)
+        self.workers = tuple(workers)
         self.ready_connections = tuple(ready_connections)
         self.device_group = device_group
         self.worker_geometries = tuple(worker_geometries)
@@ -267,6 +271,19 @@ class TorchDistributedPipelineExecutor(AbstractBasePipelineExecutor):
             applied.update(response["applied"])
         return list(applied)
 
+    def finish_execution(self) -> None:
+        self.coordinator.broadcast_command({"kind": "finish_execution"})
+        from .. import model_prefetch
+
+        model_prefetch.finish_model_execution()
+        for rank in range(1, self.plan.size):
+            response = self.coordinator.receive_object(rank)
+            if response.get("kind") == "error":
+                raise RuntimeError(
+                    f"Pipeline rank {rank} failed to finish execution:\n"
+                    f"{response['traceback']}"
+                )
+
     def close(self) -> None:
         if self._closed:
             return
@@ -279,16 +296,15 @@ class TorchDistributedPipelineExecutor(AbstractBasePipelineExecutor):
                         self.coordinator.receive_object(rank)
         except Exception:
             logger.debug("Could not send pipeline worker shutdown", exc_info=True)
-        for process in self.processes:
+        for worker_pool, worker_future in self.workers:
             try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+                worker_future.result(timeout=10)
+            except concurrent.futures.TimeoutError:
+                worker_pool.shutdown(wait=False)
+            except Exception:
+                worker_pool.shutdown(wait=True)
+            else:
+                worker_pool.shutdown(wait=True)
         if dist.is_initialized() and self.destroy_process_group:
             try:
                 dist.destroy_process_group(self.device_group)
@@ -416,99 +432,119 @@ def _run_worker_commands(coordinator, rank, world_size, device, patcher):
     stage = patcher.model.diffusion_model.forward_pipeline_stage
     while True:
         command = coordinator.broadcast_command()
-        if command["kind"] in ("close", "unload_pipeline"):
-            if command["kind"] == "unload_pipeline":
+        with distributed_command_span(
+            command,
+            "Pipeline Parallel Rank Command",
+            {
+                "distributed.rank": rank,
+                "distributed.world_size": world_size,
+                "comfy.command.kind": command["kind"],
+            },
+        ):
+            if command["kind"] in ("close", "unload_pipeline"):
+                if command["kind"] == "unload_pipeline":
+                    try:
+                        patcher.detach()
+                        coordinator.send_object({"kind": "unloaded"}, 0)
+                    except Exception:
+                        coordinator.send_object(
+                            {"kind": "error", "traceback": traceback.format_exc()}, 0
+                        )
+                return command["kind"]
+            if command["kind"] == "stage_model":
+                if command["rank"] != rank:
+                    continue
                 try:
-                    patcher.detach()
-                    coordinator.send_object({"kind": "unloaded"}, 0)
+                    stage_command = command["command"]
+                    if stage_command["kind"] == "load":
+                        patcher.partially_load(
+                            device,
+                            stage_command["extra_memory"],
+                            force_patch_weights=stage_command["force_patch_weights"],
+                        )
+                    elif stage_command["kind"] == "unload":
+                        patcher.partially_unload(
+                            patcher.offload_device,
+                            stage_command["memory_to_free"],
+                        )
+                    elif stage_command["kind"] == "reset_dynamic_buffers":
+                        patcher.reset_dynamic_buffers()
+                    else:
+                        raise RuntimeError(
+                            f"Unknown pipeline stage model command: {stage_command!r}"
+                        )
+                    coordinator.send_object(
+                        {"kind": "stage_model", "loaded_size": patcher.loaded_size()}, 0
+                    )
                 except Exception:
                     coordinator.send_object(
                         {"kind": "error", "traceback": traceback.format_exc()}, 0
                     )
-            return command["kind"]
-        if command["kind"] == "stage_model":
-            if command["rank"] != rank:
                 continue
-            try:
-                stage_command = command["command"]
-                if stage_command["kind"] == "load":
-                    patcher.partially_load(
-                        device,
-                        stage_command["extra_memory"],
-                        force_patch_weights=stage_command["force_patch_weights"],
+            if command["kind"] == "add_patches":
+                try:
+                    applied = patcher.add_patches(
+                        command["patches"],
+                        command["strength_patch"],
+                        command["strength_model"],
                     )
-                elif stage_command["kind"] == "unload":
-                    patcher.partially_unload(
-                        patcher.offload_device,
-                        stage_command["memory_to_free"],
+                    coordinator.send_object(
+                        {"kind": "patches", "applied": applied}, 0
                     )
-                elif stage_command["kind"] == "reset_dynamic_buffers":
-                    patcher.reset_dynamic_buffers()
-                else:
-                    raise RuntimeError(
-                        f"Unknown pipeline stage model command: {stage_command!r}"
+                except Exception:
+                    coordinator.send_object(
+                        {"kind": "error", "traceback": traceback.format_exc()}, 0
                     )
-                coordinator.send_object(
-                    {"kind": "stage_model", "loaded_size": patcher.loaded_size()}, 0
-                )
-            except Exception:
-                coordinator.send_object(
-                    {"kind": "error", "traceback": traceback.format_exc()}, 0
-                )
-            continue
-        if command["kind"] == "add_patches":
-            try:
-                applied = patcher.add_patches(
-                    command["patches"],
-                    command["strength_patch"],
-                    command["strength_model"],
-                )
-                coordinator.send_object(
-                    {"kind": "patches", "applied": applied}, 0
-                )
-            except Exception:
-                coordinator.send_object(
-                    {"kind": "error", "traceback": traceback.format_exc()}, 0
-                )
-            continue
-        if command["kind"] != "execute":
-            raise RuntimeError(f"Unknown pipeline worker command: {command!r}")
+                continue
+            if command["kind"] == "finish_execution":
+                try:
+                    from .. import model_prefetch
 
-        try:
-            tensors, metadata = _receive_tensor_packet(coordinator, rank - 1).wait()
-            intermediate = PipelineIntermediateTensors(
-                dict(tensors),
-                deserialize_pipeline_metadata(metadata),
-            )
-            output = stage(intermediate)
-            if rank < world_size - 1:
-                if not isinstance(output, PipelineIntermediateTensors):
-                    raise TypeError(
-                        "A non-final pipeline stage must return PipelineIntermediateTensors"
+                    model_prefetch.finish_model_execution()
+                    coordinator.send_object({"kind": "done"}, 0)
+                except Exception:
+                    coordinator.send_object(
+                        {"kind": "error", "traceback": traceback.format_exc()}, 0
                     )
-                pending_send = _send_tensor_packet(
-                    coordinator,
-                    output.tensors,
-                    serialize_pipeline_metadata(output.metadata),
-                    rank + 1,
+                continue
+            if command["kind"] != "execute":
+                raise RuntimeError(f"Unknown pipeline worker command: {command!r}")
+
+            try:
+                tensors, metadata = _receive_tensor_packet(coordinator, rank - 1).wait()
+                intermediate = PipelineIntermediateTensors(
+                    dict(tensors),
+                    deserialize_pipeline_metadata(metadata),
                 )
-            else:
-                tensors = {}
-                structure = pack_pipeline_value(output, tensors, "pipeline_output")
-                pending_send = _send_tensor_packet(
-                    coordinator, tensors, structure, 0
+                output = stage(intermediate)
+                if rank < world_size - 1:
+                    if not isinstance(output, PipelineIntermediateTensors):
+                        raise TypeError(
+                            "A non-final pipeline stage must return PipelineIntermediateTensors"
+                        )
+                    pending_send = _send_tensor_packet(
+                        coordinator,
+                        output.tensors,
+                        serialize_pipeline_metadata(output.metadata),
+                        rank + 1,
+                    )
+                else:
+                    tensors = {}
+                    structure = pack_pipeline_value(output, tensors, "pipeline_output")
+                    pending_send = _send_tensor_packet(
+                        coordinator, tensors, structure, 0
+                    )
+                pending_send.wait()
+            except _PipelineAbort:
+                if rank < world_size - 1:
+                    coordinator.send_object({"kind": "abort"}, rank + 1)
+                continue
+            except Exception:
+                destination_rank = rank + 1 if rank < world_size - 1 else 0
+                coordinator.send_object(
+                    {"kind": "error", "traceback": traceback.format_exc()},
+                    destination_rank,
                 )
-            pending_send.wait()
-        except _PipelineAbort:
-            if rank < world_size - 1:
-                coordinator.send_object({"kind": "abort"}, rank + 1)
-            continue
-        except Exception:
-            destination_rank = rank + 1 if rank < world_size - 1 else 0
-            coordinator.send_object(
-                {"kind": "error", "traceback": traceback.format_exc()},
-                destination_rank,
-            )
 
 
 def _worker_main(
@@ -516,9 +552,17 @@ def _worker_main(
     world_size: int,
     init_method: str,
     load_spec: PipelineWorkerLoadSpec,
+    device_identity: AcceleratorDeviceIdentity,
     ready: multiprocessing.connection.Connection,
 ):
-    device = load_spec.plan.stages[rank].device
+    device_provider = accelerator_device_provider(device_identity.device_type)
+    device = device_provider.resolve(device_identity)
+    stages = list(load_spec.plan.stages)
+    stages[rank] = replace(stages[rank], device=device)
+    load_spec = replace(
+        load_spec,
+        plan=replace(load_spec.plan, stages=tuple(stages)),
+    )
     try:
         distributed = resolve_distributed_configuration()
         if distributed.rank != rank or distributed.world_size != world_size:
@@ -530,7 +574,7 @@ def _worker_main(
             raise RuntimeError(
                 f"Pipeline worker rank {distributed.pipeline_rank} received stage {load_spec.stage_index}"
             )
-        torch.cuda.set_device(device)
+        device_provider.select(device)
         dist.init_process_group(
             backend="gloo",
             init_method=init_method,
@@ -538,7 +582,9 @@ def _worker_main(
             world_size=world_size,
             timeout=timedelta(minutes=5),
         )
-        device_group = dist.new_group(ranks=list(range(world_size)), backend="nccl")
+        device_group = dist.new_group(
+            ranks=list(range(world_size)), backend="nccl", device_id=device
+        )
         coordinator = TorchDistributedProcessGroupCoordinator(rank, device, device_group)
 
         os.environ["COMFY_AIMDO_DEVICE_INDICES"] = str(device.index)
@@ -560,6 +606,25 @@ def _worker_main(
         ready.close()
         if dist.is_initialized():
             dist.destroy_process_group()
+
+
+def _pipeline_worker_entry(host: str, port: str, authkey: str) -> None:
+    distributed = resolve_distributed_configuration(environment=os.environ)
+    connection = multiprocessing.connection.Client(
+        (host, int(port)),
+        authkey=bytes.fromhex(authkey),
+    )
+    rank = distributed.rank
+    connection.send(rank)
+    world_size, init_method, load_spec, device_identity = connection.recv()
+    _worker_main(
+        rank,
+        world_size,
+        init_method,
+        load_spec,
+        device_identity,
+        connection,
+    )
 
 
 def _free_tcp_init_method() -> str:
@@ -597,45 +662,47 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
         listener = multiprocessing.connection.Listener(("127.0.0.1", 0), authkey=listener_authkey)
         listener_host, listener_port = listener.address
         master_host, master_port = init_method.removeprefix("tcp://").rsplit(":", 1)
-        processes = []
+        workers = []
         ready_connections = [None] * (plan.size - 1)
+        device_provider = accelerator_device_provider(plan.stages[0].device.type)
+        device_identities = tuple(
+            device_provider.identify(stage.device) for stage in plan.stages
+        )
         for spec in worker_load_specs:
             stage = plan.stages[spec.stage_index]
-            worker_environment = os.environ.copy()
-            worker_environment.update(
-                DistributedConfiguration(
-                    rank=spec.stage_index,
-                    world_size=plan.size,
-                    local_rank=stage.device.index,
-                    local_world_size=plan.size,
-                    master_addr=master_host,
-                    master_port=int(master_port),
-                    pipeline_parallel_size=plan.size,
-                    executor_backend="mp",
-                ).canonical_environment()
+            worker_environment = DistributedConfiguration(
+                rank=spec.stage_index,
+                world_size=plan.size,
+                local_rank=spec.stage_index,
+                local_world_size=plan.size,
+                master_addr=master_host,
+                master_port=int(master_port),
+                pipeline_parallel_size=plan.size,
+                executor_backend="mp",
+            ).canonical_environment()
+            worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
+            worker_future = worker_pool.submit_with_environment(
+                worker_environment,
+                _pipeline_worker_entry,
+                str(listener_host),
+                str(listener_port),
+                listener_authkey.hex(),
             )
-            worker_environment["COMFY_AIMDO_DEVICE_INDICES"] = str(stage.device.index)
-            process = subprocess.Popen(
-                (
-                    sys.executable,
-                    "-m",
-                    "comfy.pipeline_parallel.worker",
-                    str(listener_host),
-                    str(listener_port),
-                    listener_authkey.hex(),
-                ),
-                cwd=os.getcwd(),
-                env=worker_environment,
-            )
-            processes.append(process)
+            workers.append((worker_pool, worker_future))
 
         try:
             for _ in worker_load_specs:
                 connection = listener.accept()
                 rank = connection.recv()
                 ready_connections[rank - 1] = connection
-                connection.send((plan.size, init_method, worker_load_specs[rank - 1]))
+                connection.send((
+                    plan.size,
+                    init_method,
+                    worker_load_specs[rank - 1],
+                    device_identities[rank],
+                ))
             listener.close()
+            device_provider.select(plan.stages[0].device)
             dist.init_process_group(
                 backend="gloo",
                 init_method=init_method,
@@ -643,7 +710,11 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
                 world_size=plan.size,
                 timeout=timedelta(minutes=5),
             )
-            device_group = dist.new_group(ranks=list(range(plan.size)), backend="nccl")
+            device_group = dist.new_group(
+                ranks=list(range(plan.size)),
+                backend="nccl",
+                device_id=plan.stages[0].device,
+            )
             coordinator = TorchDistributedProcessGroupCoordinator(0, plan.stages[0].device, device_group)
             worker_geometries: list[PipelineStageMemoryGeometry] = []
             for rank, connection in enumerate(ready_connections, start=1):
@@ -657,20 +728,14 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
                 plan,
                 stages[0],
                 coordinator,
-                processes,
+                workers,
                 ready_connections,
                 device_group,
                 worker_geometries,
             )
         except Exception:
-            for process in processes:
-                if process.poll() is None:
-                    process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+            for worker_pool, _worker_future in workers:
+                worker_pool.shutdown(wait=False)
             if dist.is_initialized():
                 dist.destroy_process_group()
             raise
