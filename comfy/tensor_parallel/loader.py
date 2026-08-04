@@ -39,7 +39,9 @@ def _load_rank(
     disable_dynamic,
     dtype,
     device,
-    tensor_operations,
+    parallel_config,
+    operations_decorator=tensor_parallel_operations,
+    state_transform=shard_minimax_h3_state_dict,
 ):
     rank_config = type(model_config)(model_config.unet_config)
     rank_config.quant_config = utils.deepcopy_list_dict(model_config.quant_config) if model_config.quant_config is not None else None
@@ -63,14 +65,15 @@ def _load_rank(
             fp8_optimizations=rank_config.optimizations.get("fp8", False),
             model_config=rank_config,
         )
-    rank_config.custom_operations = tensor_parallel_operations(
-        base_operations, TensorParallelConfig(tensor_operations)
+    rank_config.custom_operations = operations_decorator(
+        base_operations,
+        parallel_config,
     )
 
     state = reader.load_keys(original_keys.values())
     if prefix:
         state = utils.state_dict_prefix_replace(state, {prefix: ""}, filter_keys=True)
-    state = shard_minimax_h3_state_dict(state, tensor_operations.rank, tensor_operations.world_size)
+    state = state_transform(state, parallel_config.rank, parallel_config.size)
     if model_options.get("custom_operations") is None:
         state, _ = utils.convert_old_quants(state, "", metadata=dict(metadata))
 
@@ -96,7 +99,7 @@ def load_tensor_parallel_rank(load_spec, rank, device, tensor_operations):
     return _load_rank(
         reader, model_config, metadata, prefix, original_keys,
         load_spec.checkpoint_path, load_spec.model_options, load_spec.disable_dynamic,
-        load_spec.dtype, device, tensor_operations,
+        load_spec.dtype, device, TensorParallelConfig(tensor_operations),
     )
 
 
@@ -123,7 +126,11 @@ def load_diffusion_model_tensor_parallel(unet_path, devices, model_options=None,
     def load_root(tensor_operations):
         return _load_rank(
             reader, model_config, metadata, prefix, original_keys, unet_path,
-            model_options, disable_dynamic, dtype, devices[0], tensor_operations,
+            model_options,
+            disable_dynamic,
+            dtype,
+            devices[0],
+            TensorParallelConfig(tensor_operations),
         )
 
     root, executor = launch_tensor_parallel(load_spec, devices, load_root)

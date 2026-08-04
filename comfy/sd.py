@@ -2305,6 +2305,15 @@ def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
         model_options = {}
     from .tensor_parallel.loader import try_load_diffusion_model_tensor_parallel
     from .pipeline_parallel.loader import try_load_diffusion_model_pipeline
+    from .xdit.loader import try_load_diffusion_model_xdit_sequence_parallel
+
+    xdit_model = try_load_diffusion_model_xdit_sequence_parallel(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if xdit_model is not None:
+        return xdit_model
 
     tensor_parallel_model = try_load_diffusion_model_tensor_parallel(
         unet_path,

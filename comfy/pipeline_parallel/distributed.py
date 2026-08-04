@@ -610,7 +610,6 @@ def _worker_main(
         )
         coordinator = TorchDistributedProcessGroupCoordinator(rank, device, device_group)
 
-        os.environ["COMFY_AIMDO_DEVICE_INDICES"] = str(device.index)
         from .. import model_management
 
         model_management.set_torch_device(device)
@@ -710,6 +709,7 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
                 str(listener_host),
                 str(listener_port),
                 listener_authkey.hex(),
+                detach_request_state=True,
             )
             workers.append((worker_pool, worker_future))
 

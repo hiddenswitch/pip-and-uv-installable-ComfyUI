@@ -27,6 +27,13 @@ import comfy.quant_ops
 from comfy.ldm.modules.attention import optimized_attention
 from comfy.pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
 from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from comfy.xdit import (
+    gather_sequence,
+    install_ulysses_attention_override,
+    local_padding_mask,
+    localize_segments,
+    split_sequence,
+)
 
 FRAME_PER_TOKEN = (1, 4, 4, 4, 4)
 FRAME_RESCALE = 5.0 / 3.0
@@ -449,6 +456,11 @@ class MiniMaxH3Model(nn.Module):
         self.sigma_shift_audio = sigma_shift_audio
         self.use_adaln_curves = adaln_curve_grid is not None
         self.pipeline_stage = pipeline_stage
+        self.xdit_sequence_parallel = getattr(
+            operations,
+            "xdit_sequence_parallel",
+            None,
+        )
         tensor_parallel = getattr(operations, "tensor_parallel", None)
         if tensor_parallel is not None:
             if num_attention_heads % tensor_parallel.size or ffn_hidden_size % tensor_parallel.size:
@@ -550,6 +562,7 @@ class MiniMaxH3Model(nn.Module):
         ).execute(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
 
     def _forward(self, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+        transformer_options = dict(transformer_options)
         if self.pipeline_stage is not None and transformer_options.get("patches_replace"):
             raise ValueError("MiniMax H3 pipeline parallelism does not support transformer block patches")
         video_x, audio_x = x[0], x[1]
@@ -663,9 +676,51 @@ class MiniMaxH3Model(nn.Module):
         video_seg = next((a, b, t_row[seg_t["video"]]) for a, b, k in layout.segments if k == "video")
         audio_seg = next((a, b, t_row[seg_t["audio"]]) for a, b, k in layout.segments if k == "audio")
         slope_a = time_shift_slope(sigma_v, shift_v, shift_a)
+        sequence_padding = 0
+        if self.xdit_sequence_parallel is not None:
+            if self.pipeline_stage is not None:
+                raise ValueError("xDiT sequence parallelism cannot be combined with PP")
+            if transformer_options.get("patches_replace"):
+                raise ValueError(
+                    "xDiT MiniMax H3 sequence parallelism does not support "
+                    "transformer block patches"
+                )
+            parallel = self.xdit_sequence_parallel
+            h, sequence_padding = split_sequence(h, parallel, 0)
+            rope_freqs, _ = split_sequence(rope_freqs, parallel, 1)
+            mod_segments = localize_segments(
+                mod_segments,
+                parallel.rank,
+                parallel.size,
+                layout.seq_len + sequence_padding,
+            )
+            install_ulysses_attention_override(
+                transformer_options,
+                parallel,
+                (
+                    local_padding_mask(
+                        layout.seq_len,
+                        sequence_padding,
+                        parallel,
+                        h.dtype,
+                        h.device,
+                    )
+                    if sequence_padding
+                    else None
+                ),
+            )
+
         start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
         end_layer = self.num_layers if self.pipeline_stage is None else self.pipeline_stage.end_layer
         h = self._run_blocks(h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer)
+
+        if self.xdit_sequence_parallel is not None:
+            h = gather_sequence(
+                h,
+                self.xdit_sequence_parallel,
+                0,
+                sequence_padding,
+            )
 
         if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
             tensors = {"hidden_states": h, "t_emb": t_emb, "rope_freqs": rope_freqs, "slope_a": slope_a}

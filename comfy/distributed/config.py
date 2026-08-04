@@ -26,8 +26,9 @@ class DistributedConfiguration:
     """Canonical process and model-parallel identity for one ComfyUI process.
 
     The process fields follow the environment contract used by ``torchrun``.
-    Pipeline-major, tensor-minor rank ordering matches the model-runner topology:
-    ``global_rank = pipeline_rank * tensor_parallel_size + tensor_rank``.
+    Pipeline-major rank ordering matches the model-runner topology. Exact PP,
+    tensor parallelism, and xDiT sequence parallelism are currently separate
+    execution modes rather than a hybrid Cartesian topology.
     """
 
     rank: int = 0
@@ -38,6 +39,8 @@ class DistributedConfiguration:
     master_port: int = 29500
     pipeline_parallel_size: int = 1
     tensor_parallel_size: int = 1
+    ulysses_degree: int = 1
+    ring_degree: int = 1
     executor_backend: str = "auto"
     externally_launched: bool = False
 
@@ -56,11 +59,30 @@ class DistributedConfiguration:
             raise ValueError("pipeline parallel size must be at least one")
         if self.tensor_parallel_size < 1:
             raise ValueError("tensor parallel size must be at least one")
-        if self.pipeline_parallel_size > 1 and self.tensor_parallel_size > 1:
-            raise ValueError("hybrid pipeline and tensor parallelism is not implemented")
-        if self.externally_launched and self.pipeline_parallel_size * self.tensor_parallel_size != self.world_size:
+        if self.ulysses_degree < 1:
+            raise ValueError("Ulysses degree must be at least one")
+        if self.ring_degree < 1:
+            raise ValueError("ring degree must be at least one")
+        active_parallel_modes = sum(
+            degree > 1
+            for degree in (
+                self.pipeline_parallel_size,
+                self.tensor_parallel_size,
+                self.ulysses_degree * self.ring_degree,
+            )
+        )
+        if active_parallel_modes > 1:
             raise ValueError(
-                "external launch requires pipeline size times tensor size to equal world size"
+                "hybrid pipeline, tensor, and sequence parallelism is not implemented"
+            )
+        model_parallel_size = max(
+            self.pipeline_parallel_size,
+            self.tensor_parallel_size,
+            self.ulysses_degree * self.ring_degree,
+        )
+        if self.externally_launched and model_parallel_size != self.world_size:
+            raise ValueError(
+                "external launch requires the selected model-parallel size to equal world size"
             )
         if self.executor_backend not in DISTRIBUTED_EXECUTOR_BACKENDS:
             raise ValueError(
@@ -103,6 +125,8 @@ class DistributedConfiguration:
             "MASTER_PORT": str(self.master_port),
             "COMFYUI_PIPELINE_PARALLEL_SIZE": str(self.pipeline_parallel_size),
             "COMFYUI_TENSOR_PARALLEL_SIZE": str(self.tensor_parallel_size),
+            "COMFYUI_ULYSSES_DEGREE": str(self.ulysses_degree),
+            "COMFYUI_RING_DEGREE": str(self.ring_degree),
         }
 
 
@@ -151,12 +175,27 @@ class CanonicalDistributedConfigurationProvider(
         if local_rank is None:
             local_rank = _first_int(environment, self._LOCAL_RANK, rank)
 
-        pipeline_size = self._configured_int(configuration, "pipeline_parallel_size")
-        if pipeline_size is None:
-            pipeline_size = _first_int(environment, ("COMFYUI_PIPELINE_PARALLEL_SIZE",), world_size)
         tensor_size = self._configured_int(configuration, "tensor_parallel_size")
         if tensor_size is None:
             tensor_size = _first_int(environment, ("COMFYUI_TENSOR_PARALLEL_SIZE",), 1)
+        ulysses_degree = self._configured_int(configuration, "ulysses_degree")
+        if ulysses_degree is None:
+            ulysses_degree = _first_int(environment, ("COMFYUI_ULYSSES_DEGREE",), 1)
+        ring_degree = self._configured_int(configuration, "ring_degree")
+        if ring_degree is None:
+            ring_degree = _first_int(environment, ("COMFYUI_RING_DEGREE",), 1)
+        pipeline_size = self._configured_int(configuration, "pipeline_parallel_size")
+        if pipeline_size is None:
+            pipeline_default = (
+                1
+                if tensor_size > 1 or ulysses_degree * ring_degree > 1
+                else world_size
+            )
+            pipeline_size = _first_int(
+                environment,
+                ("COMFYUI_PIPELINE_PARALLEL_SIZE",),
+                pipeline_default,
+            )
         backend = self._configured_value(configuration, "distributed_executor_backend") or "auto"
         master_addr = self._configured_value(configuration, "master_addr") or environment.get("MASTER_ADDR") or "127.0.0.1"
         master_port = self._configured_int(configuration, "master_port")
@@ -186,6 +225,8 @@ class CanonicalDistributedConfigurationProvider(
             master_port=master_port,
             pipeline_parallel_size=pipeline_size,
             tensor_parallel_size=tensor_size,
+            ulysses_degree=ulysses_degree,
+            ring_degree=ring_degree,
             executor_backend=str(backend),
             externally_launched=externally_launched,
         )

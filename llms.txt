@@ -1825,6 +1825,37 @@ seconds, or 0.14735 it/s. Relative to TP=1, TP=2 reduced sampler latency by
 through VAE decode and produced an MP4, which validates the transparent workflow
 path in addition to the sampler-only performance comparison.
 
+xDiT Ulysses sequence parallelism is selected with `--ulysses-degree`; it is
+injected through Comfy operations and automatically instruments the repeated
+transformer blocks in Flux2, Qwen Image/Layered, and MiniMax H3. The workflow
+does not need a special node. Each rank retains a complete weight replica while
+the token sequence and attention heads are exchanged with NCCL all-to-all:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-ulysses2.jsonl \
+  comfyui workflows run tests/inference/workflows/minimax-h3-fl2va-0.json \
+  --steps 10 --float-duration 5 --set 115.inputs.megapixels=0.4 \
+  --cuda-device 1,0 --ulysses-degree 2 \
+  --distributed-executor-backend mp \
+  --disable-all-custom-nodes --disable-progress --seed 42
+```
+
+On the two A5000 host, a matched 10-step run measured 88.668 seconds on one
+GPU (8.867 s/step, 0.11278 it/s) and 67.096 seconds with Ulysses degree two
+(6.710 s/step, 0.14904 it/s). That is 24.3% lower sampler latency and 32.2%
+higher throughput. Nsight measured the rank-zero NCCL send/receive kernels at
+about 2.0 GPU-seconds per sampling step, so communication is the main remaining
+local scaling cost. The first/driver rank peaked near 22.2 GiB of process VRAM;
+the peer rank used about 19.5 GiB. Put the emptier GPU first in `--cuda-device`.
+
+Process peers inherit the serializable `Configuration` through the context-aware
+process pool. Live request progress/server objects are reconstructed as child
+stubs. Model-memory ownership is also Configuration-driven: each process runs
+its own DynamicVRAM/Aimdo decision maker for its selected GPU, while the driver
+can still discover all GPUs before launching peers. Do not add private
+environment variables for Aimdo device scope; canonical torchrun rank and
+rendezvous variables are only the launcher interoperability boundary.
+
 To compare the unchanged official MiniMax H3 text-to-video template instead of
 the inference fixture, upgrade the workflow-template packages and run the
 shipped workflow twice without prompt, seed, step, duration, or resolution

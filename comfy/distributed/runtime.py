@@ -27,7 +27,10 @@ class CudaDistributedRuntimeBootstrap(AbstractBaseDistributedRuntimeBootstrap):
         torch.cuda.set_device(configuration.local_rank)
 
     def initialize(self, configuration: DistributedConfiguration):
-        if not configuration.externally_launched:
+        if (
+            not configuration.externally_launched
+            or configuration.pipeline_parallel_size == 1
+        ):
             return None
 
         from ..pipeline_parallel.external import initialize_external_pipeline_runtime

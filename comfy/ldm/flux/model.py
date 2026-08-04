@@ -13,6 +13,15 @@ from ...pipeline_parallel import (
     PipelineStageConfig,
 )
 from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from ...xdit import (
+    attention_mask_pad_value,
+    combine_local_masks,
+    gather_sequence,
+    install_ulysses_attention_override,
+    local_padding_mask,
+    localize_segments,
+    split_sequence,
+)
 
 from .layers import (
     DoubleStreamBlock,
@@ -104,6 +113,11 @@ class Flux(nn.Module):
         params = FluxParams(**kwargs)
         self.params = params
         self.pipeline_stage = pipeline_stage
+        self.xdit_sequence_parallel = getattr(
+            operations,
+            "xdit_sequence_parallel",
+            None,
+        )
         self.num_double_blocks = params.depth
         self.num_single_blocks = params.depth_single_blocks
         self.num_blocks = self.num_double_blocks + self.num_single_blocks
@@ -276,9 +290,81 @@ class Flux(nn.Module):
             )
             single_vec, _ = self.single_stream_modulation(vec_orig)
 
+        sequence_padding = 0
+        if self.xdit_sequence_parallel is not None:
+            if self.pipeline_stage is not None:
+                raise ValueError("xDiT sequence parallelism cannot be combined with PP")
+            parallel = self.xdit_sequence_parallel
+            global_txt_length = txt.shape[1]
+            global_img_length = img.shape[1]
+            img, sequence_padding = split_sequence(img, parallel, 1)
+            txt, txt_padding = split_sequence(txt, parallel, 1)
+            if pe is not None:
+                txt_pe, _ = split_sequence(
+                    pe[:, :, :global_txt_length],
+                    parallel,
+                    2,
+                )
+                img_pe, _ = split_sequence(
+                    pe[:, :, global_txt_length:global_txt_length + global_img_length],
+                    parallel,
+                    2,
+                )
+                pe = torch.cat((txt_pe, img_pe), dim=2)
+            if attn_mask is not None:
+                if attn_mask.shape[-1] != global_txt_length + global_img_length:
+                    raise ValueError(
+                        "xDiT Flux attention masks must address the joint sequence"
+                    )
+                txt_mask, _ = split_sequence(
+                    attn_mask[..., :global_txt_length],
+                    parallel,
+                    -1,
+                    pad_value=attention_mask_pad_value(attn_mask.dtype),
+                )
+                img_mask, _ = split_sequence(
+                    attn_mask[..., global_txt_length:],
+                    parallel,
+                    -1,
+                    pad_value=attention_mask_pad_value(attn_mask.dtype),
+                )
+                attn_mask = torch.cat((txt_mask, img_mask), dim=-1)
+            if modulation_dims is not None:
+                modulation_dims = localize_segments(
+                    modulation_dims,
+                    parallel.rank,
+                    parallel.size,
+                    global_img_length + sequence_padding,
+                )
+            txt_padding_mask = local_padding_mask(
+                global_txt_length,
+                txt_padding,
+                parallel,
+                img.dtype,
+                img.device,
+            )
+            img_padding_mask = local_padding_mask(
+                global_img_length,
+                sequence_padding,
+                parallel,
+                img.dtype,
+                img.device,
+            )
+            padding_mask = None
+            if txt_padding or sequence_padding:
+                padding_mask = combine_local_masks(
+                    txt_padding_mask,
+                    img_padding_mask,
+                )
+            install_ulysses_attention_override(
+                transformer_options,
+                parallel,
+                padding_mask,
+            )
+
         start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
         end_layer = self.num_blocks if self.pipeline_stage is None else self.pipeline_stage.end_layer
-        return self._run_block_range(
+        output = self._run_block_range(
             img,
             txt,
             vec_orig,
@@ -292,6 +378,14 @@ class Flux(nn.Module):
             start_layer,
             end_layer,
         )
+        if self.xdit_sequence_parallel is not None:
+            output = gather_sequence(
+                output,
+                self.xdit_sequence_parallel,
+                1,
+                sequence_padding,
+            )
+        return output
 
     def _run_block_range(
         self,

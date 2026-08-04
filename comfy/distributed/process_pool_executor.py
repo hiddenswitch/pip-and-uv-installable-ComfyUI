@@ -53,10 +53,25 @@ class ProcessPoolExecutor(ProcessPool, Executor):
                  args: list | tuple = (),
                  kwargs=None,
                  timeout: float = None) -> ProcessFuture:
+        return self._schedule_with_context(
+            contextvars.copy_context(),
+            function,
+            args,
+            kwargs,
+            timeout,
+        )
+
+    def _schedule_with_context(
+        self,
+        context: contextvars.Context,
+        function: Callable,
+        args: list | tuple = (),
+        kwargs=None,
+        timeout: float = None,
+    ) -> ProcessFuture:
         if kwargs is None:
             kwargs = {}
-
-        context_bin = pickle.dumps(contextvars.copy_context())
+        context_bin = pickle.dumps(context)
         unpack_context_then_run_function = partial(_wrap_with_context, context_bin, function)
 
         return super().schedule(unpack_context_then_run_function, args=args, kwargs=kwargs, timeout=timeout)
@@ -70,13 +85,18 @@ class ProcessPoolExecutor(ProcessPool, Executor):
         function: Callable,
         /,
         *args,
+        detach_request_state: bool = False,
         **kwargs,
     ) -> concurrent.futures.Future:
         """Run a child task with the caller's context and canonical environment."""
-        return self.submit(
+        if detach_request_state:
+            from ..execution_context import copy_process_context
+
+            context = copy_process_context()
+        else:
+            context = contextvars.copy_context()
+        return self._schedule_with_context(
+            context,
             _run_with_environment,
-            dict(environment),
-            function,
-            tuple(args),
-            kwargs,
+            args=(dict(environment), function, tuple(args), kwargs),
         )

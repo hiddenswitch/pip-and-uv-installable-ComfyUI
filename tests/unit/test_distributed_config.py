@@ -12,12 +12,21 @@ from comfy.distributed.config import (
 from comfy.distributed.device import CudaAcceleratorDeviceProvider
 from comfy.distributed.executors import ContextVarProcessPoolExecutor
 from comfy.component_model.setup import prepare_distributed_environment
-from comfy.execution_context import context_configuration, current_execution_context
+from comfy.execution_context import (
+    context_configuration,
+    context_execute_prompt,
+    current_execution_context,
+)
+from comfy.progress_types import ProgressRegistryStub
 
 
 def _child_configuration_and_rank():
     configuration = current_execution_context().configuration
     return configuration.use_sage_attention, os.environ["RANK"]
+
+
+async def _progress_generator():
+    yield None
 
 
 def test_torchrun_environment_is_the_canonical_process_identity():
@@ -136,6 +145,56 @@ def test_canonical_environment_round_trips_worker_identity():
     assert resolved.pipeline_rank == 1
 
 
+def test_canonical_environment_round_trips_ulysses_identity():
+    original = DistributedConfiguration(
+        rank=1,
+        world_size=2,
+        local_rank=1,
+        local_world_size=2,
+        master_addr="127.0.0.1",
+        master_port=29501,
+        ulysses_degree=2,
+        executor_backend="mp",
+    )
+
+    resolved = CanonicalDistributedConfigurationProvider().resolve(
+        Configuration(distributed_executor_backend="mp"),
+        original.canonical_environment(),
+    )
+
+    assert resolved.pipeline_parallel_size == 1
+    assert resolved.tensor_parallel_size == 1
+    assert resolved.ulysses_degree == 2
+    assert resolved.ring_degree == 1
+
+
+def test_external_ulysses_defaults_pipeline_degree_to_one():
+    distributed = CanonicalDistributedConfigurationProvider().resolve(
+        Configuration(),
+        {
+            "RANK": "0",
+            "WORLD_SIZE": "2",
+            "LOCAL_RANK": "0",
+            "COMFYUI_ULYSSES_DEGREE": "2",
+        },
+    )
+
+    assert distributed.pipeline_parallel_size == 1
+    assert distributed.ulysses_degree == 2
+
+
+def test_hybrid_model_parallel_modes_are_rejected():
+    with pytest.raises(ValueError, match="hybrid pipeline, tensor, and sequence"):
+        DistributedConfiguration(
+            rank=0,
+            world_size=2,
+            pipeline_parallel_size=1,
+            tensor_parallel_size=2,
+            ulysses_degree=2,
+            externally_launched=True,
+        )
+
+
 def test_invalid_rank_fails_before_process_group_initialization():
     with pytest.raises(ValueError, match="outside world size"):
         CanonicalDistributedConfigurationProvider().resolve(
@@ -157,14 +216,10 @@ def test_slurm_compressed_local_world_size_is_normalized():
     assert distributed.local_world_size == 2
 
 
-@pytest.mark.parametrize(
-    ("rank", "expected_devices", "custom_nodes_disabled"),
-    [(0, "0,1", False), (1, "1", True)],
-)
+@pytest.mark.parametrize(("rank", "custom_nodes_disabled"), [(0, False), (1, True)])
 def test_external_rank_prepares_aimdo_and_custom_node_scope(
     monkeypatch,
     rank,
-    expected_devices,
     custom_nodes_disabled,
 ):
     monkeypatch.setenv("RANK", str(rank))
@@ -175,8 +230,16 @@ def test_external_rank_prepares_aimdo_and_custom_node_scope(
 
     prepare_distributed_environment(configuration)
 
-    assert os.environ["COMFY_AIMDO_DEVICE_INDICES"] == expected_devices
+    assert configuration.model_management_device_scope == "local"
     assert configuration.disable_all_custom_nodes is custom_nodes_disabled
+
+
+def test_local_ulysses_marks_aimdo_as_process_local(monkeypatch):
+    configuration = Configuration(ulysses_degree=2)
+
+    prepare_distributed_environment(configuration)
+
+    assert configuration.model_management_device_scope == "local"
 
 
 def test_cuda_device_identity_survives_worker_visibility_reordering(monkeypatch):
@@ -206,6 +269,27 @@ def test_context_process_worker_inherits_configuration_and_rank_environment():
                 {"RANK": "1"},
                 _child_configuration_and_rank,
             ).result(timeout=30)
+    finally:
+        worker_pool.shutdown(wait=True)
+
+    assert result == (True, "1")
+
+
+def test_context_process_worker_excludes_request_local_progress_state():
+    worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
+    progress_owner = SimpleNamespace(progress=_progress_generator())
+    try:
+        with context_configuration(Configuration(use_sage_attention=True)):
+            with context_execute_prompt(
+                progress_owner,
+                "prompt-id",
+                ProgressRegistryStub(),
+            ):
+                result = worker_pool.submit_with_environment(
+                    {"RANK": "1"},
+                    _child_configuration_and_rank,
+                    detach_request_state=True,
+                ).result(timeout=30)
     finally:
         worker_pool.shutdown(wait=True)
 

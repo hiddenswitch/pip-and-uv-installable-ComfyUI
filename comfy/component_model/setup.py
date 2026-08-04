@@ -134,16 +134,19 @@ def setup_cuda_devices(config: Configuration):
 def prepare_distributed_environment(config: Configuration):
     """Apply launcher identity before torch, nodes, or DynamicVRAM initialize."""
     distributed = resolve_distributed_configuration(config)
+    local_process_peers = (
+        distributed.tensor_parallel_size > 1
+        or distributed.ulysses_degree * distributed.ring_degree > 1
+        or (
+            distributed.pipeline_parallel_size > 1
+            and distributed.executor_backend in ("mp", "external_launcher")
+        )
+    )
+    if distributed.externally_launched or local_process_peers:
+        config.model_management_device_scope = "local"
     if not distributed.externally_launched:
         return distributed
-    if distributed.is_first_pipeline_stage:
-        aimdo_devices = range(distributed.local_world_size)
-    else:
-        aimdo_devices = (distributed.local_rank,)
-    os.environ["COMFY_AIMDO_DEVICE_INDICES"] = ",".join(
-        str(index) for index in aimdo_devices
-    )
-    if not distributed.is_first_pipeline_stage:
+    if distributed.rank != 0:
         config.disable_all_custom_nodes = True
     return distributed
 

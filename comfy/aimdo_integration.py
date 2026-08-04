@@ -1,6 +1,5 @@
 import logging
 import importlib
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +28,13 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
         device.index if device.index is not None else torch.cuda.current_device()
         for device in torch_devices
     )
-    worker_device_indices = os.environ.get("COMFY_AIMDO_DEVICE_INDICES")
-    if worker_device_indices:
-        device_indices = tuple(int(index) for index in worker_device_indices.split(","))
+    if args.model_management_device_scope == "local":
+        current_device = model_management.get_torch_device()
+        device_indices = (
+            current_device.index
+            if current_device.index is not None
+            else torch.cuda.current_device(),
+        )
 
     simple_vram_headroom = None if args.reserve_vram is None else int(args.reserve_vram * 1024 ** 3)
     try:

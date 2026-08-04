@@ -271,6 +271,19 @@ def get_all_torch_devices(exclude_current=False):
             devices.remove(current)
     return devices
 
+
+def get_model_management_devices(exclude_current=False):
+    """Return the devices whose models are owned by this process.
+
+    Device discovery remains process-wide so a driver can select local peers.
+    Process-peer ranks, however, have an independent model manager and Aimdo
+    allocator. They must not inspect or reclaim memory from another rank's GPU.
+    """
+    if args.model_management_device_scope == "local":
+        devices = [get_torch_device()]
+        return [] if exclude_current else devices
+    return get_all_torch_devices(exclude_current=exclude_current)
+
 def get_gpu_device_options():
     """Return list of device option strings for node widgets.
 
@@ -2523,7 +2536,7 @@ def _soft_empty_cache(force=False):
 
 def unload_all_models():
     with model_management_lock:
-        for device in get_all_torch_devices():
+        for device in get_model_management_devices():
             free_memory(1e30, device)
         trim_memory()
 
@@ -2556,7 +2569,7 @@ def _unload_model_and_clones(model: ModelPatcher, unload_additional_models=True,
     if not all_devices:
         free_memory(1e30, get_torch_device(), keep_loaded)
     else:
-        for device in get_all_torch_devices():
+        for device in get_model_management_devices():
             free_memory(1e30, device, keep_loaded)
 
 def debug_memory_summary():

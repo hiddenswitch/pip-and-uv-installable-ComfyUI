@@ -12,6 +12,13 @@ from ..modules.attention import optimized_attention_masked
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 from ...pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
 from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from ...xdit import (
+    combine_local_masks,
+    gather_sequence,
+    install_ulysses_attention_override,
+    local_padding_mask,
+    split_sequence,
+)
 from ..flux.math import apply_rope1
 
 
@@ -372,6 +379,11 @@ class QwenImageTransformer2DModel(nn.Module):
         self.inner_dim = num_attention_heads * attention_head_dim
         self.default_ref_method = default_ref_method
         self.pipeline_stage = pipeline_stage
+        self.xdit_sequence_parallel = getattr(
+            operations,
+            "xdit_sequence_parallel",
+            None,
+        )
         self.num_layers = num_layers
         is_first_stage = pipeline_stage is None or pipeline_stage.is_first
         is_last_stage = pipeline_stage is None or pipeline_stage.is_last
@@ -551,6 +563,83 @@ class QwenImageTransformer2DModel(nn.Module):
         image_rotary_emb = self.pe_embedder(ids).to(x.dtype).contiguous()
         del ids, txt_ids, img_ids
 
+        sequence_padding = 0
+        if self.xdit_sequence_parallel is not None:
+            if self.pipeline_stage is not None:
+                raise ValueError("xDiT sequence parallelism cannot be combined with PP")
+            if control is not None:
+                raise ValueError(
+                    "xDiT Qwen Image sequence parallelism does not support ControlNet"
+                )
+            if patches or blocks_replace:
+                raise ValueError(
+                    "xDiT Qwen Image sequence parallelism does not support "
+                    "transformer block patches"
+                )
+            parallel = self.xdit_sequence_parallel
+            global_txt_length = encoder_hidden_states.shape[1]
+            global_img_length = hidden_states.shape[1]
+            hidden_states, sequence_padding = split_sequence(
+                hidden_states,
+                parallel,
+                1,
+            )
+            encoder_hidden_states, text_padding = split_sequence(
+                encoder_hidden_states,
+                parallel,
+                1,
+            )
+            txt_pe, _ = split_sequence(
+                image_rotary_emb[:, :, :global_txt_length],
+                parallel,
+                2,
+            )
+            img_pe, _ = split_sequence(
+                image_rotary_emb[:, :, global_txt_length:],
+                parallel,
+                2,
+            )
+            image_rotary_emb = torch.cat((txt_pe, img_pe), dim=2)
+            if encoder_hidden_states_mask is not None:
+                encoder_hidden_states_mask, _ = split_sequence(
+                    encoder_hidden_states_mask,
+                    parallel,
+                    -1,
+                    pad_value=torch.finfo(encoder_hidden_states_mask.dtype).min,
+                )
+            if timestep_zero_index is not None:
+                shard_length = (global_img_length + sequence_padding) // parallel.size
+                shard_start = parallel.rank * shard_length
+                timestep_zero_index = min(
+                    shard_length,
+                    max(0, timestep_zero_index - shard_start),
+                )
+            text_padding_mask = local_padding_mask(
+                global_txt_length,
+                text_padding,
+                parallel,
+                hidden_states.dtype,
+                hidden_states.device,
+            )
+            image_padding_mask = local_padding_mask(
+                global_img_length,
+                sequence_padding,
+                parallel,
+                hidden_states.dtype,
+                hidden_states.device,
+            )
+            padding_mask = None
+            if text_padding or sequence_padding:
+                padding_mask = combine_local_masks(
+                    text_padding_mask,
+                    image_padding_mask,
+                )
+            install_ulysses_attention_override(
+                transformer_options,
+                parallel,
+                padding_mask,
+            )
+
         start_layer = 0 if self.pipeline_stage is None else self.pipeline_stage.start_layer
         end_layer = self.num_layers if self.pipeline_stage is None else self.pipeline_stage.end_layer
         hidden_states, encoder_hidden_states = self._run_blocks(
@@ -566,6 +655,14 @@ class QwenImageTransformer2DModel(nn.Module):
             start_layer,
             end_layer,
         )
+
+        if self.xdit_sequence_parallel is not None:
+            hidden_states = gather_sequence(
+                hidden_states,
+                self.xdit_sequence_parallel,
+                1,
+                sequence_padding,
+            )
 
         if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
             tensors = {

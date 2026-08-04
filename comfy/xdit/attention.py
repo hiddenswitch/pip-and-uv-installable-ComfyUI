@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+
+from .types import XDiTSequenceParallelConfig
+
+
+def _combined_qkv_input_all_to_all(
+    parallel: XDiTSequenceParallelConfig,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    batch, heads, sequence, head_dim = query.shape
+    if heads % parallel.size:
+        raise ValueError(
+            f"attention heads {heads} must divide Ulysses degree {parallel.size}"
+        )
+    qkv = torch.stack((query, key, value))
+    qkv = qkv.view(
+        3,
+        batch,
+        parallel.size,
+        heads // parallel.size,
+        sequence,
+        head_dim,
+    )
+    qkv = qkv.permute(2, 0, 1, 3, 4, 5).contiguous()
+    qkv = parallel.operations.all_to_all(qkv)
+    qkv = qkv.permute(1, 2, 3, 0, 4, 5).reshape(
+        3,
+        batch,
+        heads // parallel.size,
+        sequence * parallel.size,
+        head_dim,
+    )
+    return tuple(torch.unbind(qkv, dim=0))
+
+
+def _output_all_to_all(
+    parallel: XDiTSequenceParallelConfig,
+    tensor: torch.Tensor,
+) -> torch.Tensor:
+    batch, heads, sequence, head_dim = tensor.shape
+    if sequence % parallel.size:
+        raise ValueError(
+            f"attention sequence {sequence} must divide Ulysses degree {parallel.size}"
+        )
+    tensor = tensor.permute(2, 0, 1, 3).contiguous()
+    tensor = parallel.operations.all_to_all(tensor)
+    tensor = tensor.reshape(
+        parallel.size,
+        sequence // parallel.size,
+        batch,
+        heads,
+        head_dim,
+    )
+    return tensor.permute(2, 0, 3, 1, 4).reshape(
+        batch,
+        parallel.size * heads,
+        sequence // parallel.size,
+        head_dim,
+    )
+
+
+def ulysses_attention(
+    parallel: XDiTSequenceParallelConfig,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attention_function,
+    mask=None,
+):
+    """Run native Comfy attention between xDiT Ulysses all-to-alls.
+
+    Inputs use Comfy's ``[batch, heads, local_sequence, head_dim]`` layout.
+    ``attention_function`` receives full-sequence Q/K/V with only this rank's
+    heads and returns Comfy's flattened ``[batch, sequence, channels]`` output.
+    """
+
+    query, key, value = _combined_qkv_input_all_to_all(
+        parallel,
+        query,
+        key,
+        value,
+    )
+    if mask is not None:
+        mask = parallel.operations.all_gather(mask.contiguous(), dim=-1)
+    local_heads = query.shape[1]
+    output = attention_function(query, key, value, local_heads, mask)
+    output = output.view(
+        output.shape[0],
+        output.shape[1],
+        local_heads,
+        query.shape[-1],
+    ).permute(0, 2, 1, 3).contiguous()
+    output = _output_all_to_all(parallel, output)
+    return output.transpose(1, 2).flatten(2)
+
+
+def _reshape_to_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
+    batch, sequence, channels = tensor.shape
+    if channels % heads:
+        raise ValueError(
+            f"attention channels {channels} must divide attention heads {heads}"
+        )
+    return tensor.view(batch, sequence, heads, channels // heads).transpose(1, 2)
+
+
+def _combine_attention_masks(mask, padding_mask):
+    if padding_mask is None:
+        return mask
+    if mask is None:
+        return padding_mask
+    if mask.dtype == torch.bool:
+        return mask & padding_mask.to(torch.bool)
+    return mask + padding_mask.to(mask.dtype)
+
+
+@dataclass(frozen=True)
+class UlyssesAttentionOverride:
+    """Comfy attention-dispatch override backed by Ulysses collectives.
+
+    Comfy's attention wrapper supplies the selected native kernel as ``native``.
+    This keeps SageAttention, PyTorch SDPA, Flash Attention, and future attention
+    providers underneath the distributed layout operation instead of teaching
+    every model attention class about xDiT.
+    """
+
+    parallel: XDiTSequenceParallelConfig
+    padding_mask: torch.Tensor | None = None
+
+    def __call__(
+        self,
+        native,
+        query,
+        key,
+        value,
+        heads,
+        mask=None,
+        skip_reshape=False,
+        skip_output_reshape=False,
+        transformer_options=None,
+        **kwargs,
+    ):
+        if not skip_reshape:
+            query = _reshape_to_heads(query, heads)
+            key = _reshape_to_heads(key, heads)
+            value = _reshape_to_heads(value, heads)
+        options = dict(transformer_options or {})
+        options.pop("optimized_attention_override", None)
+        kwargs.pop("_inside_attn_wrapper", None)
+        mask = _combine_attention_masks(mask, self.padding_mask)
+        output = ulysses_attention(
+            self.parallel,
+            query,
+            key,
+            value,
+            lambda local_query, local_key, local_value, local_heads, local_mask: native(
+                local_query,
+                local_key,
+                local_value,
+                local_heads,
+                mask=local_mask,
+                skip_reshape=True,
+                skip_output_reshape=False,
+                transformer_options=options,
+                **kwargs,
+            ),
+            mask=mask,
+        )
+        if skip_output_reshape:
+            return _reshape_to_heads(output, heads)
+        return output
+
+
+def install_ulysses_attention_override(
+    transformer_options: dict,
+    parallel: XDiTSequenceParallelConfig,
+    padding_mask: torch.Tensor | None = None,
+) -> None:
+    transformer_options["optimized_attention_override"] = (
+        UlyssesAttentionOverride(parallel, padding_mask)
+    )

@@ -81,7 +81,7 @@ def _broadcast_tensors(operations, tensors=None, descriptors=None):
     return prepared
 
 
-class TorchDistributedTensorParallelExecutor:
+class TorchDistributedModelParallelExecutor:
     def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes):
         self.root_model = root_model
         self.operations = operations
@@ -163,7 +163,7 @@ class TorchDistributedTensorParallelExecutor:
         self.close()
 
 
-class RemoteTensorParallelRankModel(ModelManageableStub):
+class RemoteModelParallelRankModel(ModelManageableStub):
     def __init__(self, executor, rank, device, size, dtype, dynamic, ckpt_name=None):
         self.executor = executor
         self.rank = rank
@@ -205,6 +205,9 @@ class RemoteTensorParallelRankModel(ModelManageableStub):
     def is_dynamic(self):
         return self.dynamic
 
+    def manages_own_device_memory(self):
+        return True
+
     def get_additional_models(self):
         return []
 
@@ -238,6 +241,7 @@ class RemoteTensorParallelRankModel(ModelManageableStub):
             "kind": "load",
             "extra_memory": extra_memory,
             "force_patch_weights": force_patch_weights,
+            "manage_device_memory": True,
         })
         previous = self._loaded_size
         self._loaded_size = int(response["loaded_size"])
@@ -270,12 +274,12 @@ class _ObjectCoordinator:
         return values[0]
 
 
-def _run_worker(operations, coordinator, patcher):
+def _run_worker(operations, coordinator, patcher, span_name):
     while True:
         command = coordinator.broadcast_command()
         with distributed_command_span(
             command,
-            "Tensor Parallel Rank Command",
+            span_name,
             {
                 "distributed.rank": operations.rank,
                 "distributed.world_size": operations.world_size,
@@ -290,11 +294,23 @@ def _run_worker(operations, coordinator, patcher):
                     try:
                         model_command = command["command"]
                         if model_command["kind"] == "load":
-                            patcher.partially_load(
-                                operations.device,
-                                model_command["extra_memory"],
-                                force_patch_weights=model_command["force_patch_weights"],
-                            )
+                            if model_command.get("manage_device_memory", False):
+                                from .. import model_management
+
+                                model_management.load_models_gpu(
+                                    [patcher],
+                                    force_patch_weights=model_command[
+                                        "force_patch_weights"
+                                    ],
+                                )
+                            else:
+                                patcher.partially_load(
+                                    operations.device,
+                                    model_command["extra_memory"],
+                                    force_patch_weights=model_command[
+                                        "force_patch_weights"
+                                    ],
+                                )
                         elif model_command["kind"] == "unload":
                             patcher.partially_unload(patcher.offload_device, model_command["memory_to_free"])
                         elif model_command["kind"] == "reset_dynamic_buffers":
@@ -321,7 +337,7 @@ def _run_worker(operations, coordinator, patcher):
                     coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
 
 
-def worker_main(host, port, authkey):
+def worker_main(host, port, authkey, parallel_kind="tensor"):
     connection = multiprocessing.connection.Client((host, int(port)), authkey=bytes.fromhex(authkey))
     distributed = resolve_distributed_configuration(environment=os.environ)
     rank = distributed.rank
@@ -335,19 +351,39 @@ def worker_main(host, port, authkey):
     device_group = dist.new_group(
         ranks=list(range(world_size)), backend="nccl", device_id=device
     )
-    operations = TorchDistributedTensorParallelOperations(
-        rank, world_size, device, device_group, dist.group.WORLD
-    )
-    os.environ["COMFY_AIMDO_DEVICE_INDICES"] = str(device.index)
-    from .. import model_management
-    from .. import aimdo_integration  # noqa: F401
-    from .loader import load_tensor_parallel_rank
+    if parallel_kind == "tensor":
+        operations = TorchDistributedTensorParallelOperations(
+            rank, world_size, device, device_group, dist.group.WORLD
+        )
+        span_name = "Tensor Parallel Rank Command"
+    elif parallel_kind == "xdit_ulysses":
+        from ..xdit.runtime import TorchDistributedUlyssesOperations
 
+        operations = TorchDistributedUlyssesOperations(
+            rank, world_size, device, device_group, dist.group.WORLD
+        )
+        span_name = "xDiT Ulysses Rank Command"
+    else:
+        raise ValueError(f"Unknown model-parallel worker kind {parallel_kind!r}")
+    from .. import model_management
     model_management.set_torch_device(device)
+    from .. import aimdo_integration  # noqa: F401
     try:
-        patcher = load_tensor_parallel_rank(load_spec, rank, device, operations)
+        if parallel_kind == "tensor":
+            from .loader import load_tensor_parallel_rank
+
+            patcher = load_tensor_parallel_rank(load_spec, rank, device, operations)
+        else:
+            from ..xdit.loader import load_xdit_sequence_parallel_rank
+
+            patcher = load_xdit_sequence_parallel_rank(
+                load_spec,
+                rank,
+                device,
+                operations,
+            )
         connection.send({"kind": "ready", "size": patcher.model_size()})
-        _run_worker(operations, _ObjectCoordinator(), patcher)
+        _run_worker(operations, _ObjectCoordinator(), patcher, span_name)
         del patcher
         gc.collect()
     except Exception:
@@ -360,7 +396,7 @@ def worker_main(host, port, authkey):
             dist.destroy_process_group()
 
 
-def launch_tensor_parallel(load_spec, devices, load_root):
+def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
     size = len(devices)
     device_provider = accelerator_device_provider(devices[0].type)
     device_identities = tuple(device_provider.identify(device) for device in devices)
@@ -380,7 +416,8 @@ def launch_tensor_parallel(load_spec, devices, load_root):
             master_addr=master_host,
             master_port=int(master_port),
             pipeline_parallel_size=1,
-            tensor_parallel_size=size,
+            tensor_parallel_size=size if parallel_kind == "tensor" else 1,
+            ulysses_degree=size if parallel_kind == "xdit_ulysses" else 1,
             executor_backend="mp",
         ).canonical_environment()
         worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
@@ -390,6 +427,8 @@ def launch_tensor_parallel(load_spec, devices, load_root):
             str(host),
             str(port),
             authkey.hex(),
+            parallel_kind,
+            detach_request_state=True,
         )
         workers.append((worker_pool, worker_future))
     try:
@@ -404,19 +443,31 @@ def launch_tensor_parallel(load_spec, devices, load_root):
         device_group = dist.new_group(
             ranks=list(range(size)), backend="nccl", device_id=devices[0]
         )
-        operations = TorchDistributedTensorParallelOperations(
-            0, size, devices[0], device_group, dist.group.WORLD
-        )
+        if parallel_kind == "tensor":
+            operations = TorchDistributedTensorParallelOperations(
+                0, size, devices[0], device_group, dist.group.WORLD
+            )
+        else:
+            from ..xdit.runtime import TorchDistributedUlyssesOperations
+
+            operations = TorchDistributedUlyssesOperations(
+                0, size, devices[0], device_group, dist.group.WORLD
+            )
         root = load_root(operations)
         rank_sizes = [root.model_size()]
         for rank, connection in enumerate(connections, start=1):
             if not connection.poll(300):
-                raise TimeoutError(f"Tensor-parallel rank {rank} did not load within five minutes")
+                raise TimeoutError(
+                    f"Model-parallel rank {rank} did not load within five minutes"
+                )
             response = connection.recv()
             if response["kind"] != "ready":
-                raise RuntimeError(f"Tensor-parallel rank {rank} failed to load:\n{response['traceback']}")
+                raise RuntimeError(
+                    f"Model-parallel rank {rank} failed to load:\n"
+                    f"{response['traceback']}"
+                )
             rank_sizes.append(response["size"])
-        return root, TorchDistributedTensorParallelExecutor(
+        return root, TorchDistributedModelParallelExecutor(
             root.model.diffusion_model, operations, _ObjectCoordinator(), workers,
             connections, devices, rank_sizes,
         )
@@ -428,3 +479,13 @@ def launch_tensor_parallel(load_spec, devices, load_root):
         raise
     finally:
         listener.close()
+
+
+def launch_tensor_parallel(load_spec, devices, load_root):
+    return launch_model_parallel(load_spec, devices, load_root, "tensor")
+
+
+# Compatibility names for attachments and third-party imports created before
+# the executor became the shared replicated-rank runtime.
+TorchDistributedTensorParallelExecutor = TorchDistributedModelParallelExecutor
+RemoteTensorParallelRankModel = RemoteModelParallelRankModel
