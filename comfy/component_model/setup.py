@@ -171,24 +171,50 @@ def setup_cuda_malloc(config: Configuration):
 
 _tracing_initialized = False
 _tracing_provider = None
+_tracing_export_endpoints = set()
 
 
 def setup_tracing(config: Configuration):
     global _tracing_initialized
     if _tracing_initialized:
-        return
-    _tracing_initialized = True
+        _add_configured_trace_exporter(config)
+        return False
 
     try:
         _setup_tracing_impl(config)
+        _tracing_initialized = True
+        return True
     except Exception:
+        _tracing_initialized = False
         logger.debug("Failed to initialize OpenTelemetry tracing", exc_info=True)
+        return False
+
+
+def _add_configured_trace_exporter(config: Configuration):
+    endpoint = (
+        config.otel_exporter_otlp_endpoint
+        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    )
+    if endpoint is None or endpoint in _tracing_export_endpoints or _tracing_provider is None:
+        return
+
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
+
+    if endpoint.startswith("file://"):
+        from .otel_file_exporter import FileSpanExporter
+        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
+        processor = SimpleSpanProcessor(exporter)
+    else:
+        exporter = OTLPSpanExporter(endpoint=endpoint)
+        processor = BatchSpanProcessor(exporter)
+    _tracing_provider.add_span_processor(processor)
+    _tracing_export_endpoints.add(endpoint)
 
 
 def _setup_tracing_impl(config: Configuration):
     global _tracing_provider
     from opentelemetry import trace, metrics
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -196,7 +222,6 @@ def _setup_tracing_impl(config: Configuration):
 
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
@@ -216,22 +241,13 @@ def _setup_tracing_impl(config: Configuration):
     provider = TracerProvider(resource=resource, sampler=sampler)
 
     trace.set_tracer_provider(provider)
+    active_provider = trace.get_tracer_provider()
+    if active_provider is not provider:
+        provider.shutdown()
+        provider = active_provider
 
-    endpoint = (
-        config.otel_exporter_otlp_endpoint
-        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    )
-    if endpoint and endpoint.startswith("file://"):
-        from .otel_file_exporter import FileSpanExporter
-        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
-    elif endpoint is not None:
-        exporter = OTLPSpanExporter()
-    else:
-        exporter = SpanExporter()
-
-    processor = BatchSpanProcessor(exporter)
-    provider.add_span_processor(processor)
     _tracing_provider = provider
+    _add_configured_trace_exporter(config)
 
     metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
     if metrics_endpoint:
@@ -265,6 +281,12 @@ def shutdown_tracing(timeout_millis: int = 30000):
     finally:
         provider.shutdown()
         _tracing_provider = None
+
+
+def flush_tracing(timeout_millis: int = 30000):
+    """Flush spans without ending the process-global tracing provider."""
+    if _tracing_provider is not None:
+        _tracing_provider.force_flush(timeout_millis=timeout_millis)
 
 
 def setup_fsspec():

@@ -309,6 +309,11 @@ def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvra
     return final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
 
 
+def dynamic_weight_requires_force_load(module_bytes, structurally_required=False):
+    """Keep only tiny or structurally incompatible weights outside the VBAR."""
+    return structurally_required or module_bytes <= 16 * 1024
+
+
 class AutoPatcherEjector:
     def __init__(self, model: 'ModelPatcher', skip_and_inject_on_exit_only=False):
         self.model = model
@@ -2156,23 +2161,6 @@ class ModelPatcherDynamic(ModelPatcher):
             loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 
-            # When the whole model fits in VRAM, keep every weight fully
-            # resident (no vbar) so it pays zero per-forward vbar overhead —
-            # identical perf to the legacy ModelPatcher. This is the common
-            # case the user cares about: "small enough to fit should just fit".
-            # When it does not fit, fall back to the original behavior (stage
-            # weights with vbars for streaming), which is robust and never
-            # OOMs. We deliberately do not mix partial-resident + partial-vbar:
-            # that is fragile under memory pressure. The budget is the real
-            # free VRAM (minus an inference reserve), capped by an explicit
-            # positive lowvram_model_memory when one is given (legacy
-            # convention: 0 means "no lowvram cap / full load").
-            free_vram = model_management.get_free_memory(device_to)
-            resident_budget = max(0, free_vram - model_management.minimum_inference_memory())
-            if lowvram_model_memory > 0:
-                resident_budget = min(lowvram_model_memory, resident_budget)
-            model_fits_resident = self.model_size() <= resident_budget
-
             for x in loading:
                 *_, module_mem, n, m, params = x
 
@@ -2259,8 +2247,10 @@ class ModelPatcherDynamic(ModelPatcher):
                     m._pin_state = pin_state
                     set_dirty(m, dirty)
 
-                    #Models that mix tiny and giant weights can causing lopsided stream buffer
-                    #rotations and stall. force the tinys over.
+                    # Models that mix tiny and giant weights can cause lopsided stream
+                    # buffer rotations and stalls, so keep only the tiny weights outside
+                    # the VBAR. Large weights must remain evictable even when they appear
+                    # to fit before the workflow's activation allocations are known.
                     if module_mem > 16 * 1024:
                         force_load, v_weight_size = setup_param(self, m, n, "weight")
                         force_load_bias, v_weight_bias = setup_param(self, m, n, "bias")
@@ -2268,13 +2258,11 @@ class ModelPatcherDynamic(ModelPatcher):
                         v_weight_size += v_weight_bias
                         if force_load:
                             logging.info(f"Module {n} has resizing Lora - force loading")
-                        # Whole model fits: keep this weight resident (legacy
-                        # perf, no per-forward vbar fault). Otherwise it falls
-                        # through to vbar staging for streaming.
-                        elif model_fits_resident:
-                            force_load = True
                     else:
-                        force_load=True
+                        force_load = False
+                        v_weight_size = 0
+
+                    force_load = dynamic_weight_requires_force_load(module_mem, force_load)
 
                     if force_load:
                         if getattr(m, "_v", None) is not None:
