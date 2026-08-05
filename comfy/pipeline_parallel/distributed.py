@@ -18,6 +18,7 @@ import torch.distributed as dist
 from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
 from ..distributed.device import AcceleratorDeviceIdentity, accelerator_device_provider
 from ..distributed.executors import ContextVarProcessPoolExecutor
+from ..distributed.process_group import create_device_process_group
 from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
 
@@ -605,9 +606,7 @@ def _worker_main(
             world_size=world_size,
             timeout=timedelta(minutes=5),
         )
-        device_group = dist.new_group(
-            ranks=list(range(world_size)), backend="nccl", device_id=device
-        )
+        device_group = create_device_process_group(range(world_size), device)
         coordinator = TorchDistributedProcessGroupCoordinator(rank, device, device_group)
 
         from .. import model_management
@@ -733,10 +732,9 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
                 world_size=plan.size,
                 timeout=timedelta(minutes=5),
             )
-            device_group = dist.new_group(
-                ranks=list(range(plan.size)),
-                backend="nccl",
-                device_id=plan.stages[0].device,
+            device_group = create_device_process_group(
+                range(plan.size),
+                plan.stages[0].device,
             )
             coordinator = TorchDistributedProcessGroupCoordinator(0, plan.stages[0].device, device_group)
             worker_geometries: list[PipelineStageMemoryGeometry] = []

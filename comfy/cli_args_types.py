@@ -111,6 +111,7 @@ class Configuration(dict):
         tensor_parallel_size (Optional[int]): Number of tensor-parallel ranks. Defaults to COMFYUI_TENSOR_PARALLEL_SIZE or one.
         ulysses_degree (Optional[int]): xDiT Ulysses sequence-parallel degree. Defaults to COMFYUI_ULYSSES_DEGREE or one.
         ring_degree (Optional[int]): xDiT ring-attention degree. Defaults to COMFYUI_RING_DEGREE or one.
+        nccl_proto (str): NCCL protocol selection: auto, simple, ll, or ll128.
         distributed_executor_backend (str): Pipeline executor selection: auto, peer, mp, or external_launcher.
         model_management_device_scope (str): Internal process ownership scope for model memory. ``all`` permits shared-process multi-device management; ``local`` restricts a process peer to its selected device.
         cuda_malloc (bool): Enable cudaMallocAsync. Defaults to True in applicable setups.
@@ -281,6 +282,7 @@ class Configuration(dict):
         self.tensor_parallel_size: Optional[int] = None
         self.ulysses_degree: Optional[int] = None
         self.ring_degree: Optional[int] = None
+        self.nccl_proto: str = "auto"
         self.distributed_executor_backend: str = "auto"
         self.model_management_device_scope: str = "all"
         self.cuda_malloc: bool = True

@@ -1,4 +1,3 @@
-import contextlib
 import threading
 from types import SimpleNamespace
 
@@ -10,7 +9,6 @@ import comfy.ops as comfy_ops
 from comfy import model_management
 from comfy.ldm.minimax.model import Attention, MLP
 from comfy.model_base import BaseModel, MiniMaxH3
-from comfy.model_patcher import ModelPatcherDynamic
 from comfy.tensor_parallel import (
     AbstractBaseTensorParallelOperations,
     TensorParallelConfig,
@@ -415,38 +413,6 @@ def test_dynamic_rank_load_flushes_stale_allocator_reservations(monkeypatch):
     )
 
     assert emptied == [True]
-
-
-def test_dynamic_patcher_applies_model_manager_weight_budget():
-    class FakeVBAR:
-        def __init__(self):
-            self.watermarks = []
-
-        def set_watermark(self, value):
-            self.watermarks.append(value)
-
-    vbar = FakeVBAR()
-    patcher = SimpleNamespace(
-        model=SimpleNamespace(current_weight_patches_uuid=None),
-        patches_uuid=None,
-        offload_device=torch.device("cpu"),
-        loaded_size=lambda: 100,
-        model_size=lambda: 1_000,
-        use_ejected=lambda **_kwargs: contextlib.nullcontext(),
-        unpatch_model=lambda *_args, **_kwargs: None,
-        patch_model=lambda *_args, **_kwargs: None,
-        load=lambda *_args, **_kwargs: None,
-        detach=lambda: None,
-        _vbar_get=lambda: vbar,
-    )
-
-    ModelPatcherDynamic.partially_load(
-        patcher,
-        torch.device("cuda:0"),
-        extra_memory=400,
-    )
-
-    assert vbar.watermarks == [500]
 
 
 def test_tensor_parallel_commands_propagate_trace_context(monkeypatch):

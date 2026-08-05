@@ -179,6 +179,7 @@ _DISTRIBUTED_OPTS: list[tuple] = [
     ("tensor_parallel_size", Optional[int], typer.Option(None, "--tensor-parallel-size", "-tp", envvar="COMFYUI_TENSOR_PARALLEL_SIZE", help="Number of tensor-parallel ranks. Defaults to one; one keeps the ordinary model path.")),
     ("ulysses_degree", Optional[int], typer.Option(None, "--ulysses-degree", envvar="COMFYUI_ULYSSES_DEGREE", help="xDiT Ulysses sequence-parallel degree. Defaults to one; one keeps the ordinary attention path.")),
     ("ring_degree", Optional[int], typer.Option(None, "--ring-degree", envvar="COMFYUI_RING_DEGREE", help="xDiT ring-attention degree. Defaults to one; one disables ring attention.")),
+    ("nccl_proto", str, typer.Option("auto", "--nccl-proto", click_type=click.Choice(("auto", "simple", "ll", "ll128")), help="Select the NCCL collective protocol. auto preserves NCCL topology tuning.")),
     ("distributed_executor_backend", str, typer.Option("auto", "--distributed-executor-backend", envvar="COMFYUI_DISTRIBUTED_EXECUTOR_BACKEND", click_type=click.Choice(DISTRIBUTED_EXECUTOR_BACKENDS), help="Pipeline executor backend: auto, peer, mp, or external_launcher.")),
 ]
 

@@ -11,6 +11,7 @@ import torch
 import torch.distributed as dist
 
 from ..distributed.config import DistributedConfiguration
+from ..distributed.process_group import create_device_process_group
 
 from .distributed import (
     TorchDistributedPipelineExecutor,
@@ -149,10 +150,9 @@ class ExternalTorchDistributedRuntime(AbstractBaseExternalPipelineRuntime):
             raise RuntimeError(
                 "Existing torch.distributed process group does not match canonical configuration"
             )
-        self.device_group = dist.new_group(
-            ranks=list(range(configuration.world_size)),
-            backend="nccl",
-            device_id=self.device,
+        self.device_group = create_device_process_group(
+            range(configuration.world_size),
+            self.device,
         )
         self.coordinator = TorchDistributedProcessGroupCoordinator(
             configuration.rank,

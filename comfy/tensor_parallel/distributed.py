@@ -16,6 +16,7 @@ import torch.distributed as dist
 from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
 from ..distributed.device import accelerator_device_provider
 from ..distributed.executors import ContextVarProcessPoolExecutor
+from ..distributed.process_group import create_device_process_group
 from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
 from ..pipeline_parallel.types import TensorDescriptor, pack_pipeline_value, unpack_pipeline_value
@@ -461,9 +462,7 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
     device_provider.select(device)
     dist.init_process_group("gloo", init_method=init_method, rank=rank, world_size=world_size,
                             timeout=timedelta(minutes=5))
-    device_group = dist.new_group(
-        ranks=list(range(world_size)), backend="nccl", device_id=device
-    )
+    device_group = create_device_process_group(range(world_size), device)
     if parallel_kind == "tensor":
         operations = TorchDistributedTensorParallelOperations(
             rank, world_size, device, device_group, dist.group.WORLD
@@ -554,9 +553,7 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
         device_provider.select(devices[0])
         dist.init_process_group("gloo", init_method=init_method, rank=0, world_size=size,
                                 timeout=timedelta(minutes=5))
-        device_group = dist.new_group(
-            ranks=list(range(size)), backend="nccl", device_id=devices[0]
-        )
+        device_group = create_device_process_group(range(size), devices[0])
         if parallel_kind == "tensor":
             operations = TorchDistributedTensorParallelOperations(
                 0, size, devices[0], device_group, dist.group.WORLD

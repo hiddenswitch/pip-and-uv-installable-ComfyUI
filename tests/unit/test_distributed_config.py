@@ -11,6 +11,7 @@ from comfy.distributed.config import (
 )
 from comfy.distributed.device import CudaAcceleratorDeviceProvider
 from comfy.distributed.executors import ContextVarProcessPoolExecutor
+from comfy.distributed.process_group import create_device_process_group
 from comfy.component_model.setup import prepare_distributed_environment
 from comfy.execution_context import (
     context_configuration,
@@ -330,3 +331,37 @@ def test_context_process_worker_resolves_attention_from_each_configuration():
         worker_pool.shutdown(wait=True)
 
     assert second == (True, "attention_sage")
+
+
+@pytest.mark.parametrize(
+    ("configured", "during_creation"),
+    [("auto", None), ("simple", "SIMPLE"), ("ll", "LL"), ("ll128", "LL128")],
+)
+def test_device_process_group_applies_configured_nccl_protocol(
+    monkeypatch,
+    configured,
+    during_creation,
+):
+    observed = {}
+    monkeypatch.setenv("NCCL_PROTO", "existing")
+
+    def new_group(**kwargs):
+        observed["protocol"] = os.environ.get("NCCL_PROTO")
+        observed["kwargs"] = kwargs
+        return "group"
+
+    monkeypatch.setattr(torch.distributed, "new_group", new_group)
+    with context_configuration(Configuration(nccl_proto=configured)):
+        group = create_device_process_group(
+            range(2),
+            torch.device("cuda:0"),
+        )
+
+    assert group == "group"
+    assert observed["protocol"] == during_creation
+    assert observed["kwargs"] == {
+        "ranks": [0, 1],
+        "backend": "nccl",
+        "device_id": torch.device("cuda:0"),
+    }
+    assert os.environ["NCCL_PROTO"] == "existing"

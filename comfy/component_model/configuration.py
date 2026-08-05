@@ -25,6 +25,7 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "tensor_parallel_size",
     "ulysses_degree",
     "ring_degree",
+    "nccl_proto",
     "distributed_executor_backend",
     "model_management_device_scope",
     "disable_xformers",
