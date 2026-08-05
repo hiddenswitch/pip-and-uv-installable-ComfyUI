@@ -269,7 +269,35 @@ def _args() -> Configuration:
     return current_execution_context().configuration
 
 
-args: Configuration
+class _ConfigurationProxy:
+    """Keep legacy ``from comfy.cli_args import args`` access context-local."""
+
+    def __getattr__(self, name):
+        return getattr(_args(), name)
+
+    def __setattr__(self, name, value):
+        setattr(_args(), name, value)
+
+    def __getitem__(self, key):
+        return _args()[key]
+
+    def __setitem__(self, key, value):
+        _args()[key] = value
+
+    def __contains__(self, key):
+        return key in _args()
+
+    def __iter__(self):
+        return iter(_args())
+
+    def __len__(self):
+        return len(_args())
+
+    def __repr__(self):
+        return repr(_args())
+
+
+args = _ConfigurationProxy()
 
 database_default_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "user", "comfyui.db")

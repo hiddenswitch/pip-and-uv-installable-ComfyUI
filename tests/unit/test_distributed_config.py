@@ -25,6 +25,15 @@ def _child_configuration_and_rank():
     return configuration.use_sage_attention, os.environ["RANK"]
 
 
+def _child_attention_backend():
+    from comfy.ldm.modules.attention import (
+        SAGE_ATTENTION_IS_AVAILABLE,
+        select_optimized_attention,
+    )
+
+    return SAGE_ATTENTION_IS_AVAILABLE, select_optimized_attention().__name__
+
+
 async def _progress_generator():
     yield None
 
@@ -294,3 +303,30 @@ def test_context_process_worker_excludes_request_local_progress_state():
         worker_pool.shutdown(wait=True)
 
     assert result == (True, "1")
+
+
+def test_context_process_worker_resolves_attention_from_each_configuration():
+    worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
+    try:
+        with context_configuration(
+            Configuration(
+                disable_xformers=True,
+                use_pytorch_cross_attention=True,
+            )
+        ):
+            first = worker_pool.submit(_child_attention_backend).result(timeout=30)
+        if not first[0]:
+            pytest.skip("SageAttention is not installed")
+        assert first[1] == "attention_pytorch"
+
+        with context_configuration(
+            Configuration(
+                disable_xformers=True,
+                use_sage_attention=True,
+            )
+        ):
+            second = worker_pool.submit(_child_attention_backend).result(timeout=30)
+    finally:
+        worker_pool.shutdown(wait=True)
+
+    assert second == (True, "attention_sage")

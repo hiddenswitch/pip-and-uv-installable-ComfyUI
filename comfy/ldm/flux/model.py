@@ -17,7 +17,7 @@ from ...xdit import (
     attention_mask_pad_value,
     combine_local_masks,
     gather_sequence,
-    install_ulysses_attention_override,
+    install_sequence_parallel_attention_override,
     local_padding_mask,
     localize_segments,
     split_sequence,
@@ -356,7 +356,7 @@ class Flux(nn.Module):
                     txt_padding_mask,
                     img_padding_mask,
                 )
-            install_ulysses_attention_override(
+            install_sequence_parallel_attention_override(
                 transformer_options,
                 parallel,
                 padding_mask,

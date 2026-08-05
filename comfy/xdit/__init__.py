@@ -1,5 +1,7 @@
 from .attention import (
+    RingAttentionOverride,
     UlyssesAttentionOverride,
+    install_sequence_parallel_attention_override,
     install_ulysses_attention_override,
     ulysses_attention,
 )
@@ -22,6 +24,8 @@ __all__ = [
     "AbstractBaseXDiTSequenceParallelOperations",
     "TorchDistributedUlyssesOperations",
     "UlyssesAttentionOverride",
+    "RingAttentionOverride",
+    "install_sequence_parallel_attention_override",
     "XDiTSequenceParallelConfig",
     "attention_mask_pad_value",
     "combine_local_masks",

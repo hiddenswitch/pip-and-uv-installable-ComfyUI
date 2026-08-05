@@ -5,7 +5,9 @@ import torch
 import torch.nn.functional as F
 
 from comfy.ldm.modules.attention import wrap_attn
+from comfy.ldm.minimax.model import MiniMaxH3Model
 from comfy.xdit import (
+    RingAttentionOverride,
     UlyssesAttentionOverride,
     XDiTSequenceParallelConfig,
     local_padding_mask,
@@ -86,6 +88,43 @@ class _SimulatedUlyssesOperations:
             build,
         )
 
+    def ring_attention(self, operation, query, key, value):
+        round_index = getattr(self, "ring_round", 0)
+        self.ring_round = round_index + 1
+
+        def build(inputs):
+            return {
+                rank: tuple(
+                    inputs[(rank - step) % self.world_size]
+                    for step in range(self.world_size)
+                )
+                for rank in range(self.world_size)
+            }
+
+        shards = self.collectives.exchange(
+            ("ring", round_index),
+            self.rank,
+            (key, value),
+            build,
+        )
+        output = None
+        logsumexp = None
+        for source_key, source_value in shards:
+            block_output, block_logsumexp = operation(
+                query,
+                source_key,
+                source_value,
+                is_causal=False,
+            )
+            if output is None:
+                output = block_output
+                logsumexp = block_logsumexp
+                continue
+            weight = torch.sigmoid(block_logsumexp - logsumexp).unsqueeze(-1)
+            output = output - weight * (output - block_output)
+            logsumexp = torch.logaddexp(logsumexp, block_logsumexp)
+        return output, logsumexp
+
 
 @wrap_attn
 def _native_attention(
@@ -96,7 +135,7 @@ def _native_attention(
     mask=None,
     skip_reshape=False,
     skip_output_reshape=False,
-    **_kwargs,
+    **kwargs,
 ):
     assert skip_reshape
     assert heads == query.shape[1]
@@ -106,6 +145,18 @@ def _native_attention(
         value,
         attn_mask=mask,
     )
+    if kwargs.get("return_lse", False):
+        scale = kwargs.get("scale", query.shape[-1] ** -0.5)
+        scores = torch.matmul(
+            query.to(torch.float32),
+            key.to(torch.float32).transpose(-2, -1),
+        ) * scale
+        if mask is not None:
+            if mask.dtype == torch.bool:
+                scores = scores.masked_fill(~mask, -torch.inf)
+            else:
+                scores = scores + mask.to(scores.dtype)
+        return output, torch.logsumexp(scores, dim=-1)
     if skip_output_reshape:
         return output
     return output.transpose(1, 2).flatten(2)
@@ -119,6 +170,36 @@ def _run_rank(rank, collectives, query, key, value, padding_mask=None):
         "optimized_attention_override": UlyssesAttentionOverride(
             parallel,
             padding_mask,
+        )
+    }
+    return _native_attention(
+        query,
+        key,
+        value,
+        query.shape[1],
+        skip_reshape=True,
+        transformer_options=options,
+    )
+
+
+def _run_ring_rank(
+    rank,
+    collectives,
+    query,
+    key,
+    value,
+    padding_mask=None,
+    sequence_padding=0,
+):
+    parallel = XDiTSequenceParallelConfig(
+        _SimulatedUlyssesOperations(collectives, rank),
+        "ring",
+    )
+    options = {
+        "optimized_attention_override": RingAttentionOverride(
+            parallel,
+            padding_mask,
+            sequence_padding,
         )
     }
     return _native_attention(
@@ -161,6 +242,107 @@ def test_ulysses_attention_matches_full_sequence_attention():
         actual = torch.cat([future.result() for future in futures], dim=1)
 
     torch.testing.assert_close(actual, expected)
+
+
+def test_ring_attention_matches_full_sequence_attention():
+    torch.manual_seed(17)
+    size = 2
+    query = torch.randn(1, 4, 6, 8)
+    key = torch.randn_like(query)
+    value = torch.randn_like(query)
+    expected = _native_attention(
+        query,
+        key,
+        value,
+        query.shape[1],
+        skip_reshape=True,
+    )
+    collectives = _ThreadedCollectives(size)
+
+    with ThreadPoolExecutor(max_workers=size) as executor:
+        futures = [
+            executor.submit(
+                _run_ring_rank,
+                rank,
+                collectives,
+                torch.chunk(query, size, dim=2)[rank],
+                torch.chunk(key, size, dim=2)[rank],
+                torch.chunk(value, size, dim=2)[rank],
+            )
+            for rank in range(size)
+        ]
+        actual = torch.cat([future.result() for future in futures], dim=1)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+
+
+def test_ring_attention_trims_odd_sequence_padding():
+    torch.manual_seed(19)
+    size = 2
+    query = torch.randn(1, 4, 5, 8)
+    key = torch.randn_like(query)
+    value = torch.randn_like(query)
+    expected = _native_attention(
+        query,
+        key,
+        value,
+        query.shape[1],
+        skip_reshape=True,
+    )
+    collectives = _ThreadedCollectives(size)
+
+    def run(rank):
+        parallel = XDiTSequenceParallelConfig(
+            _SimulatedUlyssesOperations(collectives, rank),
+            "ring",
+        )
+        local_query, padding = split_sequence(query, parallel, 2)
+        local_key, _ = split_sequence(key, parallel, 2)
+        local_value, _ = split_sequence(value, parallel, 2)
+        return _run_ring_rank(
+            rank,
+            collectives,
+            local_query,
+            local_key,
+            local_value,
+            sequence_padding=padding,
+        )
+
+    with ThreadPoolExecutor(max_workers=size) as executor:
+        actual = torch.cat(list(executor.map(run, range(size))), dim=1)
+    actual = actual[:, : query.shape[2]]
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+
+
+def test_minimax_text_preprocessing_uses_sequence_parallel_layout():
+    class IdentityRefiner(torch.nn.Module):
+        def forward(self, tensor, transformer_options=None):
+            assert "optimized_attention_override" in transformer_options
+            return tensor
+
+    torch.manual_seed(23)
+    size = 2
+    text = torch.randn(1, 5, 8)
+    collectives = _ThreadedCollectives(size)
+
+    def run(rank):
+        model = MiniMaxH3Model.__new__(MiniMaxH3Model)
+        torch.nn.Module.__init__(model)
+        model.hidden_size = 8
+        model.condition_proj = torch.nn.Identity()
+        model.token_refiner = IdentityRefiner()
+        model.xdit_sequence_parallel = XDiTSequenceParallelConfig(
+            _SimulatedUlyssesOperations(collectives, rank),
+            "ring",
+        )
+        return model.preprocess_text_embeds(text)
+
+    with ThreadPoolExecutor(max_workers=size) as executor:
+        outputs = list(executor.map(run, range(size)))
+
+    for output in outputs:
+        torch.testing.assert_close(output, text)
 
 
 def test_ulysses_attention_masks_sequence_padding():

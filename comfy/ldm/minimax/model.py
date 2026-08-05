@@ -29,7 +29,7 @@ from comfy.pipeline_parallel import PipelineIntermediateTensors, PipelineMissing
 from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
 from comfy.xdit import (
     gather_sequence,
-    install_ulysses_attention_override,
+    install_sequence_parallel_attention_override,
     localize_segments,
     split_sequence,
 )
@@ -533,7 +533,32 @@ class MiniMaxH3Model(nn.Module):
         """[B, L, text_dim] Qwen states -> [B, L, hidden] refined text embeds."""
         if text_states.shape[-1] == self.hidden_size:
             return text_states
-        return self.token_refiner(self.condition_proj(text_states[0])).unsqueeze(0)
+        text_states = text_states[0]
+        sequence_padding = 0
+        transformer_options = {}
+        if self.xdit_sequence_parallel is not None:
+            text_states, sequence_padding = split_sequence(
+                text_states,
+                self.xdit_sequence_parallel,
+                0,
+            )
+            install_sequence_parallel_attention_override(
+                transformer_options,
+                self.xdit_sequence_parallel,
+                sequence_padding=sequence_padding,
+            )
+        text_states = self.token_refiner(
+            self.condition_proj(text_states),
+            transformer_options=transformer_options,
+        )
+        if self.xdit_sequence_parallel is not None:
+            text_states = gather_sequence(
+                text_states,
+                self.xdit_sequence_parallel,
+                0,
+                sequence_padding,
+            )
+        return text_states.unsqueeze(0)
 
     def rope_freqs(self, position_ids, device):
         # [S, 3] float64 -> [S, 96] fp32
@@ -725,7 +750,7 @@ class MiniMaxH3Model(nn.Module):
                 parallel.size,
                 layout.seq_len + sequence_padding,
             )
-            install_ulysses_attention_override(
+            install_sequence_parallel_attention_override(
                 transformer_options,
                 parallel,
                 sequence_padding=sequence_padding,

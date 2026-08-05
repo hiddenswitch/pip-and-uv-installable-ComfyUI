@@ -1,12 +1,16 @@
+import contextlib
 import threading
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
 
 import comfy.ops as comfy_ops
+from comfy import model_management
 from comfy.ldm.minimax.model import Attention, MLP
-from comfy.model_base import MiniMaxH3
+from comfy.model_base import BaseModel, MiniMaxH3
+from comfy.model_patcher import ModelPatcherDynamic
 from comfy.tensor_parallel import (
     AbstractBaseTensorParallelOperations,
     TensorParallelConfig,
@@ -15,6 +19,7 @@ from comfy.tensor_parallel import (
     tensor_parallel_operations,
 )
 from comfy.tensor_parallel.distributed import (
+    RemoteModelParallelRankModel,
     TorchDistributedTensorParallelExecutor,
     _ObjectCoordinator,
     _broadcast_tensors,
@@ -324,6 +329,124 @@ def test_tensor_parallel_finish_execution_releases_all_ranks(monkeypatch):
 
     assert coordinator.command["kind"] == "finish_execution"
     assert finished == ["root"]
+
+
+def test_xdit_memory_estimate_uses_rank_local_sequence_share(monkeypatch):
+    monkeypatch.setattr(
+        "comfy.model_management.pytorch_attention_flash_attention",
+        lambda: True,
+    )
+    monkeypatch.setattr("comfy.model_management.xformers_enabled", lambda: False)
+
+    def estimate(parallel_size):
+        diffusion_model = SimpleNamespace()
+        if parallel_size is not None:
+            diffusion_model.xdit_sequence_parallel = SimpleNamespace(
+                size=parallel_size,
+            )
+        model = SimpleNamespace(
+            diffusion_model=diffusion_model,
+            memory_usage_factor_conds=(),
+            memory_usage_shape_process={},
+            memory_usage_factor=4.0,
+            get_dtype_inference=lambda: torch.bfloat16,
+        )
+        return BaseModel.memory_required(model, [2, 16, 4, 8, 8])
+
+    assert estimate(2) == estimate(None) / 2
+
+
+def test_remote_rank_receives_rank_local_activation_reserve(monkeypatch):
+    class FakeExecutor:
+        def __init__(self):
+            self.command = None
+
+        def remote_rank_command(self, rank, command):
+            assert rank == 1
+            self.command = command
+            return {"kind": "rank_model", "loaded_size": 100}
+
+    executor = FakeExecutor()
+    remote = RemoteModelParallelRankModel(
+        executor,
+        rank=1,
+        device=torch.device("cuda:1"),
+        size=100,
+        dtype=torch.bfloat16,
+        dynamic=True,
+    )
+    monkeypatch.setattr(model_management, "current_loaded_models", [])
+    monkeypatch.setattr(model_management, "cleanup_models_gc", lambda: None)
+    monkeypatch.setattr(
+        model_management,
+        "prepare_device_model_loads",
+        lambda required, **_kwargs: [],
+    )
+
+    model_management._load_models_gpu(
+        [remote],
+        memory_required=400,
+        minimum_memory_required=200,
+    )
+
+    assert executor.command["memory_required"] == 400
+    assert executor.command["minimum_memory_required"] == 200
+
+
+def test_dynamic_rank_load_flushes_stale_allocator_reservations(monkeypatch):
+    emptied = []
+    monkeypatch.setattr(model_management, "free_memory", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(model_management, "get_free_memory", lambda _device: 10_000)
+    monkeypatch.setattr(
+        "comfy.memory_management.aimdo_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        model_management,
+        "_soft_empty_cache",
+        lambda force=False: emptied.append(force),
+    )
+
+    model_management.prepare_device_model_loads(
+        {torch.device("cuda:0"): 100},
+        extra_mem=20,
+        minimum_memory_required=10,
+        free_for_dynamic=True,
+    )
+
+    assert emptied == [True]
+
+
+def test_dynamic_patcher_applies_model_manager_weight_budget():
+    class FakeVBAR:
+        def __init__(self):
+            self.watermarks = []
+
+        def set_watermark(self, value):
+            self.watermarks.append(value)
+
+    vbar = FakeVBAR()
+    patcher = SimpleNamespace(
+        model=SimpleNamespace(current_weight_patches_uuid=None),
+        patches_uuid=None,
+        offload_device=torch.device("cpu"),
+        loaded_size=lambda: 100,
+        model_size=lambda: 1_000,
+        use_ejected=lambda **_kwargs: contextlib.nullcontext(),
+        unpatch_model=lambda *_args, **_kwargs: None,
+        patch_model=lambda *_args, **_kwargs: None,
+        load=lambda *_args, **_kwargs: None,
+        detach=lambda: None,
+        _vbar_get=lambda: vbar,
+    )
+
+    ModelPatcherDynamic.partially_load(
+        patcher,
+        torch.device("cuda:0"),
+        extra_memory=400,
+    )
+
+    assert vbar.watermarks == [500]
 
 
 def test_tensor_parallel_commands_propagate_trace_context(monkeypatch):

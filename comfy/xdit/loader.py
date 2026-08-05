@@ -32,6 +32,7 @@ class XDiTSequenceParallelWorkerLoadSpec:
     model_options: dict
     disable_dynamic: bool
     dtype: torch.dtype
+    strategy: str
 
 
 def _replicate_state(state, rank, size):
@@ -51,6 +52,7 @@ def _load_xdit_rank(
     dtype,
     device,
     operations,
+    strategy,
 ):
     return _load_rank(
         reader,
@@ -63,7 +65,7 @@ def _load_xdit_rank(
         disable_dynamic,
         dtype,
         device,
-        XDiTSequenceParallelConfig(operations),
+        XDiTSequenceParallelConfig(operations, strategy),
         operations_decorator=xdit_sequence_parallel_operations,
         state_transform=_replicate_state,
     )
@@ -97,6 +99,7 @@ def load_xdit_sequence_parallel_rank(load_spec, rank, device, operations):
         load_spec.dtype,
         device,
         operations,
+        load_spec.strategy,
     )
 
 
@@ -105,6 +108,7 @@ def load_diffusion_model_xdit_sequence_parallel(
     devices,
     model_options=None,
     disable_dynamic=False,
+    strategy="ulysses",
 ):
     model_options = dict(model_options or {})
     reader = SafetensorsCheckpointReader(unet_path)
@@ -117,7 +121,7 @@ def load_diffusion_model_xdit_sequence_parallel(
     family = None if model_config is None else model_config.unet_config.get("image_model")
     if family not in SUPPORTED_MODEL_FAMILIES:
         raise ValueError(
-            "xDiT Ulysses currently supports Flux2, Qwen Image, and MiniMax H3"
+            "xDiT sequence parallelism currently supports Flux2, Qwen Image, and MiniMax H3"
         )
     _descriptors, original_keys = _normalized_descriptors(reader, prefix)
 
@@ -138,6 +142,7 @@ def load_diffusion_model_xdit_sequence_parallel(
         model_options,
         disable_dynamic,
         dtype,
+        strategy,
     )
 
     def load_root(operations):
@@ -153,13 +158,14 @@ def load_diffusion_model_xdit_sequence_parallel(
             dtype,
             devices[0],
             operations,
+            strategy,
         )
 
     root, executor = launch_model_parallel(
         load_spec,
         devices,
         load_root,
-        "xdit_ulysses",
+        f"xdit_{strategy}",
     )
     remotes = [
         RemoteModelParallelRankModel(
@@ -178,11 +184,12 @@ def load_diffusion_model_xdit_sequence_parallel(
     root.set_attachments("xdit_sequence_parallel_executor", executor)
     root.cached_patcher_init = (
         load_diffusion_model_xdit_sequence_parallel,
-        (unet_path, devices, model_options, disable_dynamic),
+        (unet_path, devices, model_options, disable_dynamic, strategy),
     )
     logger.info(
-        "Loaded %s with xDiT Ulysses ranks %s",
+        "Loaded %s with xDiT %s ranks %s",
         family,
+        strategy,
         ", ".join(
             f"{device}:{executor.rank_sizes[index] / (1024 ** 3):.2f} GiB"
             for index, device in enumerate(devices)
@@ -201,25 +208,28 @@ def try_load_diffusion_model_xdit_sequence_parallel(
     ring_degree = int(configuration.ring_degree or 1)
     if degree == 1 and ring_degree == 1:
         return None
-    if ring_degree != 1:
+    if degree != 1 and ring_degree != 1:
         raise NotImplementedError(
-            "xDiT ring attention is not implemented yet; use --ring-degree 1"
+            "Combined xDiT Ulysses and Ring parallelism is not implemented yet"
         )
     if os.path.splitext(os.fspath(unet_path))[1].lower() not in (
         ".safetensors",
         ".sft",
     ):
-        raise ValueError("xDiT Ulysses loading requires a safetensors checkpoint")
+        raise ValueError("xDiT sequence-parallel loading requires a safetensors checkpoint")
     current = model_management.get_torch_device()
     available = model_management.get_all_torch_devices()
     devices = tuple([current] + [device for device in available if device != current])
-    if degree > len(devices):
+    strategy = "ring" if ring_degree > 1 else "ulysses"
+    size = ring_degree if strategy == "ring" else degree
+    if size > len(devices):
         raise ValueError(
-            f"Ulysses degree {degree} exceeds {len(devices)} available devices"
+            f"xDiT {strategy} degree {size} exceeds {len(devices)} available devices"
         )
     return load_diffusion_model_xdit_sequence_parallel(
         unet_path,
-        devices[:degree],
+        devices[:size],
         model_options=model_options,
         disable_dynamic=disable_dynamic,
+        strategy=strategy,
     )

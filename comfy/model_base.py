@@ -545,15 +545,26 @@ class BaseModel(torch.nn.Module):
                 if len(shape) > 0:
                     input_shapes += shape
 
+        sequence_parallel = getattr(
+            self.diffusion_model,
+            "xdit_sequence_parallel",
+            None,
+        )
+        parallel_scale = (
+            1.0 / sequence_parallel.size
+            if sequence_parallel is not None
+            else 1.0
+        )
+
         if model_management.xformers_enabled() or model_management.pytorch_attention_flash_attention():
             dtype = self.get_dtype_inference()
             # TODO: this needs to be tweaked
             area = sum(map(lambda input_shape: input_shape[0] * math.prod(input_shape[2:]), input_shapes))
-            return (area * model_management.dtype_size(dtype) * 0.01 * self.memory_usage_factor) * (1024 * 1024)
+            return (area * model_management.dtype_size(dtype) * 0.01 * self.memory_usage_factor) * (1024 * 1024) * parallel_scale
         else:
             # TODO: this formula might be too aggressive since I tweaked the sub-quad and split algorithms to use less memory.
             area = sum(map(lambda input_shape: input_shape[0] * math.prod(input_shape[2:]), input_shapes))
-            return (area * 0.15 * self.memory_usage_factor) * (1024 * 1024)
+            return (area * 0.15 * self.memory_usage_factor) * (1024 * 1024) * parallel_scale
 
     def extra_conds_shapes(self, **kwargs):
         return {}

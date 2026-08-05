@@ -1170,6 +1170,17 @@ def prepare_device_model_loads(
             ram_required=total_ram_required.get(device, 0),
         )
 
+    # Aimdo's VBAR policy accounts PyTorch allocator reservations as pressure.
+    # Flush inactive caching-allocator blocks before prioritizing the next
+    # dynamic model, otherwise a preceding text encoder can permanently lower
+    # the diffusion model's watermark despite physically free VRAM.
+    if (
+        free_for_dynamic
+        and memory_management.aimdo_enabled()
+        and any(device != torch.device("cpu") for device in total_memory_required)
+    ):
+        _soft_empty_cache(force=True)
+
     for device in total_memory_required:
         if device == torch.device("cpu"):
             continue
@@ -1188,6 +1199,8 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
     cleanup_models_gc()
     global vram_state
 
+    requested_memory_required = memory_required
+    requested_minimum_memory_required = minimum_memory_required
     inference_memory = minimum_inference_memory()
     extra_mem = max(inference_memory, memory_required + extra_reserved_memory())
     if minimum_memory_required is None:
@@ -1278,6 +1291,17 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
             )()
             if self_managed_device:
                 # The remote rank applies its own DynamicVRAM pressure decision.
+                set_inference_memory_requirements = getattr(
+                    model,
+                    "set_inference_memory_requirements",
+                    None,
+                )
+                if set_inference_memory_requirements is not None:
+                    set_inference_memory_requirements(
+                        requested_memory_required,
+                        requested_minimum_memory_required,
+                        force_full_load,
+                    )
                 lowvram_model_memory = 0
             elif lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
                 loaded_memory = loaded_model.model_loaded_memory()

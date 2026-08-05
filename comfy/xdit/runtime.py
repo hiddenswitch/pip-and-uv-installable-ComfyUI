@@ -27,6 +27,18 @@ class AbstractBaseXDiTSequenceParallelOperations(ABC):
     def all_gather(self, tensor: torch.Tensor, dim: int) -> torch.Tensor:
         raise NotImplementedError
 
+    @abstractmethod
+    def ring_attention(
+        self,
+        operation,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Run an injected local attention operation across rotated KV shards."""
+
+        raise NotImplementedError
+
 
 class TorchDistributedUlyssesOperations(
     AbstractBaseXDiTSequenceParallelOperations
@@ -80,3 +92,35 @@ class TorchDistributedUlyssesOperations(
             group=self.process_group,
         )
         return self._wait(output)
+
+    def ring_attention(
+        self,
+        operation,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        from torch.distributed.tensor.experimental._attention import (
+            _cp_options,
+            _templated_ring_attention,
+        )
+
+        # Diffusion attention is non-causal, so the causal round-robin load
+        # balancer does not apply. PyTorch otherwise owns transport selection
+        # (all-gather or peer rotation) for the injected process group.
+        _cp_options.enable_load_balance = False
+        output, logsumexp, *_ = _templated_ring_attention(
+            self.process_group,
+            2,
+            operation,
+            query,
+            key,
+            value,
+            is_causal=False,
+        )
+        return output, logsumexp
+
+
+# The runtime now supplies both Ulysses and Ring operations. Preserve the old
+# public name for extensions that imported it before Ring support was added.
+TorchDistributedXDiTSequenceParallelOperations = TorchDistributedUlyssesOperations

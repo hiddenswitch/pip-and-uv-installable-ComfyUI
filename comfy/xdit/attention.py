@@ -116,6 +116,55 @@ def ulysses_attention(
     return output.transpose(1, 2).flatten(2)
 
 
+def ring_attention(
+    parallel: XDiTSequenceParallelConfig,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attention_function,
+    mask=None,
+    sequence_padding: int = 0,
+):
+    """Run exact non-causal Ring attention over contiguous sequence shards."""
+
+    local_sequence = key.shape[2]
+    gathered_mask = None
+    if mask is not None:
+        gathered_mask = parallel.operations.all_gather(mask.contiguous(), dim=-1)
+    step = 0
+
+    def local_attention(local_query, local_key, local_value, is_causal=False):
+        nonlocal step
+        if is_causal:
+            raise ValueError("xDiT Ring diffusion attention must be non-causal")
+        source_rank = (parallel.rank - step) % parallel.size
+        local_mask = None
+        if gathered_mask is not None:
+            start = source_rank * local_sequence
+            local_mask = gathered_mask[..., start : start + local_sequence]
+        if sequence_padding and source_rank == parallel.size - 1:
+            real_length = local_sequence - sequence_padding
+            local_key = local_key[:, :, :real_length]
+            local_value = local_value[:, :, :real_length]
+            if local_mask is not None:
+                local_mask = local_mask[..., :real_length]
+        step += 1
+        return attention_function(
+            local_query,
+            local_key,
+            local_value,
+            local_mask,
+        )
+
+    output, _logsumexp = parallel.operations.ring_attention(
+        local_attention,
+        query,
+        key,
+        value,
+    )
+    return output.transpose(1, 2).flatten(2)
+
+
 def _reshape_to_heads(tensor: torch.Tensor, heads: int) -> torch.Tensor:
     batch, sequence, channels = tensor.shape
     if channels % heads:
@@ -194,6 +243,70 @@ class UlyssesAttentionOverride:
         return output
 
 
+@dataclass(frozen=True, eq=False)
+class RingAttentionOverride:
+    """Comfy attention-dispatch override backed by exact Ring attention."""
+
+    parallel: XDiTSequenceParallelConfig
+    padding_mask: torch.Tensor | None = None
+    sequence_padding: int = 0
+
+    def __call__(
+        self,
+        native,
+        query,
+        key,
+        value,
+        heads,
+        mask=None,
+        skip_reshape=False,
+        skip_output_reshape=False,
+        transformer_options=None,
+        **kwargs,
+    ):
+        if not skip_reshape:
+            query = _reshape_to_heads(query, heads)
+            key = _reshape_to_heads(key, heads)
+            value = _reshape_to_heads(value, heads)
+        options = dict(transformer_options or {})
+        options.pop("optimized_attention_override", None)
+        kwargs.pop("_inside_attn_wrapper", None)
+        mask = _combine_attention_masks(mask, self.padding_mask)
+
+        def attention_with_lse(local_query, local_key, local_value, local_mask):
+            result = native(
+                local_query,
+                local_key,
+                local_value,
+                heads,
+                mask=local_mask,
+                skip_reshape=True,
+                skip_output_reshape=True,
+                transformer_options=options,
+                return_lse=True,
+                **kwargs,
+            )
+            if not isinstance(result, tuple) or len(result) < 2:
+                raise RuntimeError(
+                    "The selected attention backend cannot return logsumexp "
+                    "required by xDiT Ring attention"
+                )
+            return result
+
+        output = ring_attention(
+            self.parallel,
+            query,
+            key,
+            value,
+            attention_with_lse,
+            mask=mask,
+            sequence_padding=self.sequence_padding,
+        )
+        if skip_output_reshape:
+            return _reshape_to_heads(output, heads)
+        return output
+
+
 def install_ulysses_attention_override(
     transformer_options: dict,
     parallel: XDiTSequenceParallelConfig,
@@ -202,4 +315,25 @@ def install_ulysses_attention_override(
 ) -> None:
     transformer_options["optimized_attention_override"] = (
         UlyssesAttentionOverride(parallel, padding_mask, sequence_padding)
+    )
+
+
+def install_sequence_parallel_attention_override(
+    transformer_options: dict,
+    parallel: XDiTSequenceParallelConfig,
+    padding_mask: torch.Tensor | None = None,
+    sequence_padding: int = 0,
+) -> None:
+    if parallel.strategy == "ring":
+        transformer_options["optimized_attention_override"] = RingAttentionOverride(
+            parallel,
+            padding_mask,
+            sequence_padding,
+        )
+        return
+    install_ulysses_attention_override(
+        transformer_options,
+        parallel,
+        padding_mask,
+        sequence_padding,
     )

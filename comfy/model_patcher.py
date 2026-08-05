@@ -2442,6 +2442,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
     def partially_load(self, device_to, extra_memory=0, force_patch_weights=False):
         assert not force_patch_weights  # See above
+        previously_loaded = self.loaded_size()
         with self.use_ejected(skip_and_inject_on_exit_only=True):
             current_weight_patches_uuid = getattr(self.model, "current_weight_patches_uuid", None)
             dirty = current_weight_patches_uuid is not None and (current_weight_patches_uuid != self.patches_uuid)
@@ -2454,6 +2455,15 @@ class ModelPatcherDynamic(ModelPatcher):
             except Exception as e:
                 self.detach()
                 raise e
+            if extra_memory < 1e30:
+                vbar = self._vbar_get()
+                if vbar is not None:
+                    vbar.set_watermark(
+                        min(
+                            self.model_size(),
+                            max(0, int(previously_loaded + extra_memory)),
+                        )
+                    )
             # ModelPatcher::partially_load returns a number on what got loaded but
             # nothing in core uses this and we have no data in the Dynamic world. Hit
             # the custom node devs with a None rather than a 0 that would mislead any

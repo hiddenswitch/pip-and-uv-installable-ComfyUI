@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 from datetime import timedelta
 import gc
+import logging
 import multiprocessing.connection
 import os
 import secrets
@@ -238,6 +239,9 @@ class RemoteModelParallelRankModel(ModelManageableStub):
         self.dynamic = dynamic
         self.ckpt_name = ckpt_name
         self._loaded_size = 0
+        self._memory_required = 0
+        self._minimum_memory_required = None
+        self._force_full_load = False
 
     def model_size(self):
         return self.size
@@ -270,6 +274,16 @@ class RemoteModelParallelRankModel(ModelManageableStub):
 
     def manages_own_device_memory(self):
         return True
+
+    def set_inference_memory_requirements(
+        self,
+        memory_required,
+        minimum_memory_required,
+        force_full_load=False,
+    ):
+        self._memory_required = memory_required
+        self._minimum_memory_required = minimum_memory_required
+        self._force_full_load = force_full_load
 
     def get_additional_models(self):
         return []
@@ -305,6 +319,9 @@ class RemoteModelParallelRankModel(ModelManageableStub):
             "extra_memory": extra_memory,
             "force_patch_weights": force_patch_weights,
             "manage_device_memory": True,
+            "memory_required": self._memory_required,
+            "minimum_memory_required": self._minimum_memory_required,
+            "force_full_load": self._force_full_load,
         })
         previous = self._loaded_size
         self._loaded_size = int(response["loaded_size"])
@@ -337,6 +354,12 @@ class _ObjectCoordinator:
         return values[0]
 
 
+def _send_worker_error(coordinator, rank):
+    error = traceback.format_exc()
+    logging.error("Model-parallel rank %s failed:\n%s", rank, error)
+    coordinator.send_object({"kind": "error", "traceback": error}, 0)
+
+
 def _run_worker(operations, coordinator, patcher, span_name):
     execution_model = patcher.model.diffusion_model
     while True:
@@ -363,6 +386,17 @@ def _run_worker(operations, coordinator, patcher, span_name):
 
                                 model_management.load_models_gpu(
                                     [patcher],
+                                    memory_required=model_command.get(
+                                        "memory_required",
+                                        0,
+                                    ),
+                                    minimum_memory_required=model_command.get(
+                                        "minimum_memory_required",
+                                    ),
+                                    force_full_load=model_command.get(
+                                        "force_full_load",
+                                        False,
+                                    ),
                                     force_patch_weights=model_command[
                                         "force_patch_weights"
                                     ],
@@ -396,7 +430,7 @@ def _run_worker(operations, coordinator, patcher, span_name):
                             continue
                         coordinator.send_object({"kind": "rank_model", "loaded_size": patcher.loaded_size()}, 0)
                     except Exception:
-                        coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+                        _send_worker_error(coordinator, operations.rank)
                     continue
                 if command["kind"] == "finish_execution":
                     try:
@@ -405,7 +439,7 @@ def _run_worker(operations, coordinator, patcher, span_name):
                         model_prefetch.finish_model_execution()
                         coordinator.send_object({"kind": "done"}, 0)
                     except Exception:
-                        coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+                        _send_worker_error(coordinator, operations.rank)
                     continue
                 try:
                     tensors = _broadcast_tensors(operations, descriptors=command["descriptors"])
@@ -413,7 +447,7 @@ def _run_worker(operations, coordinator, patcher, span_name):
                     getattr(execution_model, command["method"])(*args, **kwargs)
                     coordinator.send_object({"kind": "done"}, 0)
                 except Exception:
-                    coordinator.send_object({"kind": "error", "traceback": traceback.format_exc()}, 0)
+                    _send_worker_error(coordinator, operations.rank)
 
 
 def worker_main(host, port, authkey, parallel_kind="tensor"):
@@ -435,13 +469,13 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
             rank, world_size, device, device_group, dist.group.WORLD
         )
         span_name = "Tensor Parallel Rank Command"
-    elif parallel_kind == "xdit_ulysses":
-        from ..xdit.runtime import TorchDistributedUlyssesOperations
+    elif parallel_kind in ("xdit_ulysses", "xdit_ring"):
+        from ..xdit.runtime import TorchDistributedXDiTSequenceParallelOperations
 
-        operations = TorchDistributedUlyssesOperations(
+        operations = TorchDistributedXDiTSequenceParallelOperations(
             rank, world_size, device, device_group, dist.group.WORLD
         )
-        span_name = "xDiT Ulysses Rank Command"
+        span_name = f"xDiT {parallel_kind.removeprefix('xdit_').title()} Rank Command"
     else:
         raise ValueError(f"Unknown model-parallel worker kind {parallel_kind!r}")
     from .. import model_management
@@ -497,6 +531,7 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
             pipeline_parallel_size=1,
             tensor_parallel_size=size if parallel_kind == "tensor" else 1,
             ulysses_degree=size if parallel_kind == "xdit_ulysses" else 1,
+            ring_degree=size if parallel_kind == "xdit_ring" else 1,
             executor_backend="mp",
         ).canonical_environment()
         worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
@@ -527,9 +562,9 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
                 0, size, devices[0], device_group, dist.group.WORLD
             )
         else:
-            from ..xdit.runtime import TorchDistributedUlyssesOperations
+            from ..xdit.runtime import TorchDistributedXDiTSequenceParallelOperations
 
-            operations = TorchDistributedUlyssesOperations(
+            operations = TorchDistributedXDiTSequenceParallelOperations(
                 0, size, devices[0], device_group, dist.group.WORLD
             )
         root = load_root(operations)

@@ -15,7 +15,7 @@ from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_valu
 from ...xdit import (
     combine_local_masks,
     gather_sequence,
-    install_ulysses_attention_override,
+    install_sequence_parallel_attention_override,
     local_padding_mask,
     split_sequence,
 )
@@ -634,7 +634,7 @@ class QwenImageTransformer2DModel(nn.Module):
                     text_padding_mask,
                     image_padding_mask,
                 )
-            install_ulysses_attention_override(
+            install_sequence_parallel_attention_override(
                 transformer_options,
                 parallel,
                 padding_mask,
