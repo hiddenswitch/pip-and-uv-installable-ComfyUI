@@ -449,6 +449,10 @@ class TestIsWidgetType:
     def test_combo_list(self):
         assert _is_widget_type(["euler", "dpmpp"]) is True
 
+    @pytest.mark.parametrize("socketless", [True, False])
+    def test_explicit_socketless_marks_custom_widget(self, socketless):
+        assert _is_widget_type("CUSTOM_WIDGET", {"socketless": socketless}) is True
+
     def test_model_is_connection(self):
         assert _is_widget_type("MODEL") is False
 
@@ -576,6 +580,27 @@ class TestMapWidgets:
 
         result, _ = _map_widgets(_ListWidget.INPUT_TYPES(), [["a", "b"]])
         assert result == {"items": {"__value__": ["a", "b"]}}
+
+    def test_socket_capable_custom_widgets_preserve_positional_alignment(self):
+        input_types = {
+            "required": {
+                "width": ("INT", {"default": 1024}),
+                "editor_state": ("BOUNDING_BOXES", {"default": [], "socketless": False}),
+            },
+            "optional": {
+                "last_incoming": ("BOUNDING_BOXES", {"default": [], "socketless": True}),
+            },
+        }
+        boxes = [{"x": 1, "y": 2, "width": 3, "height": 4}]
+
+        result, consumed = _map_widgets(input_types, [1024, boxes, []])
+
+        assert result == {
+            "width": 1024,
+            "editor_state": {"__value__": boxes},
+            "last_incoming": {"__value__": []},
+        }
+        assert consumed == 3
 
     def test_scalar_not_wrapped(self):
         """Scalar values should NOT be wrapped."""
