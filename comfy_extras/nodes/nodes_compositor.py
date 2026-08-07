@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 
 from comfy_api.latest import ComfyExtension, io, UI
-from comfy_extras.compositor_blend import (
+from ..compositor_blend import (
     _LAYER_MODES,
     blend_composite,
     linear_to_srgb,
@@ -15,9 +15,9 @@ from comfy_extras.compositor_blend import (
     resolve_mode,
     srgb_to_linear,
 )
-from comfy_extras.color_util import hex_to_rgb
+from ..color_util import hex_to_rgb
 from comfy.nodes.base_nodes import MAX_RESOLUTION
-from comfy_extras.nodes.nodes_bounding_boxes import boxes_from_input
+from .nodes_bounding_boxes import boxes_from_input
 from typing_extensions import override
 
 

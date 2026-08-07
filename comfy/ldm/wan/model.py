@@ -10,12 +10,9 @@ from ..modules.attention import optimized_attention
 from ..flux.layers import EmbedND
 from ..flux.math import apply_rope1, rope
 from ..common_dit import pad_to_patch_size
+from ... import ops
 from ...model_management import cast_to
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
-import comfy.ldm.common_dit
-import comfy.model_management
-import comfy.ops
-import comfy.patcher_extension
 
 
 def sinusoidal_embedding_1d(dim, position):
@@ -193,7 +190,7 @@ class WanFeedForward(nn.Sequential):
     """[Linear, GELU(tanh), Linear], with the GELU folded into the down-projection."""
 
     def forward(self, x):
-        return comfy.ops.linear_input_act(self[2], self[0](x), "gelu_tanh")
+        return ops.linear_input_act(self[2], self[0](x), "gelu_tanh")
 
 
 class WanAttentionBlock(nn.Module):

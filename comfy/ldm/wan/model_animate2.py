@@ -9,12 +9,10 @@ the driving video and its branch forward_ref, not to be confused with the refere
 
 import torch
 
-import comfy.ldm.common_dit
-import comfy.model_management
-import comfy.quant_ops
-import comfy.utils
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.modules.attention import optimized_attention
+from .. import common_dit
+from ..flux.math import apply_rope1
+from ..modules.attention import optimized_attention
+from ... import model_management, quant_ops, utils
 
 from .model import WanAttentionBlock, WanModel, WanSelfAttention, repeat_e, sinusoidal_embedding_1d
 
@@ -78,8 +76,8 @@ class WanAnimate2Block(WanAttentionBlock):
 
     def _modulation(self, e, x):
         if e.ndim < 4:
-            return (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
-        return (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
+            return (model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
+        return (model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
 
     def _cross_attn_ffn(self, x, e, context, context_img_len, transformer_options):
         x = x + self.cross_attn(self.norm3(x), context, context_img_len=context_img_len, transformer_options=transformer_options)
@@ -146,7 +144,7 @@ class PoseBranchCache:
                 return
         # cache what fits: a filled slot is the size estimate for the next one, and least recently used slots make room when the store device runs low
         est = max((self._slot_bytes(s) for s in self.slots), default=0) * 1.5
-        while self.slots and comfy.model_management.get_free_memory(self.store_device) < est:
+        while self.slots and model_management.get_free_memory(self.store_device) < est:
             self._free_slot(self.slots.pop(0))
         self.slot = {"key": k.clone().to(self.store_device), "blocks": {}, "params": {}, "shape": None, "pinned": []}
         self.slots.append(self.slot)
@@ -157,7 +155,7 @@ class PoseBranchCache:
                 stream.synchronize()  # an aborted forward can leave a copy in flight, still reading memory we are about to unpin
         self._pending = {}
         for t in s["pinned"]:
-            comfy.model_management.unpin_memory(t)
+            model_management.unpin_memory(t)
 
     def free(self):
         for s in self.slots:
@@ -179,12 +177,12 @@ class PoseBranchCache:
             while g > 4 and t.shape[-1] % g:
                 g //= 4
             if self.dtype == "int4":
-                t, params = comfy.quant_ops.TensorCoreConvRotW4A4Layout.quantize(t.reshape(-1, t.shape[-1]), convrot_groupsize=g)
+                t, params = quant_ops.TensorCoreConvRotW4A4Layout.quantize(t.reshape(-1, t.shape[-1]), convrot_groupsize=g)
             else:
-                t, params = comfy.quant_ops.TensorWiseINT8Layout.quantize(t.reshape(-1, t.shape[-1]), is_weight=True, per_channel=True, convrot=True, convrot_groupsize=g)
+                t, params = quant_ops.TensorWiseINT8Layout.quantize(t.reshape(-1, t.shape[-1]), is_weight=True, per_channel=True, convrot=True, convrot_groupsize=g)
 
         t = t.to(self.store_device, copy=True)
-        if comfy.model_management.pin_memory(t):
+        if model_management.pin_memory(t):
             self.slot["pinned"].append(t)
         self.slot["blocks"][i] = t
         # the scales follow the blocks off the GPU: per-window slots would otherwise pile them up in VRAM (~200 MB per window at 480p int4)
@@ -199,8 +197,8 @@ class PoseBranchCache:
         stream = None
         r = None
         if t.device != device:
-            stream = comfy.model_management.get_offload_stream(device)
-            cs = comfy.model_management.current_stream(device)
+            stream = model_management.get_offload_stream(device)
+            cs = model_management.current_stream(device)
             if stream is not None and cs is not None:
                 # the handed-out stream last waited on the main stream a full rotation ago, which does not cover the previous consumer's reads of this slot; wait now so the copy cannot overwrite a slot still being read
                 stream.wait_stream(cs)
@@ -209,18 +207,18 @@ class PoseBranchCache:
             if buf_key not in self._staging:
                 self._staging[buf_key] = [torch.empty(t.shape, dtype=buf_key[1], device=device) for _ in range(2)]
             r = self._staging[buf_key][i % 2]
-        self._pending[i] = (comfy.model_management.cast_to(t, cast_dtype, device, non_blocking=True, stream=stream, r=r), stream)
+        self._pending[i] = (model_management.cast_to(t, cast_dtype, device, non_blocking=True, stream=stream, r=r), stream)
 
     def take(self, i, device, dtype, batch_size):
         if i not in self._pending:
             self.prefetch(i, device, dtype)
         t, stream = self._pending.pop(i)
-        comfy.model_management.sync_stream(device, stream)
+        model_management.sync_stream(device, stream)
         params = self.slot["params"][i]
         if params is not None:
-            layout = comfy.quant_ops.TensorCoreConvRotW4A4Layout if self.dtype == "int4" else comfy.quant_ops.TensorWiseINT8Layout
+            layout = quant_ops.TensorCoreConvRotW4A4Layout if self.dtype == "int4" else quant_ops.TensorWiseINT8Layout
             t = layout.dequantize(t, params.to_device(t.device)).reshape(self.slot["shape"]).to(dtype)
-        return comfy.utils.repeat_to_batch_size(t, batch_size)
+        return utils.repeat_to_batch_size(t, batch_size)
 
     def _slot_bytes(self, s):
         return sum(t.numel() * t.element_size() for t in s["blocks"].values())
@@ -265,13 +263,13 @@ class WanAnimate2Model(WanModel):
 
     def _forward(self, x, timestep, context, clip_fea=None, time_dim_concat=None, transformer_options={}, pose_latents=None, clip_fea_pose=None, context_pose=None, **kwargs):
         bs, c, t, h, w = x.shape
-        x = comfy.ldm.common_dit.pad_to_patch_size(x, self.patch_size)
+        x = common_dit.pad_to_patch_size(x, self.patch_size)
 
         # h/w pre-pad: rope_encode's rounding reproduces the post-pad grid
         freqs = self.rope_encode(t, h, w, device=x.device, dtype=x.dtype, transformer_options=transformer_options)
         freqs_pose = None
         if pose_latents is not None:  # absent when the node's timestep window excludes this step
-            pose_latents = comfy.ldm.common_dit.pad_to_patch_size(pose_latents.to(x.dtype), self.patch_size)
+            pose_latents = common_dit.pad_to_patch_size(pose_latents.to(x.dtype), self.patch_size)
             w_patches = (w + (self.patch_size[2] // 2)) // self.patch_size[2]
             freqs_pose = self.rope_encode_pose(pose_latents.shape[2], h, w, w_patches, device=x.device, dtype=x.dtype)
 
