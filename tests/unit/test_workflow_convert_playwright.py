@@ -689,21 +689,10 @@ def _get_frontend_output(
             return cached
 
     def _evaluate_frontend_output() -> dict:
-        page.reload(wait_until="networkidle", timeout=60000)
-        page.wait_for_function(
-            """() => {
-                try {
-                    return !!(
-                        window.comfyAPI &&
-                        window.comfyAPI.app &&
-                        window.comfyAPI.app.app &&
-                        window.comfyAPI.app.app.graph
-                    );
-                } catch(e) { return false; }
-            }""",
-            timeout=60000,
-        )
-
+        # Frontend loadGraphData(clean=true) resets the canvas to rootGraph,
+        # clears it, and awaits configuration of the supplied workflow. A
+        # page reload is both redundant and racy: persisted-workflow startup
+        # can finish afterward and replace the workflow under test.
         return page.evaluate(
             """async (wf) => {
                 const app = window.comfyAPI.app.app;
