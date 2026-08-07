@@ -65,16 +65,20 @@ the checkpoint's mixed-precision or quantized operations. Launching the same
 ordinary workflow with `torchrun` can place one stage/rank on each local or
 remote host and uses canonical `RANK`, `WORLD_SIZE`,
 `LOCAL_RANK`, `LOCAL_WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`; use
-`--pipeline-parallel-size` only to override the inferred stage count. MiniMax H3
-also supports transparent Megatron-style TP with `--tensor-parallel-size 2` and
-an ordered two-device list. TP is injected by decorating the checkpoint's normal
-Comfy operations provider: QKV/gate-up use section-aware column-parallel linears,
-output/down use row-parallel linears, and NCCL reductions compose with INT8
-ConvRot and per-rank DynamicVRAM. There is no TP workflow node. This is local
-model parallelism, not RabbitMQ prompt distribution. In a multi-host launch,
-rank zero collects each rank's local DynamicVRAM budget before partitioning;
-remote rank devices are never treated as locally queryable CUDA indices. See
-`docs/distributed.md` for the memory model and restrictions.
+`--pipeline-parallel-size` only to override the inferred stage count. Krea 2,
+Ideogram 4, Flux2 Dev, and MiniMax H3 support transparent Megatron-style TP with
+`--tensor-parallel-size 2` and an ordered two-device list. TP is injected by
+decorating the checkpoint's normal Comfy operations provider: QKV/gate-up use
+section-aware column-parallel linears, output/down use row-parallel linears, and
+NCCL reductions compose with quantized operations and per-rank DynamicVRAM. The
+ordinary and pipeline operations providers retain the unsharded module shape,
+and TP and PP use one model-input preparation/transport contract, so adding TP
+to a model does not fork or bypass its pipeline path. There is no TP or PP
+workflow node. This is local model parallelism, not RabbitMQ prompt
+distribution. In a multi-host launch, rank zero collects each rank's local
+DynamicVRAM budget before partitioning; remote rank devices are never treated
+as locally queryable CUDA indices. See `docs/distributed.md` for the memory
+model and restrictions.
 
 ## How the pieces fit
 
@@ -1693,216 +1697,70 @@ non-trivial graph edits → embedded Python in §Task 7).
 10. For any repeated same-workflow generation: daemon + submit. For
     exotic graph edits: Python.
 
-## Measuring performance with OpenTelemetry
+## Tensor parallelism on multiple GPUs
 
-ComfyUI emits OpenTelemetry spans for the server lifecycle, prompt
-submission, model loading, prompt execution, and individual node
-execution. Use this instead of shell wall-clock timing when you need
-precise durations for a workflow run or a specific node.
-
-For local measurement, use a `file://` endpoint. ComfyUI writes one
-JSON object per span to that path:
+Tensor parallelism is transparent to the workflow: it does not require a
+special node or any workflow edits. Pass an ordered list of GPUs, set the
+tensor-parallel size to the number of listed devices, and use the
+multiprocessing distributed backend:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/comfyui-traces.jsonl \
-  comfyui run-workflow <workflow> --disable-progress
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0,1 \
+  --tensor-parallel-size 2 \
+  --distributed-executor-backend mp
 ```
 
-Use the canonical environment spelling for benchmark runs so every
-multi-process rank inherits the same OpenTelemetry setting. The local JSONL
-exporter writes completed spans synchronously, and the CLI lifecycle also
-flushes tracing before exit, so the file is complete when the command returns.
+For four GPUs, use `--cuda-device 0,1,2,3 --tensor-parallel-size 4`. To run
+the same workflow without tensor parallelism, select one GPU and use
+`--tensor-parallel-size 1`. Krea 2, Ideogram 4, Flux2 Dev, and MiniMax H3
+support this path.
 
-For sampling throughput, use only the `Sampler Invoke` span. It starts
-immediately before the sampler executor and ends immediately after it; it
-does not contain text encoding, model materialization/offload, VAE decode,
-custom-node loading, or CLI startup. Do not use process wall time, `Sampling`,
-`Execute Prompt`, or `Execute Node` to report sampling it/s. `Sampler Invoke`
-contains:
+The following sampler-only results were measured on two NVLink-connected
+NVIDIA RTX A5000 24 GB GPUs using `--fast fp16_accumulation`:
 
-- `sampling.steps`
-- `sampling.elapsed_seconds`
-- `sampling.seconds_per_step`
-- `sampling.steps_per_second` (the value to report as it/s)
-- `sampling.seed` and `sampler.class`
+| Model | Resolution | Frames | Steps | Weights | Attention | TP=1 s/it | TP=2 s/it | Speedup |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| Krea 2 Turbo | 1024x1024 | — | 8 | INT8 ConvRot | SageAttention | 1.170 | 0.876 | 1.34x |
+| Ideogram 4 | 1024x1024 | — | 20 | INT8 ConvRot (conditional + unconditional) | SageAttention | 2.754 | 1.823 | 1.51x |
+| Flux2 Dev | 1024x1024 | — | 20 | Full INT8 ConvRot | SageAttention | 4.018 | 1.662 | 2.42x |
+| MiniMax H3 | 864x480 | 124 | 20 | Pruned INT8 ConvRot | SageAttention | 9.497 | 6.272 | 1.51x |
 
-Extract the sampler records with normal Python from the active environment:
+## Benchmarking performance with OpenTelemetry
 
-```bash
-python -c 'import json,sys; [print(s["attributes"]) for s in map(json.loads, open(sys.argv[1])) if s["name"] == "Sampler Invoke"]' /tmp/comfyui-traces.jsonl
-```
-
-Keep the workflow, step count, latent dimensions, batch size, seed, sampler,
-scheduler, CFG, attention backend, compilation settings, model files, and
-ordered device list identical. Run a warmup and multiple measured samples
-when comparing kernels; report every measured sample plus the median. Never
-silently discard the first sample. For batch-1 pipeline parallelism, stages
-execute serially within each diffusion step, so PP primarily provides model
-capacity; it should not be presented as a latency speedup unless the trace
-actually shows one.
-
-Qwen Image Layered 20-step benchmark commands (custom nodes disabled):
-
-```bash
-# One 24 GB GPU
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-single.jsonl \
-  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
-  --cuda-device 1 --disable-all-custom-nodes --disable-progress --seed 42
-
-# PP=2, one process with asynchronous device-to-device transfers
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-peer.jsonl \
-  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
-  --cuda-device 1,0 --pipeline-parallel-size 2 \
-  --distributed-executor-backend peer \
-  --disable-all-custom-nodes --disable-progress --seed 42
-
-# PP=2, launcher-managed multiprocessing / torch.distributed
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/qwen-mp.jsonl \
-  comfyui run-workflow tests/inference/workflows/qwen-image-layered-pipeline-0.json \
-  --cuda-device 1,0 --pipeline-parallel-size 2 \
-  --distributed-executor-backend mp \
-  --disable-all-custom-nodes --disable-progress --seed 42
-
-```
-
-On the two RTX A5000 test host (23,028 MiB reported per GPU), the Qwen
-Layered int8-convrot diffusion checkpoint contains 19.14 GiB of tensors and
-materializes as about 19,603 MiB of resident diffusion weights on one GPU.
-A 20-step seed-42 trace measured 0.5070 it/s on one GPU and 0.4912 it/s with
-the peer PP=2 backend. The multiprocessing PP=2 backend measured 0.4894 it/s.
-Those are sampler-only numbers, not end-to-end times.
-
-MiniMax H3 20-step sampler benchmark commands (custom nodes disabled):
-
-```bash
-# One 24 GB GPU
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-single.jsonl \
-  comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
-  --steps 20 --float-duration 5 --set 115.inputs.megapixels=0.4 \
-  --cuda-device 1 \
-  --disable-all-custom-nodes --disable-progress --seed 42
-
-# PP=2, one process with asynchronous device-to-device transfers
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-peer.jsonl \
-  comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
-  --steps 20 --float-duration 5 --set 115.inputs.megapixels=0.4 \
-  --cuda-device 1,0 --pipeline-parallel-size 2 \
-  --distributed-executor-backend peer \
-  --disable-all-custom-nodes --disable-progress --seed 42
-
-# PP=2, launcher-managed multiprocessing / torch.distributed
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-mp.jsonl \
-  comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
-  --steps 20 --float-duration 5 --set 115.inputs.megapixels=0.4 \
-  --cuda-device 1,0 --pipeline-parallel-size 2 \
-  --distributed-executor-backend mp \
-  --disable-all-custom-nodes --disable-progress --seed 42
-
-# TP=2, Megatron-style sharded linears / torch.distributed
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-tp2.jsonl \
-  comfyui run-workflow tests/inference/workflows/minimax-h3-fl2va-0.json \
-  --steps 20 --float-duration 5 --set 115.inputs.megapixels=0.4 \
-  --cuda-device 1,0 --tensor-parallel-size 2 \
-  --pipeline-parallel-size 1 --distributed-executor-backend mp \
-  --disable-all-custom-nodes --disable-progress --seed 42
-```
-
-These overrides turn the compact CI fixture into the normal official geometry:
-0.4 MP, five seconds at 24 fps (124 frames after 17-frame alignment), and 20
-steps. On the same two RTX A5000 host, the pruned INT8 ConvRot diffusion model
-prepared about 19.53 GiB of VBAR-backed weights. With both GPUs free enough for
-an even 25/25-layer split, seed-42 sampler traces measured 0.11181 it/s on one
-GPU, 0.10031 it/s with peer PP=2, and 0.09420 it/s with multiprocessing PP=2.
-The corresponding sampler durations were 178.877, 199.381, and 212.312 seconds.
-Single-GPU DynamicVRAM is fastest for this batch-1 workload; PP provides model
-capacity, while its stages remain serial within each diffusion step.
-
-The TP=2 run loaded one 9.83 GiB diffusion-weight shard per rank. During the
-normal sampler both A5000s stayed compute-active with roughly 15.7 and 16.3 GiB
-resident, including activations. Its 20-step `Sampler Invoke` span was 135.730
-seconds, or 0.14735 it/s. Relative to TP=1, TP=2 reduced sampler latency by
-24.1% and increased throughput by 31.8%. The compact one-step fixture also ran
-through VAE decode and produced an MP4, which validates the transparent workflow
-path in addition to the sampler-only performance comparison.
-
-xDiT Ulysses sequence parallelism is selected with `--ulysses-degree`; it is
-injected through Comfy operations and automatically instruments the repeated
-transformer blocks in Flux2, Qwen Image/Layered, and MiniMax H3. The workflow
-does not need a special node. Each rank retains a complete weight replica while
-the token sequence and attention heads are exchanged with NCCL all-to-all:
-
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-ulysses2.jsonl \
-  comfyui workflows run tests/inference/workflows/minimax-h3-fl2va-0.json \
-  --steps 10 --float-duration 5 --set 115.inputs.megapixels=0.4 \
-  --cuda-device 1,0 --ulysses-degree 2 \
-  --distributed-executor-backend mp \
-  --disable-all-custom-nodes --disable-progress --seed 42
-```
-
-On the two A5000 host, a matched 10-step run measured 88.668 seconds on one
-GPU (8.867 s/step, 0.11278 it/s) and 67.096 seconds with Ulysses degree two
-(6.710 s/step, 0.14904 it/s). That is 24.3% lower sampler latency and 32.2%
-higher throughput. Nsight measured the rank-zero NCCL send/receive kernels at
-about 2.0 GPU-seconds per sampling step, so communication is the main remaining
-local scaling cost. The first/driver rank peaked near 22.2 GiB of process VRAM;
-the peer rank used about 19.5 GiB. Put the emptier GPU first in `--cuda-device`.
-
-Process peers inherit the serializable `Configuration` through the context-aware
-process pool. Live request progress/server objects are reconstructed as child
-stubs. Model-memory ownership is also Configuration-driven: each process runs
-its own DynamicVRAM/Aimdo decision maker for its selected GPU, while the driver
-can still discover all GPUs before launching peers. Do not add private
-environment variables for Aimdo device scope; canonical torchrun rank and
-rendezvous variables are only the launcher interoperability boundary.
-
-To compare the unchanged official MiniMax H3 text-to-video template instead of
-the inference fixture, upgrade the workflow-template packages and run the
-shipped workflow twice without prompt, seed, step, duration, or resolution
-overrides:
+Set `--otel-exporter-otlp-endpoint` to a `file://` URL containing the
+absolute path where ComfyUI should write the trace. Use a different path for
+each variant:
 
 ```bash
 # TP=1
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-t2v-tp1.jsonl \
-  comfyui workflows run video_minimax_h3_t2v \
-  --cuda-device 1 --tensor-parallel-size 1 --pipeline-parallel-size 1 \
-  --disable-all-custom-nodes --disable-progress
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0 \
+  --tensor-parallel-size 1 \
+  --otel-exporter-otlp-endpoint file:///tmp/comfyui-tp1.jsonl
 
 # TP=2
-OTEL_EXPORTER_OTLP_ENDPOINT=file:///tmp/minimax-h3-t2v-tp2.jsonl \
-  comfyui workflows run video_minimax_h3_t2v \
-  --cuda-device 1,0 --tensor-parallel-size 2 --pipeline-parallel-size 1 \
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0,1 \
+  --tensor-parallel-size 2 \
   --distributed-executor-backend mp \
-  --disable-all-custom-nodes --disable-progress
+  --otel-exporter-otlp-endpoint file:///tmp/comfyui-tp2.jsonl
 ```
 
-The shipped defaults use the template's detailed action-trailer prompt, seed
-556589502035082, 0.4 MP 16:9 output (864x480), five seconds/124 frames, and 20
-steps. Keep those inputs unchanged when comparing execution modes.
+The file contains one JSON span per line. Read the `Sampler Invoke` span to
+measure sampling performance:
 
-Internal process commands carry W3C trace context. `Tensor Parallel Rank
-Command` spans emitted by worker ranks share the originating sampler trace and
-name the rank, world size, and command kind. This lets a JSONL trace distinguish
-model work from a rank load, collective, or residency command across the
-process boundary.
+```bash
+jq -c 'select(.name == "Sampler Invoke") | .attributes' \
+  /tmp/comfyui-tp2.jsonl
+```
 
-For broader workflow diagnosis, the other spans to look for are:
-
-| Span | What it measures |
-|---|---|
-| `Execute Prompt` | End-to-end backend prompt execution. |
-| `Execute Node` | One node execution; attributes include `class_type` and scalar/list inputs such as seed, steps, sampler, scheduler, and model names when available. |
-| `Load Models GPU` | Model load/move time onto the target GPU. |
-| `Free Memory` | Time spent freeing/offloading memory. |
-| HTTP client/server spans | Submit/poll API overhead. |
-
-To extract other timings from the JSONL output, read each line as a span
-object and use `duration_ms` or compute
-`end_time_unix_nano - start_time_unix_nano`. Group `Execute Node` spans
-by `attributes["class_type"]`, and filter to the trace containing the
-measured submit. Use unique `--otel-service-name` or
-`--otel-service-version` values for each benchmark variant so traces
-from different runs do not mix.
+Use `sampling.seconds_per_step` for s/it or
+`sampling.steps_per_second` for it/s. The span also records
+`sampling.elapsed_seconds`, `sampling.steps`, and `sampling.seed`.
+Keep the workflow, model files, seed, resolution, frames, steps, sampler,
+scheduler, attention backend, and fast/compilation settings identical between
+runs.
 
 ## Troubleshooting quick table
 
