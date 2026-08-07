@@ -1035,6 +1035,14 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors"),
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/diffusion_models/flux2_dev_fp8mixed.safetensors"),
+    # Uploaded to the official repository in discussion/PR 14. Keep the
+    # immutable revision until Comfy-Org merges the artifact into main.
+    HuggingFile(
+        "Comfy-Org/flux2-dev",
+        "split_files/diffusion_models/flux2-dev-int8-convrot-simple.safetensors",
+        revision="14cd543dbc65aa53b21220e0c67c58d6c64bbdb9",
+        size=33055836040,
+    ),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4B", "flux-2-klein-base-4b.safetensors"),
     HuggingFile("Comfy-Org/flux2-klein", "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors"),
