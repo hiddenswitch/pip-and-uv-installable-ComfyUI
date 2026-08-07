@@ -6,6 +6,7 @@ from comfy.nodes.base_nodes import DiffusersLoader
 def test_diffusers_loader_uses_root_sharded_checkpoint(monkeypatch, tmp_path):
     model_dir = tmp_path / "HiDream-O1-Image-Dev"
     model_dir.mkdir()
+    (model_dir / "model_index.json").write_text("{}", encoding="utf-8")
     index_path = model_dir / "model.safetensors.index.json"
     index_path.write_text('{"weight_map": {}}', encoding="utf-8")
 
@@ -28,10 +29,10 @@ def test_diffusers_loader_uses_root_sharded_checkpoint(monkeypatch, tmp_path):
         calls["model_options"] = model_options
         return ("model", "clip", "vae", None)
 
-    monkeypatch.setattr("comfy.nodes.base_nodes.folder_paths.get_folder_paths", lambda folder: [])
+    monkeypatch.setattr("comfy.nodes.base_nodes.folder_paths.get_folder_paths", lambda folder: [str(tmp_path)] if folder == "diffusers" else [])
     monkeypatch.setattr("comfy.nodes.base_nodes.sd.load_checkpoint_guess_config", fake_load_checkpoint_guess_config)
 
-    assert DiffusersLoader().load_checkpoint(str(model_dir), weight_dtype="fp8_e4m3fn") == ("model", "clip", "vae")
+    assert DiffusersLoader().load_checkpoint(model_dir.name, weight_dtype="fp8_e4m3fn") == ("model", "clip", "vae")
     assert calls["ckpt_path"] == str(index_path)
     assert calls["output_vae"] is True
     assert calls["output_clip"] is True

@@ -9,7 +9,7 @@ implementation of these 26 modes must reproduce it within ``tolerance``:
 
 Run from the repository root::
 
-    python tests-unit/comfy_extras_test/compositor_blend_fixture_gen.py
+    python -m tests.unit.comfy_extras_test.compositor_blend_fixture_gen
 
 and review the diff. A change to this file is a change to user-visible
 blending behaviour in every implementation, so it should never be
@@ -17,16 +17,14 @@ regenerated just to make a test pass.
 """
 
 import json
-import os
 import sys
+from importlib.resources import files
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from comfy_extras.compositor_blend import CHANNEL_BLEND, HSL_BLEND, blend_pixel
 
-from comfy_extras.compositor_blend import CHANNEL_BLEND, HSL_BLEND, blend_pixel  # noqa: E402
-
-GOLDEN_PATH = os.path.join(os.path.dirname(__file__), "compositor_blend_golden.json")
+GOLDEN_PATH = files(__package__).joinpath("compositor_blend_golden.json")
 
 # Scalar grid for the per-channel modes: both endpoints, the midpoint, values
 # just inside each endpoint, and values inside the 1e-6 epsilon guards.
@@ -79,7 +77,7 @@ def build() -> dict:
             "blend space; outputs are unclamped (the compositor clamps once, at "
             "the end). 'channel' rows are [i, l, out] applied per channel; 'hsl' "
             "rows are [rgb_backdrop, rgb_layer, rgb_out]. Regenerate with "
-            "tests-unit/comfy_extras_test/compositor_blend_fixture_gen.py."
+            "python -m tests.unit.comfy_extras_test.compositor_blend_fixture_gen."
         ),
         "tolerance": 1e-4,
         "channel": channel,
@@ -106,6 +104,6 @@ def dumps(data: dict) -> str:
 
 
 if __name__ == "__main__":
-    with open(GOLDEN_PATH, "w") as handle:
+    with GOLDEN_PATH.open("w") as handle:
         handle.write(dumps(build()))
     sys.stdout.write(f"wrote {GOLDEN_PATH}\n")

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from comfy_extras.nodes_compositor import (
+from comfy_extras.nodes.nodes_compositor import (
     _layer_params,
     composite_from_state,
     expand_item_frames,

@@ -13,7 +13,7 @@ fixture.
 """
 
 import json
-import os
+from importlib.resources import files
 
 import numpy as np
 import pytest
@@ -27,9 +27,9 @@ from comfy_extras.compositor_blend import (
     resolve_mode,
 )
 
-GOLDEN_PATH = os.path.join(os.path.dirname(__file__), "compositor_blend_golden.json")
+GOLDEN_PATH = files(__package__).joinpath("compositor_blend_golden.json")
 
-with open(GOLDEN_PATH) as _handle:
+with GOLDEN_PATH.open() as _handle:
     GOLDEN = json.load(_handle)
 
 TOLERANCE = GOLDEN["tolerance"]

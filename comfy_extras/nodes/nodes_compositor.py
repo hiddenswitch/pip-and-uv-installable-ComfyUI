@@ -16,8 +16,8 @@ from comfy_extras.compositor_blend import (
     srgb_to_linear,
 )
 from comfy_extras.color_util import hex_to_rgb
-from comfy_extras.nodes_bounding_boxes import boxes_from_input
-from nodes import MAX_RESOLUTION
+from comfy.nodes.base_nodes import MAX_RESOLUTION
+from comfy_extras.nodes.nodes_bounding_boxes import boxes_from_input
 from typing_extensions import override
 
 

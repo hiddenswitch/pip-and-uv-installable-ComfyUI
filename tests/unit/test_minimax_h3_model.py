@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import torch
 
-from comfy.ldm.minimax.model import _timestep_rows, time_shift_sigma
+from comfy.ldm.minimax.model import (
+    _timestep_rows,
+    prepare_audio_carry,
+    restore_audio_carry,
+    time_shift_sigma,
+)
 
 
 def test_timestep_rows_match_h3_video_and_audio_schedules():
@@ -73,3 +78,28 @@ def test_timestep_rows_compile_once_across_sampler_sigma_values():
 
     assert len(graphs) == 1
     assert not torch.equal(first, second)
+
+
+def test_audio_carry_round_trip_matches_sampler_schedule_conversion():
+    video = torch.zeros(1, 1)
+    carried_audio = torch.ones(1, 1)
+    timestep = torch.tensor([500.0])
+    prepared, state = prepare_audio_carry(
+        [video, carried_audio],
+        timestep,
+        {},
+        {"audio_scale": 4.0},
+        12.0,
+        3.0,
+    )
+
+    sigma_a = time_shift_sigma(torch.tensor(0.5), 12.0, 3.0)
+    expected_audio = carried_audio * (sigma_a / 0.5)
+    torch.testing.assert_close(prepared[1], expected_audio)
+
+    network_output = [torch.zeros_like(video), torch.full_like(carried_audio, 2.0)]
+    restored = restore_audio_carry(network_output, state)
+    torch.testing.assert_close(
+        restored[1],
+        -3.0 * expected_audio + (1.0 + 3.0 * sigma_a) * 2.0,
+    )
