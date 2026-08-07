@@ -9,8 +9,9 @@ The packed sequence is:
 Timestep domain: the model receives the *video* sigma from the sampler and
 derives per-token timesteps t = 1 - sigma internally; the audio stream runs on
 its own shifted schedule (sigma_shift video 12.0 / audio 3.0), mapped from the
-video sigma in closed form. The audio velocity is returned scaled by the
-schedule map's derivative d(sigma_a)/d(sigma_v).
+video sigma in closed form. The sampler carries the audio latent scaled onto the
+video schedule (ModelSamplingAV); the model boundary undoes that scale and
+converts the velocity back, so _forward only ever sees the stream's own latent.
 """
 
 import math
@@ -47,17 +48,6 @@ def time_shift_sigma(sigma, from_shift, to_shift):
     return to_shift * base / (1.0 + (to_shift - 1.0) * base)
 
 
-def time_shift_slope(sigma, from_shift, to_shift):
-    """d(sigma_to)/d(sigma_from) at the same base-grid point.
-
-    Scaling a stream's returned velocity by this slope makes the flat ODE that
-    any sampler integrates on the from-schedule equal to that stream's true ODE
-    on its own schedule.
-    """
-    base = sigma / (from_shift + sigma * (1.0 - from_shift))
-    return (to_shift * (1.0 + (from_shift - 1.0) * base) ** 2) / (from_shift * (1.0 + (to_shift - 1.0) * base) ** 2)
-
-
 def _timestep_rows(
     sigma_v,
     shift_v,
@@ -79,6 +69,31 @@ def _timestep_rows(
         names.append("audio_condition")
         values.append(torch.clamp(t_a, min=audio_augmentation))
     return {name: index for index, name in enumerate(names)}, torch.stack(values)
+
+
+def prepare_audio_carry(x, timestep, transformer_options, minimax_payload, sigma_shift_video, sigma_shift_audio):
+    """Move the sampler-carried audio latent back onto its own schedule."""
+    scale = float((minimax_payload or {}).get("audio_scale", 1.0))
+    if scale == 1.0:
+        return x, None
+    shift_v = float(transformer_options.get("minimax_h3_sigma_shift_video", sigma_shift_video))
+    shift_a = float(transformer_options.get("minimax_h3_sigma_shift_audio", sigma_shift_audio))
+    sigma_v = (timestep.flatten()[0] / 1000.0).float().clamp(min=1e-6)
+    sigma_a = time_shift_sigma(sigma_v, shift_v, shift_a)
+    audio = x[1] * (sigma_a / sigma_v).to(x[1].dtype)
+    return [x[0], audio], (scale, audio, sigma_a)
+
+
+def restore_audio_carry(output, carry_state):
+    """Convert the network's audio velocity back to the sampler's schedule."""
+    if carry_state is None:
+        return output
+    scale, audio, sigma_a = carry_state
+    output[1] = (
+        (1.0 - scale) * audio
+        + (1.0 + (scale - 1.0) * sigma_a).to(output[1].dtype) * output[1]
+    )
+    return output
 
 
 def patchify_video(latent, patch_size=(1, 2, 2)):
@@ -596,11 +611,22 @@ class MiniMaxH3Model(nn.Module):
             raise RuntimeError("Only the first MiniMax H3 pipeline stage accepts model inputs")
         if self.pipeline_stage is not None and comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options):
             raise ValueError("MiniMax H3 pipeline parallelism does not support diffusion-model wrappers")
-        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        carry_state = None
+        if self.pipeline_stage is None:
+            x, carry_state = prepare_audio_carry(
+                x,
+                timestep,
+                transformer_options,
+                minimax_payload,
+                self.sigma_shift_video,
+                self.sigma_shift_audio,
+            )
+        out = comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
             comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(x, timestep, context, transformer_options, minimax_payload=minimax_payload, **kwargs)
+        return restore_audio_carry(out, carry_state)
 
     def _forward(self, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
         transformer_options = dict(transformer_options)
@@ -725,7 +751,6 @@ class MiniMaxH3Model(nn.Module):
 
         video_seg = next((a, b, t_row["video"]) for a, b, k in layout.segments if k == "video")
         audio_seg = next((a, b, t_row["audio"]) for a, b, k in layout.segments if k == "audio")
-        slope_a = time_shift_slope(sigma_v, shift_v, shift_a)
         sequence_padding = 0
         if self.xdit_sequence_parallel is not None:
             if self.pipeline_stage is not None:
@@ -763,7 +788,7 @@ class MiniMaxH3Model(nn.Module):
             )
 
         if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
-            tensors = {"hidden_states": h, "t_emb": t_emb, "rope_freqs": rope_freqs, "slope_a": slope_a}
+            tensors = {"hidden_states": h, "t_emb": t_emb, "rope_freqs": rope_freqs}
             metadata = {
                 "mod_segments": tuple(mod_segments),
                 "video_seg": video_seg,
@@ -781,7 +806,7 @@ class MiniMaxH3Model(nn.Module):
             return PipelineIntermediateTensors(tensors, metadata)
 
         return self._forward_exit(h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
-                                  orig_t, orig_h, orig_w, video_x.dtype, audio_x.dtype, slope_a)
+                                  orig_t, orig_h, orig_w, video_x.dtype, audio_x.dtype)
 
     def _run_blocks(self, h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer):
         patches_replace = transformer_options.get("patches_replace", {})
@@ -827,18 +852,14 @@ class MiniMaxH3Model(nn.Module):
             orig_t, orig_h, orig_w,
             unpack_pipeline_value(metadata["video_dtype"], tensors),
             unpack_pipeline_value(metadata["audio_dtype"], tensors),
-            tensors["slope_a"],
         )
 
     def _forward_exit(self, h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
-                      orig_t, orig_h, orig_w, video_dtype, audio_dtype, slope_a):
+                      orig_t, orig_h, orig_w, video_dtype, audio_dtype):
         v, a = self.final_layer(h, t_emb, video_seg, audio_seg)
 
         video_out = unpatchify_video(v, latent_t, lat_h // 2, lat_w // 2, self.latents_dim, self.patch_size)
         video_out = video_out[:, :, :orig_t, :orig_h, :orig_w]
         audio_out = unpack_audio(a)
 
-        # The sampler integrates the flat ODE dX/dsigma_v = (X - denoised)/sigma_v.
-        # Scaling the audio velocity by d(sigma_a)/d(sigma_v) makes that ODE equal
-        # to the audio stream's true ODE on its own shifted schedule.
-        return [-video_out.to(video_dtype), (-slope_a.to(audio_out.dtype)) * audio_out.to(audio_dtype)]
+        return [-video_out.to(video_dtype), -audio_out.to(audio_dtype)]

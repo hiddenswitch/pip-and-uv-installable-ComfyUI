@@ -27,6 +27,7 @@ from . import conds
 from . import latent_formats
 from . import model_management
 from . import model_prefetch
+from . import nested_tensor
 from . import ops
 from . import utils
 from .conds import CONDRegular, CONDConstant
@@ -83,11 +84,12 @@ from .ldm.seedvr.model import NaDiT
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel, SCAIL2WanModel
 from .ldm.wan.ar_model import CausalWanModel
 from .ldm.wan.model_animate import AnimateWanModel
+from .ldm.wan.model_animate2 import WanAnimate2Model
 from .ldm.wan.model_wandancer import WanDancerModel
 from .ldm.cogvideo.model import CogVideoXTransformer3DModel
 from .ldm.depth_anything_3.model import DepthAnything3Net
 from .model_management_types import ModelManageable
-from .model_sampling import CONST, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG, IMG_TO_IMG_FLOW, V_PREDICTION_DDPM
+from .model_sampling import CONST, ModelSamplingAV, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG, IMG_TO_IMG_FLOW, V_PREDICTION_DDPM
 from .model_sampling import StableCascadeSampling, COSMOS_RFLOW, ModelSamplingCosmosRFlow, V_PREDICTION, \
     ModelSamplingContinuousEDM, ModelSamplingDiscrete, EPS, EDM, ModelSamplingContinuousV
 from .ops import Operations
@@ -109,6 +111,7 @@ class ModelType(Enum):
     FLOW_COSMOS = 10
     IMG_TO_IMG_FLOW = 11
     V_PREDICTION_DDPM = 12
+    FLOW_AV = 13
 
 
 def model_sampling(model_config, model_type):
@@ -146,6 +149,9 @@ def model_sampling(model_config, model_type):
         c = IMG_TO_IMG_FLOW
     elif model_type == ModelType.V_PREDICTION_DDPM:
         c = V_PREDICTION_DDPM
+    elif model_type == ModelType.FLOW_AV:
+        c = CONST
+        s = ModelSamplingAV
 
     class ModelSampling(s, c):
         pass
@@ -279,6 +285,7 @@ class BaseModel(torch.nn.Module):
             self.operations = None
         self.model_type = model_type
         self.model_sampling = model_sampling(model_config, model_type)
+        self.latent_shapes = None  # set by the sampler for models that pack several streams into one latent
 
         self.adm_channels = unet_config.get("adm_in_channels", None)
         if self.adm_channels is None:
@@ -1977,6 +1984,40 @@ class WAN22_Animate(WAN21):
             return slice_cond(cond_value, window, x_in, device, temporal_dim=2, temporal_offset=1)
         return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
 
+class WAN_Animate2(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=WanAnimate2Model)
+        self.image_to_video = True
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+
+        pose_video_latent = kwargs.get("pose_video_latent", None)
+        if pose_video_latent is not None:
+            out['pose_latents'] = conds.CONDRegular(self.process_latent_in(pose_video_latent))
+
+        clip_vision_output_pose = kwargs.get("clip_vision_output_pose", None)
+        if clip_vision_output_pose is not None:
+            out['clip_fea_pose'] = conds.CONDRegular(clip_vision_output_pose.penultimate_hidden_states)
+
+        cross_attn_pose = kwargs.get("cross_attn_pose", None)
+        if cross_attn_pose is not None:
+            out['context_pose'] = conds.CONDRegular(cross_attn_pose)
+
+        pose_strength = kwargs.get("pose_strength", 1.0)
+        if pose_strength != 1.0:
+            out['pose_strength'] = conds.CONDConstant(pose_strength)
+
+        reference_strength = kwargs.get("reference_strength", 1.0)
+        if reference_strength != 1.0:
+            out['reference_strength'] = conds.CONDConstant(reference_strength)
+
+        return out
+
+    def resize_cond_for_context_window(self, cond_key, cond_value, window, x_in, device, retain_index_list=[]):
+        if cond_key == "pose_latents":
+            return slice_cond(cond_value, window, x_in, device, temporal_dim=2, temporal_offset=1)
+        return super().resize_cond_for_context_window(cond_key, cond_value, window, x_in, device, retain_index_list=retain_index_list)
 
 class WAN22_S2V(WAN21):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -2241,8 +2282,55 @@ class Hunyuan3Dv2_1(BaseModel):
 
 
 class MiniMaxH3(BaseModel):
-    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+    def __init__(self, model_config, model_type=ModelType.FLOW_AV, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=minimax_model.MiniMaxH3Model)
+
+    def execute_diffusion_model(self, method, *args, **kwargs):
+        if method != "forward" or self.pipeline_executor is None:
+            return super().execute_diffusion_model(method, *args, **kwargs)
+        x, timestep, *remaining = args
+        transformer_options = kwargs.get("transformer_options", {})
+        payload = kwargs.get("minimax_payload")
+        x, carry_state = minimax_model.prepare_audio_carry(
+            x,
+            timestep,
+            transformer_options,
+            payload,
+            self.diffusion_model.sigma_shift_video,
+            self.diffusion_model.sigma_shift_audio,
+        )
+        output = super().execute_diffusion_model(
+            method,
+            x,
+            timestep,
+            *remaining,
+            **kwargs,
+        )
+        return minimax_model.restore_audio_carry(output, carry_state)
+
+    def audio_scale(self):
+        """Scale the sampler carries the audio stream at, 1.0 when not sampling the packed latent."""
+        if self.latent_shapes is None or len(self.latent_shapes) < 2:
+            return 1.0
+        return self.model_sampling.audio_scale
+
+    def _scale_audio_slice(self, latent, scale):
+        # the sampler carries the audio stream scaled onto the video schedule
+        if scale == 1.0:
+            return latent
+        if latent.is_nested:  # the x0 output hands back the unpacked view
+            streams = latent.unbind()
+            return nested_tensor.NestedTensor([streams[0], streams[1] * scale] + list(streams[2:]))
+        n = math.prod(self.latent_shapes[0][1:])
+        latent = latent.clone()
+        latent[..., n:] *= scale
+        return latent
+
+    def process_latent_in(self, latent):
+        return self._scale_audio_slice(super().process_latent_in(latent), self.audio_scale())
+
+    def process_latent_out(self, latent):
+        return super().process_latent_out(self._scale_audio_slice(latent, 1.0 / self.audio_scale()))
 
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
@@ -2277,6 +2365,8 @@ class MiniMaxH3(BaseModel):
         if kwargs.get("minimax_audio_cond_noise_aug") is not None:
             payload["audio_cond_noise_aug"] = kwargs["minimax_audio_cond_noise_aug"]
         payload["seed"] = kwargs.get("seed", 0)
+        # same value process_latent_in/out used, so the model never undoes a scale that was not applied
+        payload["audio_scale"] = self.audio_scale()
         if cross_attn is not None and latent_shapes is not None and len(latent_shapes) > 1:
             video_shape = latent_shapes[0]
             payload["layout"] = minimax_model.PackedLayout(
@@ -2287,9 +2377,6 @@ class MiniMaxH3(BaseModel):
             )
         out["minimax_payload"] = CONDConstant(payload)
         return out
-
-    def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
-        return latent_image
 
 class TripoSplat(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):

@@ -182,7 +182,23 @@ try:
                 try:
                     if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                    attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
+                    if kwargs.get("enable_gqa", False) and attn_mask is not None and not model_management.is_nvidia():
+                        k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                        kwargs["enable_gqa"] = False
                     with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                        if kwargs.get("enable_gqa", False) and attn_mask is not None and q.shape[-3] != k.shape[-3]:
+                            dropout_p = args[1] if len(args) > 1 else kwargs.get("dropout_p", 0.0)
+                            is_causal = args[2] if len(args) > 2 else kwargs.get("is_causal", False)
+                            params = torch.backends.cuda.SDPAParams(q, k, v, attn_mask, dropout_p, is_causal, True)
+                            supports_native_gqa = (
+                                torch.backends.cuda.can_use_flash_attention(params)
+                                or torch.backends.cuda.can_use_cudnn_attention(params)
+                                or torch.backends.cuda.can_use_efficient_attention(params)
+                            )
+                            if not supports_native_gqa:
+                                k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                                kwargs["enable_gqa"] = False
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                 except RuntimeError as e:
                     error_msg = str(e)
@@ -1712,6 +1728,26 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
                 "quant_group_size": 64,
                 "linear_dtype": layer_conf.get("linear_dtype", params_conf.get("linear_dtype", "int4")),
             }
+        elif module.quant_format == "asym_w4a8_int8":
+            # int4 weight (packed int8 [N,K/2]) + fp8 per-group scale (weight_s_rel),
+            # fp32 per-channel scale (weight_s_channel) + optional Lloyd-Max codebook.
+            scale = pop_scale("weight_s_rel")
+            if scale is None:
+                raise ValueError(f"Missing W4A8 group scale (weight_s_rel) for layer {layer_name}")
+            if scale.dtype == torch.uint8:
+                scale = scale.view(torch.float8_e4m3fn)
+            params_conf = layer_conf.get("params", {})
+            if not isinstance(params_conf, dict):
+                params_conf = {}
+            scales = {
+                "scale": scale,
+                "s_channel": pop_scale("weight_s_channel"),
+                "codebook": pop_scale("weight_codebook"),
+                "group_size": int(layer_conf.get("group_size", params_conf.get("group_size", 16))),
+                "convrot_groupsize": int(
+                    layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256))
+                ),
+            }
         else:
             raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
@@ -1775,6 +1811,9 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
                 linear_dtype = getattr(weight_params, "linear_dtype", "int4")
                 if linear_dtype != "int4":
                     quant_conf["linear_dtype"] = linear_dtype
+            elif module.quant_format == "asym_w4a8_int8":
+                quant_conf["group_size"] = int(getattr(weight_params, "group_size", 16))
+                quant_conf["convrot_groupsize"] = int(getattr(weight_params, "convrot_groupsize", 256))
         if getattr(module, '_full_precision_mm_config', False):
             quant_conf["full_precision_matrix_mult"] = True
         if extra_quant_conf:
