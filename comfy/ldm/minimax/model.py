@@ -26,7 +26,8 @@ import comfy.patcher_extension
 import comfy.quant_ops
 from comfy.ldm.modules.attention import optimized_attention
 from comfy.pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
-from comfy.pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from comfy.pipeline_parallel.types import pack_pipeline_value, prepare_model_parallel_value, unpack_pipeline_value
+from comfy.tensor_parallel.operations import column_parallel_linear, local_size, row_parallel_linear
 from comfy.xdit import (
     gather_sequence,
     install_sequence_parallel_attention_override,
@@ -176,20 +177,16 @@ def rope_rotation_table(angles, dtype):
 class Attention(nn.Module):
     def __init__(self, hidden, heads, head_dim, eps, dtype=None, device=None, operations=None):
         super().__init__()
-        tensor_parallel = getattr(operations, "tensor_parallel", None)
-        self.heads = heads if tensor_parallel is None else heads // tensor_parallel.size
+        self.heads = local_size(operations, heads, "MiniMax H3 attention heads")
         self.head_dim = head_dim
         inner = heads * head_dim
-        if tensor_parallel is None:
-            self.qkv_proj = operations.Linear(hidden, inner * 3, bias=False, dtype=dtype, device=device)
-            self.out_proj = operations.Linear(inner, hidden, bias=False, dtype=dtype, device=device)
-        else:
-            self.qkv_proj = operations.ColumnParallelLinear(
-                hidden, inner * 3, bias=False, sections=3, dtype=dtype, device=device
-            )
-            self.out_proj = operations.RowParallelLinear(
-                inner, hidden, bias=False, dtype=dtype, device=device
-            )
+        self.qkv_proj = column_parallel_linear(
+            operations, hidden, inner * 3, bias=False, sections=3,
+            dtype=dtype, device=device,
+        )
+        self.out_proj = row_parallel_linear(
+            operations, inner, hidden, bias=False, dtype=dtype, device=device
+        )
         self.q_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
 
@@ -225,17 +222,14 @@ class Attention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, hidden, ffn, dtype=None, device=None, operations=None):
         super().__init__()
-        tensor_parallel = getattr(operations, "tensor_parallel", None)
-        if tensor_parallel is None:
-            self.fc1 = operations.Linear(hidden, ffn * 2, bias=False, dtype=dtype, device=device)
-            self.fc2 = operations.Linear(ffn, hidden, bias=False, dtype=dtype, device=device)
-        else:
-            self.fc1 = operations.ColumnParallelLinear(
-                hidden, ffn * 2, bias=False, sections=2, dtype=dtype, device=device
-            )
-            self.fc2 = operations.RowParallelLinear(
-                ffn, hidden, bias=False, dtype=dtype, device=device
-            )
+        local_size(operations, ffn, "MiniMax H3 MLP width")
+        self.fc1 = column_parallel_linear(
+            operations, hidden, ffn * 2, bias=False, sections=2,
+            dtype=dtype, device=device,
+        )
+        self.fc2 = row_parallel_linear(
+            operations, ffn, hidden, bias=False, dtype=dtype, device=device
+        )
 
     def forward(self, x):
         return comfy.ops.linear_input_act(self.fc2, self.fc1(x), "swiglu")
@@ -778,7 +772,11 @@ class MiniMaxH3Model(nn.Module):
                 "original_shape": (orig_t, orig_h, orig_w),
                 "video_dtype": pack_pipeline_value(video_x.dtype, tensors, "video_dtype"),
                 "audio_dtype": pack_pipeline_value(audio_x.dtype, tensors, "audio_dtype"),
-                "transformer_options": pack_pipeline_value(transformer_options, tensors, "transformer_options"),
+                "transformer_options": pack_pipeline_value(
+                    prepare_model_parallel_value(transformer_options),
+                    tensors,
+                    "transformer_options",
+                ),
             }
             return PipelineIntermediateTensors(tensors, metadata)
 

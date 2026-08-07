@@ -14,6 +14,7 @@ from comfy.tensor_parallel import (
     TensorParallelConfig,
     TorchDistributedTensorParallelOperations,
     shard_minimax_h3_state_dict,
+    shard_tensor_parallel_state_dict,
     tensor_parallel_operations,
 )
 from comfy.tensor_parallel.distributed import (
@@ -156,6 +157,71 @@ def test_minimax_checkpoint_shards_megatron_projection_dimensions():
     assert first["blocks.0.norm.weight"] is state["blocks.0.norm.weight"]
 
 
+@pytest.mark.parametrize(
+    ("family", "state", "column_key", "expected_first_rows", "row_key"),
+    [
+        (
+            "krea2",
+            {
+                "blocks.0.attn.wq.weight": torch.arange(32).reshape(8, 4),
+                "blocks.0.attn.wq.weight_scale": torch.arange(8).reshape(8, 1),
+                "blocks.0.attn.wo.weight": torch.arange(32).reshape(4, 8),
+            },
+            "blocks.0.attn.wq.weight",
+            [0, 4, 8, 12],
+            "blocks.0.attn.wo.weight",
+        ),
+        (
+            "ideogram4",
+            {
+                "layers.0.attention.qkv.weight": torch.arange(96).reshape(24, 4),
+                "layers.0.attention.qkv.weight_scale": torch.arange(24).reshape(24, 1),
+                "layers.0.attention.o.weight": torch.arange(32).reshape(4, 8),
+            },
+            "layers.0.attention.qkv.weight",
+            [0, 4, 8, 12, 32, 36, 40, 44, 64, 68, 72, 76],
+            "layers.0.attention.o.weight",
+        ),
+        (
+            "flux2",
+            {
+                "double_blocks.0.img_attn.qkv.weight": torch.arange(96).reshape(24, 4),
+                "double_blocks.0.img_attn.proj.weight": torch.arange(32).reshape(4, 8),
+            },
+            "double_blocks.0.img_attn.qkv.weight",
+            [0, 4, 8, 12, 32, 36, 40, 44, 64, 68, 72, 76],
+            "double_blocks.0.img_attn.proj.weight",
+        ),
+    ],
+)
+def test_checkpoint_shards_supported_projection_layouts(
+    family, state, column_key, expected_first_rows, row_key
+):
+    first = shard_tensor_parallel_state_dict(state, family, 0, 2)
+    second = shard_tensor_parallel_state_dict(state, family, 1, 2)
+
+    assert first[column_key][:, 0].tolist() == expected_first_rows
+    assert first[column_key].shape == second[column_key].shape
+    assert torch.equal(first[row_key], state[row_key][:, :4])
+    assert torch.equal(second[row_key], state[row_key][:, 4:])
+
+
+def test_flux2_single_stream_checkpoint_preserves_fused_projection_sections():
+    weight = torch.arange(40 * 8).reshape(40, 8)
+    state = {
+        "single_blocks.0.linear1.weight": weight,
+        "single_blocks.0.linear2.weight": torch.arange(128).reshape(8, 16),
+    }
+
+    first = shard_tensor_parallel_state_dict(state, "flux2", 0, 2)
+    second = shard_tensor_parallel_state_dict(state, "flux2", 1, 2)
+
+    expected_first = torch.cat((weight[0:4], weight[8:12], weight[16:20], weight[24:28], weight[32:36]))
+    expected_second = torch.cat((weight[4:8], weight[12:16], weight[20:24], weight[28:32], weight[36:40]))
+    assert torch.equal(first["single_blocks.0.linear1.weight"], expected_first)
+    assert torch.equal(second["single_blocks.0.linear1.weight"], expected_second)
+
+
 def test_minimax_conditioning_uses_tensor_parallel_executor():
     model = MiniMaxH3.__new__(MiniMaxH3)
     torch.nn.Module.__init__(model)
@@ -201,6 +267,10 @@ def test_tensor_parallel_gpu_inputs_move_to_rank_device_before_collective(monkey
         return completion
 
     monkeypatch.setattr("comfy.tensor_parallel.distributed.dist.broadcast", broadcast)
+    monkeypatch.setattr(
+        "torch._subclasses.fake_tensor.init_gpu_context",
+        lambda _: None,
+    )
     operations = type("Operations", (), {
         "device": torch.device("cuda", 1),
         "control_process_group": "gloo",
@@ -281,7 +351,7 @@ def test_model_parallel_root_failure_aborts_device_group(monkeypatch):
     assert executor._device_group_active is False
 
 
-def test_model_parallel_transport_removes_only_rank_local_compile_wrapper():
+def test_model_parallel_transport_keeps_only_diffusion_model_wrappers():
     compile_wrapper = lambda executor, *args, **kwargs: executor(*args, **kwargs)
     extension_wrapper = object()
     value = {
@@ -292,6 +362,7 @@ def test_model_parallel_transport_removes_only_rank_local_compile_wrapper():
                     "extension": [extension_wrapper],
                 },
                 "diffusion_model": {"extension": [extension_wrapper]},
+                "predict_noise": {None: [extension_wrapper]},
             },
             "layout": object(),
             "seed": 42,
@@ -302,12 +373,9 @@ def test_model_parallel_transport_removes_only_rank_local_compile_wrapper():
 
     options = cleaned["transformer_options"]
     assert "layout" not in options
-    assert options["wrappers"]["apply_model"] == {
+    assert options["wrappers"] == {"diffusion_model": {
         "extension": [extension_wrapper]
-    }
-    assert options["wrappers"]["diffusion_model"] == {
-        "extension": [extension_wrapper]
-    }
+    }}
     assert options["seed"] == 42
 
 
@@ -438,6 +506,65 @@ def test_tensor_parallel_commands_propagate_trace_context(monkeypatch):
         "kind": "execute",
         "trace_context": {"traceparent": "00-test"},
     }]
+
+
+def test_model_parallel_commands_use_executor_owned_control_group(monkeypatch):
+    calls = []
+
+    def broadcast_object_list(values, src, group):
+        calls.append((values, src, group))
+
+    monkeypatch.setattr(
+        "comfy.tensor_parallel.distributed.dist.broadcast_object_list",
+        broadcast_object_list,
+    )
+
+    _ObjectCoordinator("executor-gloo").broadcast_command({"kind": "execute"})
+
+    assert calls[0][1:] == (0, "executor-gloo")
+
+
+def test_model_parallel_close_destroys_owned_groups_before_waiting_for_worker(
+    monkeypatch,
+):
+    events = []
+
+    class Coordinator:
+        def broadcast_command(self, command):
+            events.append(("broadcast", command["kind"]))
+
+    class Future:
+        def result(self, timeout):
+            events.append(("wait", timeout))
+
+    class Pool:
+        def shutdown(self, wait):
+            events.append(("shutdown", wait))
+
+    groups = object()
+    monkeypatch.setattr(
+        "comfy.tensor_parallel.distributed.destroy_independent_process_groups",
+        lambda value: events.append(("destroy", value)),
+    )
+    executor = TorchDistributedTensorParallelExecutor(
+        RecordingRootModel(),
+        object(),
+        Coordinator(),
+        ((Pool(), Future()),),
+        (),
+        (torch.device("cpu"), torch.device("cpu")),
+        (0, 0),
+        process_groups=groups,
+    )
+
+    executor.close()
+
+    assert events == [
+        ("broadcast", "close"),
+        ("destroy", groups),
+        ("wait", 10),
+        ("shutdown", True),
+    ]
 
 
 def test_minimax_tensor_parallel_attention_and_mlp_match_full_model(monkeypatch):

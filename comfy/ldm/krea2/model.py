@@ -19,6 +19,7 @@ from ... import utils
 from comfy.ldm.flux.layers import EmbedND, timestep_embedding
 from comfy.ldm.flux.math import apply_rope
 from comfy.ldm.modules.attention import optimized_attention_masked
+from comfy.tensor_parallel.operations import column_parallel_linear, local_size, row_parallel_linear
 
 
 class RMSNorm(nn.Module):
@@ -51,9 +52,10 @@ class SwiGLU(nn.Module):
         super().__init__()
         mlpdim = int(2 * features / 3) * multiplier
         mlpdim = multiple * ((mlpdim + multiple - 1) // multiple)
-        self.gate = operations.Linear(features, mlpdim, bias=bias, device=device, dtype=dtype)
-        self.up = operations.Linear(features, mlpdim, bias=bias, device=device, dtype=dtype)
-        self.down = operations.Linear(mlpdim, features, bias=bias, device=device, dtype=dtype)
+        local_size(operations, mlpdim, "Krea 2 MLP width")
+        self.gate = column_parallel_linear(operations, features, mlpdim, bias=bias, device=device, dtype=dtype)
+        self.up = column_parallel_linear(operations, features, mlpdim, bias=bias, device=device, dtype=dtype)
+        self.down = row_parallel_linear(operations, mlpdim, features, bias=bias, device=device, dtype=dtype)
 
     def forward(self, x):
         return self.down(F.silu(self.gate(x)).mul_(self.up(x)))
@@ -63,15 +65,16 @@ class Attention(nn.Module):
     def __init__(self, dim: int, heads: int, kvheads: Optional[int] = None, bias: bool = False,
                  device=None, dtype=None, operations=None):
         super().__init__()
-        self.heads = heads
-        self.kvheads = kvheads if kvheads is not None else heads
-        self.headdim = dim // self.heads
-        self.wq = operations.Linear(dim, self.headdim * self.heads, bias=bias, device=device, dtype=dtype)
-        self.wk = operations.Linear(dim, self.headdim * self.kvheads, bias=bias, device=device, dtype=dtype)
-        self.wv = operations.Linear(dim, self.headdim * self.kvheads, bias=bias, device=device, dtype=dtype)
-        self.gate = operations.Linear(dim, dim, bias=bias, device=device, dtype=dtype)
+        global_kvheads = kvheads if kvheads is not None else heads
+        self.heads = local_size(operations, heads, "Krea 2 attention heads")
+        self.kvheads = local_size(operations, global_kvheads, "Krea 2 KV heads")
+        self.headdim = dim // heads
+        self.wq = column_parallel_linear(operations, dim, self.headdim * heads, bias=bias, device=device, dtype=dtype)
+        self.wk = column_parallel_linear(operations, dim, self.headdim * global_kvheads, bias=bias, device=device, dtype=dtype)
+        self.wv = column_parallel_linear(operations, dim, self.headdim * global_kvheads, bias=bias, device=device, dtype=dtype)
+        self.gate = column_parallel_linear(operations, dim, dim, bias=bias, device=device, dtype=dtype)
         self.qknorm = QKNorm(self.headdim, device=device, dtype=dtype, operations=operations)
-        self.wo = operations.Linear(dim, dim, bias=bias, device=device, dtype=dtype)
+        self.wo = row_parallel_linear(operations, dim, dim, bias=bias, device=device, dtype=dtype)
 
     def forward(self, x, freqs=None, mask=None, transformer_options={}):
         transformer_patches = transformer_options.get("patches", {})

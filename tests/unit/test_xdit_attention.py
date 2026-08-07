@@ -13,7 +13,19 @@ from comfy.xdit import (
     local_padding_mask,
     split_sequence,
 )
+from comfy.xdit.runtime import _process_rank_context
 from comfy.xdit.attention import install_ulysses_attention_override
+
+
+def test_process_rank_context_is_temporary():
+    c10d = torch.distributed.distributed_c10d
+    previous = c10d._world.default_pg
+
+    with _process_rank_context(rank=1, world_size=2):
+        assert torch.distributed.get_rank() == 1
+        assert torch.distributed.get_world_size() == 2
+
+    assert c10d._world.default_pg is previous
 
 
 class _ThreadedCollectives:

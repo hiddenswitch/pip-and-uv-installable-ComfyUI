@@ -53,6 +53,7 @@ from .types import (
     PipelineDeviceMemoryBudget,
     TensorDescriptor,
     deserialize_pipeline_metadata,
+    prepare_model_parallel_value,
     serialize_pipeline_metadata,
 )
 
@@ -102,5 +103,6 @@ __all__ = [
     "get_external_pipeline_runtime",
     "get_pipeline_stage_spec",
     "initialize_external_pipeline_runtime",
+    "prepare_model_parallel_value",
     "serialize_pipeline_metadata",
 ]

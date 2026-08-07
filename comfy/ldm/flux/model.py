@@ -12,7 +12,7 @@ from ...pipeline_parallel import (
     PipelineMissingLayer,
     PipelineStageConfig,
 )
-from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from ...pipeline_parallel.types import pack_pipeline_value, prepare_model_parallel_value, unpack_pipeline_value
 from ...xdit import (
     attention_mask_pad_value,
     combine_local_masks,
@@ -600,7 +600,9 @@ class Flux(nn.Module):
                 _transport_modulation(single_vec), tensors, "single_vec"
             ),
             "transformer_options": pack_pipeline_value(
-                transformer_options, tensors, "transformer_options"
+                prepare_model_parallel_value(transformer_options),
+                tensors,
+                "transformer_options",
             ),
             "control": pack_pipeline_value(control, tensors, "control"),
         }

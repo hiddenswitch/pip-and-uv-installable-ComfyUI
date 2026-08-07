@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-from datetime import timedelta
 import gc
 import logging
 import multiprocessing.connection
@@ -16,10 +15,18 @@ import torch.distributed as dist
 from ..distributed.config import DistributedConfiguration, resolve_distributed_configuration
 from ..distributed.device import accelerator_device_provider
 from ..distributed.executors import ContextVarProcessPoolExecutor
-from ..distributed.process_group import create_device_process_group
+from ..distributed.process_group import (
+    create_independent_process_groups,
+    destroy_independent_process_groups,
+)
 from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
-from ..pipeline_parallel.types import TensorDescriptor, pack_pipeline_value, unpack_pipeline_value
+from ..pipeline_parallel.types import (
+    TensorDescriptor,
+    pack_pipeline_value,
+    prepare_model_parallel_value,
+    unpack_pipeline_value,
+)
 from .runtime import TorchDistributedTensorParallelOperations
 
 
@@ -31,27 +38,7 @@ def _free_tcp_init_method() -> str:
 
 
 def _without_execution_caches(value):
-    if isinstance(value, dict):
-        cleaned = {
-            key: _without_execution_caches(item)
-            for key, item in value.items()
-            if key != "layout"
-        }
-        wrappers = cleaned.get("wrappers")
-        if isinstance(wrappers, dict):
-            apply_model = wrappers.get("apply_model")
-            if isinstance(apply_model, dict):
-                apply_model.pop("torch.compile", None)
-                if not apply_model:
-                    wrappers.pop("apply_model", None)
-            if not wrappers:
-                cleaned.pop("wrappers", None)
-        return cleaned
-    if isinstance(value, list):
-        return [_without_execution_caches(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_without_execution_caches(item) for item in value)
-    return value
+    return prepare_model_parallel_value(value)
 
 
 def _broadcast_tensors(operations, tensors=None, descriptors=None):
@@ -94,7 +81,7 @@ def _broadcast_tensors(operations, tensors=None, descriptors=None):
 
 
 class TorchDistributedModelParallelExecutor:
-    def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes, root_patcher=None):
+    def __init__(self, root_model, operations, coordinator, workers, connections, devices, rank_sizes, root_patcher=None, process_groups=None):
         self.root_model = root_model
         self.root_patcher = root_patcher
         self.operations = operations
@@ -103,6 +90,7 @@ class TorchDistributedModelParallelExecutor:
         self.connections = tuple(connections)
         self.devices = tuple(devices)
         self.rank_sizes = tuple(rank_sizes)
+        self.process_groups = process_groups
         self._closed = False
         self._device_group_active = True
 
@@ -204,8 +192,20 @@ class TorchDistributedModelParallelExecutor:
         if self._closed:
             return
         self._closed = True
-        if dist.is_initialized():
+        try:
             self.coordinator.broadcast_command({"kind": "close"})
+        except Exception:
+            pass
+
+        # NCCL teardown must happen concurrently on every rank.  Waiting for
+        # worker futures first deadlocks because each worker is already inside
+        # ncclCommDestroy waiting for rank zero.
+        if self.process_groups is not None:
+            try:
+                destroy_independent_process_groups(self.process_groups)
+            except Exception:
+                pass
+            self._device_group_active = False
         for worker_pool, worker_future in self.workers:
             try:
                 worker_future.result(timeout=10)
@@ -215,14 +215,15 @@ class TorchDistributedModelParallelExecutor:
                 worker_pool.shutdown(wait=True)
             else:
                 worker_pool.shutdown(wait=True)
-        if dist.is_initialized() and self._device_group_active:
-            try:
-                dist.destroy_process_group(self.operations.process_group)
-            finally:
-                self._device_group_active = False
+        if self.process_groups is None and dist.is_initialized():
+            if self._device_group_active:
+                try:
+                    dist.destroy_process_group(self.operations.process_group)
+                finally:
+                    self._device_group_active = False
+                    dist.destroy_process_group()
+            else:
                 dist.destroy_process_group()
-        elif dist.is_initialized():
-            dist.destroy_process_group()
 
     def __del__(self):
         self.close()
@@ -339,19 +340,35 @@ class RemoteModelParallelRankModel(ModelManageableStub):
 
 
 class _ObjectCoordinator:
+    def __init__(self, control_process_group=None):
+        self.control_process_group = control_process_group
+
+    def _group_kwargs(self):
+        if self.control_process_group is None:
+            return {}
+        return {"group": self.control_process_group}
+
     def broadcast_command(self, command=None):
         if command is not None:
             command = inject_trace_context(command)
         values = [command]
-        dist.broadcast_object_list(values, src=0)
+        dist.broadcast_object_list(values, src=0, **self._group_kwargs())
         return values[0]
 
     def send_object(self, value, destination_rank):
-        dist.send_object_list([value], dst=destination_rank)
+        dist.send_object_list(
+            [value],
+            dst=destination_rank,
+            **self._group_kwargs(),
+        )
 
     def receive_object(self, source_rank):
         values = [None]
-        dist.recv_object_list(values, src=source_rank)
+        dist.recv_object_list(
+            values,
+            src=source_rank,
+            **self._group_kwargs(),
+        )
         return values[0]
 
 
@@ -456,23 +473,29 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
     distributed = resolve_distributed_configuration(environment=os.environ)
     rank = distributed.rank
     connection.send(rank)
-    world_size, init_method, load_spec, device_identity = connection.recv()
+    world_size, init_method, group_name, load_spec, device_identity = connection.recv()
     device_provider = accelerator_device_provider(device_identity.device_type)
     device = device_provider.resolve(device_identity)
     device_provider.select(device)
-    dist.init_process_group("gloo", init_method=init_method, rank=rank, world_size=world_size,
-                            timeout=timedelta(minutes=5))
-    device_group = create_device_process_group(range(world_size), device)
+    process_groups = create_independent_process_groups(
+        init_method,
+        rank,
+        world_size,
+        device,
+        group_name,
+    )
+    control_group = process_groups.control_process_group
+    device_group = process_groups.device_process_group
     if parallel_kind == "tensor":
         operations = TorchDistributedTensorParallelOperations(
-            rank, world_size, device, device_group, dist.group.WORLD
+            rank, world_size, device, device_group, control_group
         )
         span_name = "Tensor Parallel Rank Command"
     elif parallel_kind in ("xdit_ulysses", "xdit_ring"):
         from ..xdit.runtime import TorchDistributedXDiTSequenceParallelOperations
 
         operations = TorchDistributedXDiTSequenceParallelOperations(
-            rank, world_size, device, device_group, dist.group.WORLD
+            rank, world_size, device, device_group, control_group
         )
         span_name = f"xDiT {parallel_kind.removeprefix('xdit_').title()} Rank Command"
     else:
@@ -495,7 +518,12 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
                 operations,
             )
         connection.send({"kind": "ready", "size": patcher.model_size()})
-        _run_worker(operations, _ObjectCoordinator(), patcher, span_name)
+        _run_worker(
+            operations,
+            _ObjectCoordinator(control_group),
+            patcher,
+            span_name,
+        )
         del patcher
         gc.collect()
     except Exception:
@@ -503,9 +531,7 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
         raise
     finally:
         connection.close()
-        if dist.is_initialized():
-            dist.destroy_process_group(device_group)
-            dist.destroy_process_group()
+        destroy_independent_process_groups(process_groups)
 
 
 def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
@@ -513,6 +539,7 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
     device_provider = accelerator_device_provider(devices[0].type)
     device_identities = tuple(device_provider.identify(device) for device in devices)
     init_method = _free_tcp_init_method()
+    group_name = f"comfy-model-parallel-{secrets.token_hex(8)}"
     authkey = secrets.token_bytes(32)
     listener = multiprocessing.connection.Listener(("127.0.0.1", 0), authkey=authkey)
     host, port = listener.address
@@ -549,20 +576,34 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
             connection = listener.accept()
             rank = connection.recv()
             connections[rank - 1] = connection
-            connection.send((size, init_method, load_spec, device_identities[rank]))
+            connection.send(
+                (
+                    size,
+                    init_method,
+                    group_name,
+                    load_spec,
+                    device_identities[rank],
+                )
+            )
         device_provider.select(devices[0])
-        dist.init_process_group("gloo", init_method=init_method, rank=0, world_size=size,
-                                timeout=timedelta(minutes=5))
-        device_group = create_device_process_group(range(size), devices[0])
+        process_groups = create_independent_process_groups(
+            init_method,
+            0,
+            size,
+            devices[0],
+            group_name,
+        )
+        control_group = process_groups.control_process_group
+        device_group = process_groups.device_process_group
         if parallel_kind == "tensor":
             operations = TorchDistributedTensorParallelOperations(
-                0, size, devices[0], device_group, dist.group.WORLD
+                0, size, devices[0], device_group, control_group
             )
         else:
             from ..xdit.runtime import TorchDistributedXDiTSequenceParallelOperations
 
             operations = TorchDistributedXDiTSequenceParallelOperations(
-                0, size, devices[0], device_group, dist.group.WORLD
+                0, size, devices[0], device_group, control_group
             )
         root = load_root(operations)
         rank_sizes = [root.model_size()]
@@ -579,14 +620,21 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
                 )
             rank_sizes.append(response["size"])
         return root, TorchDistributedModelParallelExecutor(
-            root.model.diffusion_model, operations, _ObjectCoordinator(), workers,
-            connections, devices, rank_sizes, root_patcher=root,
+            root.model.diffusion_model,
+            operations,
+            _ObjectCoordinator(control_group),
+            workers,
+            connections,
+            devices,
+            rank_sizes,
+            root_patcher=root,
+            process_groups=process_groups,
         )
     except Exception:
         for worker_pool, _worker_future in workers:
             worker_pool.shutdown(wait=False)
-        if dist.is_initialized():
-            dist.destroy_process_group()
+        if "process_groups" in locals():
+            destroy_independent_process_groups(process_groups)
         raise
     finally:
         listener.close()

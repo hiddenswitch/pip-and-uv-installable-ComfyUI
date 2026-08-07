@@ -144,6 +144,36 @@ class PipelineIntermediateTensors:
         )
 
 
+def prepare_model_parallel_value(value):
+    """Drop process-local execution state before transporting model inputs.
+
+    Sampler, guider, and apply-model wrappers have already run by the time a
+    diffusion-model executor is entered.  Only diffusion-model wrappers belong
+    on every model-parallel rank.  Layout objects and the other wrapper
+    callables are process-local caches/control flow and cannot be reconstructed
+    from tensor transport metadata.
+    """
+    if isinstance(value, dict):
+        cleaned = {
+            key: prepare_model_parallel_value(item)
+            for key, item in value.items()
+            if key != "layout"
+        }
+        wrappers = cleaned.get("wrappers")
+        if isinstance(wrappers, dict):
+            diffusion_model = wrappers.get("diffusion_model")
+            if diffusion_model:
+                cleaned["wrappers"] = {"diffusion_model": diffusion_model}
+            else:
+                cleaned.pop("wrappers", None)
+        return cleaned
+    if isinstance(value, list):
+        return [prepare_model_parallel_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(prepare_model_parallel_value(item) for item in value)
+    return value
+
+
 def pack_pipeline_value(value, tensors: dict[str, torch.Tensor], prefix: str):
     if torch.is_tensor(value):
         if prefix in tensors:
@@ -163,11 +193,15 @@ def pack_pipeline_value(value, tensors: dict[str, torch.Tensor], prefix: str):
     if isinstance(value, list):
         return ("list", tuple(pack_pipeline_value(item, tensors, f"{prefix}.{index}") for index, item in enumerate(value)))
     if isinstance(value, dict):
-        if not all(isinstance(key, str) for key in value):
-            raise TypeError(f"Pipeline dictionaries require string keys at {prefix}")
         return (
             "dict",
-            tuple((key, pack_pipeline_value(item, tensors, f"{prefix}.{key}")) for key, item in value.items()),
+            tuple(
+                (
+                    pack_pipeline_value(key, tensors, f"{prefix}.key{index}"),
+                    pack_pipeline_value(item, tensors, f"{prefix}.value{index}"),
+                )
+                for index, (key, item) in enumerate(value.items())
+            ),
         )
     raise TypeError(f"Pipeline value at {prefix} is not transportable: {type(value).__name__}")
 
@@ -189,7 +223,10 @@ def unpack_pipeline_value(value, tensors: Mapping[str, torch.Tensor]):
     if kind == "list":
         return [unpack_pipeline_value(item, tensors) for item in payload]
     if kind == "dict":
-        return {key: unpack_pipeline_value(item, tensors) for key, item in payload}
+        return {
+            unpack_pipeline_value(key, tensors): unpack_pipeline_value(item, tensors)
+            for key, item in payload
+        }
     raise ValueError(f"Unknown pipeline value encoding: {kind}")
 
 

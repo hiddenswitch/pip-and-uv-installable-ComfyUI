@@ -612,6 +612,19 @@ def test_pipeline_metadata_uuid_is_encoded_without_shared_object_state():
     assert decoded["uuids"][0] is not value
 
 
+def test_pipeline_mapping_keys_preserve_type_and_none_wrapper_key():
+    value = {
+        "wrappers": {"predict_noise": {None: ["wrapper"]}},
+        ("stage", 1): torch.device("cpu"),
+    }
+    tensors = {}
+
+    encoded = pack_pipeline_value(value, tensors, "options")
+    decoded = unpack_pipeline_value(encoded, tensors)
+
+    assert decoded == value
+
+
 def test_pipeline_patcher_routes_weight_patches_and_clone_children():
     class RootModule(torch.nn.Module):
         def __init__(self):

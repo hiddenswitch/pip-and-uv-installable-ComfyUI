@@ -11,7 +11,7 @@ from ..execution_context import current_execution_context
 from ..model_patcher import get_model_patcher_class
 from ..pipeline_parallel.checkpoint import SafetensorsCheckpointReader
 from ..pipeline_parallel.loader import _normalize_detection_state, _normalized_descriptors
-from .checkpoint import shard_minimax_h3_state_dict
+from .checkpoint import shard_tensor_parallel_state_dict
 from .distributed import RemoteTensorParallelRankModel, launch_tensor_parallel
 from .types import TensorParallelConfig
 from .operations import tensor_parallel_operations
@@ -19,10 +19,13 @@ from .operations import tensor_parallel_operations
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_MODEL_FAMILIES = frozenset(("flux2", "ideogram4", "krea2", "minimax_h3"))
+
 
 @dataclass(frozen=True)
 class TensorParallelWorkerLoadSpec:
     checkpoint_path: str
+    model_family: str
     model_options: dict
     disable_dynamic: bool
     dtype: torch.dtype
@@ -40,8 +43,8 @@ def _load_rank(
     dtype,
     device,
     parallel_config,
+    model_family,
     operations_decorator=tensor_parallel_operations,
-    state_transform=shard_minimax_h3_state_dict,
 ):
     rank_config = type(model_config)(model_config.unet_config)
     rank_config.quant_config = utils.deepcopy_list_dict(model_config.quant_config) if model_config.quant_config is not None else None
@@ -73,7 +76,12 @@ def _load_rank(
     state = reader.load_keys(original_keys.values())
     if prefix:
         state = utils.state_dict_prefix_replace(state, {prefix: ""}, filter_keys=True)
-    state = state_transform(state, parallel_config.rank, parallel_config.size)
+    state = shard_tensor_parallel_state_dict(
+        state,
+        model_family,
+        parallel_config.rank,
+        parallel_config.size,
+    )
     if model_options.get("custom_operations") is None:
         state, _ = utils.convert_old_quants(state, "", metadata=dict(metadata))
 
@@ -93,13 +101,17 @@ def load_tensor_parallel_rank(load_spec, rank, device, tensor_operations):
     reader = SafetensorsCheckpointReader(load_spec.checkpoint_path)
     detection_state, metadata, prefix = _normalize_detection_state(reader)
     model_config = model_detection.model_config_from_unet(detection_state, "", metadata=metadata)
-    if model_config is None or model_config.unet_config.get("image_model") != "minimax_h3":
-        raise RuntimeError(f"Tensor-parallel worker could not detect MiniMax H3 in {load_spec.checkpoint_path}")
+    model_family = None if model_config is None else model_config.unet_config.get("image_model")
+    if model_family != load_spec.model_family:
+        raise RuntimeError(
+            f"Tensor-parallel worker detected {model_family!r}, expected "
+            f"{load_spec.model_family!r} in {load_spec.checkpoint_path}"
+        )
     _descriptors, original_keys = _normalized_descriptors(reader, prefix)
     return _load_rank(
         reader, model_config, metadata, prefix, original_keys,
         load_spec.checkpoint_path, load_spec.model_options, load_spec.disable_dynamic,
-        load_spec.dtype, device, TensorParallelConfig(tensor_operations),
+        load_spec.dtype, device, TensorParallelConfig(tensor_operations), model_family,
     )
 
 
@@ -108,8 +120,13 @@ def load_diffusion_model_tensor_parallel(unet_path, devices, model_options=None,
     reader = SafetensorsCheckpointReader(unet_path)
     detection_state, metadata, prefix = _normalize_detection_state(reader)
     model_config = model_detection.model_config_from_unet(detection_state, "", metadata=metadata)
-    if model_config is None or model_config.unet_config.get("image_model") != "minimax_h3":
-        raise ValueError("Tensor parallelism currently supports MiniMax H3 checkpoints")
+    model_family = None if model_config is None else model_config.unet_config.get("image_model")
+    if model_family not in SUPPORTED_MODEL_FAMILIES:
+        supported = ", ".join(sorted(SUPPORTED_MODEL_FAMILIES))
+        raise ValueError(
+            f"Tensor parallelism does not support model family {model_family!r}; "
+            f"supported families: {supported}"
+        )
     _descriptors, original_keys = _normalized_descriptors(reader, prefix)
 
     parameters = utils.calculate_parameters(detection_state)
@@ -120,7 +137,7 @@ def load_diffusion_model_tensor_parallel(unet_path, devices, model_options=None,
         weight_dtype=weight_dtype,
     )
     load_spec = TensorParallelWorkerLoadSpec(
-        os.fspath(unet_path), model_options, disable_dynamic, dtype
+        os.fspath(unet_path), model_family, model_options, disable_dynamic, dtype
     )
 
     def load_root(tensor_operations):
@@ -131,6 +148,7 @@ def load_diffusion_model_tensor_parallel(unet_path, devices, model_options=None,
             dtype,
             devices[0],
             TensorParallelConfig(tensor_operations),
+            model_family,
         )
 
     root, executor = launch_tensor_parallel(load_spec, devices, load_root)
@@ -149,7 +167,8 @@ def load_diffusion_model_tensor_parallel(unet_path, devices, model_options=None,
         (unet_path, devices, model_options, disable_dynamic),
     )
     logger.info(
-        "Loaded minimax_h3 with tensor-parallel ranks %s",
+        "Loaded %s with tensor-parallel ranks %s",
+        model_family,
         ", ".join(
             f"{device}:{executor.rank_sizes[index] / (1024 ** 3):.2f} GiB"
             for index, device in enumerate(devices)

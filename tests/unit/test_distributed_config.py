@@ -11,7 +11,10 @@ from comfy.distributed.config import (
 )
 from comfy.distributed.device import CudaAcceleratorDeviceProvider
 from comfy.distributed.executors import ContextVarProcessPoolExecutor
-from comfy.distributed.process_group import create_device_process_group
+from comfy.distributed.process_group import (
+    TorchDistributedCudaIndependentProcessGroupFactory,
+    create_device_process_group,
+)
 from comfy.component_model.setup import prepare_distributed_environment
 from comfy.execution_context import (
     context_configuration,
@@ -365,3 +368,58 @@ def test_device_process_group_applies_configured_nccl_protocol(
         "device_id": torch.device("cuda:0"),
     }
     assert os.environ["NCCL_PROTO"] == "existing"
+
+
+def test_independent_process_groups_do_not_initialize_default_world(monkeypatch):
+    observed = []
+    store = object()
+
+    monkeypatch.setattr(
+        torch.distributed,
+        "TCPStore",
+        lambda *args: observed.append(("store", args)) or store,
+    )
+    monkeypatch.setattr(
+        "comfy.distributed.process_group._create_independent_process_group",
+        lambda *args: observed.append(("group", args)) or args[4],
+    )
+    monkeypatch.setattr(
+        torch.distributed,
+        "init_process_group",
+        lambda *args, **kwargs: pytest.fail("must not initialize group.WORLD"),
+    )
+
+    groups = TorchDistributedCudaIndependentProcessGroupFactory().create(
+        "tcp://127.0.0.1:29501",
+        rank=0,
+        world_size=2,
+        device=torch.device("cuda:0"),
+        group_name="executor-7",
+        nccl_proto="simple",
+    )
+    second_groups = TorchDistributedCudaIndependentProcessGroupFactory().create(
+        "tcp://127.0.0.1:29502",
+        rank=0,
+        world_size=2,
+        device=torch.device("cuda:0"),
+        group_name="executor-8",
+        nccl_proto="simple",
+    )
+
+    assert groups.store is store
+    assert groups.control_process_group == "executor-7-control"
+    assert groups.device_process_group == "executor-7-device"
+    assert second_groups.control_process_group == "executor-8-control"
+    assert second_groups.device_process_group == "executor-8-device"
+    assert [entry[1][3] for entry in observed if entry[0] == "group"] == [
+        "gloo",
+        "nccl",
+        "gloo",
+        "nccl",
+    ]
+    assert [entry[1][4] for entry in observed if entry[0] == "group"] == [
+        "executor-7-control",
+        "executor-7-device",
+        "executor-8-control",
+        "executor-8-device",
+    ]

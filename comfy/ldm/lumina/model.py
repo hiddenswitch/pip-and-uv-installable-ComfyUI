@@ -15,6 +15,7 @@ from ..modules.diffusionmodules.mmdit import TimestepEmbedder
 from ... import model_management, ops, quant_ops
 from ... import utils as comfy_utils
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
+from ...tensor_parallel.operations import column_parallel_linear, local_size, row_parallel_linear
 
 
 def invert_slices(slices, length):
@@ -213,21 +214,27 @@ class FeedForward(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
-        self.w1 = operation_settings.get("operations").Linear(
+        operations = operation_settings.get("operations")
+        local_size(operations, hidden_dim, "Feed-forward width")
+
+        self.w1 = column_parallel_linear(
+            operations,
             dim,
             hidden_dim,
             bias=False,
             device=operation_settings.get("device"),
             dtype=operation_settings.get("dtype"),
         )
-        self.w2 = operation_settings.get("operations").Linear(
+        self.w2 = row_parallel_linear(
+            operations,
             hidden_dim,
             dim,
             bias=False,
             device=operation_settings.get("device"),
             dtype=operation_settings.get("dtype"),
         )
-        self.w3 = operation_settings.get("operations").Linear(
+        self.w3 = column_parallel_linear(
+            operations,
             dim,
             hidden_dim,
             bias=False,

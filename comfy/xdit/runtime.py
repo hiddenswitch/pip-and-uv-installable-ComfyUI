@@ -1,9 +1,45 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+import threading
 
 import torch
+import torch.distributed as dist
 import torch.distributed._functional_collectives as functional_collectives
+
+
+_PROCESS_RANK_CONTEXT_LOCK = threading.RLock()
+_PROCESS_RANK_IDENTITIES = {}
+
+
+@contextmanager
+def _process_rank_context(rank: int, world_size: int):
+    """Supply rank identity to PyTorch helpers without owning group.WORLD.
+
+    PyTorch's context-parallel Ring helper asks ``dist.get_rank(group)`` even
+    when an explicit process group is supplied.  That API still consults the
+    default world's rank.  Model-parallel executors cannot use a default world
+    because Comfy may cache more than one executor in a process.  Install a
+    transport-free rank identity only for the duration of the helper call and
+    restore any pre-existing application world immediately afterward.
+    """
+
+    c10d = dist.distributed_c10d
+    with _PROCESS_RANK_CONTEXT_LOCK:
+        previous = c10d._world.default_pg
+        if previous is not None and previous.rank() == rank:
+            yield
+            return
+        identity = _PROCESS_RANK_IDENTITIES.get((rank, world_size))
+        if identity is None:
+            identity = dist.ProcessGroup(dist.HashStore(), rank, world_size)
+            _PROCESS_RANK_IDENTITIES[(rank, world_size)] = identity
+        c10d._update_default_pg(identity)
+        try:
+            yield
+        finally:
+            c10d._update_default_pg(previous)
 
 
 class AbstractBaseXDiTSequenceParallelOperations(ABC):
@@ -109,15 +145,16 @@ class TorchDistributedUlyssesOperations(
         # balancer does not apply. PyTorch otherwise owns transport selection
         # (all-gather or peer rotation) for the injected process group.
         _cp_options.enable_load_balance = False
-        output, logsumexp, *_ = _templated_ring_attention(
-            self.process_group,
-            2,
-            operation,
-            query,
-            key,
-            value,
-            is_causal=False,
-        )
+        with _process_rank_context(self.rank, self.world_size):
+            output, logsumexp, *_ = _templated_ring_attention(
+                self.process_group,
+                2,
+                operation,
+                query,
+                key,
+                value,
+                is_causal=False,
+            )
         return output, logsumexp
 
 

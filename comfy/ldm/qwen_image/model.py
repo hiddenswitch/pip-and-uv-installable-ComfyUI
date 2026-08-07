@@ -11,7 +11,7 @@ from ..lightricks.model import TimestepEmbedding, Timesteps
 from ..modules.attention import optimized_attention_masked
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 from ...pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
-from ...pipeline_parallel.types import pack_pipeline_value, unpack_pipeline_value
+from ...pipeline_parallel.types import pack_pipeline_value, prepare_model_parallel_value, unpack_pipeline_value
 from ...xdit import (
     combine_local_masks,
     gather_sequence,
@@ -679,7 +679,11 @@ class QwenImageTransformer2DModel(nn.Module):
                 "num_embeds": num_embeds,
                 "orig_shape": tuple(orig_shape),
                 "target_shape": tuple(x.shape),
-                "transformer_options": pack_pipeline_value(transformer_options, tensors, "transformer_options"),
+                "transformer_options": pack_pipeline_value(
+                    prepare_model_parallel_value(transformer_options),
+                    tensors,
+                    "transformer_options",
+                ),
                 "control": pack_pipeline_value(control, tensors, "control"),
             }
             return PipelineIntermediateTensors(tensors, metadata)
