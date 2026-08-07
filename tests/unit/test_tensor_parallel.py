@@ -229,6 +229,7 @@ def test_minimax_conditioning_uses_tensor_parallel_executor():
     model.pipeline_executor = RecordingExecutor()
     model.concat_keys = ()
     model.manual_cast_dtype = None
+    model.latent_shapes = None
 
     cross_attn = torch.randn(1, 3, 4)
     conditions = model.extra_conds(cross_attn=cross_attn, device=torch.device("cpu"))
