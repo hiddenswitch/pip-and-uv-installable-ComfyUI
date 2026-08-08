@@ -8,8 +8,12 @@ import json
 import os
 
 import pytest
+import requests
+from huggingface_hub import CacheNotFound
+from huggingface_hub.utils import LocalEntryNotFoundError
 from unittest.mock import patch
 
+from comfy import model_downloader
 from comfy.cmd import folder_paths
 from comfy.component_model.folder_path_types import FolderPathsTuple
 from comfy.component_model.uris import is_hf_uri, is_uri
@@ -113,7 +117,7 @@ class TestParseHfUri:
 class TestGetOrDownloadWithHfUri:
     """Tests for get_or_download handling of hf:// URIs."""
 
-    def test_hf_uri_returns_local_path(self):
+    def test_hf_uri_returns_local_path(self, cached_gpt2_hf_download):
         """Test that hf:// URIs return a local cached path string."""
         uri = "hf://gpt2/config.json"
         result = get_or_download("checkpoints", uri)
@@ -121,7 +125,7 @@ class TestGetOrDownloadWithHfUri:
         assert isinstance(result, str)
         assert os.path.isfile(result)
 
-    def test_hf_uri_file_is_usable(self):
+    def test_hf_uri_file_is_usable(self, cached_gpt2_hf_download):
         """Test that the returned path can be used with standard file operations."""
         uri = "hf://gpt2/config.json"
         result = get_or_download("checkpoints", uri)
@@ -132,6 +136,16 @@ class TestGetOrDownloadWithHfUri:
         assert len(content) > 0
         data = json.loads(content)
         assert "model_type" in data
+
+    def test_http_error_without_response_returns_none(self, monkeypatch, cached_gpt2_hf_download):
+        """Connection failures do not always carry an HTTP response."""
+        def fail_hf_hub_download(**kwargs):
+            if kwargs.get("local_files_only"):
+                raise LocalEntryNotFoundError("not cached")
+            raise requests.exceptions.HTTPError("connection failed")
+
+        monkeypatch.setattr(model_downloader, "hf_hub_download", fail_hf_hub_download)
+        assert get_or_download("checkpoints", "hf://gpt2/config.json") is None
 
     @patch("comfy.model_downloader.folder_paths.get_full_path")
     def test_local_filename_uses_normal_lookup(self, mock_get_full_path):
@@ -233,3 +247,21 @@ class TestEdgeCases:
     def test_hf_prefix_only(self):
         """Test that 'hf://' alone is detected."""
         assert is_hf_uri("hf://") is True
+
+
+def test_huggingface_repo_list_with_no_cache(monkeypatch, tmp_path):
+    """A clean machine without a Hugging Face cache still lists known repos."""
+    def no_cache(cache_dir=None):
+        raise CacheNotFound("cache is absent", cache_dir or tmp_path)
+
+    original_get_folder_paths = model_downloader.folder_paths.get_folder_paths
+    monkeypatch.setattr(model_downloader, "scan_cache_dir", no_cache)
+    monkeypatch.setattr(
+        model_downloader.folder_paths,
+        "get_folder_paths",
+        lambda folder_name: []
+        if folder_name in {"huggingface", "huggingface_cache"}
+        else original_get_folder_paths(folder_name),
+    )
+
+    assert set(model_downloader.get_huggingface_repo_list()) == model_downloader.KNOWN_HUGGINGFACE_MODEL_REPOS

@@ -261,8 +261,9 @@ def get_or_download(
                             except LocalTokenNotFoundError:
                                 logger.debug(f"no HF token configured for {known_file.repo_id}/{known_file.filename}, skipping authenticated download")
                             except requests.exceptions.HTTPError as exc_info:
-                                if exc_info.response.status_code == 401:
+                                if getattr(exc_info.response, "status_code", None) == 401:
                                     raise GatedRepoError(f"{known_file.repo_id}/{known_file.filename}", response=exc_info.response)
+                                logger.error(f"cannot download {known_file.repo_id}/{known_file.filename} from huggingface", exc_info=exc_info)
                             except IOError as exc_info:
                                 logger.error(f"cannot reach huggingface {known_file.repo_id}/{known_file.filename}", exc_info=exc_info)
                             except Exception as exc_info:
@@ -2057,7 +2058,8 @@ def get_huggingface_repo_list(*extra_cache_dirs: str) -> List[str]:
     existing_repo_ids = frozenset(
         cache_item.repo_id for cache_item in \
         reduce(operator.or_,
-               map(lambda cache_info: cache_info.repos, default_cache_dir + [scan_cache_dir(cache_dir=cache_dir) for cache_dir in extra_cache_dirs if os.path.isdir(cache_dir)]))
+               map(lambda cache_info: cache_info.repos, default_cache_dir + [scan_cache_dir(cache_dir=cache_dir) for cache_dir in extra_cache_dirs if os.path.isdir(cache_dir)]),
+               set())
         if cache_item.repo_type == "model" or cache_item.repo_type == "space"
     )
 

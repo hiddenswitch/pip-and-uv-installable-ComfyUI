@@ -58,3 +58,37 @@ def _eagerly_preload_nodes(_preloaded_nodes):
     several hundred custom nodes.
     """
     yield _preloaded_nodes
+
+
+@pytest.fixture
+def cached_gpt2_hf_download(monkeypatch, tmp_path):
+    """Provide a deterministic local stand-in for the public GPT-2 config."""
+    from comfy import model_downloader
+
+    cached = tmp_path / "hf-cache" / "config.json"
+    cached.parent.mkdir()
+    cached.write_text('{"model_type": "gpt2"}', encoding="utf-8")
+
+    original_get_folder_paths = model_downloader.folder_paths.get_folder_paths
+    monkeypatch.setattr(
+        model_downloader.folder_paths,
+        "get_folder_paths",
+        lambda folder_name: [str(tmp_path)]
+        if folder_name == "checkpoints"
+        else original_get_folder_paths(folder_name),
+    )
+    monkeypatch.setattr(
+        model_downloader,
+        "_original_get_full_path",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+
+    calls = []
+
+    def fake_hf_hub_download(**kwargs):
+        calls.append(kwargs)
+        return str(cached)
+
+    monkeypatch.setattr(model_downloader, "hf_hub_download", fake_hf_hub_download)
+    return cached, calls

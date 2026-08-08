@@ -30,6 +30,7 @@ def test_diffusers_loader_uses_root_sharded_checkpoint(monkeypatch, tmp_path):
         return ("model", "clip", "vae", None)
 
     monkeypatch.setattr("comfy.nodes.base_nodes.folder_paths.get_folder_paths", lambda folder: [str(tmp_path)] if folder == "diffusers" else [])
+    monkeypatch.setattr("comfy.nodes.base_nodes.get_huggingface_repo_list", lambda: [])
     monkeypatch.setattr("comfy.nodes.base_nodes.sd.load_checkpoint_guess_config", fake_load_checkpoint_guess_config)
 
     assert DiffusersLoader().load_checkpoint(model_dir.name, weight_dtype="fp8_e4m3fn") == ("model", "clip", "vae")
