@@ -33,7 +33,11 @@ def _process_rank_context(rank: int, world_size: int):
             return
         identity = _PROCESS_RANK_IDENTITIES.get((rank, world_size))
         if identity is None:
-            identity = dist.ProcessGroup(dist.HashStore(), rank, world_size)
+            # The rank/size-only constructor is the transport-free identity
+            # that this context needs. HashStore is not exported by Windows
+            # PyTorch builds, and no rendezvous store is needed because this
+            # process group never performs collectives.
+            identity = dist.ProcessGroup(rank, world_size)
             _PROCESS_RANK_IDENTITIES[(rank, world_size)] = identity
         c10d._update_default_pg(identity)
         try:

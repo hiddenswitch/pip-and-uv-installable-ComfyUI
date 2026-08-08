@@ -51,15 +51,6 @@ jobs:
             friendly_name: "Python 3.12 CUDA 12.8.1.012 PyTorch 2.7.0"
             container: "nvcr.io/nvidia/pytorch:25.03-py3"
             stable_abi_cuda: ""
-          - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-            friendly_name: "Python 3.10 CUDA 12.6.2 PyTorch 2.5.0"
-            container: "nvcr.io/nvidia/pytorch:24.10-py3"
-            stable_abi_cuda: ""
-          # TEMP-DISABLED: Initialize containers fails on this image — re-enable when fixed.
-          # - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-          #   friendly_name: "Python 3.10 CUDA 12.3.2 PyTorch 2.2.0"
-          #   container: "nvcr.io/nvidia/pytorch:23.12-py3"
-          #   stable_abi_cuda: ""
     steps:
       - run: |
           for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do

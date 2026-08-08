@@ -17,9 +17,10 @@ from comfy.xdit.runtime import _process_rank_context
 from comfy.xdit.attention import install_ulysses_attention_override
 
 
-def test_process_rank_context_is_temporary():
+def test_process_rank_context_is_temporary_without_hash_store(monkeypatch):
     c10d = torch.distributed.distributed_c10d
     previous = c10d._world.default_pg
+    monkeypatch.delattr(torch.distributed, "HashStore", raising=False)
 
     with _process_rank_context(rank=1, world_size=2):
         assert torch.distributed.get_rank() == 1

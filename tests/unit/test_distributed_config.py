@@ -274,21 +274,25 @@ def test_cuda_device_identity_survives_worker_visibility_reordering(monkeypatch)
     assert provider.resolve(identity) == torch.device("cuda", 0)
 
 
-def test_context_process_worker_inherits_configuration_and_rank_environment():
+def test_context_process_worker_inherits_configuration_and_rank_environment(
+    process_startup_timeout_seconds,
+):
     worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
     try:
         with context_configuration(Configuration(use_sage_attention=True)):
             result = worker_pool.submit_with_environment(
                 {"RANK": "1"},
                 _child_configuration_and_rank,
-            ).result(timeout=30)
+            ).result(timeout=process_startup_timeout_seconds)
     finally:
         worker_pool.shutdown(wait=True)
 
     assert result == (True, "1")
 
 
-def test_context_process_worker_excludes_request_local_progress_state():
+def test_context_process_worker_excludes_request_local_progress_state(
+    process_startup_timeout_seconds,
+):
     worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
     progress_owner = SimpleNamespace(progress=_progress_generator())
     try:
@@ -302,14 +306,16 @@ def test_context_process_worker_excludes_request_local_progress_state():
                     {"RANK": "1"},
                     _child_configuration_and_rank,
                     detach_request_state=True,
-                ).result(timeout=30)
+                ).result(timeout=process_startup_timeout_seconds)
     finally:
         worker_pool.shutdown(wait=True)
 
     assert result == (True, "1")
 
 
-def test_context_process_worker_resolves_attention_from_each_configuration():
+def test_context_process_worker_resolves_attention_from_each_configuration(
+    process_startup_timeout_seconds,
+):
     worker_pool = ContextVarProcessPoolExecutor(max_workers=1)
     try:
         with context_configuration(
@@ -318,7 +324,9 @@ def test_context_process_worker_resolves_attention_from_each_configuration():
                 use_pytorch_cross_attention=True,
             )
         ):
-            first = worker_pool.submit(_child_attention_backend).result(timeout=30)
+            first = worker_pool.submit(_child_attention_backend).result(
+                timeout=process_startup_timeout_seconds
+            )
         if not first[0]:
             pytest.skip("SageAttention is not installed")
         assert first[1] == "attention_pytorch"
@@ -329,7 +337,9 @@ def test_context_process_worker_resolves_attention_from_each_configuration():
                 use_sage_attention=True,
             )
         ):
-            second = worker_pool.submit(_child_attention_backend).result(timeout=30)
+            second = worker_pool.submit(_child_attention_backend).result(
+                timeout=process_startup_timeout_seconds
+            )
     finally:
         worker_pool.shutdown(wait=True)
 
