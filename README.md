@@ -40,6 +40,7 @@ Pick the block for your platform and accelerator and paste it into a terminal.
 - The **virtual environment** (`.venv`) is an isolated Python install inside the workspace. Activate it before running `comfyui`.
 - **`uv`** is the Python package manager used here. It creates the venv and installs ComfyUI plus the correct PyTorch wheels.
 - **GPU settings** are chosen in two places: `uv pip install --torch-backend=...` selects the PyTorch wheel, and `comfyui serve --guess-settings` auto-detects runtime settings such as VRAM mode and attention backend. CUDA users should use `--torch-backend=auto`.
+- **PyTorch 2.7 or newer** is required. NVIDIA 20-series and newer GPUs require a CUDA 13.0-or-newer PyTorch build.
 
 ### Windows + CUDA
 
