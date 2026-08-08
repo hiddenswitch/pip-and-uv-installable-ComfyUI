@@ -18,6 +18,7 @@ import comfy.patcher_extension
 import comfy.quant_ops
 from comfy.ldm.lumina.model import FeedForward
 from comfy.ldm.modules.attention import optimized_attention_masked
+from comfy.tensor_parallel.operations import column_parallel_linear, local_size, row_parallel_linear
 from comfy.text_encoders.llama import precompute_freqs_cis
 
 # Per-token role indicators
@@ -47,14 +48,19 @@ def _apply_rope_split_half1(x, freqs_cis):
 class Ideogram4Attention(nn.Module):
     def __init__(self, hidden_size, num_heads, eps=1e-5, dtype=None, device=None, operations=None):
         super().__init__()
-        self.num_heads = num_heads
+        self.num_heads = local_size(operations, num_heads, "Ideogram 4 attention heads")
         self.head_dim = hidden_size // num_heads
         self.hidden_size = hidden_size
 
-        self.qkv = operations.Linear(hidden_size, hidden_size * 3, bias=False, dtype=dtype, device=device)
+        self.qkv = column_parallel_linear(
+            operations, hidden_size, hidden_size * 3, bias=False, sections=3,
+            dtype=dtype, device=device,
+        )
         self.norm_q = operations.RMSNorm(self.head_dim, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
         self.norm_k = operations.RMSNorm(self.head_dim, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
-        self.o = operations.Linear(hidden_size, hidden_size, bias=False, dtype=dtype, device=device)
+        self.o = row_parallel_linear(
+            operations, hidden_size, hidden_size, bias=False, dtype=dtype, device=device
+        )
 
     def forward(self, x, attn_mask, freqs_cis, transformer_options={}):
         batch_size, seq_len, _ = x.shape

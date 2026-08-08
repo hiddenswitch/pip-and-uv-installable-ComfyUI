@@ -133,7 +133,12 @@ def _is_widget_type(type_spec, opts=None) -> bool:
     if type_spec == "COMFY_DYNAMICCOMBO_V3":
         return True
     if opts:
-        if opts.get("socketless"):
+        # V3 custom widget inputs use ``socketless`` to control whether their
+        # widget also exposes an input socket.  Both values still describe a
+        # widget: ``True`` is widget-only, while ``False`` is widget + socket.
+        # Checking truthiness here dropped socket-capable widgets such as
+        # COLORS and BOUNDING_BOXES and shifted every later serialized value.
+        if "socketless" in opts:
             return True
         if opts.get("widgetType"):
             return True

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from ..cmd.main_pre import tracer
-
 import asyncio
 import concurrent.futures
 import contextlib
@@ -15,7 +13,7 @@ from asyncio import get_event_loop
 from multiprocessing import RLock
 from typing import Optional, Literal
 
-from opentelemetry import context, propagate
+from opentelemetry import context, propagate, trace
 from opentelemetry.context import Context, attach, detach
 from opentelemetry.trace import Status, StatusCode
 
@@ -111,14 +109,14 @@ async def ___execute_prompt(
     try:
         prompt_executor: PromptExecutor = _prompt_executor.executor
     except (LookupError, AttributeError):
-        with tracer.start_as_current_span("Initialize Prompt Executor", context=span_context):
+        with trace.get_tracer(__name__).start_as_current_span("Initialize Prompt Executor", context=span_context):
             # todo: deal with new caching features
             prompt_executor = PromptExecutor(progress_handler)
             prompt_executor.raise_exceptions = True
             _prompt_executor.executor = prompt_executor
 
     from ..nodes.download_interception import patch_folder_paths_functions
-    with tracer.start_as_current_span("Execute Prompt", context=span_context) as span, patch_folder_paths_functions():
+    with trace.get_tracer(__name__).start_as_current_span("Execute Prompt", context=span_context) as span, patch_folder_paths_functions():
         try:
             prompt_mut = make_mutable(prompt)
             from ..cmd.execution import validate_prompt
@@ -375,6 +373,8 @@ class Comfy:
         from ..execution_context import context_configuration
         cm = context_configuration(self._configuration)
         self._exit_stack.enter_context(cm)
+        from ..component_model.setup import setup_tracing
+        setup_tracing(self._configuration or self._default_configuration)
         if self._owns_executor:
             self._exit_stack.enter_context(self._executor)
         return self
@@ -454,9 +454,13 @@ class Comfy:
         return True
 
     def __exit__(self, *args):
-        get_event_loop().run_in_executor(self._executor, _cleanup)
-        self._is_running = False
-        self._exit_stack.__exit__(*args)
+        try:
+            get_event_loop().run_in_executor(self._executor, _cleanup)
+            self._is_running = False
+            self._exit_stack.__exit__(*args)
+        finally:
+            from ..component_model.setup import flush_tracing
+            flush_tracing()
 
     async def __aenter__(self):
         self._async_exit_stack = contextlib.AsyncExitStack()
@@ -464,6 +468,8 @@ class Comfy:
         from ..execution_context import context_configuration
         cm = context_configuration(self._configuration)
         self._async_exit_stack.enter_context(cm)
+        from ..component_model.setup import setup_tracing
+        setup_tracing(self._configuration or self._default_configuration)
         if self._owns_executor:
             self._async_exit_stack.enter_context(self._executor)
 
@@ -488,10 +494,13 @@ class Comfy:
         while self.task_count > 0:
             await asyncio.sleep(0.1)
 
-        await get_event_loop().run_in_executor(self._executor, _cleanup)
-
-        self._is_running = False
-        await self._async_exit_stack.__aexit__(*args)
+        try:
+            await get_event_loop().run_in_executor(self._executor, _cleanup)
+            self._is_running = False
+            await self._async_exit_stack.__aexit__(*args)
+        finally:
+            from ..component_model.setup import flush_tracing
+            flush_tracing()
 
     async def queue_prompt_api(self,
                                prompt: PromptDict | str | dict,
@@ -533,8 +542,24 @@ class Comfy:
         task.add_done_callback(handler.complete)
         return handler
 
-    @tracer.start_as_current_span("Queue Prompt")
     async def queue_prompt(self,
+                           prompt: PromptDict | dict,
+                           prompt_id: Optional[str] = None,
+                           client_id: Optional[str] = None,
+                           partial_execution_targets: Optional[list[str]] = None,
+                           progress_handler: Optional[ExecutorToClientProgress] = None,
+                           configuration: Optional[Configuration] = None) -> dict:
+        with trace.get_tracer(__name__).start_as_current_span("Queue Prompt"):
+            return await self._queue_prompt(
+                prompt,
+                prompt_id=prompt_id,
+                client_id=client_id,
+                partial_execution_targets=partial_execution_targets,
+                progress_handler=progress_handler,
+                configuration=configuration,
+            )
+
+    async def _queue_prompt(self,
                            prompt: PromptDict | dict,
                            prompt_id: Optional[str] = None,
                            client_id: Optional[str] = None,

@@ -135,7 +135,29 @@ def run_every_op():
     throw_exception_if_processing_interrupted()
 
 
+def gqa_repeat_factor(query_heads, key_heads, value_heads):
+    if key_heads != value_heads:
+        raise ValueError(f"Key/value head count mismatch for GQA: {key_heads} != {value_heads}")
+    if query_heads == key_heads:
+        return 1
+    if query_heads % key_heads != 0:
+        raise ValueError(f"Query heads must be divisible by key/value heads for GQA: {query_heads} vs {key_heads}")
+    return query_heads // key_heads
+
+
+def repeat_kv_for_gqa(k, v, query_heads, head_dim):
+    n_rep = gqa_repeat_factor(query_heads, k.shape[head_dim], v.shape[head_dim])
+    if n_rep > 1:
+        k = k.repeat_interleave(n_rep, dim=head_dim)
+        v = v.repeat_interleave(n_rep, dim=head_dim)
+    return k, v
+
+
 def _scaled_dot_product_attention(q, k, v, *args, **kwargs):
+    attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
+    if kwargs.get("enable_gqa", False) and attn_mask is not None:
+        k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+        kwargs["enable_gqa"] = False
     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
 
@@ -182,7 +204,23 @@ try:
                 try:
                     if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                    attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
+                    if kwargs.get("enable_gqa", False) and attn_mask is not None and not model_management.is_nvidia():
+                        k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                        kwargs["enable_gqa"] = False
                     with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                        if kwargs.get("enable_gqa", False) and attn_mask is not None and q.shape[-3] != k.shape[-3]:
+                            dropout_p = args[1] if len(args) > 1 else kwargs.get("dropout_p", 0.0)
+                            is_causal = args[2] if len(args) > 2 else kwargs.get("is_causal", False)
+                            params = torch.backends.cuda.SDPAParams(q, k, v, attn_mask, dropout_p, is_causal, True)
+                            supports_native_gqa = (
+                                torch.backends.cuda.can_use_flash_attention(params)
+                                or torch.backends.cuda.can_use_cudnn_attention(params)
+                                or torch.backends.cuda.can_use_efficient_attention(params)
+                            )
+                            if not supports_native_gqa:
+                                k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                                kwargs["enable_gqa"] = False
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                 except RuntimeError as e:
                     error_msg = str(e)
@@ -251,6 +289,16 @@ def _drain_deferred_vbar_unpins(block=False):
         else:
             pending.append((event, alloc))
     _DEFERRED_VBAR_UNPINS[:] = pending
+
+
+def finish_weight_cast_execution():
+    """Finish deferred weight releases at an outer execution boundary.
+
+    Individual layer releases remain asynchronous. Callers use this only after
+    the produced tensors are no longer being extended by more model work, so
+    dynamic-VRAM pins cannot leak into the next model's residency decision.
+    """
+    _drain_deferred_vbar_unpins(block=True)
 
 
 # FIXME: add n=1 cache hit fast path
@@ -506,6 +554,7 @@ def cast_modules_with_vbar(comfy_modules, dtype, device, bias_dtype, non_blockin
                 want_requant,
                 dynamic_vram_fp8_policy(),
             )
+            comfy_aimdo.model_vbar.vbar_unpin(s._v)
             xfer_dest = None
             signature = None
             prefetch["signature"] = None
@@ -684,7 +733,7 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
         return format_return((weight, bias, (None, None, None)), offloadable)
 
     elif s._v is not None and s.weight.device != device:
-        prefetched = hasattr(s, "_prefetch")
+        prefetched = getattr(s, "_prefetch", None) is not None
         offload_stream = None
         offload_device = None
         if not prefetched:
@@ -1701,6 +1750,26 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
                 "quant_group_size": 64,
                 "linear_dtype": layer_conf.get("linear_dtype", params_conf.get("linear_dtype", "int4")),
             }
+        elif module.quant_format == "asym_w4a8_int8":
+            # int4 weight (packed int8 [N,K/2]) + fp8 per-group scale (weight_s_rel),
+            # fp32 per-channel scale (weight_s_channel) + optional Lloyd-Max codebook.
+            scale = pop_scale("weight_s_rel")
+            if scale is None:
+                raise ValueError(f"Missing W4A8 group scale (weight_s_rel) for layer {layer_name}")
+            if scale.dtype == torch.uint8:
+                scale = scale.view(torch.float8_e4m3fn)
+            params_conf = layer_conf.get("params", {})
+            if not isinstance(params_conf, dict):
+                params_conf = {}
+            scales = {
+                "scale": scale,
+                "s_channel": pop_scale("weight_s_channel"),
+                "codebook": pop_scale("weight_codebook"),
+                "group_size": int(layer_conf.get("group_size", params_conf.get("group_size", 16))),
+                "convrot_groupsize": int(
+                    layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256))
+                ),
+            }
         else:
             raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
@@ -1764,6 +1833,9 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
                 linear_dtype = getattr(weight_params, "linear_dtype", "int4")
                 if linear_dtype != "int4":
                     quant_conf["linear_dtype"] = linear_dtype
+            elif module.quant_format == "asym_w4a8_int8":
+                quant_conf["group_size"] = int(getattr(weight_params, "group_size", 16))
+                quant_conf["convrot_groupsize"] = int(getattr(weight_params, "convrot_groupsize", 256))
         if getattr(module, '_full_precision_mm_config', False):
             quant_conf["full_precision_matrix_mult"] = True
         if extra_quant_conf:

@@ -263,6 +263,7 @@ class ImageSaveHelper:
 class AudioSaveHelper:
     """A helper class with static methods to handle audio saving and metadata."""
     _OPUS_RATES = [8000, 12000, 16000, 24000, 48000]
+    _FORMATS = {"flac", "mp3", "opus"}
 
     @staticmethod
     def save_audio(
@@ -273,6 +274,9 @@ class AudioSaveHelper:
             format: str = "flac",
             quality: str = "128k",
     ) -> list[SavedResult]:
+        if format not in AudioSaveHelper._FORMATS:
+            raise ValueError(f"Unsupported audio format: {format!r}")
+
         full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
             filename_prefix, _get_directory_by_folder_type(folder_type)
         )

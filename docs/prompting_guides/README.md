@@ -1,6 +1,7 @@
 # Vendored Prompting Guides
 
-Fetched: 2026-06-03
+Initial snapshot set fetched: 2026-06-03. Individual files may carry a newer
+fetch date in their header.
 
 These are local snapshots of the vendor prompting guides referenced from `../../llms.txt`. Use the original source links when freshness matters; update these snapshots when `llms.txt` changes or a model family is refreshed.
 
@@ -22,6 +23,9 @@ These are local snapshots of the vendor prompting guides referenced from `../../
 ## Alibaba
 - [Wan text-to-video/image-to-video prompt guide](alibaba_wan_video_prompting.md) ([source](https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt))
 - [Qwen Image Edit guide](alibaba_qwen_image_edit_prompting.md) ([source](https://www.alibabacloud.com/help/en/model-studio/qwen-image-edit-guide))
+
+## MiniMax
+- [MiniMax H3 video-generation guide](minimax_h3_video_generation.md) ([source](https://platform.minimax.io/docs/guides/video-generation))
 
 ## Tongyi-MAI
 - [Z-Image Turbo model card](z_image_turbo_model_card.md) ([source](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo))

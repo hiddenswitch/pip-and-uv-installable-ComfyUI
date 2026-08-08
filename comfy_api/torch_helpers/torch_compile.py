@@ -389,6 +389,44 @@ class _CompiledModel(torch.nn.Module):
                 return self._original(*args, **kwargs)
 
 
+def compile_model_for_execution(
+    model: ModelPatcher,
+    module: torch.nn.Module,
+    compile_kwargs: dict[str, Any],
+) -> tuple[_CompiledModel, str]:
+    """Build the rank-local compiled view of a diffusion model.
+
+    Model-parallel executors call this independently on every rank.  Keeping
+    the compile policy here means only the serializable compile arguments cross
+    the process boundary; compiled callables and Comfy wrappers remain local.
+    """
+    _stabilize_comfy_weight_cast_attrs(module)
+    use_graph_visible = _model_needs_graph_visible_weight_cast(model, module)
+    mode = compile_kwargs.get("mode")
+    if (
+        use_graph_visible
+        and _mode_wants_cudagraphs(mode)
+        and not _model_uses_dynamic_vram(model, module)
+    ):
+        logger.info(
+            "Using plain compile strategy to honor mode=%s on resident weights",
+            mode,
+        )
+        use_graph_visible = False
+    if use_graph_visible:
+        return (
+            _CompiledModel(
+                module,
+                _with_weight_prefetch_scheduler(
+                    _without_cudagraphs(compile_kwargs)
+                ),
+                force_graph_visible_cast=True,
+            ),
+            "module_weight_cast",
+        )
+    return _CompiledModel(module, compile_kwargs), "module"
+
+
 def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Optional[dict[str, Any]] = None,
                               mode: Optional[str] = None, fullgraph=False, dynamic: Optional[bool] = None,
                               keys: list[str] = None, *args, **kwargs):
@@ -415,36 +453,48 @@ def set_torch_compile_wrapper(model: ModelPatcher, backend: str, options: Option
         fullgraph=fullgraph,
         dynamic=dynamic,
     )
+    pipeline_executor = getattr(
+        getattr(model, "model", None),
+        "pipeline_executor",
+        None,
+    )
+    configure_model_parallel = getattr(
+        pipeline_executor,
+        "configure_torch_compile",
+        None,
+    )
+    if configure_model_parallel is not None:
+        if keys != ["diffusion_model"]:
+            raise ValueError(
+                "Model-parallel torch.compile currently requires the default "
+                "diffusion_model target"
+            )
+        strategies = configure_model_parallel(
+            compile_kwargs,
+            root_patcher=model,
+        )
+        # The lazy compile node expects one APPLY_MODEL wrapper.  Compilation
+        # itself is rank-local in the model-parallel executor, so this wrapper
+        # only advances the ordinary Comfy apply-model chain.
+        model.add_wrapper_with_key(
+            WrappersMP.APPLY_MODEL,
+            COMPILE_KEY,
+            lambda executor, *wrapper_args, **wrapper_kwargs: executor(
+                *wrapper_args,
+                **wrapper_kwargs,
+            ),
+        )
+        model.model_options[TORCH_COMPILE_KWARGS] = compile_kwargs
+        model.model_options[TORCH_COMPILE_STRATEGY] = strategies
+        return
     # get a dict of compiled keys
     compiled_modules = {}
     compiled_strategies = {}
     for key in keys:
         module = model.get_model_object(key)
-        _stabilize_comfy_weight_cast_attrs(module)
-        use_graph_visible = _model_needs_graph_visible_weight_cast(model, module)
-        if (
-            use_graph_visible
-            and _mode_wants_cudagraphs(mode)
-            and not _model_uses_dynamic_vram(model, module)
-        ):
-            # The user explicitly asked for a cudagraph compile mode and the
-            # model's weights are resident (no dynamic VRAM prefetch to
-            # schedule). Honor the requested mode with the plain strategy
-            # instead of silently stripping cudagraphs: resident quantized
-            # layers (int8 inline path) and cast-at-use layers both run
-            # correctly under cudagraph trees.
-            logger.info("Using plain compile strategy for %s to honor mode=%s on resident weights", key, mode)
-            use_graph_visible = False
-        if use_graph_visible:
-            compiled_modules[key] = _CompiledModel(
-                module,
-                _with_weight_prefetch_scheduler(_without_cudagraphs(compile_kwargs)),
-                force_graph_visible_cast=True,
-            )
-            compiled_strategies[key] = "module_weight_cast"
-            continue
-        compiled_modules[key] = _CompiledModel(module, compile_kwargs)
-        compiled_strategies[key] = "module"
+        compiled_modules[key], compiled_strategies[key] = (
+            compile_model_for_execution(model, module, compile_kwargs)
+        )
     if compiled_modules:
         # add torch.compile wrapper
         wrapper_func = apply_torch_compile_factory(

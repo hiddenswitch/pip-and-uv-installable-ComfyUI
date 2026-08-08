@@ -4,6 +4,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 
+from ...tensor_parallel.operations import (
+    column_parallel_linear,
+    local_size,
+    row_parallel_linear,
+)
 from .math import attention, rope
 
 # Fix import for some custom nodes, TODO: delete eventually.
@@ -79,10 +84,17 @@ def build_mlp(hidden_size, mlp_hidden_dim, mlp_silu_act=False, yak_mlp=False, dt
     if yak_mlp:
         return YakMLP(hidden_size, mlp_hidden_dim, dtype=dtype, device=device, operations=operations)
     if mlp_silu_act:
+        local_size(operations, mlp_hidden_dim, "Flux MLP width")
         return nn.Sequential(
-            operations.Linear(hidden_size, mlp_hidden_dim * 2, bias=False, dtype=dtype, device=device),
+            column_parallel_linear(
+                operations, hidden_size, mlp_hidden_dim * 2, bias=False, sections=2,
+                dtype=dtype, device=device,
+            ),
             SiLUActivation(),
-            operations.Linear(mlp_hidden_dim, hidden_size, bias=False, dtype=dtype, device=device),
+            row_parallel_linear(
+                operations, mlp_hidden_dim, hidden_size, bias=False,
+                dtype=dtype, device=device,
+            ),
         )
     else:
         return nn.Sequential(
@@ -107,12 +119,17 @@ class QKNorm(torch.nn.Module):
 class SelfAttention(nn.Module):
     def __init__(self, dim: int, num_heads: int = 8, qkv_bias: bool = False, proj_bias: bool = True, dtype=None, device=None, operations=None):
         super().__init__()
-        self.num_heads = num_heads
+        self.num_heads = local_size(operations, num_heads, "Flux attention heads")
         head_dim = dim // num_heads
 
-        self.qkv = operations.Linear(dim, dim * 3, bias=qkv_bias, dtype=dtype, device=device)
+        self.qkv = column_parallel_linear(
+            operations, dim, dim * 3, bias=qkv_bias, sections=3,
+            dtype=dtype, device=device,
+        )
         self.norm = QKNorm(head_dim, dtype=dtype, device=device, operations=operations)
-        self.proj = operations.Linear(dim, dim, bias=proj_bias, dtype=dtype, device=device)
+        self.proj = row_parallel_linear(
+            operations, dim, dim, bias=proj_bias, dtype=dtype, device=device
+        )
 
 
 @dataclass
@@ -169,7 +186,7 @@ class DoubleStreamBlock(nn.Module):
         super().__init__()
 
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
-        self.num_heads = num_heads
+        self.num_heads = local_size(operations, num_heads, "Flux attention heads")
         self.hidden_size = hidden_size
         self.modulation = modulation
 
@@ -286,7 +303,7 @@ class SingleStreamBlock(nn.Module):
     ):
         super().__init__()
         self.hidden_dim = hidden_size
-        self.num_heads = num_heads
+        self.num_heads = local_size(operations, num_heads, "Flux attention heads")
         head_dim = hidden_size // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
@@ -305,9 +322,30 @@ class SingleStreamBlock(nn.Module):
             self.mlp_act = nn.SiLU()
 
         # qkv and mlp_in
-        self.linear1 = operations.Linear(hidden_size, hidden_size * 3 + self.mlp_hidden_dim_first, bias=bias, dtype=dtype, device=device)
+        local_size(operations, self.mlp_hidden_dim, "Flux MLP width")
+        mlp_sections = (
+            (self.mlp_hidden_dim, self.mlp_hidden_dim)
+            if mlp_silu_act or yak_mlp else
+            (self.mlp_hidden_dim,)
+        )
+        self.linear1 = column_parallel_linear(
+            operations,
+            hidden_size,
+            hidden_size * 3 + self.mlp_hidden_dim_first,
+            bias=bias,
+            section_sizes=(hidden_size, hidden_size, hidden_size, *mlp_sections),
+            dtype=dtype,
+            device=device,
+        )
         # proj and mlp_out
-        self.linear2 = operations.Linear(hidden_size + self.mlp_hidden_dim, hidden_size, bias=bias, dtype=dtype, device=device)
+        self.linear2 = row_parallel_linear(
+            operations, hidden_size + self.mlp_hidden_dim, hidden_size, bias=bias,
+            dtype=dtype, device=device,
+        )
+        self.local_hidden_size = local_size(operations, hidden_size, "Flux hidden size")
+        self.local_mlp_hidden_dim_first = local_size(
+            operations, self.mlp_hidden_dim_first, "Flux fused MLP width"
+        )
 
         self.norm = QKNorm(head_dim, dtype=dtype, device=device, operations=operations)
 
@@ -328,7 +366,11 @@ class SingleStreamBlock(nn.Module):
         transformer_patches = transformer_options.get("patches", {})
         extra_options = transformer_options.copy()
 
-        qkv, mlp = torch.split(self.linear1(apply_mod(self.pre_norm(x), (1 + mod.scale), mod.shift, modulation_dims)), [3 * self.hidden_size, self.mlp_hidden_dim_first], dim=-1)
+        qkv, mlp = torch.split(
+            self.linear1(apply_mod(self.pre_norm(x), (1 + mod.scale), mod.shift, modulation_dims)),
+            [3 * self.local_hidden_size, self.local_mlp_hidden_dim_first],
+            dim=-1,
+        )
 
         qkv = qkv.view(qkv.shape[0], qkv.shape[1], 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k, v = torch.unbind(qkv, dim=0)
@@ -353,7 +395,7 @@ class SingleStreamBlock(nn.Module):
 
         # compute activation in mlp stream, cat again and run second linear layer
         if self.yak_mlp:
-            mlp = self.mlp_act(mlp[..., self.mlp_hidden_dim_first // 2:]) * mlp[..., :self.mlp_hidden_dim_first // 2]
+            mlp = self.mlp_act(mlp[..., self.local_mlp_hidden_dim_first // 2:]) * mlp[..., :self.local_mlp_hidden_dim_first // 2]
         else:
             mlp = self.mlp_act(mlp)
         output = self.linear2(torch.cat((attn, mlp), 2))

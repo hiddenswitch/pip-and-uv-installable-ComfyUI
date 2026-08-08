@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from .types import TensorParallelConfig
+
+
+def tensor_parallel_size(operations) -> int:
+    parallel = getattr(operations, "tensor_parallel", None)
+    return 1 if parallel is None else parallel.size
+
+
+def local_size(operations, value: int, name: str) -> int:
+    size = tensor_parallel_size(operations)
+    if value % size:
+        raise ValueError(f"{name} {value} must be divisible by tensor parallel size {size}")
+    return value // size
+
+
+def column_parallel_linear(operations, in_features, out_features, bias=True, *,
+                           sections=1, section_sizes=None, device=None, dtype=None):
+    if tensor_parallel_size(operations) == 1:
+        return operations.Linear(
+            in_features, out_features, bias=bias, device=device, dtype=dtype
+        )
+    return operations.ColumnParallelLinear(
+        in_features,
+        out_features,
+        bias=bias,
+        sections=sections,
+        section_sizes=section_sizes,
+        device=device,
+        dtype=dtype,
+    )
+
+
+def row_parallel_linear(operations, in_features, out_features, bias=False, *,
+                        device=None, dtype=None):
+    if tensor_parallel_size(operations) == 1:
+        return operations.Linear(
+            in_features, out_features, bias=bias, device=device, dtype=dtype
+        )
+    return operations.RowParallelLinear(
+        in_features, out_features, bias=bias, device=device, dtype=dtype
+    )
+
+
+def tensor_parallel_operations(base_operations, parallel: TensorParallelConfig):
+    """Decorate Comfy operations with Megatron-style tensor-parallel linears."""
+
+    class TensorParallelOperations(base_operations):
+        tensor_parallel = parallel
+
+        class ColumnParallelLinear(base_operations.Linear):
+            def __init__(self, in_features, out_features, bias=True, *, sections=1,
+                         section_sizes=None,
+                         device=None, dtype=None):
+                if section_sizes is None:
+                    if out_features % sections:
+                        raise ValueError(
+                            f"Column-parallel output {out_features} must divide {sections} sections"
+                        )
+                    section_sizes = (out_features // sections,) * sections
+                else:
+                    section_sizes = tuple(section_sizes)
+                    if sum(section_sizes) != out_features:
+                        raise ValueError(
+                            f"Column-parallel sections {section_sizes} do not sum to {out_features}"
+                        )
+                if any(section % parallel.size for section in section_sizes):
+                    raise ValueError(
+                        f"Column-parallel sections {section_sizes} must divide across "
+                        f"{parallel.size} ranks"
+                    )
+                super().__init__(
+                    in_features,
+                    sum(section // parallel.size for section in section_sizes),
+                    bias=bias,
+                    device=device, dtype=dtype,
+                )
+                self.tensor_parallel_section_sizes = section_sizes
+                self.tensor_parallel_out_features = out_features
+
+        class RowParallelLinear(base_operations.Linear):
+            def __init__(self, in_features, out_features, bias=True, *,
+                         device=None, dtype=None):
+                if bias:
+                    raise NotImplementedError("Row-parallel bias is not implemented")
+                if in_features % parallel.size:
+                    raise ValueError(
+                        f"Row-parallel input {in_features} must divide {parallel.size} ranks"
+                    )
+                super().__init__(
+                    in_features // parallel.size, out_features, bias=False,
+                    device=device, dtype=dtype,
+                )
+                self.tensor_parallel_in_features = in_features
+
+            def forward(self, *args, **kwargs):
+                return parallel.operations.sum(super().forward(*args, **kwargs))
+
+    TensorParallelOperations.__name__ = f"TensorParallel{base_operations.__name__}"
+    return TensorParallelOperations

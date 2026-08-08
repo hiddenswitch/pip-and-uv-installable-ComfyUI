@@ -222,6 +222,12 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
         """Return True if this model uses dynamic VRAM management."""
         ...
 
+    def manages_own_device_memory(self) -> bool:
+        """Return True when residency decisions execute in another process."""
+        ...
+
+    def reset_dynamic_buffers(self): ...
+
 
 class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable, metaclass=ABCMeta):
     """
@@ -319,6 +325,12 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
         Dynamic models use virtual BAR for on-demand weight loading.
         """
         return False
+
+    def manages_own_device_memory(self) -> bool:
+        return False
+
+    def reset_dynamic_buffers(self):
+        pass
 
     def partially_load(self, device_to: torch.device, extra_memory: int = 0, force_patch_weights: bool = False):
         self.patch_model(device_to=device_to)

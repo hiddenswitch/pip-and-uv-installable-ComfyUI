@@ -259,6 +259,12 @@ def server_startup_timeout_seconds() -> float:
 
 
 @pytest.fixture(scope="session")
+def process_startup_timeout_seconds() -> float:
+    """Return the cold-start budget for tests that create a Python process."""
+    return server_startup_timeout_seconds()
+
+
+@pytest.fixture(scope="session")
 def skip_timing_checks(pytestconfig):
     """Fixture that returns whether timing checks should be skipped."""
     # todo: in the LTS, we don't need to skip timing checks, everything just works

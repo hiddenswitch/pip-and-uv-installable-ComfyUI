@@ -71,6 +71,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "WAN22_S2V": ("ltx-2-0.json",),
     "WAN21_HuMo": ("ltx-2-0.json",),
     "WAN22_Animate": ("ltxv-1.json",),
+    "WAN_Animate2": ("ltxv-1.json",),
     "WAN21_FlowRVS": ("ltxv-1.json",),
     "WAN21_SCAIL": ("image-upscale-with-model-0.json",),
     "WAN21_SCAIL2": ("wan21-scail2-0.json",),

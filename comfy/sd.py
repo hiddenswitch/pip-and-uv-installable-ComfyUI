@@ -19,6 +19,7 @@ from . import memory_management
 from . import model_detection
 from . import model_management
 from . import model_sampling
+from . import ops
 from . import sd1_clip
 from . import sdxl_clip
 from . import utils
@@ -992,6 +993,54 @@ class VAE:
                 #Force cast it for --disable-dynamic-vram users until there is a true core fix.
                 if not memory_management.aimdo_enabled:
                     self.disable_offload = True
+            elif "decoder.transformer_blocks.0.scale1" in sd and "encoder.down.5.block.0.conv1.weight" in sd:  # MiniMax H3 video VAE
+                minimax_ops = ops.disable_weight_init
+                minimax_quant = utils.detect_layer_quantization(sd, "")
+                if minimax_quant is not None:  # int8+convrot quantized decoder
+                    minimax_ops = ops.mixed_precision_ops(minimax_quant, dtype if dtype is not None else torch.float16)
+                self.first_stage_model = MiniMaxH3VideoVAE(operations=minimax_ops)
+                self.latent_channels = 24
+                self.latent_dim = 3
+                # frames 17k+5 <-> latents 5k+2, 16x spatial
+                self.upscale_ratio = (lambda a: max(1, (a - 2) // 5 * 17 + 5), 16, 16)
+                self.upscale_index_formula = (4, 16, 16)
+                self.downscale_ratio = (lambda a: max(1, (a - 5) // 17 * 5 + 2) if a > 1 else 1, 16, 16)
+                self.downscale_index_formula = (4, 16, 16)
+                self.working_dtypes = [torch.float16, torch.float32]
+                # the model tiles internally (256px spatial, 17-frame temporal chunks)
+                self.handles_tiling = True
+                def estimate_encode_memory(frames, height, width, dtype):
+                    fixed = 110_000_000 if frames == 1 else 1_300_000_000
+                    elements_per_pixel = 7 if frames == 1 else 9.5
+                    return (elements_per_pixel * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
+
+                def estimate_decode_memory(frames, height, width, dtype):
+                    fixed = 110_000_000 if frames <= 22 else 270_000_000
+                    return (9.5 * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
+
+                self.memory_used_encode = lambda shape, dtype: estimate_encode_memory(shape[2], shape[3], shape[4], dtype)
+                self.memory_used_decode = lambda shape, dtype: estimate_decode_memory(self.upscale_ratio[0](shape[2]), shape[3] * self.upscale_ratio[1], shape[4] * self.upscale_ratio[2], dtype)
+            elif "pre_block.attn.zero_k_bias" in sd:  # MiniMax H3 audio VAE (DAC encoder + BigVGAN decoder)
+                self.first_stage_model = MiniMaxH3AudioVAE()
+                self.latent_channels = 32
+                self.output_channels = 2
+                self.pad_channel_value = "replicate"
+                self.audio_sample_rate = 32000
+                self.upscale_ratio = 800
+                self.downscale_ratio = 800
+                self.latent_dim = 2  # [B, 32, stereo 2, T]
+                self.process_output = lambda audio: audio
+                self.process_input = lambda audio: audio
+                self.working_dtypes = [torch.float32]
+                # encode gets the waveform shape [B, 2, samples], decode the latent shape [B, 32, 2, T]
+                def estimate_encode_memory(samples, dtype):
+                    return (900 * samples + 105_000_000) * model_management.dtype_size(dtype) * 1.03
+
+                def estimate_decode_memory(samples, dtype):
+                    return max(42_000_000, 220 * samples + 20_000_000) * model_management.dtype_size(dtype) * 1.03
+
+                self.memory_used_encode = lambda shape, dtype: estimate_encode_memory(shape[2], dtype)
+                self.memory_used_decode = lambda shape, dtype: estimate_decode_memory(shape[-1] * self.upscale_ratio, dtype)
             elif "gs.base_offset_scale" in sd and "octree.out_proj.weight" in sd:  # TripoSplat octree gaussian decoder
                 self.first_stage_model = OctreeGaussianDecoder()
                 self.latent_channels = 16
@@ -2303,6 +2352,32 @@ def load_diffusion_model_state_dict(sd, model_options: dict = None, ckpt_path: O
 def load_diffusion_model(unet_path, model_options=None, disable_dynamic=False):
     if model_options is None:
         model_options = {}
+    from .tensor_parallel.loader import try_load_diffusion_model_tensor_parallel
+    from .pipeline_parallel.loader import try_load_diffusion_model_pipeline
+    from .xdit.loader import try_load_diffusion_model_xdit_sequence_parallel
+
+    xdit_model = try_load_diffusion_model_xdit_sequence_parallel(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if xdit_model is not None:
+        return xdit_model
+
+    tensor_parallel_model = try_load_diffusion_model_tensor_parallel(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if tensor_parallel_model is not None:
+        return tensor_parallel_model
+    pipeline_model = try_load_diffusion_model_pipeline(
+        unet_path,
+        model_options=model_options,
+        disable_dynamic=disable_dynamic,
+    )
+    if pipeline_model is not None:
+        return pipeline_model
     sd, metadata = utils.load_torch_file(unet_path, return_metadata=True)
     model = load_diffusion_model_state_dict(sd, model_options=model_options, ckpt_path=unet_path, metadata=metadata, disable_dynamic=disable_dynamic)
     if model is None:

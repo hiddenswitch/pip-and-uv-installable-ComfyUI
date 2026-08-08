@@ -1,3 +1,7 @@
+import os
+from types import SimpleNamespace
+
+from comfy.cmd import cuda_malloc
 from comfy.component_model.cuda_env import ensure_pytorch_cuda_alloc_conf, should_skip_cuda_alloc_conf_for_xpu
 
 
@@ -33,3 +37,30 @@ def test_detects_oneapi_selector_as_xpu():
     env = {"ONEAPI_DEVICE_SELECTOR": "level_zero:0"}
 
     assert should_skip_cuda_alloc_conf_for_xpu(env)
+
+
+def test_cuda_malloc_configuration_uses_explicit_configuration(monkeypatch):
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
+    configuration = SimpleNamespace(
+        cuda_malloc=True,
+        disable_cuda_malloc=False,
+        fast=set(),
+    )
+
+    cuda_malloc.configure(configuration)
+
+    assert os.environ["PYTORCH_CUDA_ALLOC_CONF"] == "backend:cudaMallocAsync"
+
+
+def test_cuda_malloc_disable_wins(monkeypatch):
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
+    configuration = SimpleNamespace(
+        cuda_malloc=True,
+        disable_cuda_malloc=True,
+        fast=set(),
+    )
+
+    cuda_malloc.configure(configuration)
+
+    assert not configuration.cuda_malloc
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in os.environ

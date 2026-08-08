@@ -3,6 +3,10 @@ from . import memory_management, model_management, ops
 
 PREFETCH_QUEUES = []
 
+
+def _dynamic_vbar_modules(module):
+    return [s for s in module.modules() if getattr(s, "_v", None) is not None]
+
 def cleanup_prefetched_modules(comfy_modules):
     for s in comfy_modules:
         prefetch = getattr(s, "_prefetch", None)
@@ -29,6 +33,12 @@ def cleanup_prefetch_queues():
                 cleanup_prefetched_modules(comfy_modules)
     PREFETCH_QUEUES = []
 
+
+def finish_model_execution():
+    """Release asynchronous weight state at an outer model boundary."""
+    cleanup_prefetch_queues()
+    ops.finish_weight_cast_execution()
+
 def prefetch_queue_pop(queue, device, module):
     if queue is None:
         return
@@ -44,10 +54,7 @@ def prefetch_queue_pop(queue, device, module):
 
     prefetch = queue[0]
     if prefetch is not None:
-        comfy_modules = []
-        for s in prefetch.modules():
-            if hasattr(s, "_v"):
-                comfy_modules.append(s)
+        comfy_modules = _dynamic_vbar_modules(prefetch)
 
         registerable_size = 0
         for s in comfy_modules:

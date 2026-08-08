@@ -557,8 +557,29 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
         if mask.ndim == 3:
             mask = mask.unsqueeze(1)
 
+    return_lse = kwargs.pop("return_lse", False)
     sdpa_keys = ("scale", "enable_gqa")
     sdpa_extra = {k: v for k, v in kwargs.items() if k in sdpa_keys}
+
+    if return_lse:
+        if kwargs.get("enable_gqa", False) and q.shape[1] != k.shape[1]:
+            k, v = comfy_ops.repeat_kv_for_gqa(k, v, q.shape[1], 1)
+        scale = kwargs.get("scale", q.shape[-1] ** -0.5)
+        scores = torch.matmul(
+            q.to(torch.float32),
+            k.to(torch.float32).transpose(-2, -1),
+        ) * scale
+        if mask is not None:
+            if mask.dtype == torch.bool:
+                scores = scores.masked_fill(~mask, -torch.inf)
+            else:
+                scores = scores + mask.to(scores.dtype)
+        logsumexp = torch.logsumexp(scores, dim=-1)
+        probabilities = torch.softmax(scores, dim=-1).to(v.dtype)
+        out = torch.matmul(probabilities, v).to(q.dtype)
+        if not skip_output_reshape:
+            out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+        return out, logsumexp
 
     if SDP_BATCH_LIMIT >= b:
         out = scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, **sdpa_extra)
@@ -586,8 +607,9 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
 
 @wrap_attn
 def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    return_lse = kwargs.pop("return_lse", False)
     if kwargs.get("low_precision_attention", True) is False or (mask is not None and not SAGE_ATTENTION_SUPPORTS_MASK):
-        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=skip_reshape, skip_output_reshape=skip_output_reshape, **kwargs)
+        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=skip_reshape, skip_output_reshape=skip_output_reshape, return_lse=return_lse, **kwargs)
 
     exception_fallback = False
     if skip_reshape:
@@ -609,7 +631,7 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
         if mask.ndim == 3:
             mask = mask.unsqueeze(1)
 
-    sage_kwargs = {"is_causal": False, "tensor_layout": tensor_layout, "sm_scale": kwargs.get("scale", None), "smooth_k": False}
+    sage_kwargs = {"is_causal": False, "tensor_layout": tensor_layout, "sm_scale": kwargs.get("scale", None), "smooth_k": False, "return_lse": return_lse}
     if mask is not None:
         sage_kwargs["attn_mask"] = mask
 
@@ -624,7 +646,11 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
                 lambda t: t.transpose(1, 2),
                 (q, k, v),
             )
-        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=True, skip_output_reshape=skip_output_reshape, **kwargs)
+        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=True, skip_output_reshape=skip_output_reshape, return_lse=return_lse, **kwargs)
+
+    logsumexp = None
+    if return_lse:
+        out, logsumexp = out
 
     if tensor_layout == "HND":
         if not skip_output_reshape:
@@ -636,6 +662,8 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
             out = out.transpose(1, 2)
         else:
             out = out.reshape(b, -1, heads * dim_head)
+    if return_lse:
+        return out, logsumexp
     return out
 
 @wrap_attn
@@ -795,29 +823,34 @@ def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
     return out
 
 
-optimized_attention = attention_pytorch
-optimized_attention_no_sage = attention_pytorch
+def select_optimized_attention():
+    """Resolve the backend from the active Configuration.
 
-if model_management.sage_attention_enabled() and SAGE_ATTENTION_IS_AVAILABLE:
-    logger.debug("Using sage attention")
-    optimized_attention = attention_sage
-    optimized_attention_no_sage = attention_pytorch
-elif model_management.xformers_enabled():
-    logger.debug("Using xformers attention")
-    optimized_attention = attention_xformers
-elif model_management.flash_attention_enabled():
-    logger.debug("Using Flash Attention")
-    optimized_attention = attention_flash
-elif model_management.pytorch_attention_enabled():
-    logger.debug("Using pytorch attention")
-    optimized_attention = attention_pytorch
-else:
+    Configuration is request/process context, while imported function objects
+    can outlive that context in process-pool workers. Resolve at execution time
+    so a spawned model-parallel rank cannot retain the startup default.
+    """
+
+    if model_management.sage_attention_enabled() and SAGE_ATTENTION_IS_AVAILABLE:
+        return attention_sage
+    if model_management.xformers_enabled():
+        return attention_xformers
+    if model_management.flash_attention_enabled():
+        return attention_flash
+    if model_management.pytorch_attention_enabled():
+        return attention_pytorch
     if args.use_split_cross_attention:
-        logger.debug("Using split optimization for attention")
-        optimized_attention = attention_split
-    else:
-        logger.debug("Using sub quadratic optimization for attention, if you have memory or speed issues try using: --use-split-cross-attention")
-        optimized_attention = attention_sub_quad
+        return attention_split
+    return attention_sub_quad
+
+
+def optimized_attention(*args, **kwargs):
+    return select_optimized_attention()(*args, **kwargs)
+
+
+def optimized_attention_no_sage(*args, **kwargs):
+    return attention_pytorch(*args, **kwargs)
+
 
 optimized_attention_masked = optimized_attention
 optimized_attention_no_sage_masked = optimized_attention_no_sage

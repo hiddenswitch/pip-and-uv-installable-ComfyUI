@@ -1,7 +1,5 @@
 """Tests for HuggingFace token handling in model_downloader."""
 
-import pytest
-
 from comfy.model_downloader import _get_hf_token
 
 
@@ -43,17 +41,20 @@ class TestGetHfToken:
 
 
 class TestDownloadWithoutToken:
-    def test_hf_hub_download_kwargs_use_none_token(self, monkeypatch):
+    def test_hf_hub_download_kwargs_use_none_token(self, monkeypatch, cached_gpt2_hf_download):
         """The download kwargs should use token=None when no token is configured."""
         monkeypatch.setattr(
             "comfy.model_downloader._get_hf_token",
             lambda: None,
         )
 
-        # Verify that get_or_download for a public file works without a token
-        # by downloading a known small file (gpt2 config)
+        # Verify that a public file is requested without a token. The Hub call
+        # is backed by a local fixture so unit tests never depend on the network.
         from comfy.model_downloader import get_or_download
         import os
+        _, calls = cached_gpt2_hf_download
         result = get_or_download("checkpoints", "hf://gpt2/config.json")
         assert result is not None
         assert os.path.isfile(result)
+        assert calls
+        assert calls[0]["token"] is None

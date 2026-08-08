@@ -1,7 +1,6 @@
 import pytest
 import torch
 import importlib
-import sys
 from unittest.mock import patch, MagicMock
 
 # For version comparison
@@ -38,6 +37,29 @@ def test_sdpa_no_cuda():
         v = torch.randn(2, 4, 8, 16)
         output = comfy.ops.scaled_dot_product_attention(q, k, v)
         assert output.shape == q.shape
+
+
+def test_sdpa_masked_gqa_fallback_repeats_key_value_heads():
+    q = torch.randn(2, 4, 8, 16)
+    k = torch.randn(2, 2, 8, 16)
+    v = torch.randn(2, 2, 8, 16)
+    mask = torch.ones(8, 8, dtype=torch.bool)
+
+    actual = comfy.ops._scaled_dot_product_attention(
+        q,
+        k,
+        v,
+        attn_mask=mask,
+        enable_gqa=True,
+    )
+    expected = torch.nn.functional.scaled_dot_product_attention(
+        q,
+        k.repeat_interleave(2, dim=-3),
+        v.repeat_interleave(2, dim=-3),
+        attn_mask=mask,
+    )
+
+    torch.testing.assert_close(actual, expected)
 
 
 def test_sdpa_old_torch_with_cuda():

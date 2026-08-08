@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 
+from comfy import weight_cast_ops
 from comfy.weight_cast import GraphVisibleWeightCastRuntime
 from comfy.weight_cast_ops import module_key_tensor, register_module_with_stable_key
 
@@ -36,3 +37,23 @@ def test_graph_visible_resident_modules_reuse_invocation_id() -> None:
 
     module.weight_function = [lambda weight: weight]
     assert GraphVisibleWeightCastRuntime._needs_unique_invocation(module)
+
+
+def test_resolved_weight_and_bias_do_not_alias_each_other(monkeypatch) -> None:
+    module = torch.nn.Linear(2, 2)
+    module_key = module_key_tensor(module)
+    storage = torch.arange(6, dtype=torch.float32)
+
+    def resolve(*args, **kwargs):
+        del args, kwargs
+        return storage[:4].view(2, 2), storage[4:], None
+
+    monkeypatch.setattr(weight_cast_ops, "_RESOLVE", resolve)
+
+    weight, bias = torch.ops.comfy_weight.resolve_weight_bias(
+        torch.ones(1, 2), [2, 2], [2], module_key, 1,
+        1, 1, 1, False, 0, -1,
+    )
+
+    assert weight.untyped_storage().data_ptr() == storage.untyped_storage().data_ptr()
+    assert bias.untyped_storage().data_ptr() != weight.untyped_storage().data_ptr()

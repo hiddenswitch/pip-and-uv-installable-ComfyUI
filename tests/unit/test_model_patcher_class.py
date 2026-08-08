@@ -205,3 +205,11 @@ class TestModelPatcherFactoryCompatibility:
 
         assert type(patcher) is ModelPatcher
         assert patcher.is_dynamic() is False
+
+
+def test_dynamic_patcher_keeps_large_weights_evictable():
+    from comfy.model_patcher import dynamic_weight_requires_force_load
+
+    assert dynamic_weight_requires_force_load(16 * 1024)
+    assert not dynamic_weight_requires_force_load(20 * 1024 ** 3)
+    assert dynamic_weight_requires_force_load(20 * 1024 ** 3, structurally_required=True)

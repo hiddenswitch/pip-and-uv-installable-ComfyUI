@@ -142,6 +142,14 @@ def test_comfy_weight_custom_ops_are_present_in_fx_graph():
     assert "comfy_weight.release" in graph_text
 
 
+def test_comfy_weight_release_ops_do_not_claim_to_mutate_model_outputs():
+    release_schema = str(torch.ops.comfy_weight.release_.default._schema)
+    release_tensor_schema = str(torch.ops.comfy_weight.release_tensor_.default._schema)
+
+    assert "!" not in release_schema
+    assert "!" not in release_tensor_schema
+
+
 def test_weight_prefetch_scheduler_rewrites_future_resolves_from_fx_graph():
     from comfy import ops
     from comfy.weight_cast_ops import module_bias_shape, module_weight_shape, module_key_tensor
@@ -642,6 +650,44 @@ def test_dynamic_vbar_prefetch_uses_cast_buffer_when_aimdo_has_no_room(monkeypat
     assert calls[0][5]["prefetch_hint"] is False
 
 
+def test_dynamic_vbar_undersized_allocation_releases_successful_fault(monkeypatch):
+    from comfy import ops
+
+    layer = ops.manual_cast.Linear(2, 2)
+    layer._v = (object(), 0, 1)
+    layer._v_signature = None
+    signature = object()
+    unpinned = []
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_fault",
+        lambda allocation: signature,
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_signature_compare",
+        lambda left, right: False,
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_unpin",
+        lambda allocation: unpinned.append(allocation),
+    )
+    monkeypatch.setattr(
+        ops.comfy_aimdo.torch,
+        "aimdo_to_tensor",
+        lambda allocation, device: torch.empty(1, dtype=torch.uint8),
+    )
+
+    ops.cast_modules_with_vbar(
+        [layer], torch.float32, torch.device("cpu"), torch.float32, False,
+        prefetch_hint=True,
+    )
+
+    assert unpinned == [layer._v]
+    assert layer._prefetch is None
+
+
 def test_dynamic_vbar_resolve_uses_demand_path_after_deferred_prefetch(monkeypatch):
     from comfy import ops
 
@@ -782,6 +828,35 @@ def test_vbar_release_defers_unpin_until_cuda_event_completes(monkeypatch):
         events[0].complete = True
         ops._drain_deferred_vbar_unpins(block=False)
         assert unpinned == [layer._v]
+        assert ops._DEFERRED_VBAR_UNPINS == []
+    finally:
+        ops._DEFERRED_VBAR_UNPINS.clear()
+
+
+def test_finish_weight_cast_execution_waits_for_deferred_unpins(monkeypatch):
+    from comfy import ops
+
+    class FakeEvent:
+        synchronized = False
+
+        def synchronize(self):
+            self.synchronized = True
+
+    event = FakeEvent()
+    allocation = ("vbar", 0, 4096)
+    unpinned = []
+    monkeypatch.setattr(
+        ops.comfy_aimdo.model_vbar,
+        "vbar_unpin",
+        lambda value: unpinned.append(value),
+    )
+    ops._DEFERRED_VBAR_UNPINS[:] = [(event, allocation)]
+
+    try:
+        ops.finish_weight_cast_execution()
+
+        assert event.synchronized
+        assert unpinned == [allocation]
         assert ops._DEFERRED_VBAR_UNPINS == []
     finally:
         ops._DEFERRED_VBAR_UNPINS.clear()
@@ -1327,6 +1402,32 @@ def test_fp8_materialization_rejects_unknown_mode(monkeypatch):
             torch.ones((), dtype=torch.float32),
             torch.bfloat16,
         )
+
+
+def test_quantized_tensor_copy_stays_outside_aot_functionalization():
+    from comfy.quant_ops import QuantizedTensor, TensorWiseINT8Layout
+
+    def quantized(values):
+        qdata = torch.tensor(values, dtype=torch.int8)
+        params = TensorWiseINT8Layout.Params(
+            scale=torch.ones((), dtype=torch.float32),
+            orig_dtype=torch.bfloat16,
+            orig_shape=tuple(qdata.shape),
+        )
+        return QuantizedTensor(qdata, "TensorWiseINT8Layout", params)
+
+    destination = quantized([[0, 0], [0, 0]])
+    source = quantized([[1, 2], [3, 4]])
+
+    def copy_quantized(dst, src):
+        dst.copy_(src)
+        return dst
+
+    compiled = torch.compile(copy_quantized, backend="eager")
+    result = compiled(destination, source)
+
+    assert torch.equal(result._qdata, source._qdata)
+    assert torch.equal(result.params.scale, source.params.scale)
 
 
 def test_direct_materialize_prefetch_allows_dtype_changing_weight(monkeypatch):

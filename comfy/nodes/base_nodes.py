@@ -668,7 +668,7 @@ class DiffusersLoader:
     SEARCH_ALIASES = ["load diffusers model"]
 
     @classmethod
-    def INPUT_TYPES(cls):
+    def _model_paths(cls):
         paths = []
         for search_path in folder_paths.get_folder_paths("diffusers"):
             if os.path.exists(search_path):
@@ -677,8 +677,11 @@ class DiffusersLoader:
                         paths.append(os.path.relpath(root, start=search_path))
 
         paths += get_huggingface_repo_list()
-        paths = list(frozenset(paths))
-        return {"required": {"model_path": (paths,),
+        return list(frozenset(paths))
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"model_path": (cls._model_paths(),),
                              "weight_dtype": (FLUX_WEIGHT_DTYPES,)
                              }}
 
@@ -688,18 +691,22 @@ class DiffusersLoader:
     CATEGORY = "advanced/loaders"
 
     def load_checkpoint(self, model_path, output_vae=True, output_clip=True, weight_dtype: str = "default"):
+        if model_path not in self._model_paths():
+            raise ValueError(f"Invalid diffusers model path: {model_path!r}")
+
+        resolved_model_path = None
         for search_path in folder_paths.get_folder_paths("diffusers"):
             if os.path.exists(search_path):
                 path = os.path.join(search_path, model_path)
-                if os.path.exists(path):
-                    model_path = path
+                if os.path.isfile(os.path.join(path, "model_index.json")):
+                    resolved_model_path = path
                     break
-        if not os.path.exists(model_path):
+        if resolved_model_path is None:
             with comfy_tqdm():
-                model_path = snapshot_download(model_path)
+                resolved_model_path = snapshot_download(model_path)
 
         model_options = get_model_options_for_dtype(weight_dtype)
-        sharded_checkpoint = os.path.join(model_path, "model.safetensors.index.json")
+        sharded_checkpoint = os.path.join(resolved_model_path, "model.safetensors.index.json")
         if os.path.exists(sharded_checkpoint):
             return sd.load_checkpoint_guess_config(
                 sharded_checkpoint,
@@ -709,7 +716,7 @@ class DiffusersLoader:
                 model_options=model_options,
             )[:3]
 
-        return diffusers_load.load_diffusers(model_path, output_vae=output_vae, output_clip=output_clip, embedding_directory=folder_paths.get_folder_paths("embeddings"), model_options=model_options)
+        return diffusers_load.load_diffusers(resolved_model_path, output_vae=output_vae, output_clip=output_clip, embedding_directory=folder_paths.get_folder_paths("embeddings"), model_options=model_options)
 
 
 class unCLIPCheckpointLoader:

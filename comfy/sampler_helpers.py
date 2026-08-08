@@ -248,7 +248,7 @@ def prepare_model_patcher_multigpu_clones(model_patcher: ModelPatcher, loaded_mo
     '''
     In case multigpu acceleration is enabled, prep ModelPatchers for each device.
     '''
-    multigpu_patchers: list[ModelPatcher] = [x for x in loaded_models if x.is_multigpu_base_clone]
+    multigpu_patchers: list[ModelPatcher] = [x for x in loaded_models if isinstance(x, ModelPatcher) and x.is_multigpu_base_clone]
     if len(multigpu_patchers) > 0:
         multigpu_dict: dict[torch.device, ModelPatcher] = {}
         multigpu_dict[model_patcher.load_device] = model_patcher

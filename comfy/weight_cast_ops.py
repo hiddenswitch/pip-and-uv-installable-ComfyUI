@@ -547,7 +547,7 @@ def resolve_weight_bias(
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
     weight = _custom_op_return(weight)
-    bias = _custom_op_return(bias)
+    bias = bias.clone()
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 
@@ -588,7 +588,7 @@ def resolve_prefetched_weight_bias(
     if bias is None:
         raise RuntimeError(f"Module {type(module).__name__} has no bias")
     weight = _custom_op_return(weight)
-    bias = _custom_op_return(bias)
+    bias = bias.clone()
     _ACTIVE[(module_key, invocation_id)] = (weight, bias, state)
     return weight, bias
 
@@ -648,11 +648,11 @@ _LIB.define(
     **_TORCH_OP_TAG_KWARGS_SINGLE,
 )
 _LIB.define(
-    "release_(Tensor(a!) output, int module_key, int invocation_id) -> ()",
+    "release_(Tensor output, int module_key, int invocation_id) -> ()",
     **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(
-    "release_tensor_(Tensor(a!) output, Tensor module_key, int invocation_id) -> ()",
+    "release_tensor_(Tensor output, Tensor module_key, int invocation_id) -> ()",
     **_TORCH_OP_TAG_KWARGS,
 )
 _LIB.define(

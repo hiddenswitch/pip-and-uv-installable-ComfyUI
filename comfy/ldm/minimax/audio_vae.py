@@ -99,8 +99,7 @@ class UpSample1d(nn.Module):
     def forward(self, x):
         _, C, _ = x.shape
         x = F.pad(x, (self.pad, self.pad), mode="replicate")
-        filter_ = self.filter.expand(C, -1, -1).to(device=x.device, dtype=x.dtype)
-        x = F.conv_transpose1d(x, filter_, stride=self.stride, groups=C).mul_(self.ratio)
+        x = F.conv_transpose1d(x, comfy.ops.cast_to_input(self.filter.expand(C, -1, -1), x), stride=self.stride, groups=C).mul_(self.ratio)
         x = x[..., self.pad_left:-self.pad_right]
         return x
 
@@ -116,8 +115,7 @@ class LowPassFilter1d(nn.Module):
     def forward(self, x):
         _, C, _ = x.shape
         x = F.pad(x, (self.pad_left, self.pad_right), mode="replicate")
-        filter_ = self.filter.expand(C, -1, -1).to(device=x.device, dtype=x.dtype)
-        return F.conv1d(x, filter_, stride=self.stride, groups=C)
+        return F.conv1d(x, comfy.ops.cast_to_input(self.filter.expand(C, -1, -1), x), stride=self.stride, groups=C)
 
 
 class DownSample1d(nn.Module):
@@ -242,10 +240,7 @@ class CausalAttention(nn.Module):
     def forward(self, x):
         B, N, C = x.shape
         weight, _, offload_stream = comfy.ops.cast_bias_weight(self.qkv, x, offloadable=True)
-        q_bias = comfy.ops.cast_to_input(self.q_bias, x)
-        k_bias = comfy.ops.cast_to_input(self.zero_k_bias, x)
-        v_bias = comfy.ops.cast_to_input(self.v_bias, x)
-        qkv = F.linear(x, weight=weight, bias=torch.cat((q_bias, k_bias, v_bias)))
+        qkv = F.linear(x, weight=weight, bias=comfy.ops.cast_to_input(torch.cat((self.q_bias, self.zero_k_bias, self.v_bias)), x))
         comfy.ops.uncast_bias_weight(self.qkv, weight, None, offload_stream)
         q, k, v = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4).unbind(0)
 

@@ -14,6 +14,8 @@ _TEXT_ENCODE_FIELDS: dict[str, list[str]] = {
     "OneShotInstructTokenize": ["prompt"],
     "TransformersTranslationTokenize": ["prompt"],
     "TransformersTokenize": ["prompt"],
+    "MiniMaxH3ImageToVideo": ["prompt"],
+    "MiniMaxH3ReferenceToVideo": ["prompt"],
 }
 
 

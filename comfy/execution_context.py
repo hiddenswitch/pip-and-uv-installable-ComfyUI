@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import Context, ContextVar, copy_context
 from dataclasses import dataclass, replace
 from typing import Optional, Final
 
@@ -56,6 +56,29 @@ cvpickle.register_contextvar(comfyui_execution_context, __name__)
 
 def current_execution_context() -> ExecutionContext:
     return comfyui_execution_context.get()
+
+
+def copy_process_context() -> Context:
+    """Copy context variables without request-local, non-picklable state.
+
+    Process peers need Configuration, folder paths, custom-node exports, and
+    trace context. The live server/progress objects and execution graph remain
+    owned by the parent process and may contain generators, locks, or sockets.
+    """
+
+    source = copy_context()
+    target = Context()
+    for context_variable, value in source.items():
+        if context_variable is comfyui_execution_context:
+            value = replace(
+                value,
+                server=ServerStub(),
+                progress_registry=ProgressRegistryStub(),
+                execution_list=None,
+                executed=None,
+            )
+        target.run(context_variable.set, value)
+    return target
 
 
 @contextmanager

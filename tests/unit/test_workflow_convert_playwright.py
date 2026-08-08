@@ -675,28 +675,24 @@ def _format_mismatches(template_id: str, mismatches: list[str]) -> str:
     return f"{header}\n  {details}"
 
 
-def _get_frontend_output(template_id: str, workflow: dict, page) -> dict:
+def _get_frontend_output(
+    template_id: str,
+    workflow: dict,
+    page,
+    *,
+    use_cache: bool = True,
+) -> dict:
     """Get frontend output, using cache if available."""
-    cached = _load_cached(template_id)
-    if cached is not None:
-        return cached
+    if use_cache:
+        cached = _load_cached(template_id)
+        if cached is not None:
+            return cached
 
     def _evaluate_frontend_output() -> dict:
-        page.reload(wait_until="networkidle", timeout=60000)
-        page.wait_for_function(
-            """() => {
-                try {
-                    return !!(
-                        window.comfyAPI &&
-                        window.comfyAPI.app &&
-                        window.comfyAPI.app.app &&
-                        window.comfyAPI.app.app.graph
-                    );
-                } catch(e) { return false; }
-            }""",
-            timeout=60000,
-        )
-
+        # Frontend loadGraphData(clean=true) resets the canvas to rootGraph,
+        # clears it, and awaits configuration of the supplied workflow. A
+        # page reload is both redundant and racy: persisted-workflow startup
+        # can finish afterward and replace the workflow under test.
         return page.evaluate(
             """async (wf) => {
                 const app = window.comfyAPI.app.app;
@@ -749,6 +745,7 @@ class TestFrontendParity:
             pytest.skip(f"{template_id} is not a UI workflow")
 
         # Frontend conversion (cached or via browser)
+        used_cache = _load_cached(template_id) is not None
         frontend_output = _get_frontend_output(template_id, workflow, _app_page)
         if frontend_output is None:
             pytest.skip(f"{template_id}: frontend throws InvalidLinkError (broken workflow links)")
@@ -761,4 +758,23 @@ class TestFrontendParity:
         f = _normalize_api_output(frontend_output)
         p = _normalize_api_output(python_output)
         mismatches = _compare_outputs(f, p)
+        if mismatches and used_cache:
+            # A cache entry is only an optimization, never the parity
+            # authority. Re-run the exact workflow through the pinned real
+            # frontend before reporting a converter mismatch. This also
+            # repairs entries accidentally populated with another template's
+            # graph output.
+            _cache_path(template_id).unlink(missing_ok=True)
+            frontend_output = _get_frontend_output(
+                template_id,
+                workflow,
+                _app_page,
+                use_cache=False,
+            )
+            if frontend_output is None:
+                pytest.skip(
+                    f"{template_id}: frontend throws InvalidLinkError (broken workflow links)"
+                )
+            f = _normalize_api_output(frontend_output)
+            mismatches = _compare_outputs(f, p)
         assert not mismatches, _format_mismatches(template_id, mismatches)

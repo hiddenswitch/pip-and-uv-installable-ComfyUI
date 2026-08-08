@@ -145,7 +145,7 @@ if hasattr(torch, "uint16"):
     _TYPES["U16"] = torch.uint16
 
 
-def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
+def load_safetensors(ckpt, include_keys=None) -> tuple[dict[str, torch.Tensor], FileMetadata]:
     import comfy_aimdo.model_mmap
 
     file_lock = threading.Lock()
@@ -162,6 +162,8 @@ def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
     sd = {}
     for name, info in header.items():
         if name == "__metadata__":
+            continue
+        if include_keys is not None and name not in include_keys:
             continue
 
         start, end = info["data_offsets"]
@@ -183,7 +185,7 @@ def load_safetensors(ckpt) -> tuple[dict[str, torch.Tensor], FileMetadata]:
     return sd, header.get("__metadata__", {}),
 
 
-def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=False) -> dict[str, torch.Tensor] | tuple[dict[str, torch.Tensor], Optional[FileMetadata]]:
+def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=False, include_keys=None) -> dict[str, torch.Tensor] | tuple[dict[str, torch.Tensor], Optional[FileMetadata]]:
     if device is None:
         device = torch.device("cpu")
     if ckpt is None:
@@ -193,13 +195,15 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
         try:
             if memory_management.aimdo_enabled():
-                sd, metadata = load_safetensors(ckpt)
+                sd, metadata = load_safetensors(ckpt, include_keys=include_keys)
                 if not return_metadata:
                     metadata = None
             else:
                 with safetensors.safe_open(Path(ckpt).resolve(strict=True), framework="pt", device=device.type) as f:
                     sd = {}
                     for k in f.keys():
+                        if include_keys is not None and k not in include_keys:
+                            continue
                         tensor = f.get_tensor(k)
                         if DISABLE_MMAP:  # TODO: Not sure if this is the best way to bypass the mmap issues
                             tensor = tensor.to(device=device, copy=True)

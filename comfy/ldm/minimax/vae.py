@@ -199,11 +199,11 @@ class RotaryEmbeddingND(nn.Module):
 
 class FeedForward(nn.Module):
     # Gated SiLU FFN.
-    def __init__(self, dim, mult=4, bias=True):
+    def __init__(self, dim, mult=4, bias=True, operations=ops):
         super().__init__()
         inner_dim = dim * mult
-        self.w1 = ops.Linear(dim, inner_dim * 2, bias=bias)
-        self.w2 = ops.Linear(inner_dim, dim, bias=bias)
+        self.w1 = operations.Linear(dim, inner_dim * 2, bias=bias)
+        self.w2 = operations.Linear(inner_dim, dim, bias=bias)
 
     def forward(self, x):
         gate, x = self.w1(x).chunk(2, dim=-1)
@@ -211,15 +211,15 @@ class FeedForward(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, heads, dim_head, bias=True, eps=1e-5):
+    def __init__(self, heads, dim_head, bias=True, eps=1e-5, operations=ops):
         super().__init__()
         self.dim_head = dim_head
         self.heads = heads
         inner_dim = dim_head * heads
         self.norm_q = ops.RMSNorm(dim_head, eps=eps, elementwise_affine=False)
         self.norm_k = ops.RMSNorm(dim_head, eps=eps, elementwise_affine=False)
-        self.to_qkv = ops.Linear(inner_dim, inner_dim * 3, bias=bias)
-        self.to_out = ops.Linear(inner_dim, inner_dim, bias=bias)
+        self.to_qkv = operations.Linear(inner_dim, inner_dim * 3, bias=bias)
+        self.to_out = operations.Linear(inner_dim, inner_dim, bias=bias)
 
     def forward(self, x, rotary_pos_emb=None):
         batch_size, seq_len, _ = x.shape
@@ -228,8 +228,8 @@ class Attention(nn.Module):
         qkv = qkv.view(batch_size, seq_len, -1, 3 * self.dim_head)
         query, key, value = torch.chunk(qkv, 3, dim=-1)
 
-        query = self.norm_q(query)
-        key = self.norm_k(key)
+        query = comfy.rmsnorm.rms_norm(query, self.norm_q.weight, self.norm_q.eps)
+        key = comfy.rmsnorm.rms_norm(key, self.norm_k.weight, self.norm_k.eps)
 
         if rotary_pos_emb is not None:
             rot = rotary_pos_emb.shape[-3] * 2
@@ -242,26 +242,24 @@ class Attention(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, heads, dim_head, bias=True, eps=1e-5):
+    def __init__(self, heads, dim_head, bias=True, eps=1e-5, operations=ops):
         super().__init__()
         dim = heads * dim_head
         self.norm1 = ops.RMSNorm(dim, elementwise_affine=True, eps=eps)
-        self.attn = Attention(heads=heads, dim_head=dim_head, bias=bias, eps=eps)
+        self.attn = Attention(heads=heads, dim_head=dim_head, bias=bias, eps=eps, operations=operations)
         self.scale1 = nn.Parameter(torch.empty(dim))
         self.norm2 = ops.RMSNorm(dim, elementwise_affine=True, eps=eps)
-        self.ff = FeedForward(dim=dim, bias=bias)
+        self.ff = FeedForward(dim=dim, bias=bias, operations=operations)
         self.scale2 = nn.Parameter(torch.empty(dim))
 
     def forward(self, x, rotary_pos_emb=None):
-        scale1 = comfy.ops.cast_to_input(self.scale1, x)
-        scale2 = comfy.ops.cast_to_input(self.scale2, x)
-        x = x.addcmul_(self.attn(self.norm1(x), rotary_pos_emb), scale1)
-        return x.addcmul_(self.ff(self.norm2(x)), scale2)
+        x = x.addcmul_(self.attn(comfy.rmsnorm.rms_norm(x, self.norm1.weight, self.norm1.eps), rotary_pos_emb), comfy.ops.cast_to_input(self.scale1, x))
+        return x.addcmul_(self.ff(comfy.rmsnorm.rms_norm(x, self.norm2.weight, self.norm2.eps)), comfy.ops.cast_to_input(self.scale2, x))
 
 
 class ViT3DDecoder(nn.Module):
     def __init__(self, patch_size=16, patch_size_t=4, in_channels=24, out_channels=3, num_layers=36, heads=32, dim_head=64, rope_theta=100.0,
-                 rope_dim_ratio=0.75, bias=True, eps=1e-5, num_register_tokens=4):
+                 rope_dim_ratio=0.75, bias=True, eps=1e-5, num_register_tokens=4, operations=ops):
         super().__init__()
         dim = heads * dim_head
         self.patch_size = patch_size
@@ -276,7 +274,7 @@ class ViT3DDecoder(nn.Module):
         self.register_buffer("mask_token", torch.empty(1, 1, dim))
 
         self.transformer_blocks = nn.ModuleList(
-            [TransformerBlock(heads=heads, dim_head=dim_head, bias=bias, eps=eps)
+            [TransformerBlock(heads=heads, dim_head=dim_head, bias=bias, eps=eps, operations=operations)
              for _ in range(num_layers)]
         )
 
@@ -291,8 +289,7 @@ class ViT3DDecoder(nn.Module):
         num_patches = h.shape[1]
         num_suffix = 1 + self.num_register_tokens
 
-        register_tokens = comfy.ops.cast_to_input(self.register_tokens, h)
-        h = torch.cat([h, register_tokens.expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
+        h = torch.cat([h, comfy.ops.cast_to_input(self.register_tokens, h).expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
 
         img_ids = create_token_ids((latent_T, latent_H, latent_W), x.device, x.dtype).expand(B, -1, -1)
         suffix_ids = torch.zeros((B, num_suffix, 3), device=x.device, dtype=img_ids.dtype)
@@ -340,6 +337,7 @@ class MiniMaxH3VideoVAE(nn.Module):
         tile_size=256,
         tile_overlap_min=64,
         tiling=True,
+        operations=ops,
     ):
         super().__init__()
         self.vae_ratio = int(math.prod(space_down))
@@ -375,6 +373,7 @@ class MiniMaxH3VideoVAE(nn.Module):
             patch_size_t=self.vae_ratio_t,
             in_channels=z_channels,
             out_channels=out_ch,
+            operations=operations,
         )
 
         self.register_buffer("latents_mean", torch.tensor(LATENTS_MEAN))

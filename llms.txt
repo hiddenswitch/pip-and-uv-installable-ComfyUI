@@ -47,6 +47,39 @@ the same dynamic per-workflow flags, and both support `--all` and
 sits with the other workflow subcommands, but treat either spelling as
 equivalent.
 
+For a supported diffusion transformer, keep the ordinary `UNETLoader` and
+select multiple devices at process startup, for example `--cuda-device 0,1`.
+Qwen Image (including Layered), MiniMax H3, and Flux2 Dev then use transparent
+exact PP; selecting one device keeps ordinary DynamicVRAM offloading. Flux2 Dev
+maps its eight double-stream and 48 single-stream blocks into one ordered stage
+space. Stage placement
+uses DynamicVRAM's loaded-module geometry and per-device available-memory
+signal and may be asymmetric; there is no PP workflow node or byte-balance
+control. Injected pipeline operations select asynchronous CUDA peer copies
+when possible and can fall back to one process/rank per device using
+`torch.distributed` and NCCL. Their shared pending-intermediate contract keeps
+the payload and completion event alive while side-stream communication runs;
+the consuming compute stream waits only at the next stage boundary. Both
+providers use the same grouped DynamicVRAM pressure decisions and compose with
+the checkpoint's mixed-precision or quantized operations. Launching the same
+ordinary workflow with `torchrun` can place one stage/rank on each local or
+remote host and uses canonical `RANK`, `WORLD_SIZE`,
+`LOCAL_RANK`, `LOCAL_WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT`; use
+`--pipeline-parallel-size` only to override the inferred stage count. Krea 2,
+Ideogram 4, Flux2 Dev, and MiniMax H3 support transparent Megatron-style TP with
+`--tensor-parallel-size 2` and an ordered two-device list. TP is injected by
+decorating the checkpoint's normal Comfy operations provider: QKV/gate-up use
+section-aware column-parallel linears, output/down use row-parallel linears, and
+NCCL reductions compose with quantized operations and per-rank DynamicVRAM. The
+ordinary and pipeline operations providers retain the unsharded module shape,
+and TP and PP use one model-input preparation/transport contract, so adding TP
+to a model does not fork or bypass its pipeline path. There is no TP or PP
+workflow node. This is local model parallelism, not RabbitMQ prompt
+distribution. In a multi-host launch, rank zero collects each rank's local
+DynamicVRAM budget before partitioning; remote rank devices are never treated
+as locally queryable CUDA indices. See `docs/distributed.md` for the memory
+model and restrictions.
+
 ## How the pieces fit
 
 ComfyUI is the runtime; the *content* lives in a public ecosystem:
@@ -1543,6 +1576,13 @@ fetch failure.
 
 - https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt — covers both text-to-video and image-to-video: Entity+Scene+Motion formula, aesthetic/style extensions, sound formula for 2.5/2.6, reference-to-video, multi-shot
 
+**MiniMax H3 (MiniMax / Comfy-Org)**
+
+- https://platform.minimax.io/docs/guides/video-generation — official H3 generation guide and limits, vendored as `docs/prompting_guides/minimax_h3_video_generation.md`: text-to-video prompts define the video's content and motion; place camera instructions such as `[pan]`, `[zoom]`, or `[static]` immediately after the description they control. H3 accepts 4-15 seconds and prompts up to 7,000 characters.
+- `comfyui workflows run video_minimax_h3_t2v --help` — the shipped local workflow's model-specific guide and canonical example prompt. Read it before writing an H3 prompt; it also documents the duration-to-frame alignment and native canvas limits.
+- For useful audiovisual results, follow the shipped prompt's structure in one detailed block: visual medium/style and overall look; scene overview with subject, setting, and action; a chronological or timestamped shot list; camera angle/movement and cut behavior; synchronized dialogue, ambience, sound effects, and music; then exclusions such as no text, subtitles, logos, or watermarks. Describe visible motion explicitly instead of relying on abstract mood words. For a continuous shot, use one camera instruction; for a multi-shot clip, make every cut and time interval explicit. H3 generates video and stereo audio jointly, so prompt the soundtrack rather than treating it as post-production.
+- The bundled workflow converts seconds to 24 fps and rounds upward to H3's valid `17k+5` frame grid. For example, `--float-duration 10` produces 243 frames (10.125 seconds), not exactly 240 frames. Keep comparisons on the same prompt, seed, duration, resolution, step count, and attention backend.
+
 **Qwen-Image / Qwen-Image-Edit (Alibaba)**
 
 - https://www.alibabacloud.com/help/en/model-studio/qwen-image-edit-guide — image-edit instruction examples, `prompt_extend` and `negative_prompt` semantics (API-reference-shaped, but authoritative for the edit template syntax)
@@ -1657,43 +1697,70 @@ non-trivial graph edits → embedded Python in §Task 7).
 10. For any repeated same-workflow generation: daemon + submit. For
     exotic graph edits: Python.
 
-## Measuring performance with OpenTelemetry
+## Tensor parallelism on multiple GPUs
 
-ComfyUI emits OpenTelemetry spans for the server lifecycle, prompt
-submission, model loading, prompt execution, and individual node
-execution. Use this instead of shell wall-clock timing when you need
-precise durations for a workflow run or a specific node.
-
-For local measurement, use a `file://` endpoint. ComfyUI writes one
-JSON object per span to that path:
+Tensor parallelism is transparent to the workflow: it does not require a
+special node or any workflow edits. Pass an ordered list of GPUs, set the
+tensor-parallel size to the number of listed devices, and use the
+multiprocessing distributed backend:
 
 ```bash
-comfyui serve --daemon \
-  --otel-service-name comfyui-bench \
-  --otel-service-version "$(git rev-parse --short HEAD)" \
-  --otel-exporter-otlp-endpoint file:///tmp/comfyui-traces.jsonl
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0,1 \
+  --tensor-parallel-size 2 \
+  --distributed-executor-backend mp
 ```
 
-For clean benchmark numbers, start the daemon once, submit a warmup job,
-then submit the measured job with a different seed. Inspect the file
-exporter output after the measured job completes. The spans to look for
-are:
+For four GPUs, use `--cuda-device 0,1,2,3 --tensor-parallel-size 4`. To run
+the same workflow without tensor parallelism, select one GPU and use
+`--tensor-parallel-size 1`. Krea 2, Ideogram 4, Flux2 Dev, and MiniMax H3
+support this path.
 
-| Span | What it measures |
-|---|---|
-| `Execute Prompt` | End-to-end backend prompt execution. |
-| `Execute Node` | One node execution; attributes include `class_type` and scalar/list inputs such as seed, steps, sampler, scheduler, and model names when available. |
-| `Load Models GPU` | Model load/move time onto the target GPU. |
-| `Free Memory` | Time spent freeing/offloading memory. |
-| HTTP client/server spans | Submit/poll API overhead. |
+The following sampler-only results were measured on two NVLink-connected
+NVIDIA RTX A5000 24 GB GPUs using `--fast fp16_accumulation`:
 
-To extract node timings from the JSONL output, read each line as a span
-object and use `duration_ms` or compute
-`end_time_unix_nano - start_time_unix_nano`. Group `Execute Node` spans
-by `attributes["class_type"]`, and filter to the trace containing the
-measured submit. Use unique `--otel-service-name` or
-`--otel-service-version` values for each benchmark variant so traces
-from different runs do not mix.
+| Model | Resolution | Frames | Steps | Weights | Attention | TP=1 s/it | TP=2 s/it | Speedup |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| Krea 2 Turbo | 1024x1024 | — | 8 | INT8 ConvRot | SageAttention | 1.170 | 0.876 | 1.34x |
+| Ideogram 4 | 1024x1024 | — | 20 | INT8 ConvRot (conditional + unconditional) | SageAttention | 2.754 | 1.823 | 1.51x |
+| Flux2 Dev | 1024x1024 | — | 20 | Full INT8 ConvRot | SageAttention | 4.018 | 1.662 | 2.42x |
+| MiniMax H3 | 864x480 | 124 | 20 | Pruned INT8 ConvRot | SageAttention | 9.497 | 6.272 | 1.51x |
+
+## Benchmarking performance with OpenTelemetry
+
+Set `--otel-exporter-otlp-endpoint` to a `file://` URL containing the
+absolute path where ComfyUI should write the trace. Use a different path for
+each variant:
+
+```bash
+# TP=1
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0 \
+  --tensor-parallel-size 1 \
+  --otel-exporter-otlp-endpoint file:///tmp/comfyui-tp1.jsonl
+
+# TP=2
+comfyui workflows run WORKFLOW_NAME_OR_PATH \
+  --cuda-device 0,1 \
+  --tensor-parallel-size 2 \
+  --distributed-executor-backend mp \
+  --otel-exporter-otlp-endpoint file:///tmp/comfyui-tp2.jsonl
+```
+
+The file contains one JSON span per line. Read the `Sampler Invoke` span to
+measure sampling performance:
+
+```bash
+jq -c 'select(.name == "Sampler Invoke") | .attributes' \
+  /tmp/comfyui-tp2.jsonl
+```
+
+Use `sampling.seconds_per_step` for s/it or
+`sampling.steps_per_second` for it/s. The span also records
+`sampling.elapsed_seconds`, `sampling.steps`, and `sampling.seed`.
+Keep the workflow, model files, seed, resolution, frames, steps, sampler,
+scheduler, attention backend, and fast/compilation settings identical between
+runs.
 
 ## Troubleshooting quick table
 

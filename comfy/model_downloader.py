@@ -261,8 +261,9 @@ def get_or_download(
                             except LocalTokenNotFoundError:
                                 logger.debug(f"no HF token configured for {known_file.repo_id}/{known_file.filename}, skipping authenticated download")
                             except requests.exceptions.HTTPError as exc_info:
-                                if exc_info.response.status_code == 401:
+                                if getattr(exc_info.response, "status_code", None) == 401:
                                     raise GatedRepoError(f"{known_file.repo_id}/{known_file.filename}", response=exc_info.response)
+                                logger.error(f"cannot download {known_file.repo_id}/{known_file.filename} from huggingface", exc_info=exc_info)
                             except IOError as exc_info:
                                 logger.error(f"cannot reach huggingface {known_file.repo_id}/{known_file.filename}", exc_info=exc_info)
                             except Exception as exc_info:
@@ -1035,6 +1036,14 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors"),
     # Flux 2
     HuggingFile("Comfy-Org/flux2-dev", "split_files/diffusion_models/flux2_dev_fp8mixed.safetensors"),
+    # Uploaded to the official repository in discussion/PR 14. Keep the
+    # immutable revision until Comfy-Org merges the artifact into main.
+    HuggingFile(
+        "Comfy-Org/flux2-dev",
+        "split_files/diffusion_models/flux2-dev-int8-convrot-simple.safetensors",
+        revision="14cd543dbc65aa53b21220e0c67c58d6c64bbdb9",
+        size=33055836040,
+    ),
     HuggingFile("black-forest-labs/FLUX.2-klein-base-4B", "flux-2-klein-base-4b.safetensors"),
     HuggingFile("Comfy-Org/flux2-klein", "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
     HuggingFile("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors"),
@@ -1438,6 +1447,8 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("FireRedTeam/FireRed-Image-Edit-1.1-ComfyUI", "FireRed-Image-Edit-1.1-transformer.safetensors"),
     # Wan 2.2 Animate (Comfy-Org repack)
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_animate_14B_bf16.safetensors"),
+    # Wan Animate 2 (Comfy-Org)
+    HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_int8_convrot.safetensors"),
     # SDPose detection (Comfy-Org)
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation
@@ -2047,7 +2058,8 @@ def get_huggingface_repo_list(*extra_cache_dirs: str) -> List[str]:
     existing_repo_ids = frozenset(
         cache_item.repo_id for cache_item in \
         reduce(operator.or_,
-               map(lambda cache_info: cache_info.repos, default_cache_dir + [scan_cache_dir(cache_dir=cache_dir) for cache_dir in extra_cache_dirs if os.path.isdir(cache_dir)]))
+               map(lambda cache_info: cache_info.repos, default_cache_dir + [scan_cache_dir(cache_dir=cache_dir) for cache_dir in extra_cache_dirs if os.path.isdir(cache_dir)]),
+               set())
         if cache_item.repo_type == "model" or cache_item.repo_type == "space"
     )
 

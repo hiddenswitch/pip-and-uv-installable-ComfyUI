@@ -309,6 +309,11 @@ def lowvram_materialization_vram_bytes(geometry, *, function_count=0, has_lowvra
     return final_bytes * (1 + LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR)
 
 
+def dynamic_weight_requires_force_load(module_bytes, structurally_required=False):
+    """Keep only tiny or structurally incompatible weights outside the VBAR."""
+    return structurally_required or module_bytes <= 16 * 1024
+
+
 class AutoPatcherEjector:
     def __init__(self, model: 'ModelPatcher', skip_and_inject_on_exit_only=False):
         self.model = model
@@ -526,6 +531,9 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
     def is_dynamic(self):
         return False
 
+    def reset_dynamic_buffers(self):
+        return
+
     def model_size(self):
         if self.size > 0:
             return self.size
@@ -537,15 +545,14 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
     def loaded_size(self):
         return self._memory_measurements.model_loaded_weight_memory
 
+    def reclaimable_non_vbar_memory(self):
+        return self.loaded_size()
+
     def get_free_memory(self, device):
         # Prioritize batching (incl. CFG/conds etc) over keeping the model resident. In
         # the vast majority of setups a little bit of offloading on the giant model more
         # than pays for CFG. So return everything both torch and Aimdo could give us
-        aimdo_mem = 0
-        if memory_management.aimdo_enabled():
-            aimdo_device = device.index if getattr(device, "type", None) == "cuda" else None
-            aimdo_mem = comfy_aimdo.model_vbar.vbars_analyze(aimdo_device)
-        return model_management.get_free_memory(device) + aimdo_mem
+        return memory_management.dynamic_vram_available_memory(device)
 
     def get_clone_model_override(self):
         return self.model, (self.backup, self.backup_buffers, self.object_patches_backup, self.pinned)
@@ -1129,6 +1136,11 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
                         model_dtype = getattr(self.model, "manual_cast_dtype", None)
                         weight, _, _ = get_key_weight(self.model, key)
                         if model_dtype is None or weight is None:
+                            return 0
+                        if ops._streams_in_native_dtype(weight):
+                            # Native quantized/fp8 kernels consume the physical
+                            # low-precision payload. The logical dtype describes
+                            # the result, not a dense resident weight allocation.
                             return 0
                         if weight.dtype != model_dtype or isinstance(weight, QuantizedTensor):
                             return weight.numel() * model_dtype.itemsize
@@ -2067,6 +2079,11 @@ class ModelPatcherDynamic(ModelPatcher):
         vbar = self._vbar_get()
         return (vbar.loaded_size() if vbar is not None else 0) + getattr(self.model, "model_loaded_weight_memory", 0)
 
+    def reclaimable_non_vbar_memory(self):
+        # Aimdo's vbars_analyze() accounts for VBAR residency. Only add the
+        # force-resident part here so projected capacity does not double count.
+        return getattr(self.model, "model_loaded_weight_memory", 0)
+
     # Pinning is deferred to ops time. Assert against this API to avoid pin leaks.
 
     def pin_weight_to_device(self, key):
@@ -2144,23 +2161,6 @@ class ModelPatcherDynamic(ModelPatcher):
             loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 
-            # When the whole model fits in VRAM, keep every weight fully
-            # resident (no vbar) so it pays zero per-forward vbar overhead —
-            # identical perf to the legacy ModelPatcher. This is the common
-            # case the user cares about: "small enough to fit should just fit".
-            # When it does not fit, fall back to the original behavior (stage
-            # weights with vbars for streaming), which is robust and never
-            # OOMs. We deliberately do not mix partial-resident + partial-vbar:
-            # that is fragile under memory pressure. The budget is the real
-            # free VRAM (minus an inference reserve), capped by an explicit
-            # positive lowvram_model_memory when one is given (legacy
-            # convention: 0 means "no lowvram cap / full load").
-            free_vram = model_management.get_free_memory(device_to)
-            resident_budget = max(0, free_vram - model_management.minimum_inference_memory())
-            if lowvram_model_memory > 0:
-                resident_budget = min(lowvram_model_memory, resident_budget)
-            model_fits_resident = self.model_size() <= resident_budget
-
             for x in loading:
                 *_, module_mem, n, m, params = x
 
@@ -2235,7 +2235,11 @@ class ModelPatcherDynamic(ModelPatcher):
                     self.patch_weight_to_device(key, device_to=device_to, force_cast=True)
                     weight, _, _ = get_key_weight(self.model, key)
                     if weight is not None:
-                        self.model.model_loaded_weight_memory += weight.numel() * weight.element_size()
+                        if isinstance(weight, QuantizedTensor):
+                            loaded_bytes = memory_management.vram_aligned_size(weight)
+                        else:
+                            loaded_bytes = weight.numel() * weight.element_size()
+                        self.model.model_loaded_weight_memory += loaded_bytes
 
                 if isinstance(m, ops.CastWeightBiasOp):
                     m.comfy_cast_weights = True
@@ -2243,8 +2247,10 @@ class ModelPatcherDynamic(ModelPatcher):
                     m._pin_state = pin_state
                     set_dirty(m, dirty)
 
-                    #Models that mix tiny and giant weights can causing lopsided stream buffer
-                    #rotations and stall. force the tinys over.
+                    # Models that mix tiny and giant weights can cause lopsided stream
+                    # buffer rotations and stalls, so keep only the tiny weights outside
+                    # the VBAR. Large weights must remain evictable even when they appear
+                    # to fit before the workflow's activation allocations are known.
                     if module_mem > 16 * 1024:
                         force_load, v_weight_size = setup_param(self, m, n, "weight")
                         force_load_bias, v_weight_bias = setup_param(self, m, n, "bias")
@@ -2252,13 +2258,11 @@ class ModelPatcherDynamic(ModelPatcher):
                         v_weight_size += v_weight_bias
                         if force_load:
                             logging.info(f"Module {n} has resizing Lora - force loading")
-                        # Whole model fits: keep this weight resident (legacy
-                        # perf, no per-forward vbar fault). Otherwise it falls
-                        # through to vbar staging for streaming.
-                        elif model_fits_resident:
-                            force_load = True
                     else:
-                        force_load=True
+                        force_load = False
+                        v_weight_size = 0
+
+                    force_load = dynamic_weight_requires_force_load(module_mem, force_load)
 
                     if force_load:
                         if getattr(m, "_v", None) is not None:
@@ -2403,6 +2407,21 @@ class ModelPatcherDynamic(ModelPatcher):
                 if ram_to_unload <= 0:
                     return freed
         return freed
+
+    def reset_dynamic_buffers(self):
+        pin_state = self.model.dynamic_pins[self.load_device]
+        if pin_state["active"]:
+            for subset in ("weights", "weights-loaded"):
+                *_, buckets = pin_state[subset]
+                for size, bucket in list(buckets.items()):
+                    bucket[:] = [entry for entry in bucket if entry[-1] is not None]
+                    if not bucket:
+                        del buckets[size]
+
+        pin_state["active"] = False
+        self.partially_unload_ram(1e30, subsets=["patches", "patches-loaded"])
+        for subset in ("patches", "patches-loaded"):
+            pin_state[subset] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, model_management.pinned_hostbuf_size(self.model_size())), [], [-1], [0], [0], {})
 
     def patch_model(self, device_to=None, lowvram_model_memory=0, load_weights=True, force_patch_weights=False):
         # This isn't used by the core at all and can only be to load a model out of

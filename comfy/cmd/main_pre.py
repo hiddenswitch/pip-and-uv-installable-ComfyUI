@@ -177,85 +177,9 @@ def _fix_pytorch_240():
 
 def _create_tracer():
     from ..component_model import setup as _setup_mod
-    if _setup_mod._tracing_initialized:
-        # Already set up by setup_post_torch → setup_tracing; just return a tracer
-        from opentelemetry import trace
-        return trace.get_tracer(args.otel_service_name)
-
-    _setup_mod._tracing_initialized = True
-
-    from opentelemetry import trace, metrics
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-    from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
-    from opentelemetry.instrumentation.requests import RequestsInstrumentor
-    from opentelemetry.semconv.attributes import service_attributes
-
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
-    from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-    from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
-    from opentelemetry.instrumentation.aiohttp_server import AioHttpServerInstrumentor
-    from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
-    from opentelemetry.instrumentation.urllib3 import URLLib3Instrumentor
-
-    from ..tracing_compatibility import ProgressSpanSampler
-    from ..tracing_compatibility import patch_spanbuilder_set_channel
-
-    resource = Resource.create({
-        service_attributes.SERVICE_NAME: args.otel_service_name,
-        service_attributes.SERVICE_VERSION: args.otel_service_version,
-    })
-
-    # omit progress spans from aio pika
-    sampler = ProgressSpanSampler()
-    provider = TracerProvider(resource=resource, sampler=sampler)
-
-    # Set the global tracer provider FIRST, before instrumenting
-    # This ensures instrumentors can access the provider
-    trace.set_tracer_provider(provider)
-
-    endpoint = args.otel_exporter_otlp_endpoint
-
-    if endpoint and endpoint.startswith("file://"):
-        from ..component_model.otel_file_exporter import FileSpanExporter
-        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
-    elif endpoint is not None:
-        exporter = OTLPSpanExporter()
-    else:
-        exporter = SpanExporter()
-
-    processor = BatchSpanProcessor(exporter)
-    provider.add_span_processor(processor)
-
-    # Set up metrics export to track dropped spans
-    # Only enable if OTEL_EXPORTER_OTLP_METRICS_ENDPOINT is set, since not all OTLP endpoints support metrics
-    metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
-    if metrics_endpoint:
-        metric_reader = PeriodicExportingMetricReader(
-            OTLPMetricExporter(endpoint=metrics_endpoint),
-            export_interval_millis=10000  # Export every 10 seconds
-        )
-        meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
-        metrics.set_meter_provider(meter_provider)
-
-    # enable instrumentation BEFORE any aio_pika imports
-    patch_spanbuilder_set_channel()
-
-    for instrumentor_cls in (AioPikaInstrumentor, AioHttpServerInstrumentor,
-                             AioHttpClientInstrumentor, RequestsInstrumentor,
-                             URLLib3Instrumentor):
-        inst = instrumentor_cls()
-        if not inst.is_instrumented_by_opentelemetry:
-            inst.instrument()
-
-
-    provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
-
-    # makes this behave better as a library
-    return trace.get_tracer(args.otel_service_name, tracer_provider=provider)
+    _setup_mod.setup_tracing(args)
+    from opentelemetry import trace
+    return trace.get_tracer(args.otel_service_name)
 
 
 def _configure_logging():

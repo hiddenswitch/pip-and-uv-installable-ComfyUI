@@ -14,6 +14,7 @@ import sys
 import warnings
 
 from ..cli_args_types import Configuration
+from ..distributed.config import resolve_distributed_configuration
 
 logger = logging.getLogger(__name__)
 _dumping_traceback = False
@@ -130,34 +131,93 @@ def setup_cuda_devices(config: Configuration):
         logger.info("Set oneapi device selector to: %s", config.oneapi_device_selector)
 
 
+def prepare_distributed_environment(config: Configuration):
+    """Apply launcher identity before torch, nodes, or DynamicVRAM initialize."""
+    distributed = resolve_distributed_configuration(config)
+    local_process_peers = (
+        distributed.tensor_parallel_size > 1
+        or distributed.ulysses_degree * distributed.ring_degree > 1
+        or (
+            distributed.pipeline_parallel_size > 1
+            and distributed.executor_backend in ("mp", "external_launcher")
+        )
+    )
+    if distributed.externally_launched or local_process_peers:
+        config.model_management_device_scope = "local"
+    if not distributed.externally_launched:
+        return distributed
+    if distributed.rank != 0:
+        config.disable_all_custom_nodes = True
+    return distributed
+
+
+def setup_distributed_runtime(distributed):
+    from ..distributed.runtime import initialize_distributed_runtime
+    return initialize_distributed_runtime(distributed)
+
+
+def setup_distributed_device(distributed):
+    from ..distributed.runtime import select_distributed_device
+    select_distributed_device(distributed)
+
+
 def setup_guess_settings(config: Configuration):
     if config.guess_settings:
         from .guess_settings import apply_guess_settings
         apply_guess_settings(config)
 
 
-def setup_cuda_malloc():
-    from ..cmd import cuda_malloc  # noqa: F401
+def setup_cuda_malloc(config: Configuration):
+    from ..cmd import cuda_malloc
+    cuda_malloc.configure(config)
 
 
 _tracing_initialized = False
+_tracing_provider = None
+_tracing_export_endpoints = set()
 
 
 def setup_tracing(config: Configuration):
     global _tracing_initialized
     if _tracing_initialized:
-        return
-    _tracing_initialized = True
+        _add_configured_trace_exporter(config)
+        return False
 
     try:
         _setup_tracing_impl(config)
+        _tracing_initialized = True
+        return True
     except Exception:
+        _tracing_initialized = False
         logger.debug("Failed to initialize OpenTelemetry tracing", exc_info=True)
+        return False
+
+
+def _add_configured_trace_exporter(config: Configuration):
+    endpoint = (
+        config.otel_exporter_otlp_endpoint
+        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    )
+    if endpoint is None or endpoint in _tracing_export_endpoints or _tracing_provider is None:
+        return
+
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
+
+    if endpoint.startswith("file://"):
+        from .otel_file_exporter import FileSpanExporter
+        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
+        processor = SimpleSpanProcessor(exporter)
+    else:
+        exporter = OTLPSpanExporter(endpoint=endpoint)
+        processor = BatchSpanProcessor(exporter)
+    _tracing_provider.add_span_processor(processor)
+    _tracing_export_endpoints.add(endpoint)
 
 
 def _setup_tracing_impl(config: Configuration):
+    global _tracing_provider
     from opentelemetry import trace, metrics
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -165,7 +225,6 @@ def _setup_tracing_impl(config: Configuration):
 
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
@@ -185,18 +244,13 @@ def _setup_tracing_impl(config: Configuration):
     provider = TracerProvider(resource=resource, sampler=sampler)
 
     trace.set_tracer_provider(provider)
+    active_provider = trace.get_tracer_provider()
+    if active_provider is not provider:
+        provider.shutdown()
+        provider = active_provider
 
-    endpoint = config.otel_exporter_otlp_endpoint
-    if endpoint and endpoint.startswith("file://"):
-        from .otel_file_exporter import FileSpanExporter
-        exporter = FileSpanExporter(endpoint.removeprefix("file://"))
-    elif endpoint is not None:
-        exporter = OTLPSpanExporter()
-    else:
-        exporter = SpanExporter()
-
-    processor = BatchSpanProcessor(exporter)
-    provider.add_span_processor(processor)
+    _tracing_provider = provider
+    _add_configured_trace_exporter(config)
 
     metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
     if metrics_endpoint:
@@ -217,6 +271,25 @@ def _setup_tracing_impl(config: Configuration):
             inst.instrument()
 
     provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
+
+
+def shutdown_tracing(timeout_millis: int = 30000):
+    """Flush and close the configured tracer provider at CLI lifecycle exit."""
+    global _tracing_provider
+    provider = _tracing_provider
+    if provider is None:
+        return
+    try:
+        provider.force_flush(timeout_millis=timeout_millis)
+    finally:
+        provider.shutdown()
+        _tracing_provider = None
+
+
+def flush_tracing(timeout_millis: int = 30000):
+    """Flush spans without ending the process-global tracing provider."""
+    if _tracing_provider is not None:
+        _tracing_provider.force_flush(timeout_millis=timeout_millis)
 
 
 def setup_fsspec():
@@ -263,10 +336,15 @@ def setup_pre_torch(config: Configuration):
     setup_debug_hang(config)
     setup_guess_settings(config)
     setup_cuda_devices(config)
-    setup_cuda_malloc()
+    setup_cuda_malloc(config)
 
 
 def setup_post_torch(config: Configuration):
+    # Tracing must be configured before imports such as model_management and
+    # aimdo_integration touch functions decorated with the lazy main_pre tracer.
+    # Otherwise that first access installs an exporter-less provider and the
+    # CLI's configured endpoint arrives too late.
+    setup_tracing(config)
     setup_warning_filters()
     setup_logging_filters()
     setup_logging(config)
@@ -280,4 +358,3 @@ def setup_post_torch(config: Configuration):
     # torch >= 2.8 and --disable-dynamic-vram, so this is a no-op when
     # unsupported or disabled.
     from .. import aimdo_integration  # noqa: F401
-    setup_tracing(config)

@@ -69,6 +69,16 @@ parser.add_argument("--cuda-device", type=str, default=None, metavar="DEVICE_ID"
 parser.add_argument("--torch-device", type=str, default=None, metavar="DEVICE",
                     help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")
 parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device, all other devices will stay visible.")
+parser.add_argument("--rank", type=int, default=None, help="Global process rank. Defaults to RANK.")
+parser.add_argument("--world-size", type=int, default=None, help="Total process count. Defaults to WORLD_SIZE.")
+parser.add_argument("--local-rank", "--local_rank", type=int, default=None, help="Node-local process rank. Defaults to LOCAL_RANK.")
+parser.add_argument("--local-world-size", type=int, default=None, help="Number of local processes. Defaults to LOCAL_WORLD_SIZE.")
+parser.add_argument("--master-addr", type=str, default=None, help="Process-group rendezvous host. Defaults to MASTER_ADDR.")
+parser.add_argument("--master-port", type=int, default=None, help="Process-group rendezvous port. Defaults to MASTER_PORT.")
+parser.add_argument("--pipeline-parallel-size", type=int, default=None, help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")
+parser.add_argument("--tensor-parallel-size", type=int, default=1, help="Number of tensor-parallel ranks. One keeps the ordinary model path.")
+parser.add_argument("--nccl-proto", choices=("auto", "simple", "ll", "ll128"), default="auto", help="Select the NCCL collective protocol. auto preserves NCCL tuning.")
+parser.add_argument("--distributed-executor-backend", choices=("auto", "peer", "mp", "external_launcher"), default="auto", help="Pipeline executor backend.")
 
 cm_group = parser.add_mutually_exclusive_group()
 cm_group.add_argument("--cuda-malloc", action="store_true", help="Enable cudaMallocAsync.")
@@ -260,7 +270,35 @@ def _args() -> Configuration:
     return current_execution_context().configuration
 
 
-args: Configuration
+class _ConfigurationProxy:
+    """Keep legacy ``from comfy.cli_args import args`` access context-local."""
+
+    def __getattr__(self, name):
+        return getattr(_args(), name)
+
+    def __setattr__(self, name, value):
+        setattr(_args(), name, value)
+
+    def __getitem__(self, key):
+        return _args()[key]
+
+    def __setitem__(self, key, value):
+        _args()[key] = value
+
+    def __contains__(self, key):
+        return key in _args()
+
+    def __iter__(self):
+        return iter(_args())
+
+    def __len__(self):
+        return len(_args())
+
+    def __repr__(self):
+        return repr(_args())
+
+
+args = _ConfigurationProxy()
 
 database_default_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "user", "comfyui.db")

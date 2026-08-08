@@ -174,6 +174,7 @@ try:
         TensorCoreNVFP4Layout as _CKNvfp4Layout,
         TensorCoreConvRotW4A4Layout as _CKTensorCoreConvRotW4A4Layout,
         TensorWiseINT8Layout as _CKTensorWiseINT8Layout,
+        AsymW4A8Int8Layout as _CKAsymW4A8Int8Layout,
         register_layout_op,
         register_layout_class,
         get_layout_class as _ck_get_layout_class,
@@ -245,6 +246,11 @@ try:
         logger.debug(f"Found comfy_kitchen backend {k}: {v}")
 
     _CK_QUANTIZED_TENSOR_DEQUANTIZE = QuantizedTensor.dequantize
+    from comfy_kitchen.tensor import base as _ck_tensor_base
+
+    _CK_QUANTIZED_TENSOR_COPY = _ck_tensor_base._DISPATCH_TABLE[
+        torch.ops.aten.copy_.default
+    ]
 
     @torch.compiler.disable
     def _quantized_tensor_dequantize_eager(qtensor: QuantizedTensor) -> torch.Tensor:
@@ -262,6 +268,19 @@ try:
         return _CK_QUANTIZED_TENSOR_DEQUANTIZE(qtensor)
 
     QuantizedTensor.dequantize = _quantized_tensor_dequantize_compile_safe
+
+    @torch.compiler.disable
+    def _quantized_tensor_copy_eager(qtensor, copy_args, copy_kwargs):
+        # Dynamic VRAM copies the packed storage and layout tensors in place.
+        # AOTAutograd cannot functionalize mutations of wrapper-subclass inputs
+        # whose logical dtype differs from the packed storage dtype. Keep that
+        # short materialization operation eager; the surrounding transformer
+        # graph remains compilable.
+        return _CK_QUANTIZED_TENSOR_COPY(qtensor, copy_args, copy_kwargs)
+
+    _ck_tensor_base._DISPATCH_TABLE[
+        torch.ops.aten.copy_.default
+    ] = _quantized_tensor_copy_eager
 except Exception as e:
     logger.debug(f"Failed to import comfy_kitchen, Error: {e}, fp8 and fp4 support will not be available.")
     _CK_AVAILABLE = False
@@ -286,6 +305,9 @@ except Exception as e:
         pass
 
     class _CKTensorCoreConvRotW4A4Layout:
+        pass
+
+    class _CKAsymW4A8Int8Layout:
         pass
 
     def register_layout_class(name, cls):
@@ -433,7 +455,7 @@ class TensorCoreFP8E5M2Layout(_TensorCoreFP8LayoutBase):
 TensorCoreFP8Layout = TensorCoreFP8E4M3Layout
 TensorWiseINT8Layout = _CKTensorWiseINT8Layout
 TensorCoreConvRotW4A4Layout = _CKTensorCoreConvRotW4A4Layout
-
+AsymW4A8Int8Layout = _CKAsymW4A8Int8Layout
 
 if not hasattr(TensorCoreFP8Layout, "Params"):
     @dataclass(frozen=True)
@@ -552,6 +574,7 @@ register_layout_class("TensorWiseINT8Layout", _CKTensorWiseINT8Layout)
 register_layout_class("TensorCoreConvRotW4A4Layout", _CKTensorCoreConvRotW4A4Layout)
 if _CK_MXFP8_AVAILABLE:
     register_layout_class("TensorCoreMXFP8Layout", TensorCoreMXFP8Layout)
+register_layout_class("AsymW4A8Int8Layout", _CKAsymW4A8Int8Layout)
 
 _LAYOUT_CLASS_FALLBACKS = {
     "TensorCoreFP8Layout": TensorCoreFP8Layout,
@@ -634,6 +657,14 @@ QUANT_ALGOS["convrot_w4a4"] = {
     "comfy_tensor_layout": "TensorCoreConvRotW4A4Layout",
     "quantize_input": False,
 }
+QUANT_ALGOS["asym_w4a8_int8"] = {
+    "storage_t": torch.int8,
+    "parameters": {"weight_scale"},
+    "comfy_tensor_layout": "AsymW4A8Int8Layout",
+    "quantize_input": False,
+}
+
+
 # ==============================================================================
 # Re-exports for backward compatibility
 # ==============================================================================
@@ -647,6 +678,7 @@ __all__ = [
     "TensorCoreNVFP4Layout",
     "TensorCoreConvRotW4A4Layout",
     "TensorWiseINT8Layout",
+    "AsymW4A8Int8Layout",
     "QUANT_ALGOS",
     "register_layout_op",
     "mixed_precision_quantization_available",
