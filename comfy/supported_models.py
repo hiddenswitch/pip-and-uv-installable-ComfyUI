@@ -44,6 +44,7 @@ from .text_encoders import boogu
 from .text_encoders import krea2
 from .text_encoders import mage_flow
 from .text_encoders import minimax
+from .text_encoders import minimax_music
 from .text_encoders import joyimage
 
 
@@ -2320,6 +2321,29 @@ class ACEStep15(supported_models_base.BASE):
         return supported_models_base.ClipTarget(ace15.ACE15Tokenizer, ace15.te(**detect))
 
 
+class MiniMaxMusic3(supported_models_base.BASE):
+    unet_config = {
+        "audio_model": "minimax_music3",
+    }
+
+    latent_format = latent_formats.MiniMaxMusic3
+    memory_usage_factor = 2.0
+    supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+    sampling_settings = {"multiplier": 1.0}
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.MiniMaxMusic3(self, device=device)
+
+    def model_type(self, state_dict, prefix=""):
+        return model_base.ModelType.FLOW
+
+    def clip_target(self, state_dict={}):
+        detect = minimax_music.detect_merged_config(state_dict, self.text_encoder_key_prefix[0])
+        target = supported_models_base.ClipTarget(minimax_music.MiniMaxMusic3Tokenizer, minimax_music.MiniMaxMusic3TEModel)
+        target.params["projection_config"] = detect
+        return target
+
+
 class LongCatImage(supported_models_base.BASE):
     unet_config = {
         "image_model": "flux",
@@ -2616,6 +2640,7 @@ models = [
     ChromaRadiance,
     ACEStep,
     ACEStep15,
+    MiniMaxMusic3,
     Omnigen2,
     Boogu,
     MageFlow,

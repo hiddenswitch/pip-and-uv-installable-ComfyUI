@@ -75,6 +75,7 @@ from .ldm.pixart.pixartms import PixArtMS
 from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.mage_flow.model import MageFlowTransformer2DModel
 from .ldm.minimax import model as minimax_model
+from .ldm.minimax_music.dit import MiniMaxMusic3DiT
 from .ldm.joyimage.model import JoyImageTransformer3DModel
 from .ldm.ideogram4.model import Ideogram4Transformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
@@ -1314,6 +1315,10 @@ class LTXV(BaseModel):
         if guide_attention_entries is not None:
             out['guide_attention_entries'] = conds.CONDConstant(guide_attention_entries)
 
+        generated_keyframes = kwargs.get("generated_keyframes", None)
+        if generated_keyframes is not None:
+            out['generated_keyframes'] = comfy.conds.CONDConstant(generated_keyframes)
+
         return out
 
     def process_timestep(self, timestep, x, denoise_mask=None, **kwargs):
@@ -1374,6 +1379,10 @@ class LTXAV(BaseModel):
         ref_audio = kwargs.get("ref_audio", None)
         if ref_audio is not None:
             out['ref_audio'] = conds.CONDConstant(ref_audio)
+
+        generated_keyframes = kwargs.get("generated_keyframes", None)
+        if generated_keyframes is not None:
+            out['generated_keyframes'] = comfy.conds.CONDConstant(generated_keyframes)
 
         return out
 
@@ -2353,30 +2362,93 @@ class MiniMaxH3(BaseModel):
         keyframes = kwargs.get("minimax_keyframes")
         if keyframes is not None:
             payload["keyframes"] = keyframes
-            payload["frame_count"] = kwargs.get("minimax_frame_count")
-            payload["cond_video_latents"] = [kf["latent"] for kf in keyframes]
-        refs = kwargs.get("minimax_refs")
+            payload["cond_video_latents"] = [kf["latent"] for kf in keyframes if kf.get("latent") is not None]
+            payload["cond_audio_latents"] = [kf["audio_latent"] for kf in keyframes if kf.get("audio_latent") is not None]
+        refs = kwargs.get("minimax_refs", None)
         if refs is not None:
             payload["refs"] = refs
-            payload["cond_video_latents"] = [ref["latent"] for ref in refs if "latent" in ref]
-            payload["cond_audio_latents"] = [ref["audio_latent"] for ref in refs if ref.get("audio_latent") is not None]
-        if kwargs.get("minimax_visual_cond_noise_aug") is not None:
+            payload["cond_video_latents"] = payload.get("cond_video_latents", []) + [r["latent"] for r in refs if "latent" in r]
+            payload["cond_audio_latents"] = payload.get("cond_audio_latents", []) + [r["audio_latent"] for r in refs if r.get("audio_latent") is not None]
+        if kwargs.get("minimax_visual_cond_noise_aug", None) is not None:
             payload["visual_cond_noise_aug"] = kwargs["minimax_visual_cond_noise_aug"]
         if kwargs.get("minimax_audio_cond_noise_aug") is not None:
             payload["audio_cond_noise_aug"] = kwargs["minimax_audio_cond_noise_aug"]
         payload["seed"] = kwargs.get("seed", 0)
         # same value process_latent_in/out used, so the model never undoes a scale that was not applied
         payload["audio_scale"] = self.audio_scale()
+
+        denoise_mask = kwargs.get("denoise_mask", None)
+        if denoise_mask is not None:
+            out.update(self._denoise_mask_conds(denoise_mask, latent_shapes))
+
         if cross_attn is not None and latent_shapes is not None and len(latent_shapes) > 1:
             video_shape = latent_shapes[0]
             payload["layout"] = minimax_model.PackedLayout(
                 cross_attn.shape[1], video_shape[2], (video_shape[3] + 1) // 2 * 2,
                 (video_shape[4] + 1) // 2 * 2, latent_shapes[1][-1],
                 keyframes=payload.get("keyframes"), refs=payload.get("refs"),
-                frame_count=payload.get("frame_count"),
             )
         out["minimax_payload"] = CONDConstant(payload)
         return out
+
+    def _pool_masks_to_token_grid(self, masks):
+        # pool the per-pixel masks to the label grid with amax: video per 2x2 DiT patch, audio per latent frame
+        video_mask = masks[0]
+        h, w = video_mask.shape[-2:]
+        ph, pw = self.diffusion_model.patch_size[1:]
+        lead = video_mask.shape[:-2]
+        video_mask = torch.nn.functional.pad(video_mask.reshape((-1,) + video_mask.shape[-3:]), (0, -w % pw, 0, -h % ph), mode="replicate")
+        video_mask = video_mask.reshape(lead + video_mask.shape[-2:])
+        video_mask = video_mask.reshape(video_mask.shape[:-2] + (video_mask.shape[-2] // ph, ph, video_mask.shape[-1] // pw, pw)).amax(dim=(-3, -1))
+        pooled = [video_mask.repeat_interleave(ph, dim=-2).repeat_interleave(pw, dim=-1)[..., :h, :w]]
+        if len(masks) > 1:
+            audio_mask = masks[1].amax(dim=1, keepdim=True)
+            pooled.append(audio_mask.expand_as(masks[1]).contiguous())
+        return pooled
+
+    def _token_grid_masks(self, denoise_mask, latent_shapes):
+        masks = utils.unpack_latents(denoise_mask, latent_shapes)
+        return [torch.ceil(mask * 256.0) / 256.0 for mask in self._pool_masks_to_token_grid(masks)]
+
+    def _denoise_mask_values(self, denoise_mask, latent_shapes):
+        if latent_shapes is None or len(latent_shapes) < 2:
+            return {}
+        masks = self._token_grid_masks(denoise_mask, latent_shapes)
+        out = {}
+        if torch.amin(masks[0]).item() < 1.0 - 1e-3:
+            out['denoise_mask'] = masks[0][:1, :1].clone()
+        if torch.amin(masks[1]).item() < 1.0 - 1e-3:
+            out['audio_denoise_mask'] = masks[1][:1].amax(dim=1, keepdim=True)
+        return out
+
+    def _denoise_mask_conds(self, denoise_mask, latent_shapes):
+        return {name: comfy.conds.CONDRegular(value) for name, value in self._denoise_mask_values(denoise_mask, latent_shapes).items()}
+
+    def scale_latent_inpaint(self, sigma, noise, latent_image, x=None, denoise_mask=None, **kwargs):
+        # preserved regions run at the cond timestep, inject them at cond strength
+        shapes = self.latent_shapes
+        if shapes is None or len(shapes) < 2:
+            return super().scale_latent_inpaint(sigma=sigma, noise=noise, latent_image=latent_image, **kwargs)
+        cleans = utils.unpack_latents(latent_image, shapes)
+        noises = utils.unpack_latents(noise, shapes)
+        aug = comfy.ldm.minimax.model.VISUAL_COND_TIMESTEP # H3's video timestep is 0.999 by default
+        cleans[0] = aug * cleans[0] + (1.0 - aug) * noises[0]
+        scale = self.audio_scale()
+        if scale != 1.0:
+            # the sampler carries audio as (sigma_v / sigma_a) * x_audio and latent_image
+            # holds audio_scale * x_audio, so rescale for the model to see it clean
+            model_sampling = self.model_sampling
+            sigma_v = sigma.clamp(min=1e-6)
+            sigma_a = comfy.ldm.minimax.model.time_shift_sigma(sigma_v, model_sampling.shift, model_sampling.audio_shift)
+            factor = (sigma_v / sigma_a) / scale
+            cleans[1] = cleans[1] * factor.view(factor.shape[:1] + (1,) * (cleans[1].ndim - 1)).to(cleans[1].dtype)
+        injected = utils.pack_latents(cleans)[0]
+        if x is None or denoise_mask is None:
+            return injected
+        token_grid_mask = utils.pack_latents(self._token_grid_masks(denoise_mask, shapes))[0]
+        x_blend_weight = (token_grid_mask - denoise_mask) / (1.0 - denoise_mask).clamp(min=1e-6)
+        x_blend_weight = torch.where(denoise_mask < 1.0, x_blend_weight.clamp(0.0, 1.0), torch.zeros_like(x_blend_weight))
+        return injected + x_blend_weight.to(injected.dtype) * (x - injected)
 
 class TripoSplat(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -2529,6 +2601,17 @@ class ACEStep15(BaseModel):
         out['refer_audio'] = conds.CONDRegular(refer_audio)
         return out
 
+class MiniMaxMusic3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=MiniMaxMusic3DiT)
+
+    def process_timestep(self, timestep, **kwargs):
+        return 1.0 - timestep
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        out["conditioning_scale"] = comfy.conds.CONDRegular(kwargs["conditioning_scale"])
+        return out
 
 class Omnigen2(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):

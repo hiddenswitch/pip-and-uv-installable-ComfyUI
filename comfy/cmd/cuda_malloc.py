@@ -29,21 +29,21 @@ def get_gpu_names():
             device_info = DISPLAY_DEVICEA()
             device_info.cb = ctypes.sizeof(device_info)
             device_index = 0
-            gpu_names = set()
+            gpu_names = []
 
             while user32.EnumDisplayDevicesA(None, device_index, ctypes.byref(device_info), 0):
                 device_index += 1
-                gpu_names.add(device_info.DeviceString.decode('utf-8'))
+                gpu_names.append(device_info.DeviceString.decode('utf-8'))
             return gpu_names
 
         return enum_display_devices()
     else:
-        gpu_names = set()
+        gpu_names = []
         try:
             out = subprocess.check_output(['nvidia-smi', '-L'])
             for l in out.split(b'\n'):
                 if len(l) > 0:
-                    gpu_names.add(l.decode('utf-8').split(' (UUID')[0])
+                    gpu_names.append(l.decode('utf-8').split(' (UUID')[0])
         except IOError:
             pass
         return gpu_names

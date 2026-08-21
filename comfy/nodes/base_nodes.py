@@ -308,6 +308,9 @@ class ConditioningZeroOut:
             conditioning_lyrics = d.get("conditioning_lyrics", None)
             if conditioning_lyrics is not None:
                 d["conditioning_lyrics"] = torch.zeros_like(conditioning_lyrics)
+            conditioning_scale = d.get("conditioning_scale", None)
+            if conditioning_scale is not None:
+                d["conditioning_scale"] = torch.zeros_like(conditioning_scale)
             n = [torch.zeros_like(t[0]), d]
             c.append(n)
         return (c,)
@@ -393,8 +396,12 @@ class VAEDecodeTiled:
             temporal_size = None
             temporal_overlap = None
 
+        latent = samples["samples"]
+        if latent.is_nested:
+            latent = latent.unbind()[0]
+
         compression = vae.spacial_compression_decode()
-        images = vae.decode_tiled(samples["samples"], tile_x=tile_size // compression, tile_y=tile_size // compression, overlap=overlap // compression, tile_t=temporal_size, overlap_t=temporal_overlap)
+        images = vae.decode_tiled(latent, tile_x=tile_size // compression, tile_y=tile_size // compression, overlap=overlap // compression, tile_t=temporal_size, overlap_t=temporal_overlap)
         if len(images.shape) == 5:  # Combine batches
             images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
         return (images,)
@@ -818,7 +825,7 @@ class LoraLoaderModelOnly(LoraLoader):
 
 
 class VAELoader:
-    video_taes = ["taehv", "lighttaew2_2", "lighttaew2_1", "lighttaehy1_5", "taeltx_2"]
+    video_taes = ["taehv", "lighttaew2_2", "lighttaew2_1", "lighttaehy1_5", "taeltx_2", "taeh3"]
     image_taes = ["taesd", "taesdxl", "taesd3", "taef1", "taef2"]
 
     @staticmethod
@@ -1102,7 +1109,7 @@ class CLIPLoader:
 
     CATEGORY = "advanced/loaders"
 
-    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\njoyimage: qwen3-vl 8B\nlens: gpt-oss-20b\n pixeldit: gemma 2 2B elm\nideogram4: qwen3-vl 8B\nboogu: qwen3-vl 8B\nkrea2: qwen3-vl 4B\nmage: qwen3-vl 4B\nminimax: qwen3-vl 32B"
+    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncogvideox: t5 xxl (226-token padding)\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B\njoyimage: qwen3-vl 8B\nlens: gpt-oss-20b\n pixeldit: gemma 2 2B elm\nideogram4: qwen3-vl 8B\nboogu: qwen3-vl 8B\nkrea2: qwen3-vl 4B\nmage: qwen3-vl 4B\nminimax: MiniMax H3 Qwen3-VL or Music3 Qwen/RVQ"
 
     def load_clip(self, clip_name, type="stable_diffusion", device="default"):
         clip_type = getattr(sd.CLIPType, type.upper(), sd.CLIPType.STABLE_DIFFUSION)
@@ -1711,7 +1718,7 @@ def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, 
     latent_image = sample.fix_empty_latent_channels(model, latent_image, latent.get("downscale_ratio_spacial", None), latent.get("downscale_ratio_temporal", None))
 
     if disable_noise:
-        noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
+        noise = comfy.sample.prepare_empty_noise(latent_image)
     else:
         batch_inds = latent["batch_index"] if "batch_index" in latent else None
         noise = sample.prepare_noise(latent_image, seed, batch_inds)

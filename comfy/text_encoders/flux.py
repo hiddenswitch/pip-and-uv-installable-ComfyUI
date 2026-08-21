@@ -1,6 +1,5 @@
 import copy
-import json
-import base64
+from .bpe_tokenizer import from_tekken_json
 
 import torch
 from .llama import Qwen3_4B, Qwen3_8B
@@ -92,44 +91,13 @@ def flux_clip(dtype_t5=None, t5_quantization_metadata=None):
 def load_mistral_tokenizer(data):
     if torch.is_tensor(data):
         data = data.numpy().tobytes()
-
-    # we just have to use the latest transformers
-    from transformers.integrations.mistral import MistralConverter
-
-    mistral_vocab = json.loads(data)
-
-    special_tokens = {}
-    vocab = {}
-
-    max_vocab = mistral_vocab["config"]["default_vocab_size"]
-    max_vocab -= len(mistral_vocab["special_tokens"])
-
-    for w in mistral_vocab["vocab"]:
-        r = w["rank"]
-        if r >= max_vocab:
-            continue
-
-        vocab[base64.b64decode(w["token_bytes"])] = r
-
-    for w in mistral_vocab["special_tokens"]:
-        if "token_bytes" in w:
-            special_tokens[base64.b64decode(w["token_bytes"])] = w["rank"]
-        else:
-            special_tokens[w["token_str"]] = w["rank"]
-
-    all_special = []
-    for v in special_tokens:
-        all_special.append(v)
-
-    special_tokens.update(vocab)
-    vocab = special_tokens
-    return {"tokenizer_object": MistralConverter(vocab=vocab, additional_special_tokens=all_special).converted(), "legacy": False}
+    return {"tokenizer_object": from_tekken_json(data)}
 
 
 class MistralTokenizerClass:
     @staticmethod
-    def from_pretrained(path, **kwargs):
-        return LlamaTokenizerFast(**kwargs)
+    def from_pretrained(path, tokenizer_object=None, **kwargs):
+        return tokenizer_object
 
 
 class Mistral3Tokenizer(sd1_clip.SDTokenizer):
