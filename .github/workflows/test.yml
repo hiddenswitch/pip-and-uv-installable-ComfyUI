@@ -250,6 +250,10 @@ jobs:
     name: macOS 14 Python 3.12 PyTorch 2.13
     runs-on: macos-14
     timeout-minutes: 20
+    env:
+      # uv otherwise evaluates wheels against its generic macOS 13 floor.
+      # PyTorch 2.13 and ONNX Runtime publish native macOS 14 arm64 wheels.
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
