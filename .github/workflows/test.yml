@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Backend Tests
 
-#
-# This workflow is a test of the python package build.
-# Install Python dependencies across different Python versions.
-#
-
-on: [ push ]
+# Full validation happens once in test-latest.yml. These jobs exercise the
+# device-specific install, imports, kernels, compatibility shims, and model
+# backends that a hosted CPU runner cannot cover.
+on:
+  push:
+    branches: [develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,614 +17,260 @@ env:
   UBUNTU_APT_MIRROR: https://mirrors.kernel.org/ubuntu
   COMFYUI_LINUX_SYSTEM_PACKAGES: >-
     libgl1 libglib2.0-0 libsndfile1 libxcb1 zip unzip
-  COMFYUI_UBUNTU_BOOTSTRAP_PACKAGES: >-
-    curl ca-certificates gpg gnupg2 git python3 python3-dev python3-venv python-is-python3
-  COMFYUI_GPU_DIAGNOSTIC_PACKAGES: pciutils
 
 jobs:
-  build_and_execute_nvidia:
-    environment: "Testing"
-    name: ${{ matrix.target.friendly_name }}
+  nvidia:
+    environment: Testing
+    name: ${{ matrix.target.name }}
     runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 45
+    timeout-minutes: 35
     container:
       image: ${{ matrix.target.container }}
       options: --shm-size=8g
     strategy:
       fail-fast: false
-      # Run one CUDA workflow pod at a time on the self-hosted 3060 runner
-      # pool. ARC can accept multiple jobs for this label, then leave one
-      # workflow pod Pending until the container-init timeout fires. GitHub's
-      # matrix queue is the reliable backpressure point for this runner class.
+      # There is one physical 3060 runner. Queue here instead of creating a
+      # second workflow pod that cannot acquire its GPU.
       max-parallel: 1
       matrix:
         target:
-          - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-            friendly_name: "(LTS) Python 3.12 CUDA 13.1.0 PyTorch 2.10.0"
-            container: "nvcr.io/nvidia/pytorch:25.12-py3"
-            stable_abi_cuda: "cu130"
-          - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-            friendly_name: "Python 3.12 CUDA 12.9.1 PyTorch 2.8.0"
-            container: "nvcr.io/nvidia/pytorch:25.06-py3"
+          - name: "(LTS) Python 3.12 CUDA 13.1 PyTorch 2.10"
+            labels: [self-hosted, linux, X64, cuda-3060-12gb]
+            container: nvcr.io/nvidia/pytorch:25.12-py3
+            primary: true
+            stable_abi_cuda: cu130
+          - name: "Python 3.12 CUDA 12.9 PyTorch 2.8"
+            labels: [self-hosted, linux, X64, cuda-3060-12gb]
+            container: nvcr.io/nvidia/pytorch:25.06-py3
+            primary: false
             stable_abi_cuda: ""
-          - labels: [self-hosted, linux, X64, cuda-3060-12gb]
-            friendly_name: "Python 3.12 CUDA 12.8.1.012 PyTorch 2.7.0"
-            container: "nvcr.io/nvidia/pytorch:25.03-py3"
+          - name: "Python 3.12 CUDA 12.8 PyTorch 2.7"
+            labels: [self-hosted, linux, X64, cuda-3060-12gb]
+            container: nvcr.io/nvidia/pytorch:25.03-py3
+            primary: false
             stable_abi_cuda: ""
+    env:
+      UV_BREAK_SYSTEM_PACKAGES: "true"
+      UV_SYSTEM_PYTHON: "true"
     steps:
-      - run: |
+      - name: Install system dependencies
+        run: |
           for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
             [ -f "$source_file" ] || continue
             sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
           done
-          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
           apt-get update
-          apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES
-        name: Install system dependencies
-      - run: |
+          apt-get install -y --no-install-recommends curl ca-certificates git $COMFYUI_LINUX_SYSTEM_PACKAGES
           curl -LsSf https://astral.sh/uv/install.sh | sh
-        name: Install uv
       - uses: actions/checkout@v5
-        name: Checkout git repo
-      - name: Update numpy
-        run: |
-          # jax requires >=1.26 and sometimes greater
-          # todo: we probably want to remove the dependency on jax since it's basically not compatible with old python
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          
-          ( [[ "$(uv pip freeze | awk -F'[=.]' '/^numpy==/ {print $3}')" -lt 2 ]] && echo "numpy<2" || echo "numpy>=2" ) >> numpy_override.txt
-          python -c "from pathlib import Path; import shutil; [shutil.rmtree(path, ignore_errors=True) for base in (Path('/usr/local/lib'), Path('/opt/conda/lib')) if base.exists() for pattern in ('python*/dist-packages/scipy', 'python*/dist-packages/scipy-*.dist-info', 'python*/site-packages/scipy', 'python*/site-packages/scipy-*.dist-info') for path in base.glob(pattern)]"
-          uv pip install -U $(cat numpy_override.txt) "scipy>=1.11.4"
-      - name: Update OpenCV
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=numpy_override.txt
-          
-          uv pip uninstall opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
-          python -c "from pathlib import Path; import shutil; [shutil.rmtree(path, ignore_errors=True) for base in (Path('/usr/local/lib'), Path('/opt/conda/lib')) if base.exists() for pattern in ('python*/dist-packages/cv2', 'python*/site-packages/cv2') for path in base.glob(pattern)]"
-          for attempt in 1 2 3; do
-            uv pip install -U --no-deps "opencv-python-headless<5" && break
-            [ \"$attempt\" -eq 3 ] && exit 1
-            sleep 10
-          done
-      - name: Write Overrides
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-
-          touch overrides.txt
-          cat <<'EOF' > excludes.txt
-          torch
-          torchvision
-          torchaudio
-          EOF
-          uv pip freeze | awk '/^(numpy|opencv|flash-attn)/' >> overrides.txt || true
-          echo "sentry-sdk; python_version < '0'" >> overrides.txt
-      - name: Install ComfyUI
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          export UV_PRERELEASE=allow
-          uv pip install --torch-backend=auto ".[dev]" --inexact
-      - name: Install custom nodes
-        env:
-          UV_NO_BUILD_ISOLATION: "1"
-          UV_NO_CACHE: "1"
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install stable ABI CUDA extensions
+      - name: Install locked dependencies
+        run: ci/install-locked.sh ci/locks/pylock.linux-py312.toml python
+      - name: Install pinned stable-ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
-          uv pip install --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
-          uv pip install -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install VideoHelperSuite
+          uv pip install --no-deps "sageattention==2.2.0+${{ matrix.target.stable_abi_cuda }}" --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install --no-deps "nunchaku==1.3.0.dev20260717+${{ matrix.target.stable_abi_cuda }}" --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
+          uv pip install --no-deps -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple
+      - name: CUDA smoke
         run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          for attempt in 1 2 3; do
-            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep 15
-          done
-      - name: Install Playwright browsers
-        run: |
-          playwright install chromium
-      - name: Environment info
-        run: |
-          hostname
-          python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('hip', getattr(torch.version, 'hip', None))"
-          nvidia-smi || true
-          if command -v rocminfo >/dev/null 2>&1; then rocminfo | head -n 80; fi
-          if command -v rocm-smi >/dev/null 2>&1; then rocm-smi; elif [ -x /opt/rocm/bin/rocm-smi ]; then /opt/rocm/bin/rocm-smi; fi
-      - name: Lint for errors
-        run: |
-          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      - name: Run unit tests
-        run: |
-          pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
-#      - name: Run inference tests
-#        if: matrix.target.friendly_name == 'Python 3.12 CUDA 13.1.0 PyTorch 2.10.0'
-#        run: |
-#          pytest -v tests/inference
-  build_and_execute_amd:
-    # Disabled while the self-hosted rocm-7600-8gb worker is down.
-    if: false
-    # rocm/pytorch:7.2.2 bundled torch + HSA_OVERRIDE_GFX_VERSION=11.0.0 is
-    # the canonical config — verified working on a direct kubectl Job on
-    # the cluster's RX 7600 (gfx1102) node. On ARC ephemeral pods the same
-    # image SIGABRTs at the first GPU kernel with "Memory access fault by
-    # GPU node-1 ... Page not present", which is why we're investigating.
-    # Diagnostics below dump the actual PCI vendor:device of every DRM card
-    # exposed inside the container so we can confirm what we're talking to.
-    continue-on-error: true
-    environment: "Testing"
-    name: ${{ matrix.target.friendly_name }}
-    runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 30
-    container:
-      image: ${{ matrix.target.container }}
-      options: --shm-size=8g
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - labels: [self-hosted, linux, X64, rocm-7600-8gb]
-            friendly_name: "Python 3.12 ROCm 7.2 Torch 2.10.0 (HSA override)"
-            container: "rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0"
-    env:
-      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
-    steps:
-      - run: |
-          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source_file" ] || continue
-            sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
-          done
-          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
-          apt-get update
-          apt-get install -y --no-install-recommends $COMFYUI_LINUX_SYSTEM_PACKAGES $COMFYUI_GPU_DIAGNOSTIC_PACKAGES
-        name: Install system dependencies
-      - run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-        name: Install uv
-      - name: HIP smoke test
-        shell: bash
-        # The expected dGPU is RX 7600 (Navi 33) = PCI 1002:7480 = gfx1102.
-        # If the runner pod template mounts the wrong /dev/dri/render index,
-        # we end up with the host's Raphael iGPU (PCI 1002:164e, gfx1036)
-        # instead. HSA_OVERRIDE_GFX_VERSION makes that iGPU advertise as
-        # gfx1100, kernel dispatch goes through, then the GPU MMU faults
-        # because the iGPU silicon can't actually run gfx1100/1102 binaries.
-        # Detect the wrong-device case up front and skip cleanly so the
-        # downstream install + lint + tests still run on this container.
-        run: |
-          set +e
-          EXPECTED_PCI_ID="1002:7480"   # AMD Navi 33 / RX 7600
-
-          echo "== exposed DRM card =="
-          EXPOSED_PCI_ID=""
-          # /sys/class/drm/card* globs both top-level cards (card0, card1)
-          # AND their connector subdirs (card1-DP-1, card1-HDMI-A-1), which
-          # are not GPUs and have no vendor/device files. Filter to the
-          # top-level cards only with a regex so we don't end up reading
-          # blank vendor IDs from a connector entry on the last iteration.
-          for card in /sys/class/drm/card*; do
-            base=$(basename "$card")
-            [[ "$base" =~ ^card[0-9]+$ ]] || continue
-            [ -d "$card/device" ] || continue
-            v=$(tr -d '\n' < "$card/device/vendor" 2>/dev/null | sed 's/^0x//')
-            d=$(tr -d '\n' < "$card/device/device" 2>/dev/null | sed 's/^0x//')
-            slot=$(readlink "$card/device" 2>/dev/null | sed 's|.*/||')
-            name=$(awk -v vid="$v" -v did="$d" '
-              tolower($1)==tolower(vid) && /^[0-9a-fA-F]{4} / { fv=1; next }
-              fv && /^[0-9a-fA-F]{4} / { fv=0 }
-              fv && tolower($1)==tolower(did) { sub("^[ \t]+[0-9a-fA-F]{4}[ \t]+",""); print; exit }
-            ' /usr/share/misc/pci.ids 2>/dev/null)
-            echo "  $base  pci=$slot  id=$v:$d  ($name)"
-            EXPOSED_PCI_ID="$v:$d"
-          done
-          [ -z "$EXPOSED_PCI_ID" ] && echo "  (no DRM cards in /sys/class/drm)"
-
-          if [ "$EXPOSED_PCI_ID" != "$EXPECTED_PCI_ID" ]; then
-            echo ""
-            echo "##[warning]Container is exposed to the wrong GPU."
-            echo "##[warning]  Expected: PCI $EXPECTED_PCI_ID (AMD Navi 33 / RX 7600 dGPU, gfx1102)"
-            echo "##[warning]  Got:      PCI ${EXPOSED_PCI_ID:-none} (this is not a compute-capable dGPU)"
-            echo "##[warning]Forcing GPU dispatch on the wrong device produces"
-            echo "##[warning]'Memory access fault by GPU node-1 (Page not present)'."
-            echo "##[warning]Fix: the cluster's runner pod template must mount the"
-            echo "##[warning]renderD index that maps to the dGPU (PCI $EXPECTED_PCI_ID),"
-            echo "##[warning]not the iGPU. Skipping smoke test."
-            exit 0
-          fi
-
-          echo ""
-          echo "== rocminfo =="
-          rocminfo 2>&1 || true
-          echo "== rocm-smi =="
-          rocm-smi 2>&1 || true
-          echo "== HSA env =="
-          env | grep -E '^(HSA|HIP|ROCR|GPU)' || true
-
-          echo "== python smoke =="
-          /opt/venv/bin/python -u -c "
-          import os, faulthandler; faulthandler.enable()
-          print('HSA_OVERRIDE_GFX_VERSION:', os.environ.get('HSA_OVERRIDE_GFX_VERSION'), flush=True)
-          print('PHASE:1 import torch', flush=True)
+          python - <<'PY'
           import torch
-          print('PHASE:2 hip:', torch.version.hip, flush=True)
-          print('PHASE:3 cuda_available:', torch.cuda.is_available(), flush=True)
-          print('PHASE:4 device count:', torch.cuda.device_count(), flush=True)
-          print('PHASE:5 device:', torch.cuda.get_device_name(0), flush=True)
-          print('PHASE:6 arch list:', torch.cuda.get_arch_list(), flush=True)
-          print('PHASE:7 alloc tensor', flush=True)
-          x = torch.randn(2, 2, device='cuda')
-          print('PHASE:8 first kernel', flush=True)
-          y = (x + x).sum(); torch.cuda.synchronize()
-          print('PHASE:9 ok:', y.item(), flush=True)
-          "
-      - uses: actions/checkout@v5
-        name: Checkout git repo
-        with:
-          path: src
-      - name: Write Overrides
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_PYTHON=/opt/venv/bin/python
-          echo ${GITHUB_WORKSPACE}
-          touch overrides.txt
-          cat <<'EOF' > excludes.txt
-          torch
-          torchvision
-          torchaudio
-          EOF
-          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
-          echo "sentry-sdk; python_version < '0'" >> overrides.txt
-      - name: Install ComfyUI
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_PYTHON=/opt/venv/bin/python
-          export UV_PRERELEASE=allow
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install "comfyui[dev]@${GITHUB_WORKSPACE}/src"
-      - name: Install custom nodes
+          print("torch", torch.__version__)
+          print("device", torch.cuda.get_device_name(0))
+          assert torch.cuda.is_available()
+          result = (torch.ones(16, device="cuda") * 2).sum()
+          torch.cuda.synchronize()
+          assert result.item() == 32
+          PY
+      - name: Primary CUDA compatibility tests
+        if: matrix.target.primary
         env:
-          UV_NO_BUILD_ISOLATION: "1"
-          UV_NO_CACHE: "1"
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_PYTHON=/opt/venv/bin/python
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install VideoHelperSuite
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_PYTHON=/opt/venv/bin/python
-          export UV_PRERELEASE=allow
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          for attempt in 1 2 3; do
-            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep 15
-          done
-      - name: Install Playwright browsers
-        run: |
-          playwright install chromium
-      - name: Lint for errors
-        run: |
-          cd ${GITHUB_WORKSPACE}/src
-          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      - name: Run unit tests
-        run: |
-          cd ${GITHUB_WORKSPACE}/src
-          python -m pytest -v tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/test_workflow_convert_playwright.py
-#      - name: Run inference tests
-#        run: |
-#          cd ${GITHUB_WORKSPACE}/src
-#          python -m pytest -v tests/inference
-  build_and_execute_intel:
-    environment: "Testing"
-    name: ${{ matrix.target.friendly_name }}
-    runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 25
-    env:
-      ONEAPI_DEVICE_SELECTOR: "level_zero:0"
-    container:
-      image: ${{ matrix.target.container }}
-      options: --shm-size=8g
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - labels: [self-hosted, linux, X64, ipex-a380-6gb]
-            friendly_name: "Python 3.11 PyTorch 2.11 XPU (upstream)"
-            container: "intel/intel-extension-for-pytorch:2.8.10-xpu"
-    steps:
-      - name: Install system + Intel GPU runtime + uv
-        run: |
-          # Use Intel's latest XPU-bearing image as the runtime base. It already
-          # includes the Level Zero/OpenCL stack needed to enumerate the Arc
-          # A380; the job still installs upstream torch+xpu explicitly below.
-          export DEBIAN_FRONTEND=noninteractive
-          for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source_file" ] || continue
-            sed -i -E "s#(http|https)://(archive|security)\\.ubuntu\\.com/ubuntu/?#${UBUNTU_APT_MIRROR}#g" "$source_file"
-          done
-          grep -RhsE '^(deb|URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d || true
-          apt-get update
-          apt-get install -y --no-install-recommends \
-              curl ca-certificates gpg gnupg2 git \
-              $COMFYUI_LINUX_SYSTEM_PACKAGES \
-              $COMFYUI_GPU_DIAGNOSTIC_PACKAGES
-          python --version
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v5
-        name: Checkout git repo
-        with:
-          path: src
-      - name: Write Overrides
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          touch overrides.txt
-          cat <<'EOF' > excludes.txt
-          torch
-          torchvision
-          torchaudio
-          EOF
-          echo "torch==2.11.0+xpu" >> overrides.txt
-          echo "torchvision==0.26.0+xpu" >> overrides.txt
-          echo "torchaudio==2.11.0+xpu" >> overrides.txt
-          uv pip freeze | awk '/^(numpy|opencv)/' >> overrides.txt || true
-          echo "sentry-sdk; python_version < '0'" >> overrides.txt
-      - name: Install PyTorch XPU
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          uv pip install --torch-backend=xpu --reinstall \
-            "torch==2.11.0+xpu" \
-            "torchvision==0.26.0+xpu" \
-            "torchaudio==2.11.0+xpu"
-      - name: Install ComfyUI (with torch+xpu)
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_PRERELEASE=allow
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install --torch-backend=xpu "comfyui[dev]@${GITHUB_WORKSPACE}/src" --inexact
-      - name: Install custom nodes
-        env:
-          UV_NO_BUILD_ISOLATION: "1"
-          UV_NO_CACHE: "1"
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          uv pip install --constraints ${GITHUB_WORKSPACE}/src/tests/opencv_constraints.txt -r ${GITHUB_WORKSPACE}/src/tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install VideoHelperSuite
-        run: |
-          export UV_BREAK_SYSTEM_PACKAGES=true
-          export UV_SYSTEM_PYTHON=true
-          export UV_PRERELEASE=allow
-          export UV_OVERRIDE=overrides.txt
-          export UV_EXCLUDE=excludes.txt
-          for attempt in 1 2 3; do
-            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep 15
-          done
-      - name: Install Playwright browsers
-        run: |
-          playwright install chromium
-      - name: Environment info
-        run: |
-          ls -la /dev/dri/ 2>&1 || true
-          clinfo -l 2>&1 || true
-          python -c "import torch; print('torch', torch.__version__); assert torch.__version__.startswith('2.11.0+xpu'), torch.__version__; print('xpu_available', hasattr(torch, 'xpu') and torch.xpu.is_available()); print('xpu_device_count', torch.xpu.device_count() if hasattr(torch, 'xpu') else 0); [print(f'  dev{i}', torch.xpu.get_device_name(i)) for i in range(torch.xpu.device_count() if hasattr(torch, 'xpu') else 0)]"
-      - name: Lint for errors
-        run: |
-          cd ${GITHUB_WORKSPACE}/src
-          ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-          pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      - name: Run unit tests
-        env:
-          # Persist the SYCL kernel cache between processes. Without this,
-          # every (op, shape, dtype) JIT-compiles fresh on first use; one
-          # cold CLIP-L layer costs ~30s of compile time, which blows past
-          # pytest's default 300s timeout when the cache is in-memory only.
-          # Verified per-op timings on Arc A380: cold 6.5s for fp16->fp32
-          # cast, 8.7s for first einsum, 4.4s for first GELU; all sub-ms
-          # on the second call. SYCL_CACHE_DIR points at a writable path
-          # inside the workflow container.
-          SYCL_CACHE_PERSISTENT: "1"
-          SYCL_CACHE_DIR: "/tmp/sycl_cache"
-          # torch 2.11.0+xpu segfaults in torch.jit.script while importing
-          # kornia during ComfyUI's node preload. Keep TorchScript disabled
-          # for unit tests while leaving SYCL kernel caching enabled.
-          PYTORCH_JIT: "0"
           COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
-          mkdir -p "$SYCL_CACHE_DIR"
-          cd ${GITHUB_WORKSPACE}/src
-          # Bump pytest timeout to absorb the first-run JIT cost on XPU
-          # (~30s + cold imports). Once warm, every later test is fast.
-          python -m pytest -v --timeout=900 tests/unit --ignore=tests/unit/test_panics.py --ignore=tests/unit/assets_test --ignore=tests/unit/manager_test --ignore=tests/unit/test_workflow_convert_playwright.py
-#      - name: Run inference tests
-#        run: |
-#          cd ${GITHUB_WORKSPACE}/src
-#          python -m pytest -v tests/inference
-  build_and_execute_windows_nvidia:
-    environment: "Testing"
-    name: ${{ matrix.target.friendly_name }}
-    runs-on: ${{ matrix.target.labels }}
-    timeout-minutes: 90
+          pytest -v \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_cuda_env.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_mixed_precision.py \
+            tests/unit/test_pipeline_parallel.py \
+            tests/unit/test_sdpa.py \
+            tests/unit/test_tensor_parallel.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_triton_wheels.py \
+            tests/unit/test_weight_cast.py \
+            tests/unit/test_xdit_attention.py \
+            tests/quantization
+      - name: Legacy CUDA compatibility tests
+        if: ${{ !matrix.target.primary }}
+        env:
+          COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+        run: |
+          pytest -v \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_weight_cast.py \
+            tests/quantization/test_kitchen_backends.py
+
+  amd:
+    # Checked in, but deliberately disabled while the ROCm worker is down.
+    if: false
+    runs-on: [self-hosted, linux, X64, rocm-7600-8gb]
+    steps:
+      - run: echo "ROCm workflow is disabled"
+
+  intel:
+    environment: Testing
+    name: Python 3.11 PyTorch 2.11 XPU
+    runs-on: [self-hosted, linux, X64, ipex-a380-6gb]
+    timeout-minutes: 30
     container:
-      image: ${{ matrix.target.container }}
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - labels: [self-hosted, windows-cuda-3090-24gb]
-            friendly_name: "Windows RTX 3090 CUDA 12.8 PyTorch 2.10.0"
-            container: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.0-ltsc2022
-            stable_abi_cuda: "cu128"
+      image: intel/intel-extension-for-pytorch:2.8.10-xpu
+      options: --shm-size=8g
+    env:
+      ONEAPI_DEVICE_SELECTOR: level_zero:0
+      UV_BREAK_SYSTEM_PACKAGES: "true"
+      UV_SYSTEM_PYTHON: "true"
+      SYCL_CACHE_PERSISTENT: "1"
+      SYCL_CACHE_DIR: /opt/comfyui-ci-cache/sycl
+      PYTORCH_JIT: "0"
+      COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+    steps:
+      - name: Install system dependencies and uv
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl ca-certificates git $COMFYUI_LINUX_SYSTEM_PACKAGES
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+      - uses: actions/checkout@v5
+      - name: Install PyTorch XPU
+        run: |
+          uv pip install --torch-backend=xpu --reinstall \
+            "torch==2.11.0+xpu" "torchvision==0.26.0+xpu" "torchaudio==2.11.0+xpu"
+      - name: Install locked dependencies
+        run: ci/install-locked.sh ci/locks/pylock.linux-py311.toml python
+      - name: XPU smoke
+        run: |
+          mkdir -p "$SYCL_CACHE_DIR"
+          python - <<'PY'
+          import torch
+          print("torch", torch.__version__)
+          assert torch.__version__.startswith("2.11.0+xpu")
+          assert torch.xpu.is_available()
+          print("device", torch.xpu.get_device_name(0))
+          result = (torch.ones(16, device="xpu") * 2).sum()
+          torch.xpu.synchronize()
+          assert result.item() == 32
+          PY
+      - name: XPU compatibility tests
+        run: |
+          pytest -v --timeout=900 \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_mixed_precision.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_weight_cast.py
+
+  windows_nvidia:
+    environment: Testing
+    name: Windows RTX 3090 CUDA 12.8 PyTorch 2.10
+    runs-on: [self-hosted, windows-cuda-3090-24gb]
+    timeout-minutes: 60
+    container:
+      image: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.1-ltsc2022
     defaults:
       run:
         shell: sh -e {0}
     steps:
       - name: Checkout git repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global credential.helper store
           git config --global core.longpaths true
           echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
           git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Initialize Windows graphics environment
         shell: powershell
+        run: '& "./.github/scripts/enable-graphics-apis.ps1"'
+      - name: Configure Chocolatey cache
+        shell: powershell
         run: |
-          & "./.github/scripts/enable-graphics-apis.ps1"
-      - name: Environment info
-        run: |
-          echo "=== Shell ===" && sh --help 2>&1 | head -1 || true
-          echo "=== Python ===" && python --version
-          echo "=== UV ===" && uv --version
-          echo "=== Working directory ===" && pwd
-          echo "=== GPU ===" && nvidia-smi || echo "nvidia-smi not available"
+          New-Item -ItemType Directory -Force -Path $env:CHOCO_CACHE_LOCATION | Out-Null
+          choco config set cacheLocation $env:CHOCO_CACHE_LOCATION
       - name: Create venv and install PyTorch
         run: |
           uv venv C:/venv --python python3
-          uv pip install --python C:/venv/Scripts/python.exe torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-      - name: Install Windows runtime dependencies
+          uv pip install --python C:/venv/Scripts/python.exe \
+            "torch==2.10.0+cu128" "torchvision==0.25.0+cu128" "torchaudio==2.10.0+cu128" \
+            --index-url https://download.pytorch.org/whl/cu128
+      - name: Install cached Windows runtime
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $installer = "$env:TEMP\vc_redist.x64.exe"
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $installer
+          $installer = "C:\ci-cache\installers\vc_redist.x64.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $installer) | Out-Null
+          if (-not (Test-Path $installer)) {
+            $temporary = "$installer.$env:GITHUB_RUN_ID.tmp"
+            Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $temporary
+            Move-Item -Force $temporary $installer
+          }
+          $signature = Get-AuthenticodeSignature $installer
+          if ($signature.Status -ne "Valid") { throw "Invalid VC++ redistributable signature: $($signature.Status)" }
           Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait
-      - name: Write Overrides
+      - name: Install locked dependencies
+        run: ci/install-locked.sh ci/locks/pylock.windows-py312.toml C:/venv/Scripts/python.exe
+      - name: Install pinned stable-ABI CUDA extensions
         run: |
-          cat <<'EOF' > excludes.txt
-          torch
-          torchvision
-          torchaudio
-          EOF
-          uv pip freeze --python C:/venv/Scripts/python.exe | grep -E 'numpy|opencv' > overrides.txt
-          cat overrides.txt
-      - name: Install ComfyUI
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps "triton-windows==3.7.1.post27"
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps "sageattention==2.2.0+cu128" --index-url https://appmana.github.io/forks-sageattention-stable-abi/cu128
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps "nunchaku==1.3.0.dev20260717+cu128" --index-url https://appmana.github.io/forks-nunchaku-stable-abi/cu128
+          uv pip install --python C:/venv/Scripts/python.exe --no-deps -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple
+      - name: CUDA smoke
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --prerelease allow ".[dev]" --inexact
-          C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
-      - name: Install custom nodes
+          C:/venv/Scripts/python.exe -c "import torch; print(torch.__version__, torch.cuda.get_device_name(0)); assert torch.__version__.startswith('2.10.0+cu128'); assert (torch.ones(16, device='cuda') * 2).sum().item() == 32"
+      - name: Windows compatibility tests
         env:
-          UV_NO_BUILD_ISOLATION: "1"
-          UV_NO_CACHE: "1"
+          COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install stable ABI CUDA extensions
-        if: matrix.target.stable_abi_cuda != ''
-        run: |
-          uv pip install --python C:/venv/Scripts/python.exe triton-windows
-          uv pip install --python C:/venv/Scripts/python.exe --no-deps sageattention --index-url "https://appmana.github.io/forks-sageattention-stable-abi/${{ matrix.target.stable_abi_cuda }}"
-          uv pip install --python C:/venv/Scripts/python.exe --no-deps nunchaku --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${{ matrix.target.stable_abi_cuda }}"
-          uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt -r tests/custom_nodes_stable_abi_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install VideoHelperSuite
-        run: |
-          for attempt in 1 2 3; do
-            uv pip install --python C:/venv/Scripts/python.exe --override overrides.txt --excludes excludes.txt "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep 15
-          done
-      - name: Repair Windows OpenCV wheel
-        run: |
-          uv pip uninstall --python C:/venv/Scripts/python.exe opencv opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
-          uv pip install --python C:/venv/Scripts/python.exe -U --no-deps "opencv-python-headless<5"
-          C:/venv/Scripts/python.exe -c "import cv2; print(cv2.__version__)"
-      - name: Lint for errors
-        run: |
-          C:/venv/Scripts/ruff.exe check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-          C:/venv/Scripts/pylint.exe -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
-      - name: Run unit tests
-        env:
-          # Importing Torch and the packaged nodes in a fresh Windows process
-          # takes longer than the normal readiness budget.
-          COMFYUI_TEST_SERVER_STARTUP_TIMEOUT: "240"
-        run: |
-          # Process-isolation integration suites are exercised by the Linux
-          # matrix. Each fresh Windows worker cold-imports Torch for ~3 minutes,
-          # making those suites take hours without adding Windows-specific
-          # coverage. Keep the broad in-process suite and real CLI startup smoke.
-          C:/venv/Scripts/python.exe -m pytest -v tests/unit \
-            --ignore=tests/unit/assets_test \
-            --ignore=tests/unit/manager_test \
-            --ignore=tests/unit/test_comfy_reconfigure.py \
-            --ignore=tests/unit/test_nodes_context.py \
-            --ignore=tests/unit/test_panics.py \
-            --ignore=tests/unit/test_process_pool.py \
-            --ignore=tests/unit/test_reboot_api.py \
-            --ignore=tests/unit/test_workflow_convert_playwright.py
-  build_and_execute_macos:
-    environment: "Testing"
-    name: macOS Installation Tests
+          C:/venv/Scripts/python.exe -m pytest -v \
+            tests/unit/test_cli.py \
+            tests/unit/test_cli_args.py \
+            tests/unit/test_cli_args_types_sync.py \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_triton_wheels.py
+
+  macos:
+    environment: Testing
+    name: macOS 14 Python 3.12 PyTorch 2.13
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-        name: Checkout git repo
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.12'
-      - name: Install system dependencies
-        run: brew install ffmpeg
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Install ComfyUI
+          enable-cache: true
+          cache-dependency-glob: ci/locks/pylock.macos-py312.toml
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install locked dependencies
         run: |
           uv venv --python 3.12
-          uv pip install --torch-backend=auto --prerelease allow '.[dev]' --inexact
-      - name: Install custom nodes
+          ci/install-locked.sh ci/locks/pylock.macos-py312.toml .venv/bin/python
+      - name: macOS smoke tests
         env:
-          UV_NO_BUILD_ISOLATION: "1"
-          UV_NO_CACHE: "1"
+          COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
-          uv pip freeze | awk '/^(torch|torchvision|torchaudio|numpy|opencv)/' > overrides.txt || true
-          cat <<'EOF' > excludes.txt
-          torch
-          torchvision
-          torchaudio
-          EOF
-          uv pip install --override overrides.txt --excludes excludes.txt --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-      - name: Install VideoHelperSuite
-        run: |
-          for attempt in 1 2 3; do
-            uv pip install "comfyui-videohelpersuite@git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git" --inexact && break
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep 15
-          done
-      - name: Lint for errors
-        run: |
-          uv run ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-          uv run pylint -j 0 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/
+          .venv/bin/python -c "import torch; print(torch.__version__); assert torch.__version__.startswith('2.13.0'); assert torch.backends.mps.is_built()"
+          .venv/bin/python -m pytest -v \
+            tests/unit/test_cli_args_types_sync.py \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py

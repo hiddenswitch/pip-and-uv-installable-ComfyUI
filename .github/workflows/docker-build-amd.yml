@@ -1,6 +1,7 @@
 name: Build and Publish Docker Image (AMD)
 on:
   push:
+    branches: [develop, master]
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui

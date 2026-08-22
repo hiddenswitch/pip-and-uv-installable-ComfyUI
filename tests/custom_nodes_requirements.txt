@@ -9,7 +9,7 @@ comfyui-impact-pack
 comfyui-inspire-pack
 comfyui-ipadapter-plus
 comfyui-advanced-controlnet
-comfyui-videohelpersuite
+comfyui-videohelpersuite @ git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git@11929c75d8be6469381e4e07359eb17691cdbe3e
 comfyui-gguf
 comfyui-essentials
 comfyui-florence2
