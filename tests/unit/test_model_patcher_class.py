@@ -213,3 +213,15 @@ def test_dynamic_patcher_keeps_large_weights_evictable():
     assert dynamic_weight_requires_force_load(16 * 1024)
     assert not dynamic_weight_requires_force_load(20 * 1024 ** 3)
     assert dynamic_weight_requires_force_load(20 * 1024 ** 3, structurally_required=True)
+
+
+def test_dynamic_vbar_block_ignores_force_loaded_modules():
+    from comfy.model_patcher import extend_dynamic_vbar_block
+
+    first = (object(), 1024, 256)
+    later = (first[0], 2048, 512)
+
+    assert extend_dynamic_vbar_block(None, None) is None
+    assert extend_dynamic_vbar_block(None, first) is first
+    assert extend_dynamic_vbar_block(first, None) is first
+    assert extend_dynamic_vbar_block(first, later) == (first[0], 1024, 1536)

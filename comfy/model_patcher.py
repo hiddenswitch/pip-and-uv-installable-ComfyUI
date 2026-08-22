@@ -314,6 +314,15 @@ def dynamic_weight_requires_force_load(module_bytes, structurally_required=False
     return structurally_required or module_bytes <= 16 * 1024
 
 
+def extend_dynamic_vbar_block(block, allocation):
+    """Extend a block over an allocated VBAR range, ignoring force-loaded modules."""
+    if allocation is None:
+        return block
+    if block is None:
+        return allocation
+    return (block[0], block[1], max(block[2], allocation[1] + allocation[2] - block[1]))
+
+
 class AutoPatcherEjector:
     def __init__(self, model: 'ModelPatcher', skip_and_inject_on_exit_only=False):
         self.model = model
@@ -2323,8 +2332,7 @@ class ModelPatcherDynamic(ModelPatcher):
 
                 move_weight_functions(m, device_to)
 
-                if hasattr(m, "_v"):
-                    v_block = m._v if v_block is None else (v_block[0], v_block[1], max(v_block[2], m._v[1] + m._v[2] - v_block[1]))
+                v_block = extend_dynamic_vbar_block(v_block, getattr(m, "_v", None))
                 if end_of_block is not None:
                     unit = end_of_block
                     (unit[0] if isinstance(unit, (list, tuple)) else unit)._v_block = v_block
