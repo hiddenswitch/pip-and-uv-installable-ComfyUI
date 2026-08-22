@@ -55,7 +55,10 @@ uv pip install \
 
 # ComfyUI itself was omitted from every lock so the tested package is always
 # this checkout. Its dependencies are already exact, so do not resolve again.
-uv pip install --python "$python" --no-deps .
+# The shared CI cache can be a network filesystem; a cache is useless for this
+# local install and makes uv's interpreter/build probes perform random I/O on
+# that filesystem.
+uv pip install --no-cache --python "$python" --no-deps .
 
 if [ -n "$torch_before" ]; then
   torch_after=$("$python" -c 'import torch; print(torch.__version__)')
