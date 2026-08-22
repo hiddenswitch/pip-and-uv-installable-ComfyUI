@@ -45,7 +45,7 @@ PY
 # installing the cross-platform dependency lock and fail if anything replaces
 # it. CPU/macOS locks contain Torch themselves and therefore start without it.
 torch_before=$(
-  "$python" -c 'import torch; print(torch.__version__)' 2>/dev/null || true
+  "$python" -c 'import importlib.metadata as metadata; print(metadata.version("torch"))' 2>/dev/null || true
 )
 
 uv pip install \
@@ -61,7 +61,7 @@ uv pip install \
 uv pip install --no-cache --python "$python" --no-deps .
 
 if [ -n "$torch_before" ]; then
-  torch_after=$("$python" -c 'import torch; print(torch.__version__)')
+  torch_after=$("$python" -c 'import importlib.metadata as metadata; print(metadata.version("torch"))')
   if [ "$torch_after" != "$torch_before" ]; then
     echo "Torch changed during locked install: $torch_before -> $torch_after" >&2
     exit 1
