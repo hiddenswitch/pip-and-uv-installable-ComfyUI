@@ -252,10 +252,7 @@ def comfy_background_server_from_config(configuration: Configuration):
 
 def server_startup_timeout_seconds() -> float:
     """Return the server readiness budget used by subprocess integration tests."""
-    # Importing Torch and initializing CUDA in a fresh Windows container can
-    # take more than a minute even when every dependency is already local.
-    default_timeout = "240" if sys.platform == "win32" else "60"
-    value = float(os.environ.get("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT", default_timeout))
+    value = float(os.environ.get("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT", "60"))
     if value <= 0:
         raise ValueError("COMFYUI_TEST_SERVER_STARTUP_TIMEOUT must be positive")
     return value
