@@ -90,7 +90,10 @@ def localize_segments(
         local_start = max(start, shard_start)
         local_end = min(end, shard_end)
         if local_start < local_end:
+            local_row = row
+            if torch.is_tensor(row) and row.ndim > 0:
+                local_row = row[local_start - start:local_end - start]
             localized.append(
-                (local_start - shard_start, local_end - shard_start, row)
+                (local_start - shard_start, local_end - shard_start, local_row)
             )
     return localized

@@ -45,6 +45,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "LTXV": ("ltxv-0.json", "ltxv-1.json"),
     "LTXAV": ("ltx-2-0.json",),
     "MiniMaxH3": ("minimax-h3-fl2va-0.json", "minimax-h3-ref2va-0.json"),
+    "MiniMaxMusic3": ("minimax-music3-0.json",),
     "HunyuanVideo15_SR_Distilled": ("hunyuan-video-0.json",),
     "HunyuanVideo15": ("hunyuan-video-0.json",),
     "HunyuanImage21Refiner": ("hunyuan_image-0.json",),

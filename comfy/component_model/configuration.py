@@ -75,6 +75,8 @@ MODEL_MANAGEMENT_ARGS: frozenset[str] = frozenset({
     "force_upcast_attention",
     "use_sage_attention",
     "use_flash_attention",
+    "use_ck_attention",
+    "disable_cuda_graphs",
 })
 
 

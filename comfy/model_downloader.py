@@ -816,6 +816,7 @@ KNOWN_APPROX_VAES: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="vae_approx")
 
 KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "vae/minimax_music3_dav.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_video_vae_fp16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_audio_vae_fp32.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "vae/mage_flow_vae_bf16.safetensors"),
@@ -905,6 +906,9 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_fp16.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_fp32.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_int8_convrot.safetensors"),
@@ -1226,6 +1230,9 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("bertbobson/Sulphur-2-base-INT8-ConvRot", "sulphur_distil_INT8_ConvRot.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_bf16.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_pruned_bf16.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "text_encoders/qwen3vl_4b_bf16.safetensors"),
     # todo: is this correct?
@@ -1284,6 +1291,7 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Qwen3-VL", "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_bf16.safetensors"),
     HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e2b_it_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
@@ -1449,6 +1457,7 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_animate_14B_bf16.safetensors"),
     # Wan Animate 2 (Comfy-Org)
     HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_distill_int8_convrot.safetensors"),
     # SDPose detection (Comfy-Org)
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation

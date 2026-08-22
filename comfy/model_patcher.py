@@ -314,6 +314,15 @@ def dynamic_weight_requires_force_load(module_bytes, structurally_required=False
     return structurally_required or module_bytes <= 16 * 1024
 
 
+def extend_dynamic_vbar_block(block, allocation):
+    """Extend a block over an allocated VBAR range, ignoring force-loaded modules."""
+    if allocation is None:
+        return block
+    if block is None:
+        return allocation
+    return (block[0], block[1], max(block[2], allocation[1] + allocation[2] - block[1]))
+
+
 class AutoPatcherEjector:
     def __init__(self, model: 'ModelPatcher', skip_and_inject_on_exit_only=False):
         self.model = model
@@ -828,6 +837,14 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
 
     def set_model_attn2_output_patch(self, patch):
         self.set_model_patch(patch, "attn2_output_patch")
+
+    def set_model_optimized_attention(self, optimized_attention):
+        def optimized_attention_override(_, *args, **kwargs):
+            return optimized_attention(*args, **kwargs)
+
+        if hasattr(optimized_attention, "container_function") and optimized_attention.container_function is not None:
+            optimized_attention_override.container_function = optimized_attention.container_function
+        self.model_options["transformer_options"]["optimized_attention_override"] = optimized_attention_override
 
     def set_model_input_block_patch(self, patch):
         self.set_model_patch(patch, "input_block_patch")
@@ -2161,8 +2178,29 @@ class ModelPatcherDynamic(ModelPatcher):
             loading = self._load_list(for_dynamic=True, default_device=device_to)
             sort_loading_list_in_place(loading, reverse=True)
 
+            get_units = getattr(self.model, "get_dynamic_vram__units", None)
+            dynamic_units, last_dynamic_units = get_units() if get_units is not None else ([], [])
+            dynamic_units = list(dynamic_units)
+            last_dynamic_units = list(last_dynamic_units)
+            loading_by_module = {entry[-2]: entry for entry in loading}
+            loading = []
+            for unit in dynamic_units:
+                unit_modules = unit if isinstance(unit, (list, tuple)) else (unit,)
+                modules = [module for root in unit_modules for module in root.modules() if module in loading_by_module]
+                for index, module in enumerate(modules):
+                    loading.append((*loading_by_module.pop(module), unit if index == len(modules) - 1 else None))
+            last_loading = []
+            for unit in last_dynamic_units:
+                unit_modules = unit if isinstance(unit, (list, tuple)) else (unit,)
+                modules = [module for root in unit_modules for module in root.modules() if module in loading_by_module]
+                for index, module in enumerate(modules):
+                    last_loading.append((*loading_by_module.pop(module), unit if index == len(modules) - 1 else None))
+            loading.extend((*entry, None) for entry in loading_by_module.values())
+            loading.extend(last_loading)
+            v_block = None
+
             for x in loading:
-                *_, module_mem, n, m, params = x
+                *_, module_mem, n, m, params, end_of_block = x
 
                 def set_dirty(item, dirty):
                     if dirty:
@@ -2293,6 +2331,12 @@ class ModelPatcherDynamic(ModelPatcher):
                         self.model.model_loaded_weight_memory += casted_weight.numel() * casted_weight.element_size()
 
                 move_weight_functions(m, device_to)
+
+                v_block = extend_dynamic_vbar_block(v_block, getattr(m, "_v", None))
+                if end_of_block is not None:
+                    unit = end_of_block
+                    (unit[0] if isinstance(unit, (list, tuple)) else unit)._v_block = v_block
+                    v_block = None
 
             for key, buf in self.model.named_buffers(recurse=True):
                 if key not in self.backup_buffers:

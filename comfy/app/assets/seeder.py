@@ -19,12 +19,13 @@ from .scanner import (
     build_asset_specs,
     collect_paths_for_roots,
     enrich_assets_batch,
-    get_all_known_prefixes,
-    get_prefixes_for_root,
+    get_owned_prefixes,
+    get_scan_prefixes_for_root,
     get_unenriched_assets_for_roots,
     insert_asset_specs,
     mark_missing_outside_prefixes_safely,
     sync_root_safely,
+    sync_temp_references_safely,
 )
 from ..database.db import dependencies_available
 
@@ -421,7 +422,7 @@ class _AssetSeeder:
                 )
                 return 0
 
-            all_prefixes = get_all_known_prefixes()
+            all_prefixes = get_owned_prefixes()
             marked = mark_missing_outside_prefixes_safely(all_prefixes)
             if marked > 0:
                 logger.info("Marked %d references as missing", marked)
@@ -531,7 +532,7 @@ class _AssetSeeder:
                     os.path.abspath(folder_paths.models_dir),
                 )
             else:
-                prefixes = get_prefixes_for_root(root)
+                prefixes = get_scan_prefixes_for_root(root)
                 if prefixes:
                     logger.info("Asset scan [%s] directories: %s", root, prefixes)
 
@@ -556,10 +557,11 @@ class _AssetSeeder:
                 return
 
             if self._prune_first:
-                all_prefixes = get_all_known_prefixes()
+                all_prefixes = get_owned_prefixes()
                 marked = mark_missing_outside_prefixes_safely(all_prefixes)
                 if marked > 0:
                     logger.info("Marked %d refs as missing before scan", marked)
+                sync_temp_references_safely()
 
             if self._check_pause_and_cancel():
                 logger.info("Asset scan cancelled after pruning phase")

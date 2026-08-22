@@ -1,7 +1,6 @@
 import json
-import math
-import torch
 from dataclasses import dataclass
+import torch
 
 from .causal_audio_autoencoder import (
     CausalityAxis,
@@ -187,7 +186,7 @@ class AudioVAE(torch.nn.Module):
         )
 
     def num_of_latents_from_frames(self, frames_number: int, frame_rate: float) -> int:
-        return math.ceil((float(frames_number) / frame_rate) * self.latents_per_second)
+        return round((float(frames_number) / frame_rate) * self.latents_per_second)
 
     def run_vocoder(self, mel_spec: torch.Tensor) -> torch.Tensor:
         audio_channels = self.autoencoder.decoder.out_ch

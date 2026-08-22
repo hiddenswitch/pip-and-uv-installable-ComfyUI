@@ -39,10 +39,16 @@ def prepare_noise(latent_image, seed, noise_inds=None):
         noises = prepare_noise_inner(latent_image, generator, noise_inds)
 
     return noises
+
+def prepare_empty_noise(latent_image):
+    if latent_image.is_nested:
+        return NestedTensor([torch.zeros_like(t, device="cpu") for t in latent_image.unbind()])
+    return torch.zeros_like(latent_image, device="cpu")
+
 def fix_empty_latent_channels(model, latent_image, downscale_ratio_spacial=None, downscale_ratio_temporal=None):
     if latent_image.is_nested:
         return latent_image
-    latent_format = model.get_model_object("latent_format")  # Resize the empty latent image so it has the right number of channels
+    latent_format = model.get_model_object("latent_format")
     is_empty = torch.count_nonzero(latent_image) == 0
     if is_empty:
         if latent_format.latent_channels != latent_image.shape[1]:
@@ -59,6 +65,9 @@ def fix_empty_latent_channels(model, latent_image, downscale_ratio_spacial=None,
             ratio = downscale_ratio_temporal / latent_format.temporal_downscale_ratio
             new_t = max(1, round(latent_image.shape[2] * ratio))
             latent_image = utils.repeat_to_batch_size(latent_image, new_t, dim=2)
+
+    if is_empty:
+        latent_image = latent_format.fix_empty_latent(latent_image)
 
     return latent_image
 

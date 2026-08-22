@@ -37,9 +37,11 @@ from .ldm.genmo.vae import model as genmo_model
 from .ldm.hunyuan3d.vae import ShapeVAE
 from .ldm.lightricks.vae import causal_video_autoencoder as lightricks
 from .ldm.lightricks.vae.audio_vae import AudioVAE
+from .ldm.lightricks.vae.na_diffusion_decoder import CausalDiffusionVAE
 from .ldm.mage_flow.vae import MageVAE
 from .ldm.minimax.audio_vae import MiniMaxH3AudioVAE
 from .ldm.minimax.vae import MiniMaxH3VideoVAE
+from .ldm.minimax_music.dav import MiniMaxMusic3DAV
 from .ldm.mmaudio.vae.autoencoder import AudioAutoencoder
 from .ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
 from .ldm.seedvr import vae as seedvr_vae
@@ -92,6 +94,7 @@ from .text_encoders import boogu
 from .text_encoders import krea2
 from .text_encoders import mage_flow
 from .text_encoders import minimax
+from .text_encoders import minimax_music
 from .text_encoders import joyimage
 from .text_encoders import pixeldit
 from .text_encoders import qwen3vl
@@ -534,7 +537,24 @@ class VAE:
         self.audio_sample_rate = 44100
 
         if config is None:
-            if "decoder.mid.block_1.mix_factor" in sd:
+            if "dec_in_proj.weight" in sd and "decoder.model.0.weight_g" in sd:  # MiniMax Music3 DAV
+                self.first_stage_model = MiniMaxMusic3DAV(operations=ops.disable_weight_init)
+                self.latent_channels = 128
+                self.output_channels = 2
+                self.upscale_ratio = 512
+                self.downscale_ratio = 512
+                self.latent_dim = 1
+                self.process_output = lambda audio: audio
+                self.process_input = lambda audio: audio
+                self.working_dtypes = [torch.float32]
+                self.disable_offload = True
+                self.memory_used_decode = lambda shape, dtype: (shape[-1] * 512 * 1400 + 800_000_000) * model_management.dtype_size(dtype)
+
+                def _no_encode(*args, **kwargs):
+                    raise RuntimeError("MiniMax Music3 DAV cannot encode audio")
+
+                self.memory_used_encode = _no_encode
+            elif "decoder.mid.block_1.mix_factor" in sd:
                 encoder_config = {'double_z': True, 'z_channels': 4, 'resolution': 256, 'in_channels': 3, 'out_ch': 3, 'ch': 128, 'ch_mult': [1, 2, 4, 4], 'num_res_blocks': 2, 'attn_resolutions': [], 'dropout': 0.0}
                 decoder_config = encoder_config.copy()
                 decoder_config["video_kernel_size"] = [3, 1, 1]
@@ -602,42 +622,22 @@ class VAE:
                 self.working_dtypes = [torch.bfloat16, torch.float32]
                 self.memory_used_encode = lambda shape, dtype: (400 * shape[2] * shape[3]) * model_management.dtype_size(dtype)
                 self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * shape[3] * 16 * 16) * model_management.dtype_size(dtype)
-            elif "decoder.transformer_blocks.0.scale1" in sd and "encoder.down.5.block.0.conv1.weight" in sd:
-                self.first_stage_model = MiniMaxH3VideoVAE()
-                self.latent_channels = 24
+            elif "decoder.conv_in_x_t.weight" in sd:  # Lightricks LTX 2.4 diffusion VAE decoder
+                vae_config = None
+                if metadata is not None and "config" in metadata:
+                    vae_config = json.loads(metadata["config"]).get("vae", None)
+                self.first_stage_model = CausalDiffusionVAE(config=vae_config)
+                self.latent_channels = sd["decoder.conv_in.weight"].shape[1]
                 self.latent_dim = 3
-                self.upscale_ratio = (lambda value: max(1, (value - 2) // 5 * 17 + 5), 16, 16)
-                self.upscale_index_formula = (4, 16, 16)
-                self.downscale_ratio = (lambda value: max(1, (value - 5) // 17 * 5 + 2) if value > 1 else 1, 16, 16)
-                self.downscale_index_formula = (4, 16, 16)
-                self.working_dtypes = [torch.float16, torch.float32]
-                self.handles_tiling = True
-
-                def estimate_minimax_encode_memory(frames, height, width, dtype):
-                    fixed = 110_000_000 if frames == 1 else 1_300_000_000
-                    elements_per_pixel = 7 if frames == 1 else 9.5
-                    return (elements_per_pixel * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
-
-                def estimate_minimax_decode_memory(frames, height, width, dtype):
-                    fixed = 110_000_000 if frames <= 22 else 270_000_000
-                    return (9.5 * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
-
-                self.memory_used_encode = lambda shape, dtype: estimate_minimax_encode_memory(shape[2], shape[3], shape[4], dtype)
-                self.memory_used_decode = lambda shape, dtype: estimate_minimax_decode_memory(self.upscale_ratio[0](shape[2]), shape[3] * 16, shape[4] * 16, dtype)
-            elif "pre_block.attn.zero_k_bias" in sd:
-                self.first_stage_model = MiniMaxH3AudioVAE()
-                self.latent_channels = 32
-                self.output_channels = 2
-                self.pad_channel_value = "replicate"
-                self.audio_sample_rate = 32000
-                self.upscale_ratio = 800
-                self.downscale_ratio = 800
-                self.latent_dim = 2
-                self.process_output = lambda audio: audio
-                self.process_input = lambda audio: audio
-                self.working_dtypes = [torch.float32]
-                self.memory_used_encode = lambda shape, dtype: (900 * shape[2] + 105_000_000) * model_management.dtype_size(dtype) * 1.03
-                self.memory_used_decode = lambda shape, dtype: max(42_000_000, 220 * shape[-1] * 800 + 20_000_000) * model_management.dtype_size(dtype) * 1.03
+                self.disable_offload = True
+                self.crop_input = False
+                self.memory_used_decode = lambda shape, dtype: (1700 * shape[2] * shape[3] * shape[4] * (8 * 8 * 8)) * model_management.dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: (80 * max(shape[2], 7) * shape[3] * shape[4]) * model_management.dtype_size(dtype)
+                self.upscale_ratio = (lambda a: max(0, a * 8 - 7), 32, 32)
+                self.upscale_index_formula = (8, 32, 32)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 7) / 8)), 32, 32)
+                self.downscale_index_formula = (8, 32, 32)
+                self.working_dtypes = [torch.bfloat16, torch.float32]
             elif "decoder.conv_in.weight" in sd:
                 if sd['decoder.conv_in.weight'].shape[1] == 64:
                     ddconfig = {"block_out_channels": [128, 256, 512, 512, 1024, 1024], "in_channels": 3, "out_channels": 3, "num_res_blocks": 2, "ffactor_spatial": 32, "downsample_match_channel": True, "upsample_match_channel": True}
@@ -926,7 +926,14 @@ class VAE:
                 self.upscale_index_formula = (4, 16, 16)
                 self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 16, 16)
                 self.downscale_index_formula = (4, 16, 16)
-                if self.latent_channels in [48, 128]:  # Wan 2.2 and LTX2
+                if self.latent_channels == 24 and sd["decoder.22.bias"].shape[0] == 12:  # MiniMax H3
+                    self.first_stage_model = TAEHV(latent_channels=self.latent_channels, latent_format=None)
+                    self.process_input = self.process_output = lambda image: image
+                    self.upscale_ratio = (lambda a: max(1, (a - 2) // 5 * 17 + 5), 16, 16)
+                    self.downscale_ratio = (lambda a: max(1, (a - 1) // 17 * 5 + 2) if a > 1 else 1, 16, 16)
+                    self.memory_used_encode = lambda shape, dtype: (400 * ((shape[-3] + 16) // 17) * shape[-2] * shape[-1] * model_management.dtype_size(dtype))
+                    self.memory_used_decode = lambda shape, dtype: ((260 * 16 * 16 + shape[1] * shape[-3]) * shape[-2] * shape[-1] * model_management.dtype_size(dtype))
+                elif self.latent_channels in [48, 128]:  # Wan 2.2 and LTX2
                     self.first_stage_model = TAEHV(latent_channels=self.latent_channels, latent_format=None)  # taehv doesn't need scaling
                     self.process_input = self.process_output = lambda image: image
                     self.process_output = lambda image: image
@@ -1009,13 +1016,21 @@ class VAE:
                 self.working_dtypes = [torch.float16, torch.float32]
                 # the model tiles internally (256px spatial, 17-frame temporal chunks)
                 self.handles_tiling = True
+                self.process_output = lambda image: image
+                chunk_frames = (
+                    self.first_stage_model.tokens_chunk_size
+                    + self.first_stage_model.token_overlap
+                ) * self.first_stage_model.vae_ratio_t
+
                 def estimate_encode_memory(frames, height, width, dtype):
                     fixed = 110_000_000 if frames == 1 else 1_300_000_000
                     elements_per_pixel = 7 if frames == 1 else 9.5
+                    frames = min(frames, self.first_stage_model.clip_length)
                     return (elements_per_pixel * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
 
                 def estimate_decode_memory(frames, height, width, dtype):
                     fixed = 110_000_000 if frames <= 22 else 270_000_000
+                    frames = min(frames, chunk_frames + 2)
                     return (9.5 * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
 
                 self.memory_used_encode = lambda shape, dtype: estimate_encode_memory(shape[2], shape[3], shape[4], dtype)
@@ -1278,6 +1293,7 @@ class VAE:
                 do_tile = True
 
             if do_tile:
+                pixel_samples = None
                 model_management.soft_empty_cache()
                 dims = samples_in.ndim - 2
                 if dims == 1 or self.extra_1d_channel is not None:
@@ -1286,6 +1302,11 @@ class VAE:
                     if self.handles_tiling:
                         tile = 256 // self.spacial_compression_decode()
                         overlap = tile // 4
+                        tile_memory = self.memory_used_decode(
+                            self._tile_bounded_shape(samples_in.shape, tile, tile, None),
+                            self.vae_dtype,
+                        )
+                        model_management.load_models_gpu([self.patcher], memory_required=tile_memory, force_full_load=self.disable_offload)
                         pixel_samples = self._decode_tiled_owned(samples_in, tile_x=tile, tile_y=tile, overlap=overlap)
                     else:
                         pixel_samples = self.decode_tiled_(samples_in)
@@ -1293,16 +1314,65 @@ class VAE:
                     tile = 256 // self.spacial_compression_decode()
                     overlap = tile // 4
                     if self.handles_tiling:
+                        tile_memory = self.memory_used_decode(
+                            self._tile_bounded_shape(samples_in.shape, tile, tile, None),
+                            self.vae_dtype,
+                        )
+                        model_management.load_models_gpu([self.patcher], memory_required=tile_memory, force_full_load=self.disable_offload)
                         pixel_samples = self._decode_tiled_owned(samples_in, tile_x=tile, tile_y=tile, overlap=overlap)
                     else:
-                        pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+                        budget = min(memory_used, int(model_management.get_total_memory(self.device) * 0.8))
+                        model_management.load_models_gpu([self.patcher], memory_required=budget, force_full_load=self.disable_offload)
+                        tile_t = samples_in.shape[2]
+
+                        def estimate_tile(tt, tile_xy):
+                            shape = self._tile_bounded_shape(samples_in.shape, tile_xy, tile_xy, tt)
+                            return self.memory_used_decode(shape, self.vae_dtype)
+
+                        while tile_t > 2 and estimate_tile(tile_t, tile) > budget:
+                            tile_t = -(-tile_t // 2)
+                        while (
+                            tile * 2 <= max(samples_in.shape[3], samples_in.shape[4])
+                            and estimate_tile(tile_t, tile * 2) <= budget
+                        ):
+                            tile *= 2
+                        overlap = tile // 4
+                        pixel_samples = self.decode_tiled_3d(
+                            samples_in,
+                            tile_t=tile_t,
+                            tile_x=tile,
+                            tile_y=tile,
+                            overlap=(1, overlap, overlap),
+                        )
 
         pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
         return pixel_samples
 
+    def _tile_bounded_shape(self, shape, tile_x, tile_y, tile_t):
+        """Clamp a latent shape to a single tile for peak-memory estimates."""
+        bounded = list(shape)
+        if len(bounded) == 5:
+            if tile_t is not None:
+                bounded[2] = min(bounded[2], tile_t)
+            if tile_y is not None:
+                bounded[3] = min(bounded[3], tile_y)
+            if tile_x is not None:
+                bounded[4] = min(bounded[4], tile_x)
+        elif len(bounded) == 4 and self.extra_1d_channel is None:
+            if tile_y is not None:
+                bounded[2] = min(bounded[2], tile_y)
+            if tile_x is not None:
+                bounded[3] = min(bounded[3], tile_x)
+        elif tile_x is not None:
+            bounded[-1] = min(bounded[-1], tile_x)
+        return tuple(bounded)
+
     def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
         self.throw_exception_if_invalid()
-        memory_used = self.memory_used_decode(samples.shape, self.vae_dtype)  # TODO: calculate mem required for tile
+        memory_used = self.memory_used_decode(
+            self._tile_bounded_shape(samples.shape, tile_x, tile_y, tile_t),
+            self.vae_dtype,
+        )
         model_management.load_models_gpu([self.patcher], memory_required=memory_used, force_full_load=self.disable_offload)
         dims = samples.ndim - 2
         args = {}
@@ -1755,7 +1825,16 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
     clip_target.params = {}
     if len(clip_data) == 1:
         te_model = detect_te_model(clip_data[0])
-        if te_model == TEModel.CLIP_G:
+        if clip_type == CLIPType.MINIMAX and "model.audio_decoder.projection.weight" in clip_data[0]:
+            tokenizer_data["tokenizer_json"] = clip_data[0].pop("tokenizer_json", None)
+            quant = utils.detect_layer_quantization(clip_data[0], "")
+            if quant is not None:
+                model_options = model_options.copy()
+                model_options["quantization_metadata"] = quant
+            clip_target.params["projection_config"] = minimax_music.detect_merged_config(clip_data[0])
+            clip_target.clip = minimax_music.MiniMaxMusic3TEModel
+            clip_target.tokenizer = minimax_music.MiniMaxMusic3Tokenizer
+        elif te_model == TEModel.CLIP_G:
             if clip_type == CLIPType.STABLE_CASCADE:
                 clip_target.clip = sdxl_clip.StableCascadeClipModel
                 clip_target.tokenizer = sdxl_clip.StableCascadeTokenizer
@@ -1814,12 +1893,21 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.tokenizer = sa3.SAT5GemmaTokenizer
             tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
         elif te_model in (TEModel.GEMMA_4_E4B, TEModel.GEMMA_4_E2B, TEModel.GEMMA_4_31B, TEModel.GEMMA_4_12B):
-            variant = {TEModel.GEMMA_4_E4B: gemma4.Gemma4_E4B,
-                       TEModel.GEMMA_4_E2B: gemma4.Gemma4_E2B,
-                       TEModel.GEMMA_4_31B: gemma4.Gemma4_31B,
-                       TEModel.GEMMA_4_12B: gemma4.Gemma4_12B}[te_model]
-            clip_target.clip = gemma4.gemma4_te(**llama_detect(clip_data), model_class=variant)
-            clip_target.tokenizer = variant.tokenizer
+            if te_model == TEModel.GEMMA_4_12B and "text_embedding_projection.video_aggregate_embed.weight" in clip_data[0]:
+                clip_target.clip = lt.ltxav_te(
+                    **llama_detect(clip_data),
+                    **lt.sd_detect(clip_data),
+                    text_encoder_model=gemma4.gemma4_text_encoder_model(gemma4.Gemma4_12B),
+                    text_encoder_key="gemma4",
+                )
+                clip_target.tokenizer = lt.ltxav_gemma4_tokenizer(gemma4.Gemma4_12B.tokenizer)
+            else:
+                variant = {TEModel.GEMMA_4_E4B: gemma4.Gemma4_E4B,
+                           TEModel.GEMMA_4_E2B: gemma4.Gemma4_E2B,
+                           TEModel.GEMMA_4_31B: gemma4.Gemma4_31B,
+                           TEModel.GEMMA_4_12B: gemma4.Gemma4_12B}[te_model]
+                clip_target.clip = gemma4.gemma4_te(**llama_detect(clip_data), model_class=variant)
+                clip_target.tokenizer = variant.tokenizer
             tokenizer_data["tokenizer_json"] = clip_data[0].get("tokenizer_json", None)
         elif te_model == TEModel.GEMMA_2_2B:
             if clip_type == CLIPType.PIXELDIT:
@@ -1987,9 +2075,30 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = kandinsky5.te(**llama_detect(clip_data))
             clip_target.tokenizer = kandinsky5.Kandinsky5TokenizerImage
         elif clip_type == CLIPType.LTXV:
-            clip_target.clip = lt.ltxav_te(**llama_detect(clip_data), **lt.sd_detect(clip_data))
-            clip_target.tokenizer = lt.LTXAVGemmaTokenizer
-            tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
+            te_models = [detect_te_model(state_dict) for state_dict in clip_data]
+            gemma4_models = {
+                TEModel.GEMMA_4_E4B: gemma4.Gemma4_E4B,
+                TEModel.GEMMA_4_E2B: gemma4.Gemma4_E2B,
+                TEModel.GEMMA_4_31B: gemma4.Gemma4_31B,
+                TEModel.GEMMA_4_12B: gemma4.Gemma4_12B,
+            }
+            gemma4_type = next((model for model in te_models if model in gemma4_models), None)
+            if gemma4_type is None:
+                clip_target.clip = lt.ltxav_te(**llama_detect(clip_data), **lt.sd_detect(clip_data))
+                clip_target.tokenizer = lt.LTXAVGemmaTokenizer
+                gemma_state = clip_data[te_models.index(TEModel.GEMMA_3_12B)] if TEModel.GEMMA_3_12B in te_models else clip_data[0]
+                tokenizer_data["spiece_model"] = gemma_state.get("spiece_model", None)
+            else:
+                variant = gemma4_models[gemma4_type]
+                clip_target.clip = lt.ltxav_te(
+                    **llama_detect(clip_data),
+                    **lt.sd_detect(clip_data),
+                    text_encoder_model=gemma4.gemma4_text_encoder_model(variant),
+                    text_encoder_key="gemma4",
+                )
+                clip_target.tokenizer = lt.ltxav_gemma4_tokenizer(variant.tokenizer)
+                gemma_state = clip_data[te_models.index(gemma4_type)]
+                tokenizer_data["tokenizer_json"] = gemma_state.get("tokenizer_json", None)
         elif clip_type == CLIPType.NEWBIE:
             clip_target.clip = newbie.te(**llama_detect(clip_data))
             clip_target.tokenizer = newbie.NewBieTokenizer

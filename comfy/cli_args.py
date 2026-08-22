@@ -65,7 +65,7 @@ parser.add_argument("--input-directory", type=str, default=None, help="Set the C
 parser.add_argument("--auto-launch", action="store_true", help="Automatically launch ComfyUI in the default browser.")
 parser.add_argument("--disable-auto-launch", action="store_true", help="Disable auto launching the browser.")
 parser.add_argument("--cuda-device", type=str, default=None, metavar="DEVICE_ID",
-                    help="Set the ids of cuda devices this instance will use, as a comma-separated list (e.g. '0' or '0,1'). All other devices will not be visible.")
+                    help="Set the ids of cuda devices this instance will use, as a comma-separated list (e.g. '0' or '0,1'), or 'all' to leave all currently visible devices available. All other devices will not be visible.")
 parser.add_argument("--torch-device", type=str, default=None, metavar="DEVICE",
                     help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")
 parser.add_argument("--default-device", type=int, default=None, metavar="DEFAULT_DEVICE_ID", help="Set the id of the default device, all other devices will stay visible.")
@@ -138,6 +138,7 @@ attn_group.add_argument("--use-quad-cross-attention", action="store_true", help=
 attn_group.add_argument("--use-pytorch-cross-attention", action="store_true", help="Use PyTorch 2.0 cross attention.", default=True)
 attn_group.add_argument("--use-sage-attention", action="store_true", help="Use sage attention.")
 attn_group.add_argument("--use-flash-attention", action="store_true", help="Use FlashAttention.")
+attn_group.add_argument("--use-ck-attention", action="store_true", help="Use Comfy Kitchen attention.")
 
 parser.add_argument("--disable-xformers", action="store_true", help="Disable xformers.")
 
@@ -166,12 +167,9 @@ parser.add_argument("--disable-async-offload", action="store_true", help="Disabl
 parser.add_argument("--disable-dynamic-vram", action="store_true", help="Disable dynamic VRAM and use estimate based model loading.")
 parser.add_argument("--enable-dynamic-vram", action="store_true", help="Enable dynamic VRAM on systems where it's not enabled by default.")
 parser.add_argument("--fast-disk", action="store_true", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")
+parser.add_argument("--disable-cuda-graphs", action="store_true", help="Disable CUDA graphs.")
 
 parser.add_argument("--force-non-blocking", action="store_true", help="Force non-blocking operations.")
-parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Hash function for comparisons.")
-parser.add_argument("--disable-smart-memory", action="store_true", help="Disable smart memory management.")
-parser.add_argument("--deterministic", action="store_true", help="Use deterministic algorithms.")
-
 parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.")
 
 parser.add_argument("--disable-smart-memory", action="store_true", help="Force ComfyUI to agressively offload to regular ram instead of keeping models in vram when it can.")

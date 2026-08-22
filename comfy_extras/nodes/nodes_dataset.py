@@ -693,6 +693,7 @@ class ImageProcessingNode(io.ComfyNode):
             category=cls.category,
             description=cls.description,
             is_experimental=True,
+            is_deprecated=cls.is_deprecated,
             is_input_list=is_group,  # True for group, False for individual
             inputs=inputs,
             outputs=[
@@ -862,9 +863,12 @@ class TextProcessingNode(io.ComfyNode):
 
         return io.Schema(
             node_id=cls.node_id,
+            search_aliases=cls.search_aliases,
             display_name=cls.display_name or cls.node_id,
             category="text",
+            description=cls.description,
             is_experimental=True,
+            is_deprecated=cls.is_deprecated,
             is_input_list=is_group,  # True for group, False for individual
             inputs=inputs,
             outputs=[

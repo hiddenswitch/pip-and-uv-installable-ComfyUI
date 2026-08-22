@@ -187,7 +187,11 @@ try:
         cuda_version = tuple(map(int, str(torch.version.cuda).split('.')))
         if cuda_version < (13,):
             ck.registry.disable("cuda")
-            logger.debug(f"You need pytorch with cu130 or higher to use optimized CUDA operations, found {torch.version.cuda}")
+            logger.warning(
+                "You need PyTorch with cu130 or higher to use optimized CUDA operations "
+                "on NVIDIA 20-series and newer GPUs; found CUDA %s",
+                torch.version.cuda,
+            )
 
     try:
         pass

@@ -444,13 +444,14 @@ def _consume_dynamic_combo_subwidgets(
                 continue
             dotted = f"{parent_name}.{sub_name}"
             if idx < len(widgets_values):
-                result[dotted] = _wrap_value(widgets_values[idx])
+                sub_value = widgets_values[idx]
+                result[dotted] = _wrap_value(sub_value)
                 idx += 1
             else:
-                default_value = _frontend_widget_default(sub_type, sub_opts)
-                if default_value is None:
+                sub_value = _frontend_widget_default(sub_type, sub_opts)
+                if sub_value is None:
                     continue
-                result[dotted] = _wrap_value(default_value)
+                result[dotted] = _wrap_value(sub_value)
 
             # The frontend does not add the auto seed control widget for
             # dynamic combo sub-inputs (only top-level seed/noise_seed widgets
@@ -458,6 +459,20 @@ def _consume_dynamic_combo_subwidgets(
             if sub_opts.get("control_after_generate"):
                 if idx < len(widgets_values):
                     idx += 1
+
+            # ``dynamicComboWidget`` calls the regular node-input factory for
+            # each selected sub-input. A nested DynamicCombo therefore adds
+            # its own selected widgets recursively (for example SaveVideo's
+            # format.codec.encoding hierarchy), immediately after its parent.
+            if sub_type == "COMFY_DYNAMICCOMBO_V3":
+                idx = _consume_dynamic_combo_subwidgets(
+                    dotted,
+                    sub_value,
+                    sub_opts,
+                    widgets_values,
+                    idx,
+                    result,
+                )
 
     return idx
 
