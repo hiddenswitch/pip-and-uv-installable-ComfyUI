@@ -409,7 +409,7 @@ wheels = [{ url = "https://nodes.appmana.com/packages/comfyui-sam2/1.0.3/comfyui
 [[packages]]
 name = "comfyui-videohelpersuite"
 version = "1.6.1"
-vcs = { type = "git", url = "https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git", requested-revision = "11929c75d8be6469381e4e07359eb17691cdbe3e", commit-id = "11929c75d8be6469381e4e07359eb17691cdbe3e" }
+archive = { url = "https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite/archive/11929c75d8be6469381e4e07359eb17691cdbe3e.zip", hashes = { sha256 = "ac358819e4d58acd8313530ac161da79b1c12dd3524ceabfd71ac16c54b83d89" } }
 
 [[packages]]
 name = "comfyui-workflow-templates"

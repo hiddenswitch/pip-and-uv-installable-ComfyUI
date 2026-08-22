@@ -9,7 +9,9 @@ comfyui-impact-pack
 comfyui-inspire-pack
 comfyui-ipadapter-plus
 comfyui-advanced-controlnet
-comfyui-videohelpersuite @ git+https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite.git@11929c75d8be6469381e4e07359eb17691cdbe3e
+# Keep the immutable source archive cacheable across Windows runner SIDs. A
+# shared Git checkout is not writable by ephemeral containers on other nodes.
+comfyui-videohelpersuite @ https://github.com/AppMana/appmana-comfyui-nodes-video-helper-suite/archive/11929c75d8be6469381e4e07359eb17691cdbe3e.zip
 comfyui-gguf
 comfyui-essentials
 comfyui-florence2

@@ -35,6 +35,13 @@ uv pip compile "${common[@]}" \
 
 uv pip compile "${common[@]}" \
   "${without_torch[@]}" \
+  --override ci/numpy1-overrides.txt \
+  --python-version 3.12 \
+  --python-platform linux \
+  --output-file ci/locks/pylock.linux-py312-numpy1.toml
+
+uv pip compile "${common[@]}" \
+  "${without_torch[@]}" \
   --python-version 3.11 \
   --python-platform linux \
   --output-file ci/locks/pylock.linux-py311.toml

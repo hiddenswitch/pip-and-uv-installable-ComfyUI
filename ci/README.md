@@ -29,6 +29,12 @@ without turning every dependency into a moving nightly-build target.
 The macOS lock targets macOS 14 and Python 3.12. It includes the native macOS
 PyTorch 2.13 wheels; Python 3.15 is not one of the CI targets.
 
+`pylock.linux-py312-numpy1.toml` is the compatibility lock for the CUDA 12.8
+NGC image. Its Torch and bundled extensions use the NumPy 1 ABI, so the whole
+NumPy/OpenCV/SciPy set is resolved together under `numpy<2`; newer backends use
+the regular Python 3.12 lock. `numpy1-overrides.txt` replaces the normal exact
+OpenCV pin with the last NumPy-1-compatible wheel for that resolution.
+
 `pylock.linux-py314-core.toml` intentionally omits the development extra and
 custom nodes. Master uses it for a short wheel/install/import smoke; the larger
 Python 3.14 CPU lock remains the single broad develop validation environment.

@@ -1,0 +1,4 @@
+# CUDA 12.8 / PyTorch 2.7 NGC extensions were built against the NumPy 1 ABI.
+numpy<2
+opencv-python-headless==4.11.0.86
+scipy==1.16.3

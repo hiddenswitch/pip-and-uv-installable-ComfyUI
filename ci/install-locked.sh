@@ -15,6 +15,32 @@ python=$2
 # generated locks before uv starts building source distributions.
 uv pip install --python "$python" "setuptools==84.0.0"
 
+# Vendor images can contain any of several distributions that install the same
+# cv2 package (NGC also ships one named simply "opencv"). Remove all ambient
+# providers before the lock installs the one selected headless wheel; otherwise
+# an extension compiled against the image's NumPy 1.x can survive beside the
+# locked NumPy 2.x and fail during import.
+uv pip uninstall --python "$python" \
+  opencv \
+  opencv-python \
+  opencv-contrib-python \
+  opencv-contrib-python-headless \
+  opencv-python-headless
+
+# Some NGC images leave cv2's unowned vendor binary in site-packages after its
+# distribution is removed. Discover site-packages from the selected interpreter
+# and clear only that now-unowned import package before installing the lock.
+"$python" - <<'PY'
+import shutil
+import site
+from pathlib import Path
+
+for site_packages in map(Path, site.getsitepackages()):
+    cv2 = site_packages / "cv2"
+    if cv2.exists():
+        shutil.rmtree(cv2)
+PY
+
 # Backend jobs deliberately provide their own Torch build. Remember it before
 # installing the cross-platform dependency lock and fail if anything replaces
 # it. CPU/macOS locks contain Torch themselves and therefore start without it.

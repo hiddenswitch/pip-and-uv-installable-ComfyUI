@@ -39,16 +39,19 @@ jobs:
             container: nvcr.io/nvidia/pytorch:25.12-py3
             primary: true
             stable_abi_cuda: cu130
+            lock: ci/locks/pylock.linux-py312.toml
           - name: "Python 3.12 CUDA 12.9 PyTorch 2.8"
             labels: [self-hosted, linux, X64, cuda-3060-12gb]
             container: nvcr.io/nvidia/pytorch:25.06-py3
             primary: false
             stable_abi_cuda: ""
+            lock: ci/locks/pylock.linux-py312.toml
           - name: "Python 3.12 CUDA 12.8 PyTorch 2.7"
             labels: [self-hosted, linux, X64, cuda-3060-12gb]
             container: nvcr.io/nvidia/pytorch:25.03-py3
             primary: false
             stable_abi_cuda: ""
+            lock: ci/locks/pylock.linux-py312-numpy1.toml
     env:
       UV_BREAK_SYSTEM_PACKAGES: "true"
       UV_SYSTEM_PYTHON: "true"
@@ -64,7 +67,7 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
       - uses: actions/checkout@v5
       - name: Install locked dependencies
-        run: ci/install-locked.sh ci/locks/pylock.linux-py312.toml python
+        run: ci/install-locked.sh ${{ matrix.target.lock }} python
       - name: Install pinned stable-ABI CUDA extensions
         if: matrix.target.stable_abi_cuda != ''
         run: |
@@ -190,10 +193,6 @@ jobs:
         run: |
           git config --global credential.helper store
           git config --global core.longpaths true
-          # The uv cache is shared by ephemeral runners on multiple Windows
-          # nodes, whose ContainerAdministrator accounts have different SIDs.
-          # Trust only uv's cached bare repositories across those identities.
-          git config --global --add safe.directory 'C:/ci-cache/uv/git-v0/db/*'
           echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
           git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
       - name: Initialize Windows graphics environment
