@@ -22,9 +22,8 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
-import comfy.model_management
-
-from comfy.ldm.lightricks.model import get_timestep_embedding
+from .... import model_management
+from ..model import get_timestep_embedding
 from .causal_video_autoencoder import Encoder, processor
 
 import comfy_kitchen
@@ -76,7 +75,7 @@ def default_rope_dim_split(head_dim):
 
 def rope_inv_freqs(dim, base=10000.0, device=None):
     out_device = device
-    if not comfy.model_management.supports_fp64(device):
+    if not model_management.supports_fp64(device):
         device = torch.device("cpu")
 
     exponents = torch.arange(0, dim, 2, dtype=torch.float64, device=device) / dim

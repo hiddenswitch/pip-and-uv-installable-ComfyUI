@@ -4,15 +4,15 @@ from unittest.mock import patch
 
 import pytest
 
-from app.assets.api.routes import _build_asset_response
-from app.assets.services.schemas import AssetData, AssetDetailResult, ReferenceData
+from comfy.app.assets.api.routes import _build_asset_response
+from comfy.app.assets.services.schemas import AssetData, AssetDetailResult, ReferenceData
 
 _TS = datetime(2024, 1, 1, 0, 0, 0)
 
 
 @pytest.fixture
 def sandboxed_comfy_roots(tmp_path: Path):
-    with patch("app.assets.services.path_utils.folder_paths") as fp:
+    with patch("comfy.app.assets.services.path_utils.folder_paths") as fp:
         fp.get_input_directory.return_value = str(tmp_path / "input")
         fp.get_output_directory.return_value = str(tmp_path / "output")
         fp.get_temp_directory.return_value = str(tmp_path / "temp")

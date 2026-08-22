@@ -139,7 +139,6 @@ attn_group.add_argument("--use-pytorch-cross-attention", action="store_true", he
 attn_group.add_argument("--use-sage-attention", action="store_true", help="Use sage attention.")
 attn_group.add_argument("--use-flash-attention", action="store_true", help="Use FlashAttention.")
 attn_group.add_argument("--use-ck-attention", action="store_true", help="Use Comfy Kitchen attention.")
-attn_group.add_argument("--use-ck-attention", action="store_true", help="Use Comfy Kitchen attention.")
 
 parser.add_argument("--disable-xformers", action="store_true", help="Disable xformers.")
 
@@ -169,13 +168,8 @@ parser.add_argument("--disable-dynamic-vram", action="store_true", help="Disable
 parser.add_argument("--enable-dynamic-vram", action="store_true", help="Enable dynamic VRAM on systems where it's not enabled by default.")
 parser.add_argument("--fast-disk", action="store_true", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")
 parser.add_argument("--disable-cuda-graphs", action="store_true", help="Disable CUDA graphs.")
-parser.add_argument("--disable-cuda-graphs", action="store_true", help="Disable CUDA graphs.")
 
 parser.add_argument("--force-non-blocking", action="store_true", help="Force non-blocking operations.")
-parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Hash function for comparisons.")
-parser.add_argument("--disable-smart-memory", action="store_true", help="Disable smart memory management.")
-parser.add_argument("--deterministic", action="store_true", help="Use deterministic algorithms.")
-
 parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.")
 
 parser.add_argument("--disable-smart-memory", action="store_true", help="Force ComfyUI to agressively offload to regular ram instead of keeping models in vram when it can.")

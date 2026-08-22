@@ -12,7 +12,7 @@ import dataclasses
 import pytest
 
 from comfy_api.latest import io
-from comfy_extras import nodes_dataset
+from comfy_extras.nodes import nodes_dataset
 
 # Structural schema members, not per-node config; a node class would never
 # declare these as class attributes.

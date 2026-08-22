@@ -8,17 +8,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetReference, Base
-from app.assets.database.queries.asset_reference import (
+from comfy.app.assets.database.models import Asset, AssetReference, Base
+from comfy.app.assets.database.queries.asset_reference import (
     mark_references_missing_outside_prefixes,
 )
-from app.assets.scanner import (
+from comfy.app.assets.scanner import (
     collect_paths_for_roots,
     get_owned_prefixes,
     get_temp_prefixes,
     sync_prefixes_with_filesystem,
 )
-from app.assets.services.file_utils import get_mtime_ns
+from comfy.app.assets.services.file_utils import get_mtime_ns
 
 
 @pytest.fixture(autouse=True)
@@ -45,11 +45,11 @@ def comfy_dirs():
         for d in dirs.values():
             d.mkdir()
         with (
-            patch("folder_paths.get_input_directory", return_value=str(dirs["input"])),
-            patch("folder_paths.get_output_directory", return_value=str(dirs["output"])),
-            patch("folder_paths.get_temp_directory", return_value=str(dirs["temp"])),
+            patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(dirs["input"])),
+            patch("comfy.cmd.folder_paths.get_output_directory", return_value=str(dirs["output"])),
+            patch("comfy.cmd.folder_paths.get_temp_directory", return_value=str(dirs["temp"])),
             patch(
-                "app.assets.scanner.get_comfy_models_folders",
+                "comfy.app.assets.scanner.get_comfy_models_folders",
                 return_value=[("checkpoints", [str(dirs["models"])], set())],
             ),
         ):
@@ -104,7 +104,7 @@ def test_discovery_does_not_walk_temp(comfy_dirs):
     temp_file = _write(comfy_dirs["temp"], "preview.png")
     output_file = _write(comfy_dirs["output"], "render.png")
 
-    with patch("app.assets.scanner.collect_models_files", return_value=[]):
+    with patch("comfy.app.assets.scanner.collect_models_files", return_value=[]):
         paths = collect_paths_for_roots(("models", "input", "output"))
 
     assert output_file in paths, "scan roots must still be walked"

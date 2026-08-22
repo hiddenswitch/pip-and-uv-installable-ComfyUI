@@ -73,6 +73,15 @@ _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
     # Frontend migrates the dynamic model selector, inserts the underlying
     # provider model slug, then reads that value as the promoted aspect ratio.
     "templates_graphic_design_recomposer": _DYNAMIC_COMBO_MIGRATION_SHIFT,
+    # These packaged workflows retain a positional widget array from an older
+    # subgraph definition. Frontend 1.49.6 SubgraphNode.configure delegates to
+    # _applyPromotedWidgetValues, which walks the current promoted inputs and
+    # assigns that stale array sequentially. The resulting frontend prompts
+    # put sizes, booleans, seeds, and model names into unrelated fields. Keep
+    # validating the Python converter's correctly named mapping elsewhere.
+    "utility_sdpose_multi_person": _STALE_SUBGRAPH_WIDGET_ORDER,
+    "utility_sdpose_multi_person_video": _STALE_SUBGRAPH_WIDGET_ORDER,
+    "video_wan_animate2": _STALE_SUBGRAPH_WIDGET_ORDER,
 }
 
 _EXCLUDED_TEMPLATE_IDS = frozenset(_EXCLUDED_TEMPLATE_REASONS)
@@ -752,7 +761,11 @@ class TestFrontendParity:
 
         # Python conversion (frontend-parity mode for comparison)
         with context_add_custom_nodes(_real_nodes):
-            python_output = convert_ui_to_api(workflow, preserve_unknown_nodes=False)
+            python_output = convert_ui_to_api(
+                workflow,
+                preserve_unknown_nodes=False,
+                node_mappings=_real_nodes,
+            )
 
         # Normalize and compare
         f = _normalize_api_output(frontend_output)

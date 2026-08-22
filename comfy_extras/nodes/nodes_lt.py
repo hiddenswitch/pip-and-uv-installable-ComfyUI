@@ -6,7 +6,6 @@ from io import BytesIO
 import av
 import numpy as np
 import torch
-import torchaudio
 import comfy.ldm.lightricks.duration_head
 import comfy.model_management
 import comfy.model_sampling

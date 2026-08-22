@@ -8,6 +8,7 @@ from torch._subclasses.fake_tensor import FakeTensorMode
 import comfy.ops as comfy_ops
 from comfy import model_management
 from comfy.ldm.minimax.model import Attention, MLP
+from comfy.ldm.modules.attention import AttentionTensorContainer
 from comfy.model_base import BaseModel, MiniMaxH3
 from comfy.tensor_parallel import (
     AbstractBaseTensorParallelOperations,
@@ -115,6 +116,8 @@ class ThreadTensorParallelOperations(AbstractBaseTensorParallelOperations):
 
 def _attention(query, key, value, heads, mask=None, **kwargs):
     del heads, kwargs
+    if isinstance(query, AttentionTensorContainer):
+        query, key, value = query.take(), key.take(), value.take()
     scores = torch.matmul(query, key.transpose(-2, -1)) * query.shape[-1] ** -0.5
     if mask is not None:
         scores = scores + mask

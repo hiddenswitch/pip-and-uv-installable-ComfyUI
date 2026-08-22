@@ -1317,7 +1317,7 @@ class LTXV(BaseModel):
 
         generated_keyframes = kwargs.get("generated_keyframes", None)
         if generated_keyframes is not None:
-            out['generated_keyframes'] = comfy.conds.CONDConstant(generated_keyframes)
+            out['generated_keyframes'] = conds.CONDConstant(generated_keyframes)
 
         return out
 
@@ -1382,7 +1382,7 @@ class LTXAV(BaseModel):
 
         generated_keyframes = kwargs.get("generated_keyframes", None)
         if generated_keyframes is not None:
-            out['generated_keyframes'] = comfy.conds.CONDConstant(generated_keyframes)
+            out['generated_keyframes'] = conds.CONDConstant(generated_keyframes)
 
         return out
 
@@ -2422,7 +2422,7 @@ class MiniMaxH3(BaseModel):
         return out
 
     def _denoise_mask_conds(self, denoise_mask, latent_shapes):
-        return {name: comfy.conds.CONDRegular(value) for name, value in self._denoise_mask_values(denoise_mask, latent_shapes).items()}
+        return {name: conds.CONDRegular(value) for name, value in self._denoise_mask_values(denoise_mask, latent_shapes).items()}
 
     def scale_latent_inpaint(self, sigma, noise, latent_image, x=None, denoise_mask=None, **kwargs):
         # preserved regions run at the cond timestep, inject them at cond strength
@@ -2431,7 +2431,7 @@ class MiniMaxH3(BaseModel):
             return super().scale_latent_inpaint(sigma=sigma, noise=noise, latent_image=latent_image, **kwargs)
         cleans = utils.unpack_latents(latent_image, shapes)
         noises = utils.unpack_latents(noise, shapes)
-        aug = comfy.ldm.minimax.model.VISUAL_COND_TIMESTEP # H3's video timestep is 0.999 by default
+        aug = minimax_model.VISUAL_COND_TIMESTEP  # H3's video timestep is 0.999 by default
         cleans[0] = aug * cleans[0] + (1.0 - aug) * noises[0]
         scale = self.audio_scale()
         if scale != 1.0:
@@ -2439,7 +2439,7 @@ class MiniMaxH3(BaseModel):
             # holds audio_scale * x_audio, so rescale for the model to see it clean
             model_sampling = self.model_sampling
             sigma_v = sigma.clamp(min=1e-6)
-            sigma_a = comfy.ldm.minimax.model.time_shift_sigma(sigma_v, model_sampling.shift, model_sampling.audio_shift)
+            sigma_a = minimax_model.time_shift_sigma(sigma_v, model_sampling.shift, model_sampling.audio_shift)
             factor = (sigma_v / sigma_a) / scale
             cleans[1] = cleans[1] * factor.view(factor.shape[:1] + (1,) * (cleans[1].ndim - 1)).to(cleans[1].dtype)
         injected = utils.pack_latents(cleans)[0]
@@ -2610,7 +2610,7 @@ class MiniMaxMusic3(BaseModel):
 
     def extra_conds(self, **kwargs):
         out = super().extra_conds(**kwargs)
-        out["conditioning_scale"] = comfy.conds.CONDRegular(kwargs["conditioning_scale"])
+        out["conditioning_scale"] = conds.CONDRegular(kwargs["conditioning_scale"])
         return out
 
 class Omnigen2(BaseModel):

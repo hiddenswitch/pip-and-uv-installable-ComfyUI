@@ -622,42 +622,6 @@ class VAE:
                 self.working_dtypes = [torch.bfloat16, torch.float32]
                 self.memory_used_encode = lambda shape, dtype: (400 * shape[2] * shape[3]) * model_management.dtype_size(dtype)
                 self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * shape[3] * 16 * 16) * model_management.dtype_size(dtype)
-            elif "decoder.transformer_blocks.0.scale1" in sd and "encoder.down.5.block.0.conv1.weight" in sd:
-                self.first_stage_model = MiniMaxH3VideoVAE()
-                self.latent_channels = 24
-                self.latent_dim = 3
-                self.upscale_ratio = (lambda value: max(1, (value - 2) // 5 * 17 + 5), 16, 16)
-                self.upscale_index_formula = (4, 16, 16)
-                self.downscale_ratio = (lambda value: max(1, (value - 5) // 17 * 5 + 2) if value > 1 else 1, 16, 16)
-                self.downscale_index_formula = (4, 16, 16)
-                self.working_dtypes = [torch.float16, torch.float32]
-                self.handles_tiling = True
-
-                def estimate_minimax_encode_memory(frames, height, width, dtype):
-                    fixed = 110_000_000 if frames == 1 else 1_300_000_000
-                    elements_per_pixel = 7 if frames == 1 else 9.5
-                    return (elements_per_pixel * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
-
-                def estimate_minimax_decode_memory(frames, height, width, dtype):
-                    fixed = 110_000_000 if frames <= 22 else 270_000_000
-                    return (9.5 * frames * height * width + fixed) * model_management.dtype_size(dtype) * 1.03
-
-                self.memory_used_encode = lambda shape, dtype: estimate_minimax_encode_memory(shape[2], shape[3], shape[4], dtype)
-                self.memory_used_decode = lambda shape, dtype: estimate_minimax_decode_memory(self.upscale_ratio[0](shape[2]), shape[3] * 16, shape[4] * 16, dtype)
-            elif "pre_block.attn.zero_k_bias" in sd:
-                self.first_stage_model = MiniMaxH3AudioVAE()
-                self.latent_channels = 32
-                self.output_channels = 2
-                self.pad_channel_value = "replicate"
-                self.audio_sample_rate = 32000
-                self.upscale_ratio = 800
-                self.downscale_ratio = 800
-                self.latent_dim = 2
-                self.process_output = lambda audio: audio
-                self.process_input = lambda audio: audio
-                self.working_dtypes = [torch.float32]
-                self.memory_used_encode = lambda shape, dtype: (900 * shape[2] + 105_000_000) * model_management.dtype_size(dtype) * 1.03
-                self.memory_used_decode = lambda shape, dtype: max(42_000_000, 220 * shape[-1] * 800 + 20_000_000) * model_management.dtype_size(dtype) * 1.03
             elif "decoder.conv_in_x_t.weight" in sd:  # Lightricks LTX 2.4 diffusion VAE decoder
                 vae_config = None
                 if metadata is not None and "config" in metadata:

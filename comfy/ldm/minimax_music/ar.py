@@ -4,12 +4,9 @@ import hashlib
 import torch
 from torch import nn
 
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.ops
-import comfy.utils
-from comfy.ldm.modules.attention import optimized_attention_for_device
-from comfy.text_encoders.llama import Llama2_, Qwen3_8BConfig
+from ... import model_management, model_prefetch, ops, utils
+from ...text_encoders.llama import Llama2_, Qwen3_8BConfig
+from ..modules.attention import optimized_attention_for_device
 
 from .prompt import AUDIO_CODE_OFFSET, SPECIAL_TOKEN_IDS
 
@@ -79,7 +76,7 @@ class RVQRMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.empty(hidden_size, dtype=dtype, device=device))
 
     def forward(self, x):
-        return torch.nn.functional.rms_norm(x, (x.shape[-1],), comfy.ops.cast_to_input(self.weight, x), 1e-6)
+        return torch.nn.functional.rms_norm(x, (x.shape[-1],), ops.cast_to_input(self.weight, x), 1e-6)
 
 
 class RVQMLP(nn.Module):
@@ -95,7 +92,7 @@ class RVQMLP(nn.Module):
 
     def forward(self, x):
         if self.merged_mlp:
-            return comfy.ops.linear_input_act(self.down_proj, self.gate_up_proj(x), "swiglu")
+            return ops.linear_input_act(self.down_proj, self.gate_up_proj(x), "swiglu")
         return self.down_proj(torch.nn.functional.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
@@ -237,7 +234,7 @@ class MiniMaxMusic3AR(nn.Module):
             raise ValueError(f"MiniMax Music3 prompt has {prompt_tokens} tokens; maximum is {MAX_PROMPT_TOKENS}")
 
         input_ids = input_ids.to(device)
-        if comfy.model_management.should_use_bf16(device):
+        if model_management.should_use_bf16(device):
             execution_dtype = torch.bfloat16
         else:
             execution_dtype = torch.float32
@@ -264,13 +261,13 @@ class MiniMaxMusic3AR(nn.Module):
             "depth_hidden": torch.empty((1, last_hidden.shape[-1] * (self.num_codebooks - 1)), dtype=execution_dtype, device=device),
         }
         decoder._comfy_cross_step_state = depth_io
-        comfy.model_management._register_cross_step(decoder)
+        model_management._register_cross_step(decoder)
         hidden_frames = []
         pending_code = None
         stop_token = None
         pending_event = None
         pending_hidden = None
-        progress = comfy.utils.ProgressBar(decode_limit)
+        progress = utils.ProgressBar(decode_limit)
         cuda_device = torch.device(device).type == "cuda"
         vocab_mask = None
         if not self.model.pruned_lm_head:
@@ -278,8 +275,8 @@ class MiniMaxMusic3AR(nn.Module):
             vocab_mask[AUDIO_CODE_OFFSET:AUDIO_CODE_OFFSET + C0_VOCAB_SIZE] = False
             vocab_mask[SPECIAL_TOKEN_IDS["<|audio_end|>"]] = False
 
-        for frame_index in comfy.utils.model_trange(decode_limit + 1, desc="AR sampling"):
-            comfy.model_management.throw_exception_if_processing_interrupted()
+        for frame_index in utils.model_trange(decode_limit + 1, desc="AR sampling"):
+            model_management.throw_exception_if_processing_interrupted()
             if pending_code is not None:
                 if pending_event is not None:
                     pending_event.synchronize()
@@ -314,13 +311,13 @@ class MiniMaxMusic3AR(nn.Module):
                 depth_io["codes"].copy_(codes)
                 depth_io["depth_hidden"].copy_(depth_hidden)
 
-            depth_queue = comfy.model_prefetch.make_prefetch_queue(
+            depth_queue = model_prefetch.make_prefetch_queue(
                 [[decoder, self.model.audio_extra_embedding]], device, {"prefetch_dynamic_vbars": True}
             )
-            comfy.model_prefetch.prefetch_queue_pop(
+            model_prefetch.prefetch_queue_pop(
                 depth_queue, device, decoder, execution_dtype, core=depth_core, enable_graph=True, generator=generator
             )
-            comfy.model_prefetch.prefetch_queue_pop(depth_queue, device, None)
+            model_prefetch.prefetch_queue_pop(depth_queue, device, None)
             feedback_codes = depth_io["codes"]
             depth_hidden = depth_io["depth_hidden"]
             frame_hidden = torch.cat((last_hidden[:1].detach(), depth_hidden), dim=-1)

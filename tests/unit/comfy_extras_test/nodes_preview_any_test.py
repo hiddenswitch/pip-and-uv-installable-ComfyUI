@@ -1,11 +1,4 @@
-from unittest.mock import patch, MagicMock
-
-mock_nodes = MagicMock()
-mock_nodes.MAX_RESOLUTION = 16384
-mock_server = MagicMock()
-
-with patch.dict("sys.modules", {"nodes": mock_nodes, "server": mock_server}):
-    from comfy_extras.nodes_preview_any import PreviewAny
+from comfy_extras.nodes.nodes_preview_any import PreviewAny
 
 
 class TestPreviewAnyMain:

@@ -1,5 +1,5 @@
 import torch
-import comfy.nested_tensor
+from . import nested_tensor
 
 
 class LatentFormat:
@@ -637,7 +637,7 @@ class MiniMaxH3AV(MiniMaxH3Video):
         frame_count = sum(frames_per_token[i % len(frames_per_token)] for i in range(video.shape[2]))
         audio_t = round(frame_count * audio_frame_rescale)
         audio = latent.new_zeros((latent.shape[0], audio_latent_channels, audio_channels, audio_t))
-        return comfy.nested_tensor.NestedTensor((video, audio))
+        return nested_tensor.NestedTensor((video, audio))
 
 class HunyuanVideo(LatentFormat):
     latent_channels = 16

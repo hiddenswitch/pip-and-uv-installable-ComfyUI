@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from . import qwen_vl
-from .. import clip_model, model_management, model_prefetch, ops
+from .. import clip_model, model_management, model_prefetch, ops as comfy_ops
 from ..clip_model import clip_preprocess, CLIPVision
 from ..ldm.common_dit import rms_norm
 from ..ldm.modules.attention import optimized_attention_for_device
@@ -667,7 +667,7 @@ class MLP(nn.Module):
         if self.merged_mlp:
             x = self.gate_up_proj(x)
             if self.merged_input_act is not None:
-                return ops.linear_input_act(self.down_proj, x, self.merged_input_act)
+                return comfy_ops.linear_input_act(self.down_proj, x, self.merged_input_act)
             gate, up = x.chunk(2, dim=-1)
             return self.down_proj(self.activation(gate) * up)
         return self.down_proj(self.activation(self.gate_proj(x)) * self.up_proj(x))
@@ -1037,7 +1037,7 @@ class BaseGenerate:
 
         if not module.comfy_cast_weights:
             return torch.nn.functional.linear(input, self.model.embed_tokens.weight.to(x), None)
-        with ops.CastBiasWeightContext(module, input, offloadable=True) as (weight, _bias):
+        with comfy_ops.CastBiasWeightContext(module, input, offloadable=True) as (weight, _bias):
             return torch.nn.functional.linear(input, weight, None)
 
     def init_kv_cache(self, batch, max_cache_len, device, execution_dtype):

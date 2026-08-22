@@ -153,7 +153,7 @@ _DIRECTORY_OPTS: list[tuple] = [
 ]
 
 _DEVICE_OPTS: list[tuple] = [
-    ("cuda_device", Optional[str], typer.Option(None, "--cuda-device", help="Select one CUDA device or an ordered comma-separated device list, e.g. 0 or 0,1.")),
+    ("cuda_device", Optional[str], typer.Option(None, "--cuda-device", help="Select one CUDA device, an ordered comma-separated device list (for example 0,1), or all to preserve every currently visible device.")),
     ("torch_device", Optional[str], typer.Option(None, "--torch-device", help="Set the torch device by name, e.g. cuda:1, cpu, mps. Overrides --cuda-device and --cpu.")),
     ("default_device", Optional[int], typer.Option(None, "--default-device", help="Set the id of the default device, all other devices will stay visible.")),
     ("cuda_malloc", bool, typer.Option(False, "--cuda-malloc/--no-cuda-malloc", help="Enable cudaMallocAsync.")),
@@ -194,6 +194,7 @@ _VRAM_OPTS: list[tuple] = [
     ("vram_headroom", float, typer.Option(0, "--vram-headroom", help="Set extra DynamicVRAM headroom in GB above the default reservation.")),
     ("disable_dynamic_vram", bool, typer.Option(False, "--disable-dynamic-vram", help="Disable dynamic VRAM and use estimate based model loading.")),
     ("fast_disk", bool, typer.Option(False, "--fast-disk/--no-fast-disk", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")),
+    ("disable_cuda_graphs", bool, typer.Option(False, "--disable-cuda-graphs", help="Disable CUDA graph capture and replay.")),
 ]
 
 _PRECISION_OPTS: list[tuple] = [
@@ -230,6 +231,7 @@ _ATTENTION_OPTS: list[tuple] = [
     ("use_pytorch_cross_attention", bool, typer.Option(False, "--use-pytorch-cross-attention/--no-use-pytorch-cross-attention", help="Use PyTorch's cross-attention function.")),
     ("use_sage_attention", bool, typer.Option(False, "--use-sage-attention/--no-use-sage-attention", help="Use sage attention.")),
     ("use_flash_attention", bool, typer.Option(False, "--use-flash-attention/--no-use-flash-attention", help="Use FlashAttention.")),
+    ("use_ck_attention", bool, typer.Option(False, "--use-ck-attention/--no-use-ck-attention", help="Use Comfy Kitchen attention.")),
     ("disable_xformers", bool, typer.Option(False, "--disable-xformers", help="Disable xformers.")),
     ("force_upcast_attention", bool, typer.Option(False, "--force-upcast-attention/--no-force-upcast-attention", help="Force upcasting of attention.")),
     ("dont_upcast_attention", bool, typer.Option(False, "--dont-upcast-attention", help="Disable upcasting of attention.")),

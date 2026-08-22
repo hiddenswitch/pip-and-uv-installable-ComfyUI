@@ -93,6 +93,53 @@ def setup_logging(config: Configuration):
     app_logger.setup_logger(config.logging_level)
 
 
+def setup_windows_multi_gpu_defaults(config: Configuration):
+    """Apply upstream's safe Windows multi-GPU visibility policy before torch."""
+    if os.name != "nt" or config.torch_device is not None:
+        return
+
+    from ..app import logger as app_logger
+    from ..cmd import cuda_malloc
+
+    cuda_visibility = os.environ.get("CUDA_VISIBLE_DEVICES")
+    device_selection = config.cuda_device
+    try:
+        gpu_count = sum("NVIDIA" in name.upper() for name in cuda_malloc.get_gpu_names())
+    except OSError:
+        gpu_count = 0
+
+    if gpu_count <= 1:
+        return
+
+    warning = None
+    multiple_visible = False
+    if device_selection is None and config.default_device is None and cuda_visibility is None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        warning = "Multiple NVIDIA GPUs detected. ComfyUI will use GPU 0 only on Windows by default. To restore all GPUs, pass --cuda-device all --disable-pinned-memory."
+    elif device_selection == "all":
+        multiple_visible = cuda_visibility is None or "," in cuda_visibility
+    elif device_selection is not None:
+        multiple_visible = "," in device_selection
+    elif config.default_device is not None:
+        multiple_visible = True
+    else:
+        multiple_visible = "," in cuda_visibility
+
+    if multiple_visible and not config.disable_pinned_memory:
+        warning = "Multiple NVIDIA GPUs are visible on Windows with pinned memory enabled. Restart with --disable-pinned-memory to avoid CUDA host-transfer failures."
+
+    if warning:
+        app_logger.log_startup_warning(
+            "\n".join((
+                "_" * 72,
+                "WARNING WARNING WARNING WARNING WARNING",
+                "",
+                warning,
+                "_" * 72,
+            ))
+        )
+
+
 def setup_cuda_devices(config: Configuration):
     if config.torch_device is not None:
         td = config.torch_device
@@ -107,7 +154,7 @@ def setup_cuda_devices(config: Configuration):
             os.environ["ASCEND_RT_VISIBLE_DEVICES"] = td.split(":", 1)[1]
         logger.info("Set torch device to: %s", td)
     else:
-        if config.default_device is not None:
+        if config.default_device is not None and config.cuda_device != "all":
             default_dev = config.default_device
             devices = list(range(32))
             devices.remove(default_dev)
@@ -116,7 +163,9 @@ def setup_cuda_devices(config: Configuration):
             os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
             os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
 
-        if config.cuda_device is not None:
+        if config.cuda_device == "all":
+            logger.info("Set cuda devices to all")
+        elif config.cuda_device is not None:
             os.environ['CUDA_VISIBLE_DEVICES'] = str(config.cuda_device)
             os.environ['HIP_VISIBLE_DEVICES'] = str(config.cuda_device)
             os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(config.cuda_device)
@@ -335,6 +384,7 @@ def setup_pre_torch(config: Configuration):
     setup_environment()
     setup_debug_hang(config)
     setup_guess_settings(config)
+    setup_windows_multi_gpu_defaults(config)
     setup_cuda_devices(config)
     setup_cuda_malloc(config)
 

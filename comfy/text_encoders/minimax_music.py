@@ -1,9 +1,9 @@
 import torch
 from tokenizers import Tokenizer
 
-import comfy.ops
-from comfy.ldm.minimax_music.ar import CFG_SCALE, CFG_TOP_K, MAX_AUDIO_FRAMES, MiniMaxMusic3AR
-from comfy.ldm.minimax_music.prompt import SPECIAL_TOKEN_IDS, build_prompt
+from .. import ops
+from ..ldm.minimax_music.ar import CFG_SCALE, CFG_TOP_K, MAX_AUDIO_FRAMES, MiniMaxMusic3AR
+from ..ldm.minimax_music.prompt import SPECIAL_TOKEN_IDS, build_prompt
 
 
 MODEL_CONFIG = {
@@ -71,7 +71,7 @@ class MiniMaxMusic3TEModel(MiniMaxMusic3AR):
         quant_config = model_options.get("quantization_metadata", None)
         operations = model_options.get("custom_operations", None)
         if operations is None:
-            operations = comfy.ops.mixed_precision_ops(quant_config, dtype) if quant_config is not None else comfy.ops.manual_cast
+            operations = ops.mixed_precision_ops(quant_config, dtype) if quant_config is not None else ops.manual_cast
         super().__init__({**MODEL_CONFIG, **(projection_config or {})}, dtype, device, operations)
         self.dtypes = {dtype}
         self.execution_device = device

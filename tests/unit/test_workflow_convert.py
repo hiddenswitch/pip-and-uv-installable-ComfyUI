@@ -48,6 +48,67 @@ def test_frontend_unknown_node_widgets_preserve_every_serialized_value():
     }
 
 
+def test_nested_dynamic_combo_widgets_are_consumed_recursively():
+    input_types = {
+        "required": {
+            "format": (
+                "COMFY_DYNAMICCOMBO_V3",
+                {
+                    "options": [
+                        {
+                            "key": "mp4",
+                            "inputs": {
+                                "required": {
+                                    "codec": (
+                                        "COMFY_DYNAMICCOMBO_V3",
+                                        {
+                                            "options": [
+                                                {
+                                                    "key": "h264",
+                                                    "inputs": {
+                                                        "optional": {
+                                                            "encoding": (
+                                                                "COMFY_DYNAMICCOMBO_V3",
+                                                                {
+                                                                    "options": [
+                                                                        {"key": "auto", "inputs": {"required": {}}},
+                                                                        {
+                                                                            "key": "re-encode",
+                                                                            "inputs": {
+                                                                                "required": {
+                                                                                    "crf": ("FLOAT", {"default": 23.0}),
+                                                                                }
+                                                                            },
+                                                                        },
+                                                                    ]
+                                                                },
+                                                            )
+                                                        }
+                                                    },
+                                                }
+                                            ]
+                                        },
+                                    )
+                                }
+                            },
+                        }
+                    ]
+                },
+            )
+        }
+    }
+
+    mapped, consumed = _map_widgets(input_types, ["mp4", "h264", "re-encode", 18.0])
+
+    assert consumed == 4
+    assert mapped == {
+        "format": "mp4",
+        "format.codec": "h264",
+        "format.codec.encoding": "re-encode",
+        "format.codec.encoding.crf": 18.0,
+    }
+
+
 # ── helper: tiny node classes for testing ─────────────────────────────────────
 
 class _KSamplerLike:

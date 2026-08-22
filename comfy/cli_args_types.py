@@ -148,6 +148,7 @@ class Configuration(dict):
         use_pytorch_cross_attention (bool): Use PyTorch's cross-attention function.
         use_sage_attention (bool): Use Sage Attention
         use_flash_attention (bool): Use FlashAttention
+        use_ck_attention (bool): Use Comfy Kitchen attention.
         disable_xformers (bool): Disable xformers.
         gpu_only (bool): Run everything on the GPU.
         highvram (bool): Keep models in GPU memory.
@@ -159,6 +160,7 @@ class Configuration(dict):
         reserve_vram (Optional[float]): Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS
         vram_headroom (float): Extra DynamicVRAM headroom in GB above the default reservation.
         disable_dynamic_vram (bool): Disable dynamic VRAM and use estimate-based model loading.
+        disable_cuda_graphs (bool): Disable CUDA graph capture and replay.
         fast_disk (bool): Prefer disk-backed dynamic loading and offload over unpinned RAM.
         disable_smart_memory (bool): Disable smart memory management.
         deterministic (bool): Use deterministic algorithms where possible.
@@ -315,6 +317,7 @@ class Configuration(dict):
         self.use_pytorch_cross_attention: bool = False
         self.use_sage_attention: bool = False
         self.use_flash_attention: bool = False
+        self.use_ck_attention: bool = False
         self.disable_xformers: bool = False
         self.gpu_only: bool = False
         self.highvram: bool = False
@@ -334,6 +337,7 @@ class Configuration(dict):
         self.disable_dynamic_vram: bool = False
         self.enable_dynamic_vram: bool = False
         self.fast_disk: bool = False
+        self.disable_cuda_graphs: bool = False
         self.disable_smart_memory: bool = False
         self.deterministic: bool = False
         self.dont_print_server: bool = False

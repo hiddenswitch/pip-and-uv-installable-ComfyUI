@@ -3,13 +3,13 @@ import math
 import torch
 from torch import nn
 
-import comfy.ops
+from ... import ops
 
 
 def snake(x, alpha):
     shape = x.shape
     flat = x.reshape(shape[0], shape[1], -1)
-    alpha = comfy.ops.cast_to_input(alpha, flat)
+    alpha = ops.cast_to_input(alpha, flat)
     flat = flat + (alpha + 1e-9).reciprocal() * torch.sin(alpha * flat).pow(2)
     return flat.reshape(shape)
 

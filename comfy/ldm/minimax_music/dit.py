@@ -3,10 +3,8 @@ import math
 import torch
 from torch import nn
 
-import comfy.model_management
-import comfy.ops
-import comfy.quant_ops
-from comfy.ldm.modules.attention import optimized_attention_for_device
+from ... import model_management, ops, quant_ops
+from ..modules.attention import optimized_attention_for_device
 
 
 MAX_CONDITION_FRAMES = 200
@@ -23,7 +21,7 @@ class FourierFeatures(nn.Module):
         self.weight = nn.Parameter(torch.empty(out_features // 2, in_features, dtype=dtype, device=device))
 
     def forward(self, value):
-        weight = comfy.ops.cast_to_input(self.weight, value)
+        weight = ops.cast_to_input(self.weight, value)
         features = 2.0 * math.pi * value @ weight.T
         return torch.cat((features.cos(), features.sin()), dim=-1)
 
@@ -38,8 +36,8 @@ class LayerNorm(nn.Module):
         return torch.nn.functional.layer_norm(
             x,
             (x.shape[-1],),
-            comfy.ops.cast_to_input(self.gamma, x),
-            comfy.ops.cast_to_input(self.beta, x),
+            ops.cast_to_input(self.gamma, x),
+            ops.cast_to_input(self.beta, x),
         )
 
 
@@ -50,7 +48,7 @@ class RotaryEmbedding(nn.Module):
 
     def forward_from_seq_len(self, length, device, dtype):
         positions = torch.arange(length, device=device, dtype=torch.float32)
-        frequencies = torch.outer(positions, comfy.ops.cast_to_input(self.inv_freq, positions))
+        frequencies = torch.outer(positions, ops.cast_to_input(self.inv_freq, positions))
         frequencies = frequencies.to(dtype)
         cos, sin = frequencies.cos(), frequencies.sin()
         return torch.stack((cos, -sin, sin, cos), dim=-1).reshape(1, 1, length, frequencies.shape[-1], 2, 2)
@@ -78,11 +76,11 @@ class Attention(nn.Module):
         k = k.reshape(batch, length, self.num_heads, self.dim_heads).transpose(1, 2)
         v = v.reshape(batch, length, self.num_heads, self.dim_heads).transpose(1, 2)
         rotary_dims = rotation_matrix.shape[-3] * 2
-        if comfy.model_management.in_training:
+        if model_management.in_training:
             q = torch.cat((_apply_rope(q[..., :rotary_dims], rotation_matrix), q[..., rotary_dims:]), dim=-1)
             k = torch.cat((_apply_rope(k[..., :rotary_dims], rotation_matrix), k[..., rotary_dims:]), dim=-1)
         else:
-            rotated_q, rotated_k = comfy.quant_ops.ck.apply_rope_split_half(q[..., :rotary_dims], k[..., :rotary_dims], rotation_matrix)
+            rotated_q, rotated_k = quant_ops.ck.apply_rope_split_half(q[..., :rotary_dims], k[..., :rotary_dims], rotation_matrix)
             q = torch.cat((rotated_q, q[..., rotary_dims:]), dim=-1)
             k = torch.cat((rotated_k, k[..., rotary_dims:]), dim=-1)
         attention = optimized_attention_for_device(q.device)
@@ -182,9 +180,9 @@ class MiniMaxMusic3DiT(nn.Module):
     def aligned_condition(self, hidden):
         frames = hidden.shape[1]
         hidden = hidden.transpose(1, 2).reshape(hidden.shape[0], 8, 4096, frames)
-        weights = torch.softmax(comfy.ops.cast_to_input(self.cond_layer_logits, hidden), dim=0)
+        weights = torch.softmax(ops.cast_to_input(self.cond_layer_logits, hidden), dim=0)
         hidden = torch.einsum("blht,l->bht", hidden, weights)
-        hidden = comfy.ops.cast_to_input(self.cond_layer_scale, hidden) * hidden
+        hidden = ops.cast_to_input(self.cond_layer_scale, hidden) * hidden
         condition = self.latent_conditioners(hidden)
         return torch.nn.functional.interpolate(condition, size=latent_length(frames), mode="nearest")
 

@@ -1,5 +1,4 @@
 import json
-import math
 from dataclasses import dataclass
 import torch
 
