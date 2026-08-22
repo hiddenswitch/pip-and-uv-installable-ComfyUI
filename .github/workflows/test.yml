@@ -190,6 +190,10 @@ jobs:
         run: |
           git config --global credential.helper store
           git config --global core.longpaths true
+          # The uv cache is shared by ephemeral runners on multiple Windows
+          # nodes, whose ContainerAdministrator accounts have different SIDs.
+          # Trust only uv's cached bare repositories across those identities.
+          git config --global --add safe.directory 'C:/ci-cache/uv/git-v0/db/*'
           echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
           git clone --depth=1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
       - name: Initialize Windows graphics environment
