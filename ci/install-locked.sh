@@ -9,6 +9,12 @@ fi
 lock_file=$1
 python=$2
 
+# The pinned VideoHelperSuite checkout uses setuptools without declaring a
+# build-system requirement. Keep builds non-isolated (important for Torch
+# extension packages), but provide the exact setuptools version present in all
+# generated locks before uv starts building source distributions.
+uv pip install --python "$python" "setuptools==84.0.0"
+
 # Backend jobs deliberately provide their own Torch build. Remember it before
 # installing the cross-platform dependency lock and fail if anything replaces
 # it. CPU/macOS locks contain Torch themselves and therefore start without it.
