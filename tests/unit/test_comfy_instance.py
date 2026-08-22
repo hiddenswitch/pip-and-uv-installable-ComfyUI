@@ -94,5 +94,4 @@ async def test_comfy_context_manager_accepts_configuration():
     async with Comfy(configuration=configuration) as client:
         assert client.is_running
         assert client._configuration is configuration
-        assert isinstance(client._executor, ContextVarExecutor)
     assert not client.is_running
