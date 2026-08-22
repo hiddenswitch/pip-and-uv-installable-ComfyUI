@@ -64,7 +64,7 @@ dependencies = [
     "aio-pika",
     "pyjwt[crypto]",
     "kornia>=0.7.1",
-    "mpmath>=1.0,!=1.4.0a0,!=1.5.0a0",
+    "mpmath>=1.1.0,<1.4",
     "huggingface_hub[hf_xet]>=0.32.0",
     "lazy-object-proxy",
     "lazy_loader>=0.3",
