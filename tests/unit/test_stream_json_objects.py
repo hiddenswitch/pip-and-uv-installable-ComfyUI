@@ -2,7 +2,6 @@ import asyncio
 import importlib.resources
 import json
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -12,7 +11,7 @@ from comfy.api.components.schema.prompt import Prompt
 from tests.inference import workflows
 
 
-WORKFLOW_PATH = str(Path(__file__).resolve().parents[1] / "inference" / "workflows" / "z_image-0.json")
+WORKFLOW_PATH = str(importlib.resources.files(workflows).joinpath("z_image-0.json"))
 
 
 async def _collect(source: str) -> list[dict]:

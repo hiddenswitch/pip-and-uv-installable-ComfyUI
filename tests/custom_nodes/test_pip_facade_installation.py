@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 from typing import Generator
 
@@ -19,7 +20,7 @@ import pytest
 
 _CUSTOM_SCRIPTS_REPO_URL = "https://github.com/pythongosssss/ComfyUI-Custom-Scripts"
 _CUSTOM_SCRIPTS_ARCHIVE_URL = "https://github.com/pythongosssss/ComfyUI-Custom-Scripts/archive/refs/heads/main.zip"
-_SRC_ROOT = Path(__file__).resolve().parents[2]
+_SRC_ROOT = Path(str(files("tests"))).parent
 
 
 def _find_free_port() -> int:
@@ -139,6 +140,16 @@ class FacadeServer:
     src_root: Path = _SRC_ROOT
 
 
+def _with_extra_site(env: dict[str, str], site_dir: Path) -> dict[str, str]:
+    """Expose an installed ``--target`` directory to a probe subprocess."""
+    probe_env = env.copy()
+    existing = probe_env.get("PYTHONPATH", "")
+    probe_env["PYTHONPATH"] = (
+        str(site_dir) if not existing else f"{site_dir}{os.pathsep}{existing}"
+    )
+    return probe_env
+
+
 @pytest.fixture
 def facade_server(tmp_path: Path) -> Generator[FacadeServer, None, None]:
     """Start a serve-pip process and yield its base URL."""
@@ -147,8 +158,6 @@ def facade_server(tmp_path: Path) -> Generator[FacadeServer, None, None]:
 
     port = _find_free_port()
     env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
 
     process = subprocess.Popen(
         [
@@ -234,13 +243,7 @@ assert isinstance(info["python_module"], str) and info["python_module"]
 print('MATCHED', matched[0])
 """
 
-    existing = facade_server.env.get("PYTHONPATH", "")
-    probe_env = facade_server.env.copy()
-    probe_env["PYTHONPATH"] = (
-        f"{facade_server.site_dir}{os.pathsep}{_SRC_ROOT}"
-        if not existing
-        else f"{facade_server.site_dir}{os.pathsep}{_SRC_ROOT}{os.pathsep}{existing}"
-    )
+    probe_env = _with_extra_site(facade_server.env, facade_server.site_dir)
     probe = subprocess.run(
         [sys.executable, "-c", probe_script],
         cwd=_SRC_ROOT,
@@ -330,8 +333,6 @@ def facade_server_all_nodes(tmp_path: Path) -> Generator[FacadeServer, None, Non
 
     port = _find_free_port()
     env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
 
     process = subprocess.Popen(
         [
@@ -403,12 +404,9 @@ assert 'LTXVImgToVideoConditionOnly' in keys, f'LTXVImgToVideoConditionOnly not 
 print('MATCHED LTXVImgToVideoConditionOnly')
 """
 
-    existing = facade_server_all_nodes.env.get("PYTHONPATH", "")
-    probe_env = facade_server_all_nodes.env.copy()
-    probe_env["PYTHONPATH"] = (
-        f"{facade_server_all_nodes.site_dir}{os.pathsep}{_SRC_ROOT}"
-        if not existing
-        else f"{facade_server_all_nodes.site_dir}{os.pathsep}{_SRC_ROOT}{os.pathsep}{existing}"
+    probe_env = _with_extra_site(
+        facade_server_all_nodes.env,
+        facade_server_all_nodes.site_dir,
     )
     probe = subprocess.run(
         [sys.executable, "-c", probe_script],
@@ -431,8 +429,6 @@ def test_serve_pip_can_install_and_load_custom_node_from_snapshot(
 
     port = _find_free_port()
     env = os.environ.copy()
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing_pythonpath else f"{_SRC_ROOT}{os.pathsep}{existing_pythonpath}"
 
     process = subprocess.Popen(
         [
@@ -502,12 +498,7 @@ assert isinstance(info["python_module"], str) and info["python_module"]
 print('MATCHED', matched[0])
 """
 
-        probe_env = env.copy()
-        probe_env["PYTHONPATH"] = (
-            f"{site_dir}{os.pathsep}{_SRC_ROOT}"
-            if not existing_pythonpath
-            else f"{site_dir}{os.pathsep}{_SRC_ROOT}{os.pathsep}{existing_pythonpath}"
-        )
+        probe_env = _with_extra_site(env, site_dir)
         probe = subprocess.run(
             [sys.executable, "-c", probe_script],
             cwd=_SRC_ROOT,

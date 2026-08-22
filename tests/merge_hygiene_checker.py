@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from pylint.lint import PyLinter
 
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(str(files("tests"))).parent
 
 
 def _rel(path: str | Path) -> str:

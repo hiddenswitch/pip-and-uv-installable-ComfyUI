@@ -24,11 +24,8 @@ from __future__ import annotations
 import sys
 import textwrap
 import time
-from pathlib import Path
 
 import pytest
-
-_SRC_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture

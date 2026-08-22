@@ -19,7 +19,7 @@ import time
 import random
 import websocket
 import urllib.request
-from pathlib import Path
+from importlib.resources import files
 
 
 # Server configuration
@@ -27,7 +27,7 @@ SERVER_URL = os.environ.get("COMFYUI_SERVER", "http://localhost:8988")
 SERVER_HOST = SERVER_URL.replace("http://", "").replace("https://", "")
 
 # Use existing inference graph fixture
-GRAPH_FILE = Path(__file__).parent.parent / "inference" / "graphs" / "default_graph_sdxl1_0.json"
+GRAPH_FILE = files("tests.inference").joinpath("graphs", "default_graph_sdxl1_0.json")
 
 
 def is_server_running() -> bool:

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import time
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -668,7 +669,7 @@ def _get_shared_base_dir() -> Path:
 
     add_node_site_to_path(base_dir)
     input_dir = base_dir / "input"
-    data_dir = Path(__file__).parent / "test_data"
+    data_dir = files("tests.custom_nodes.test_data")
     for filename in ("test_video.mp4", "test_pose_video.mp4", "test_audio.wav", "president_official_portrait_hires2-1-1024x1024.jpg"):
         destination = input_dir / filename
         if not destination.exists():
@@ -758,7 +759,7 @@ class TestCustomNodeExecution:
         )
 
         import comfy.cmd.main_pre  # noqa: F401
-        real_base = str(Path(__file__).resolve().parents[3])
+        real_base = str(Path(str(files("tests"))).parent.parent)
         config = build_config(base_dir, base_paths=[real_base])
 
         async with Comfy(configuration=config) as client:

@@ -20,6 +20,7 @@ import threading
 import time
 import traceback
 from importlib.metadata import distributions, version as pkg_version
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -96,7 +97,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 # ---------------------------------------------------------------------------
 # Cache directory for frontend outputs
 # ---------------------------------------------------------------------------
-_CACHE_DIR = Path(__file__).resolve().parent / "playwright_cache"
+_CACHE_DIR = Path(str(files("tests.unit").joinpath("playwright_cache")))
 
 
 def _frontend_version() -> str:

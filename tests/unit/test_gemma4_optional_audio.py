@@ -1,9 +1,10 @@
 import subprocess
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(str(files("tests"))).parent
 
 
 def test_gemma4_import_does_not_require_torchaudio():

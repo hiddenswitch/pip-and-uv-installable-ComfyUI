@@ -1,8 +1,9 @@
 import ast
+from importlib.resources import files
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(str(files("tests"))).parent
 LINT_PATHS = (
     "comfy",
     "comfy_extras",

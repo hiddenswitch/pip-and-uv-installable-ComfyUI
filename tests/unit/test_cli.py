@@ -1,12 +1,12 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
 import json
-import os
 import re
 import socket
 import sys
 import time
 import urllib.error
 import urllib.request
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -456,7 +456,7 @@ class TestParseListenAddress:
         assert _parse_listen_address("0.0.0.0,::") == ("0.0.0.0,::", None)
 
 
-_SRC_ROOT = Path(__file__).resolve().parents[2]
+_SRC_ROOT = Path(str(files("tests"))).parent
 
 
 def _find_free_port() -> int:
@@ -476,11 +476,7 @@ def test_serve_starts_and_reaches_ready():
     from tests.conftest import server_startup_timeout_seconds
 
     port = _find_free_port()
-    env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
-
-    process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
+    process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT))
     try:
         startup_timeout = server_startup_timeout_seconds()
         deadline = time.time() + startup_timeout

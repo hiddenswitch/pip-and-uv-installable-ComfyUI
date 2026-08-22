@@ -5,11 +5,11 @@ import asyncio
 import json
 import os
 import socket
-import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from importlib.resources import files
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -99,7 +99,7 @@ def test_prompt_server_has_restart_requested_attribute():
 # Integration test: start a real server process, reboot it via the API
 # ---------------------------------------------------------------------------
 
-_SRC_ROOT = Path(__file__).resolve().parents[2]
+_SRC_ROOT = Path(str(files("tests"))).parent
 
 
 def _find_free_port() -> int:
@@ -143,8 +143,6 @@ def test_reboot_restarts_server_process():
     """
     port = _find_free_port()
     env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
 
     from tests.unit._subprocess_helpers import spawn_comfyui_serve
     process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
