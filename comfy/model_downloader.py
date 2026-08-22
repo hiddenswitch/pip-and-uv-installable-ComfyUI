@@ -1291,6 +1291,7 @@ KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Qwen3-VL", "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_bf16.safetensors"),
     HuggingFile("Comfy-Org/JoyAI-Image-Edit", "text_encoders/qwen3vl_8b_joyimage_edit_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e2b_it_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/gemma-4", "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
     # WanVideoWrapper (Kijai) -- text encoder
     HuggingFile("Kijai/WanVideo_comfy", "umt5-xxl-enc-bf16.safetensors", show_in_ui=False),
@@ -1456,6 +1457,7 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/diffusion_models/wan2.2_animate_14B_bf16.safetensors"),
     # Wan Animate 2 (Comfy-Org)
     HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_distill_int8_convrot.safetensors"),
     # SDPose detection (Comfy-Org)
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation
