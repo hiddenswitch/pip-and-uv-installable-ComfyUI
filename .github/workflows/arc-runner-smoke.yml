@@ -3,6 +3,10 @@ name: ARC Runner Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/arc-runner-smoke.yml
 
 permissions:
   contents: read
