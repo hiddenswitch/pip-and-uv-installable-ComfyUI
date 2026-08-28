@@ -1580,6 +1580,32 @@ class WAN22_T2V(WAN21_T2V):
         return out
 
 
+class Trellis2(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "trellis2",
+    }
+
+    unet_extra_config = {"num_heads": 12}
+
+    sampling_settings = {
+        "shift": 3.0,
+    }
+
+    memory_usage_factor = 6
+
+    latent_format = latent_formats.Trellis2
+    vae_key_prefix = ["vae."]
+    clip_vision_prefix = "conditioner.main_image_encoder.model."
+    # Only the texture model needs this restriction.
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.Trellis2(self, device=device)
+
+    def clip_target(self, state_dict={}):
+        return None
+
+
 class WAN21_FlowRVS(WAN21_T2V):
     unet_config = {
         "image_model": "wan2.1",

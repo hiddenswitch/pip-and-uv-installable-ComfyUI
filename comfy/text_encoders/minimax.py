@@ -28,6 +28,16 @@ from .qwen3vl import Qwen3VL, Qwen3VLSDTokenizer
 
 VISION_START = 151652
 VISION_END = 151653
+# FL2VA/Ref2VA tokenizer_config extends Qwen with these fixed-id tokens.
+MINIMAX_EXTRA_TOKENS = {
+    "<d>": 151669,
+    "</d>": 151670,
+    "<|cutoff|>": 151671,
+    "<|lyrics_start|>": 151672,
+    "<|lyrics_end|>": 151673,
+    "<|caption_start|>": 151674,
+    "<|caption_end|>": 151675,
+}
 QWEN_IMAGE_MEAN = [0.5, 0.5, 0.5]
 QWEN_IMAGE_STD = [0.5, 0.5, 0.5]
 
@@ -125,9 +135,16 @@ class MiniMaxH3TEModel(sd1_clip.SD1ClipModel):
                          textmodel_json_config=textmodel_json_config)
 
 
+class MiniMaxQwenSDTokenizer(Qwen3VLSDTokenizer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tokenizer.add_special_tokens({"additional_special_tokens": list(MINIMAX_EXTRA_TOKENS)})
+        self.inv_vocab = {value: key for key, value in self.tokenizer.get_vocab().items()}
+
+
 class MiniMaxH3Tokenizer(sd1_clip.SD1Tokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
-        tokenizer = lambda *a, **kw: Qwen3VLSDTokenizer(*a, **kw, embedding_size=5120, embedding_key="qwen3vl_32b")
+        tokenizer = lambda *a, **kw: MiniMaxQwenSDTokenizer(*a, **kw, embedding_size=5120, embedding_key="qwen3vl_32b")
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, name="qwen3vl_32b", tokenizer=tokenizer)
 
     @staticmethod

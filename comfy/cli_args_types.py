@@ -230,7 +230,7 @@ class Configuration(dict):
         front_end_version (str): Specifies the version of the frontend to be used.
         front_end_root (Optional[str]): The local filesystem path to the directory where the frontend is located. Overrides --front-end-version.
         comfy_api_base (str): Set the base URL for the ComfyUI API. (default: https://api.comfy.org)
-        database_url (str): Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.
+        database_url (Optional[str]): Specify the database URL, e.g. 'sqlite:///:memory:'. By default the database is stored in the effective user directory.
         enable_assets (bool): Enable the assets API and database-backed asset management features.
         enable_asset_hashing (bool): Compute blake3 hashes while scanning assets.
         disable_assets_autoscan (bool): Disable asset scanning on startup for database synchronization.
@@ -416,7 +416,7 @@ class Configuration(dict):
         self.front_end_version: str = "comfyanonymous/ComfyUI@latest"
         self.front_end_root: Optional[str] = None
         self.comfy_api_base: str = "https://api.comfy.org"
-        self.database_url: str = db_config()
+        self.database_url: Optional[str] = None
         self._database_url_explicit: bool = False
         self.enable_assets: bool = False
         self.enable_asset_hashing: bool = False

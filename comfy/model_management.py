@@ -38,6 +38,7 @@ import comfy_aimdo.vram_buffer
 from opentelemetry.trace import get_current_span
 
 from . import memory_management
+from . import system_memory
 from . import interruption
 from . import quant_ops
 from .cli_args import args, PerformanceFeature
@@ -360,7 +361,7 @@ def get_total_memory(dev=None, torch_total_too=False):
 
     mem_total_torch = 0
     if hasattr(dev, 'type') and (dev.type == 'cpu' or dev.type == 'mps'):
-        mem_total = psutil.virtual_memory().total
+        mem_total = system_memory.virtual_memory_total()
         mem_total_torch = mem_total
     else:
         if directml_device:
@@ -407,8 +408,16 @@ def mac_version():
 if torch.cuda.is_available() and hasattr(torch.version, "hip") and torch.version.hip is not None:
     logger.debug(f"Detected HIP device: {torch.cuda.get_device_name(torch.cuda.current_device())}")
 total_vram = get_total_memory(get_torch_device()) / (1024 * 1024)
-total_ram = psutil.virtual_memory().total / (1024 * 1024)
+total_ram = system_memory.virtual_memory_total() / (1024 * 1024)
 logger.debug("Total VRAM {:0.0f} MB, total RAM {:0.0f} MB".format(total_vram, total_ram))
+cgroup_ram_limit = system_memory.cgroup_memory_limit()
+if cgroup_ram_limit is not None:
+    logger.debug(
+        "RAM limited by cgroup to {:0.0f} MB (host has {:0.0f} MB)".format(
+            cgroup_ram_limit / (1024 * 1024),
+            psutil.virtual_memory().total / (1024 * 1024),
+        )
+    )
 
 try:
     logger.debug("pytorch version: {}".format(torch_version))
@@ -823,7 +832,7 @@ def should_free_pins_for_ram_pressure(shortfall):
         return False
     if not WINDOWS:
         return True
-    if psutil.virtual_memory().available < WINDOWS_PIN_EVICTION_EMERGENCY_AVAILABLE:
+    if system_memory.virtual_memory_available() < WINDOWS_PIN_EVICTION_EMERGENCY_AVAILABLE:
         return True
     try:
         return psutil.swap_memory().percent >= WINDOWS_PIN_EVICTION_SWAP_PERCENT
@@ -837,7 +846,7 @@ def ensure_pin_budget(size, evict_active=False, loaded=False):
     if args.fast_disk:
         shortfall = TOTAL_PINNED_MEMORY + size - MAX_PINNED_MEMORY
     else:
-        shortfall = size + max(memory_management.RAM_CACHE_HEADROOM / 2, 2048 * 1024 ** 2) - psutil.virtual_memory().available
+        shortfall = size + max(memory_management.RAM_CACHE_HEADROOM / 2, 2048 * 1024 ** 2) - system_memory.virtual_memory_available()
     if shortfall <= 0:
         return True
 
@@ -984,7 +993,7 @@ if WINDOWS:
         return windows.get_free_ram()
 else:
     def get_free_ram():
-        return psutil.virtual_memory().available
+        return system_memory.virtual_memory_available()
 
 if args.reserve_vram is not None:
     EXTRA_RESERVED_VRAM = args.reserve_vram * 1024 * 1024 * 1024
@@ -1093,7 +1102,7 @@ def _free_memory(memory_required, device, keep_loaded=[], for_dynamic=False, pin
 
     for x in can_unload_sorted:
         i = x[-1]
-        ram_to_free = ram_required - psutil.virtual_memory().available
+        ram_to_free = ram_required - system_memory.virtual_memory_available()
         if ram_to_free <= 0 and i not in unloaded_model:
             continue
         resident_memory, _ = current_loaded_models[i].model.model_mmap_residency(free=True)
@@ -2031,7 +2040,8 @@ if not args.disable_pinned_memory:
         if WINDOWS:
             MAX_PINNED_MEMORY = ram * 0.40  # Windows limit is apparently 50%
         else:
-            MAX_PINNED_MEMORY = max(ram * 0.40, min(ram * 0.90, ram - 4 * 1024 ** 3, ram + get_disk_swap_total() - 16 * 1024 ** 3))
+            swap = 0 if system_memory.cgroup_memory_limit() is not None else get_disk_swap_total()
+            MAX_PINNED_MEMORY = max(ram * 0.40, min(ram * 0.90, ram - 4 * 1024 ** 3, ram + swap - 16 * 1024 ** 3))
         logger.info("Enabled pinned memory {}".format(MAX_PINNED_MEMORY // (1024 * 1024)))
 
 PINNING_ALLOWED_TYPES = set(["Tensor", "Parameter", "QuantizedTensor"])
@@ -2219,7 +2229,7 @@ def get_free_memory(dev=None, torch_free_too=False):
         dev = get_torch_device()
 
     if hasattr(dev, 'type') and (dev.type == 'cpu' or dev.type == 'mps'):
-        mem_free_total = psutil.virtual_memory().available
+        mem_free_total = system_memory.virtual_memory_available()
         mem_free_torch = mem_free_total
     else:
         if directml_device:

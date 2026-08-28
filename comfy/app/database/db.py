@@ -41,7 +41,7 @@ def can_create_session():
 
 
 def get_alembic_config():
-    db_url = current_execution_context().configuration.database_url
+    db_url = get_database_url()
     # Use importlib to read alembic.ini from the package
     with resources.as_file(resources.files("comfy") / "alembic.ini") as config_path:
         config = Config(str(config_path))
@@ -53,12 +53,61 @@ def get_alembic_config():
     return config
 
 
+def get_database_url() -> str:
+    config = current_execution_context().configuration
+    if config.database_url is not None:
+        return config.database_url
+
+    from ...cmd import folder_paths
+
+    db_path = os.path.join(folder_paths.get_user_directory(), "comfyui.db")
+    return f"sqlite:///{db_path}"
+
+
+def get_legacy_default_db_path() -> str:
+    from ...cli_args import database_default_path
+
+    return database_default_path
+
+
 def get_db_path():
-    url = current_execution_context().configuration.database_url
+    url = get_database_url()
     if url.startswith("sqlite:///"):
-        return url.split("///")[1]
+        return url.split("///", 1)[1]
     else:
         raise ValueError(f"Unsupported database URL '{url}'.")
+
+
+def copy_legacy_default_db(db_path: str) -> None:
+    config = current_execution_context().configuration
+    if config.database_url is not None:
+        return
+
+    legacy_db_path = get_legacy_default_db_path()
+    if os.path.abspath(legacy_db_path) == os.path.abspath(db_path):
+        return
+    if os.path.exists(db_path) or not os.path.exists(legacy_db_path):
+        return
+
+    backup_path = legacy_db_path + ".bak"
+    if os.path.exists(backup_path):
+        return
+
+    os.replace(legacy_db_path, backup_path)
+    shutil.copy(backup_path, db_path)
+    logger.info(
+        "Renamed legacy database '%s' to '%s' and copied it to '%s'",
+        legacy_db_path,
+        backup_path,
+        db_path,
+    )
+
+
+def prepare_file_db_path(db_path: str) -> None:
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    copy_legacy_default_db(db_path)
 
 
 _db_lock = None
@@ -82,7 +131,7 @@ def _is_memory_db(db_url):
 
 def init_db():
     config = current_execution_context().configuration
-    db_url = config.database_url
+    db_url = get_database_url()
     explicit = getattr(config, "_database_url_explicit", False)
     logger.debug(f"Database URL: {db_url} (explicit={explicit})")
 
@@ -178,11 +227,12 @@ def _init_file_db(db_url, use_chain_hash: bool = True):
     If the file lock cannot be acquired, falls back to an in-memory database
     so multiple instances can coexist without crashing.
     """
+    original_path = db_url.split("///", 1)[1]
+    prepare_file_db_path(original_path)
+
     config = get_alembic_config()
     script = ScriptDirectory.from_config(config)
     target_rev = script.get_current_head()
-
-    original_path = db_url.split("///", 1)[1]
 
     if use_chain_hash:
         chain_hash = _compute_chain_hash(script)
