@@ -6,6 +6,7 @@ from fractions import Fraction
 from types import SimpleNamespace
 from comfy_api.latest._input_impl.video_types import VideoFromFile, VideoFromComponents
 from comfy_api.latest._util.video_types import VideoComponents
+from comfy_extras.nodes import nodes_video
 from comfy_extras.nodes.nodes_video import CreateVideo, SaveVideo
 
 
@@ -97,9 +98,10 @@ def test_create_video_node_bit_depth_options():
 )
 def test_save_video_auto_format(gradient_components, tmp_path, monkeypatch, codec, expected_suffix, expected_codec):
     monkeypatch.setattr(SaveVideo, "hidden", SimpleNamespace(prompt=None, extra_pnginfo=None))
-    monkeypatch.setattr("comfy_extras.nodes_video.folder_paths.get_output_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(nodes_video.folder_paths, "get_output_directory", lambda: str(tmp_path))
     monkeypatch.setattr(
-        "comfy_extras.nodes_video.folder_paths.get_save_image_path",
+        nodes_video.folder_paths,
+        "get_save_image_path",
         lambda *args: (str(tmp_path), "auto", 1, "", "auto"),
     )
     video = VideoFromComponents(gradient_components)
