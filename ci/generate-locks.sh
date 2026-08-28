@@ -9,6 +9,7 @@ common=(
   tests/custom_nodes_requirements.txt
   --extra dev
   --constraints tests/opencv_constraints.txt
+  --excludes ci/lock-excludes.txt
   --extra-index-url https://nodes.appmana.com/simple
   --index-strategy unsafe-best-match
   --prerelease if-necessary-or-explicit
