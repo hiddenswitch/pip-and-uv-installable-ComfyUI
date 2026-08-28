@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     container: ubuntu:24.04
     steps:
-      - run: test -r /etc/os-release
+      - run: test "$(uname -s)" = Linux && test -r /etc/os-release
 
   cuda:
     name: CUDA child container
