@@ -23,8 +23,8 @@ jobs:
     steps:
       - name: Install system dependencies
         run: pacman -Syu --noconfirm git python uv zip base-devel libxcb mesa
-      - uses: actions/checkout@v5
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
           path: .uv-cache
           key: uv-linux-py314-${{ hashFiles('ci/locks/pylock.linux-py314-cpu.toml') }}
@@ -52,12 +52,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
           cache-dependency-glob: ci/locks/pylock.linux-py314-core.toml
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Build and install the package
