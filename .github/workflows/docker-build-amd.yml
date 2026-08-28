@@ -2,6 +2,11 @@ name: Build and Publish Docker Image (AMD)
 on:
   push:
     branches: [develop, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
