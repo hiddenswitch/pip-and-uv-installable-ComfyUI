@@ -368,7 +368,7 @@ class FinalLayer(nn.Module):
         self.video_out = operations.Linear(hidden, video_dim, bias=True, dtype=torch.float32, device=device)
         self.audio_out = operations.Linear(hidden, audio_dim, bias=True, dtype=torch.float32, device=device)
 
-    def forward(self, x, t_emb, video_seg, audio_seg):
+    def forward(self, x, t_emb, video_seg, audio_seg, sigma, sample_sigmas, shifts):
         # video_seg / audio_seg: (start, stop, row) of the target streams, where row
         # is a mod-row index or a per-token blend (see _mod_row)
         shift, scale = self.adaln_proj(t_emb)
@@ -377,7 +377,33 @@ class FinalLayer(nn.Module):
             a, b, row = seg
             return (self.norm(x[a:b]) * (1.0 + _mod_row(scale, row, scale.dtype)) + _mod_row(shift, row, shift.dtype)).to(torch.float32)
 
-        return self.video_out(mod(video_seg)), self.audio_out(mod(audio_seg))
+        n = self.video_out.weight.shape[0] // self.video_out.out_features
+        if n == 1:
+            return self.video_out(mod(video_seg)), self.audio_out(mod(audio_seg))
+
+        # PDD head bank: row block 0 is a full head, later blocks are offsets from it;
+        # a step consumes the dt-weighted mean of the heads it spans.
+        if sample_sigmas is None:
+            raise ValueError("MiniMax H3 PDD heads need the sampler's sigma schedule")
+        i = int((sample_sigmas - sigma).abs().argmin())
+        sigma_next = sample_sigmas[min(i + 1, sample_sigmas.shape[0] - 1)]
+        start, stop = (round(float(1.0 - time_shift_sigma(s, shifts[0], 1.0)) * n) for s in (sigma, sigma_next))
+        start = min(start, n - 1)
+        stop = max(stop, start + 1)
+        return (_pdd_head(self.video_out, mod(video_seg), n, start, stop, shifts[0]),
+                _pdd_head(self.audio_out, mod(audio_seg), n, start, stop, shifts[1]))
+
+
+def _pdd_head(head, h, n, start, stop, flow_shift):
+    grid = torch.linspace(1.0, 0.0, n + 1, dtype=torch.float64)
+    dt = (1.0 - flow_shift * grid / (1.0 + (flow_shift - 1.0) * grid)).diff()[start:stop]
+    w = (dt / dt.sum()).to(h)
+    with comfy.ops.CastBiasWeightContext(head, h, offloadable=True) as (weight, bias):
+        rows = weight.reshape(n, -1, weight.shape[1])
+        brows = bias.reshape(n, -1)
+        first = max(start, 1)
+        return nn.functional.linear(h, rows[0] + torch.einsum("n,noi->oi", w[first - start:], rows[first:stop]),
+                                    brows[0] + torch.einsum("n,no->o", w[first - start:], brows[first:stop]))
 
 
 class PackedLayout:
@@ -827,6 +853,10 @@ class MiniMaxH3Model(nn.Module):
         aa, ab, _ = next(segment for segment in layout.segments if segment[2] == "audio")
         video_seg = (va, vb, video_time_rows if video_time_rows is not None else t_row["video"])
         audio_seg = (aa, ab, audio_time_rows if audio_time_rows is not None else t_row["audio"])
+        pdd_context = (
+            sigma_v,
+            (shift_v, shift_a),
+        )
         sequence_padding = 0
         if self.xdit_sequence_parallel is not None:
             if self.pipeline_stage is not None:
@@ -873,6 +903,7 @@ class MiniMaxH3Model(nn.Module):
                 "original_shape": (orig_t, orig_h, orig_w),
                 "video_dtype": pack_pipeline_value(video_x.dtype, tensors, "video_dtype"),
                 "audio_dtype": pack_pipeline_value(audio_x.dtype, tensors, "audio_dtype"),
+                "pdd_context": pack_pipeline_value(pdd_context, tensors, "pdd_context"),
                 "transformer_options": pack_pipeline_value(
                     prepare_model_parallel_value(transformer_options),
                     tensors,
@@ -882,7 +913,8 @@ class MiniMaxH3Model(nn.Module):
             return PipelineIntermediateTensors(tensors, metadata)
 
         return self._forward_exit(h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
-                                  orig_t, orig_h, orig_w, video_x.dtype, audio_x.dtype)
+                                  orig_t, orig_h, orig_w, video_x.dtype, audio_x.dtype,
+                                  pdd_context, transformer_options.get("sample_sigmas"))
 
     def _run_blocks(self, h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer):
         patches_replace = transformer_options.get("patches_replace", {})
@@ -932,11 +964,15 @@ class MiniMaxH3Model(nn.Module):
             orig_t, orig_h, orig_w,
             unpack_pipeline_value(metadata["video_dtype"], tensors),
             unpack_pipeline_value(metadata["audio_dtype"], tensors),
+            unpack_pipeline_value(metadata["pdd_context"], tensors),
+            transformer_options.get("sample_sigmas"),
         )
 
     def _forward_exit(self, h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
-                      orig_t, orig_h, orig_w, video_dtype, audio_dtype):
-        v, a = self.final_layer(h, t_emb, video_seg, audio_seg)
+                      orig_t, orig_h, orig_w, video_dtype, audio_dtype, pdd_context,
+                      sample_sigmas):
+        sigma, shifts = pdd_context
+        v, a = self.final_layer(h, t_emb, video_seg, audio_seg, sigma, sample_sigmas, shifts)
 
         video_out = unpatchify_video(v, latent_t, lat_h // 2, lat_w // 2, self.latents_dim, self.patch_size)
         video_out = video_out[:, :, :orig_t, :orig_h, :orig_w]

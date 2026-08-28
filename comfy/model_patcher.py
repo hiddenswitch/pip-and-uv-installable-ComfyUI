@@ -1228,7 +1228,7 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
                         m.bias_function = []
 
                     if weight_key in self.patches:
-                        if force_patch_weights:
+                        if force_patch_weights or lora.calculate_shape(self.patches[weight_key], m.weight, weight_key) != m.weight.shape:
                             self.patch_weight_to_device(weight_key)
                         else:
                             weight, set_func, convert_func = get_key_weight(self.model, weight_key)
@@ -1238,7 +1238,7 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
                                 m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
                                 patch_counter += 1
                     if bias_key in self.patches:
-                        if force_patch_weights:
+                        if force_patch_weights or lora.calculate_shape(self.patches[bias_key], m.bias, bias_key) != m.bias.shape:
                             self.patch_weight_to_device(bias_key)
                         else:
                             weight, set_func, convert_func = get_key_weight(self.model, bias_key)
@@ -1469,7 +1469,7 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
                         module_mem += move_weight_functions(m, device_to)
                         if lowvram_possible:
                             if weight_key in self.patches:
-                                if force_patch_weights:
+                                if force_patch_weights or lora.calculate_shape(self.patches[weight_key], m.weight, weight_key) != m.weight.shape:
                                     self.patch_weight_to_device(weight_key)
                                 else:
                                     weight, set_func, convert_func = get_key_weight(self.model, weight_key)
@@ -1479,7 +1479,7 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
                                         m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
                                         patch_counter += 1
                             if bias_key in self.patches:
-                                if force_patch_weights:
+                                if force_patch_weights or lora.calculate_shape(self.patches[bias_key], m.bias, bias_key) != m.bias.shape:
                                     self.patch_weight_to_device(bias_key)
                                 else:
                                     weight, set_func, convert_func = get_key_weight(self.model, bias_key)
