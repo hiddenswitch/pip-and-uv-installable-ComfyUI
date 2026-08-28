@@ -3,7 +3,7 @@ from comfy_api.latest import ComfyExtension, IO, Types, io
 from comfy.ldm.trellis2.vae import SparseTensor
 from comfy.ldm.trellis2.model import build_proj_transform_matrix, compute_stage_proj_feats
 
-from comfy_extras.nodes_mesh_postprocess import pack_variable_mesh_batch
+from .nodes_mesh_postprocess import pack_variable_mesh_batch
 import comfy.latent_formats
 import comfy.model_management
 import comfy.utils

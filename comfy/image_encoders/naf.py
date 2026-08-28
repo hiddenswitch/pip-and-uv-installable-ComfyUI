@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
+from .. import ops
 
 
 # Pure-torch neighborhood attention (replaces natten.na2d / na2d_qk + na2d_av).
@@ -175,7 +175,7 @@ class RoPE(nn.Module):
 
     def _cos_sin(self, H: int, W: int, x: torch.Tensor):
         """cos/sin depend only on (H, W, dtype) and the checkpoint-fixed periods; recomputed per forward."""
-        periods = comfy.ops.cast_to_input(self.periods, x)
+        periods = ops.cast_to_input(self.periods, x)
         coords_h = torch.arange(0.5, H, device=x.device, dtype=torch.float32) / H
         coords_w = torch.arange(0.5, W, device=x.device, dtype=torch.float32) / W
         coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing="ij"), dim=-1)  # [H, W, 2]

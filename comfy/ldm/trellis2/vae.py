@@ -1,3 +1,5 @@
+import builtins
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -352,28 +354,28 @@ class VarLenTensor:
         new_tensor = self.replace(new_feats)
         return new_tensor
 
-    def __add__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __add__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.add)
 
-    def __radd__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __radd__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.add)
 
-    def __sub__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __sub__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.sub)
 
-    def __rsub__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __rsub__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, lambda x, y: torch.sub(y, x))
 
-    def __mul__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __mul__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.mul)
 
-    def __rmul__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __rmul__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.mul)
 
-    def __truediv__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __truediv__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, torch.div)
 
-    def __rtruediv__(self, other: Union[torch.Tensor, 'VarLenTensor', float]) -> 'VarLenTensor':
+    def __rtruediv__(self, other: Union[torch.Tensor, 'VarLenTensor', builtins.float]) -> 'VarLenTensor':
         return self.__elemwise__(other, lambda x, y: torch.div(y, x))
 
     def __getitem__(self, idx):

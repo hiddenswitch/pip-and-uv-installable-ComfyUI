@@ -6,7 +6,7 @@ from fractions import Fraction
 from types import SimpleNamespace
 from comfy_api.latest._input_impl.video_types import VideoFromFile, VideoFromComponents
 from comfy_api.latest._util.video_types import VideoComponents
-from comfy_extras.nodes_video import CreateVideo, SaveVideo
+from comfy_extras.nodes.nodes_video import CreateVideo, SaveVideo
 
 
 @pytest.fixture(scope="module")

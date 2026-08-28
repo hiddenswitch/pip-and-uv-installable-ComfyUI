@@ -838,6 +838,8 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("black-forest-labs/FLUX.2-small-decoder", "full_encoder_small_decoder.safetensors"),
     HuggingFile("VAST-AI/TripoSplat", "vae/flux2-vae.safetensors"),
     HuggingFile("VAST-AI/TripoSplat", "vae/triposplat_vae_decoder_fp16.safetensors"),
+    HuggingFile("Comfy-Org/Pixal3D", "vae/trellis_2_texture_vae_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Pixal3D", "vae/trellis_2_shape_vae_bf16.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
     # SeedVR2
@@ -1460,6 +1462,10 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan-Animate-2", "diffusion_models/wan_animate_2_distill_int8_convrot.safetensors"),
     # SDPose detection (Comfy-Org)
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors"),
+    HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp32.safetensors"),
+    # Pixal3D / TRELLIS.2
+    HuggingFile("Comfy-Org/Pixal3D", "diffusion_models/pixal3d_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/TRELLIS.2", "diffusion_models/trellis_2_int8_convrot.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation
     HuggingFile("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors", alternate_filenames=("MelRoFormer\\MelBandRoformer_fp16.safetensors", "MelRoFormer/MelBandRoformer_fp16.safetensors")),
     # ObjectRemoval (lrzjason) -- Flux Fill patch weights

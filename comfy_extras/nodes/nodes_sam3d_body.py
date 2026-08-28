@@ -15,10 +15,10 @@ import comfy.ops
 import comfy.utils
 from comfy_api.latest import io, ComfyExtension, Types
 from typing_extensions import override
-import folder_paths
+from comfy.cmd import folder_paths
 
 from comfy.ldm.sam3d_body.model.model import SAM3DBody
-from comfy_extras.sam3d_body.utils import (
+from ..sam3d_body.utils import (
         apply_camera_override,
         cam_int_from_fov,
         inputs_from_sam3_track,
@@ -27,14 +27,14 @@ from comfy_extras.sam3d_body.utils import (
         compute_hand_vert_mask,
     )
 
-from comfy_extras.sam3d_body.rasterizer import render_pose_data_torch as render_pose_data
-from comfy_extras.sam3d_body.export.capsules import render_pose_data_capsules
-from comfy_extras.sam3d_body.export.openpose_2d import render_pose_data_openpose
-from comfy_extras.sam3d_body.export.bvh import build_bvh
-from comfy_extras.sam3d_body.export.glb_openpose import build_glb_openpose
-from comfy_extras.sam3d_body.export.glb_skeletal import build_glb_skeletal
-from comfy_extras.sam3d_body import face_expression as fx
-from comfy_extras.sam3d_body.utils import image_to_uint8
+from ..sam3d_body.rasterizer import render_pose_data_torch as render_pose_data
+from ..sam3d_body.export.capsules import render_pose_data_capsules
+from ..sam3d_body.export.openpose_2d import render_pose_data_openpose
+from ..sam3d_body.export.bvh import build_bvh
+from ..sam3d_body.export.glb_openpose import build_glb_openpose
+from ..sam3d_body.export.glb_skeletal import build_glb_skeletal
+from ..sam3d_body import face_expression as fx
+from ..sam3d_body.utils import image_to_uint8
 
 
 SAM3TrackData = io.Custom("SAM3_TRACK_DATA")
@@ -91,7 +91,7 @@ class SAM3DBody_Loader(io.ComfyNode):
 
         model.backbone_dtype = torch_dtype
 
-        patcher = comfy.model_patcher.CoreModelPatcher(
+        patcher = comfy.model_patcher.get_model_patcher_class()(
             model,
             load_device=load_device,
             offload_device=comfy.model_management.unet_offload_device(),

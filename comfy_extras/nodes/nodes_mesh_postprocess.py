@@ -6,14 +6,14 @@ from comfy_api.latest import ComfyExtension, IO, Types
 import copy
 import comfy.utils
 import comfy.model_management
-from server import PromptServer
-from comfy_extras.mesh3d.postprocess.qem_decimate import QEMConfig, qem_decimate_simplify, qem_cluster_decimate, _compute_vertex_normals
-from comfy_extras.mesh3d.postprocess.remesh import remesh_narrow_band_dc, _point_tri_closest
-from comfy_extras.nodes_save_3d import get_mesh_batch_item, pack_variable_mesh_batch
-from comfy_extras.mesh3d.uv_unwrap import mesh as _uv_mesh
-from comfy_extras.mesh3d.uv_unwrap import segment as _uv_seg
-from comfy_extras.mesh3d.uv_unwrap import parameterize as _uv_param
-from comfy_extras.mesh3d.uv_unwrap import pack as _uv_pack
+from comfy.cmd.server import PromptServer
+from ..mesh3d.postprocess.qem_decimate import QEMConfig, qem_decimate_simplify, qem_cluster_decimate, _compute_vertex_normals
+from ..mesh3d.postprocess.remesh import remesh_narrow_band_dc, _point_tri_closest
+from .nodes_save_3d import get_mesh_batch_item, pack_variable_mesh_batch
+from ..mesh3d.uv_unwrap import mesh as _uv_mesh
+from ..mesh3d.uv_unwrap import segment as _uv_seg
+from ..mesh3d.uv_unwrap import parameterize as _uv_param
+from ..mesh3d.uv_unwrap import pack as _uv_pack
 import logging
 import time
 from tqdm import tqdm
