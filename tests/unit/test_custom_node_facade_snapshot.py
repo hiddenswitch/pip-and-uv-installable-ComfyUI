@@ -11,10 +11,15 @@ from comfy.custom_node_facade.registry import (
     FacadeVersion,
     SnapshotFacadeRegistry,
     is_excluded_facade_project,
-    _filter_pep440_versions,
+    _normalize_pep440_versions,
     _sort_versions,
 )
-from comfy.custom_node_facade.snapshot import _build_class_type_rows, write_facade_registry_snapshot
+from comfy.custom_node_facade.snapshot import (
+    _build_class_type_rows,
+    _collect_versions,
+    _validated_installable_projects,
+    write_facade_registry_snapshot,
+)
 
 
 def _sample_project() -> FacadeProject:
@@ -119,25 +124,54 @@ def test_write_facade_registry_snapshot_xz(tmp_path: Path):
 
 def test_sort_versions_tolerates_non_pep440_versions():
     versions = [
-        FacadeVersion(version="0.8.17-bugfix", download_url="https://example.invalid/b", dependencies=(), deprecated=False),
-        FacadeVersion(version="1.2.0", download_url="https://example.invalid/a", dependencies=(), deprecated=False),
-        FacadeVersion(version="1.1.0", download_url="https://example.invalid/c", dependencies=(), deprecated=False),
+        FacadeVersion(
+            version="0.8.17-bugfix",
+            download_url="https://example.invalid/b",
+            dependencies=(),
+            deprecated=False,
+        ),
+        FacadeVersion(
+            version="1.2.0",
+            download_url="https://example.invalid/a",
+            dependencies=(),
+            deprecated=False,
+        ),
+        FacadeVersion(
+            version="1.1.0",
+            download_url="https://example.invalid/c",
+            dependencies=(),
+            deprecated=False,
+        ),
     ]
 
     sorted_versions = _sort_versions(versions)
 
-    assert [item.version for item in sorted_versions] == ["1.2.0", "1.1.0", "0.8.17-bugfix"]
-
-
-def test_filter_pep440_versions_omits_invalid_entries():
-    versions = [
-        FacadeVersion(version="1.2.0", download_url="https://example.invalid/a", dependencies=(), deprecated=False),
-        FacadeVersion(version="0.8.17-bugfix", download_url="https://example.invalid/b", dependencies=(), deprecated=False),
+    assert [item.version for item in sorted_versions] == [
+        "1.2.0",
+        "1.1.0",
+        "0.8.17-bugfix",
     ]
 
-    filtered = _filter_pep440_versions(versions)
 
-    assert [item.version for item in filtered] == ["1.2.0"]
+def test_normalize_pep440_versions_preserves_suffixed_registry_releases():
+    versions = [
+        FacadeVersion(
+            version="1.2.0",
+            download_url="https://example.invalid/a",
+            dependencies=(),
+            deprecated=False,
+        ),
+        FacadeVersion(
+            version="0.8.17-bugfix",
+            download_url="https://example.invalid/b",
+            dependencies=(),
+            deprecated=False,
+        ),
+    ]
+
+    normalized = _normalize_pep440_versions(versions)
+
+    assert [item.version for item in normalized] == ["1.2.0", "0.8.17+bugfix"]
 
 
 async def test_snapshot_registry_reads_plain_sqlite(tmp_path: Path):
@@ -180,7 +214,9 @@ async def test_snapshot_registry_reads_pkg_xz_uri(tmp_path: Path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
     sys.modules.pop("snapshot_pkg", None)
 
-    registry = SnapshotFacadeRegistry(snapshot_uri="pkg://snapshot_pkg/registry.sqlite.xz")
+    registry = SnapshotFacadeRegistry(
+        snapshot_uri="pkg://snapshot_pkg/registry.sqlite.xz"
+    )
     projects = await registry.list_projects()
 
     assert project.canonical_name in [item.canonical_name for item in projects]
@@ -188,7 +224,7 @@ async def test_snapshot_registry_reads_pkg_xz_uri(tmp_path: Path, monkeypatch):
     assert version in versions
 
 
-async def test_snapshot_registry_omits_non_pep440_versions(tmp_path: Path):
+async def test_snapshot_registry_normalizes_non_pep440_versions(tmp_path: Path):
     output = tmp_path / "registry.sqlite"
     project = _sample_project()
     valid = _sample_version()
@@ -209,7 +245,146 @@ async def test_snapshot_registry_omits_non_pep440_versions(tmp_path: Path):
     registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
     versions = await registry.list_versions(project.canonical_name)
 
-    assert versions == [valid]
+    assert [item.version for item in versions] == ["1.2.5", "0.8.17+bugfix"]
+
+
+async def test_snapshot_registry_deduplicates_bundled_rewrite_version(tmp_path: Path):
+    output = tmp_path / "registry.sqlite"
+    project = FacadeProject(
+        canonical_name="image-reward",
+        display_name="image-reward",
+        node_id="image-reward",
+        repo_url="",
+        repo_name="image-reward",
+        description="Patched image-reward",
+        aliases=("image-reward",),
+        extra_requirements=(),
+        skip_requirements=frozenset(),
+        depends_on=(),
+        latest_version="1.5",
+    )
+    version = FacadeVersion(
+        version="1.5",
+        download_url="https://files.pythonhosted.org/image_reward-1.5.whl",
+        dependencies=(),
+        deprecated=False,
+    )
+    write_facade_registry_snapshot(
+        output,
+        projects=[project],
+        versions_by_node_id={project.node_id: [version]},
+        base_url="https://registry.example.invalid",
+        only_known_nodes=False,
+    )
+
+    registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
+
+    assert [item.version for item in await registry.list_versions(project)] == ["1.5"]
+
+
+async def test_collect_versions_reuses_complete_unchanged_snapshot():
+    project = _sample_project()
+    version = _sample_version()
+
+    class _NoFetchRegistry:
+        async def list_versions(self, _project):
+            raise AssertionError("unchanged project should reuse its previous versions")
+
+    versions = await _collect_versions(
+        _NoFetchRegistry(),  # type: ignore[arg-type]
+        [project],
+        previous={
+            (
+                project.node_id,
+                "https://github.com/pythongosssss/comfyui-custom-scripts",
+            ): (project.latest_version, [version])
+        },
+    )
+
+    assert versions == {project.node_id: [version]}
+
+
+async def test_collect_versions_refreshes_snapshot_missing_declared_latest():
+    project = _sample_project()
+    latest = _sample_version()
+    stale = FacadeVersion(
+        version="0.0.1",
+        download_url="https://example.invalid/stale.zip",
+        dependencies=(),
+        deprecated=False,
+    )
+
+    class _FetchRegistry:
+        calls = 0
+
+        async def list_versions(self, _project):
+            self.calls += 1
+            return [latest]
+
+    registry = _FetchRegistry()
+    versions = await _collect_versions(
+        registry,  # type: ignore[arg-type]
+        [project],
+        previous={
+            (
+                project.node_id,
+                "https://github.com/pythongosssss/comfyui-custom-scripts",
+            ): (project.latest_version, [stale])
+        },
+    )
+
+    assert registry.calls == 1
+    assert versions == {project.node_id: [latest]}
+
+
+def test_snapshot_validation_rejects_a_missing_declared_latest():
+    project = _sample_project()
+    stale = FacadeVersion(
+        version="1.2.4",
+        download_url="https://example.invalid/stale.zip",
+        dependencies=(),
+        deprecated=False,
+    )
+
+    try:
+        _validated_installable_projects([project], {project.node_id: [stale]})
+    except RuntimeError as exc:
+        assert "comfyui-custom-scripts=1.2.5" in str(exc)
+    else:
+        raise AssertionError(
+            "missing declared latest version should reject the snapshot"
+        )
+
+
+def test_snapshot_replacement_is_atomic_when_staging_fails(tmp_path: Path, monkeypatch):
+    output = tmp_path / "registry.sqlite"
+    output.write_bytes(b"previous-valid-snapshot")
+    project = _sample_project()
+
+    def fail_staging(_source, staged):
+        Path(staged).write_bytes(b"partial")
+        raise OSError("simulated interrupted network-filesystem write")
+
+    monkeypatch.setattr(
+        "comfy.custom_node_facade.snapshot.shutil.copyfile", fail_staging
+    )
+
+    try:
+        write_facade_registry_snapshot(
+            output,
+            projects=[project],
+            versions_by_node_id={project.node_id: [_sample_version()]},
+            base_url="https://registry.example.invalid",
+            only_known_nodes=False,
+            overwrite=True,
+        )
+    except OSError as exc:
+        assert "simulated interrupted" in str(exc)
+    else:
+        raise AssertionError("staging failure should propagate")
+
+    assert output.read_bytes() == b"previous-valid-snapshot"
+    assert list(tmp_path.glob(".registry.sqlite.*.tmp")) == []
 
 
 async def test_snapshot_registry_hides_excluded_facade_projects(tmp_path: Path):
@@ -257,7 +432,8 @@ async def test_snapshot_registry_hides_excluded_facade_projects(tmp_path: Path):
                 )
             ]
             for project in excluded_projects
-        } | {
+        }
+        | {
             normal_project.node_id: [normal_version],
         },
         base_url="https://registry.example.invalid",
