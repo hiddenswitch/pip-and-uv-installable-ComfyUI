@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: ARC Runner Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/arc-runner-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    name: Linux CPU child container
+    runs-on: [self-hosted, comfyui-linux-cpu]
+    timeout-minutes: 15
+    container: ubuntu:24.04
+    steps:
+      - run: test "$(uname -s)" = Linux && test -r /etc/os-release
+
+  cuda:
+    name: CUDA child container
+    runs-on: [self-hosted, comfyui-linux-cuda-rtx-3060]
+    timeout-minutes: 20
+    container: nvcr.io/nvidia/pytorch:25.12-py3
+    steps:
+      - run: python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+
+  intel:
+    name: Intel XPU child container
+    runs-on: [self-hosted, comfyui-linux-ipex-a380]
+    timeout-minutes: 20
+    container: intel/intel-extension-for-pytorch:2.8.10-xpu
+    env:
+      ONEAPI_DEVICE_SELECTOR: level_zero:0
+    steps:
+      - run: python -c "import torch; assert torch.xpu.is_available(); print(torch.xpu.get_device_name(0))"
+
+  rocm:
+    name: ROCm child container
+    runs-on: [self-hosted, comfyui-linux-rocm-rx-7600]
+    timeout-minutes: 20
+    container: rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0
+    env:
+      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
+    steps:
+      - run: /opt/venv/bin/python -c "import torch; assert torch.version.hip and torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+
+  windows:
+    name: Windows CUDA child container
+    runs-on: [self-hosted, comfyui-windows-cuda-rtx-3090]
+    timeout-minutes: 20
+    container: harbor.appmana.com/appmana-shared/buildervscuda:windows-1.0.1-ltsc2022
+    defaults:
+      run:
+        shell: sh -e {0}
+    steps:
+      - run: echo "Windows container hook is operational"

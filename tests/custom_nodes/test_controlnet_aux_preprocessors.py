@@ -16,8 +16,6 @@ from .conftest import make_base_dirs, build_config
 
 logger = logging.getLogger(__name__)
 
-_SRC_ROOT = Path(__file__).resolve().parents[2]
-
 # All AIO preprocessors reported by ControlNetPreprocessorSelector, excluding "none"
 _ALL_PREPROCESSORS: list[str] = []
 

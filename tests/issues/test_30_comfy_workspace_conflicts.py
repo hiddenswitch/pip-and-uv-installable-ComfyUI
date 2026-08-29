@@ -5,6 +5,7 @@ import subprocess
 import sys
 import shutil
 import time
+from importlib.resources import files
 from pathlib import Path
 
 pytestmark = [pytest.mark.slow, pytest.mark.git_clone]
@@ -17,7 +18,7 @@ COMFYSTREAM_REPO = "https://github.com/doctorpangloss/forks-comfystream.git"
 COMFYSTREAM_COMMIT = "f2f7929def53a4853cc5a1c2774aea70775ce2ff"
 COMFYUI_LTS_REPO = "https://github.com/hiddenswitch/ComfyUI.git"
 COMFYUI_LTS_COMMIT = "75e39c27202c8e31f8ec84eea4fc560c4e34f2c8"
-LOCAL_COMFYUI_PACKAGE = Path(__file__).resolve().parents[2]
+LOCAL_COMFYUI_PACKAGE = Path(str(files("tests"))).parent
 
 
 def find_free_port() -> int:

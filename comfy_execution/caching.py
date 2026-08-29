@@ -1,12 +1,12 @@
 import asyncio
 import bisect
 import itertools
-import psutil
 import time
 import torch
 from typing import Sequence, Mapping, Dict
 
 from comfy.model_patcher import ModelPatcher
+from comfy.system_memory import virtual_memory_available
 from .graph import DynamicPrompt
 from .graph_utils import is_link
 from comfy.nodes_context import get_nodes
@@ -554,7 +554,7 @@ class RAMPressureCache(LRUCache):
         super().set_local(node_id, value)
 
     def ram_release(self, target, free_active=False, min_entry_size=0):
-        if psutil.virtual_memory().available >= target:
+        if virtual_memory_available() >= target:
             return 0
 
         clean_list = []
@@ -594,7 +594,7 @@ class RAMPressureCache(LRUCache):
             bisect.insort(clean_list, (oom_score, self.timestamps[key], key, ram_usage))
 
         freed = 0
-        while psutil.virtual_memory().available < target and clean_list:
+        while virtual_memory_available() < target and clean_list:
             _, _, key, ram_usage = clean_list.pop()
             del self.cache[key]
             self.used_generation.pop(key, None)

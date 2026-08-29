@@ -1,0 +1,4 @@
+# The CI runners do not need desktop OpenCV. Several custom nodes request
+# mutually-overlapping OpenCV distributions; one exact headless wheel provides
+# the shared cv2 module without downloading and unpacking all four variants.
+opencv-python-headless==4.14.0.94

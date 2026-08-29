@@ -3,7 +3,6 @@
 import json
 from io import BytesIO
 from multiprocessing import Process
-from pathlib import Path
 
 import pytest
 import time
@@ -19,7 +18,7 @@ from PIL import Image
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import Configuration
 from comfy_execution.graph_utils import GraphBuilder
-from .common import RunResult, ComfyClient
+from .common import RunResult
 from ..conftest import comfy_background_server_from_config
 
 
@@ -177,10 +176,10 @@ class TestProgressIsolation:
     """Test suite for verifying progress update isolation between clients."""
 
     @pytest.fixture(scope="class")
-    def args_pytest(self, tmp_path_factory):
+    def args_pytest(self, tmp_path_factory, unused_tcp_port_factory):
         yield {
             "listen": "localhost",
-            "port": 19090,
+            "port": unused_tcp_port_factory(),
             "output_dir": tmp_path_factory.mktemp("comfy_background_server")
         }
 
@@ -233,6 +232,8 @@ testing_pack:
         # Create two separate clients with unique IDs
         client_a_id = "client_a_" + str(uuid.uuid4())
         client_b_id = "client_b_" + str(uuid.uuid4())
+        client_a = None
+        client_b = None
 
         try:
             # Connect both clients with retries
@@ -306,15 +307,16 @@ testing_pack:
 
         finally:
             # Clean up connections
-            if hasattr(client_a, 'ws'):
+            if client_a is not None and hasattr(client_a, 'ws'):
                 client_a.ws.close()
-            if hasattr(client_b, 'ws'):
+            if client_b is not None and hasattr(client_b, 'ws'):
                 client_b.ws.close()
 
     def test_progress_with_missing_client_id(self, args_pytest):
         """Test that progress updates handle missing client_id gracefully."""
         listen = args_pytest["listen"]
         port = args_pytest["port"]
+        client = None
 
         try:
             # Connect client with retries
@@ -339,5 +341,5 @@ testing_pack:
                 "Client did not receive progress updates even though it initiated the workflow"
 
         finally:
-            if hasattr(client, 'ws'):
+            if client is not None and hasattr(client, 'ws'):
                 client.ws.close()

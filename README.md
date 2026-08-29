@@ -30,6 +30,7 @@ This LTS fork adds development, embedding, automated testing, LLM and distribute
 - **LTS Custom Nodes:** A curated set of "Installable" custom nodes (ControlNet, AnimateDiff, IPAdapter) optimized for this fork.
 - **LLM Support:** Native support for Large Language Models (LLaMA, Phi-3, etc.) and multi-modal workflows.
 - **API and Configuration:** Enhanced API endpoints and extensive configuration options via CLI args, env vars, and config files.
+- **High Bit Depth and HDR Media:** Save and load 16-bit PNG, 32-bit EXR, 10-bit AVIF, and HDR images and videos in supported formats.
 - **Tests:** Automated test suite ensuring stability for new features.
 
 ## Install

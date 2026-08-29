@@ -9,6 +9,7 @@ from . import model_patcher
 from . import ops
 from .image_encoders import dino2
 from .image_encoders import dino3
+from .image_encoders.naf import NAF
 from .component_model import files
 from .model_management import load_models_gpu
 from .utils import load_torch_file, transformers_convert, state_dict_prefix_replace
@@ -64,6 +65,7 @@ class ClipVisionModel():
         self.model.eval()
 
         self.patcher = model_patcher.get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.naf = None
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
@@ -154,6 +156,8 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
         json_config = files.get_path_as_dict(None, "dino2_large.json", package="comfy.image_encoders")
     elif 'layer.0.mlp.gate_proj.weight' in sd and 'layer.31.norm1.weight' in sd: # Dinov3 ViT-H/16+ (SwiGLU gated MLP, 32 layers)
         json_config = dino3.DINOV3_VITH_CONFIG
+    elif 'layer.23.attention.o_proj.bias' in sd: # DINOv3 large (24 layers)
+        json_config = files.get_path_as_dict(None, "dino3_large.json", package="comfy.image_encoders")
     else:
         return None
 
@@ -166,6 +170,18 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
     for k in keys:
         if k not in u:
             sd.pop(k)
+    # NAF feature upsampler bundled into the DINOv3 file under the `naf.` prefix.
+    naf_keys = [k for k in sd if k.startswith("naf.")]
+    if naf_keys:
+        naf_sd = {k[len("naf."):]: sd.pop(k) for k in naf_keys}
+        naf = NAF(operations=ops.manual_cast).eval()
+        naf.load_state_dict(naf_sd)
+        naf.to(model_management.text_encoder_dtype(clip.load_device))
+        clip.naf = model_patcher.get_model_patcher_class()(
+            naf,
+            load_device=clip.load_device,
+            offload_device=model_management.text_encoder_offload_device(),
+        )
     return clip
 
 

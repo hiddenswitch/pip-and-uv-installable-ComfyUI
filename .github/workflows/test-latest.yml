@@ -1,52 +1,74 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: Latest Python + PyTorch
+name: Python Validation
 
-on: [push]
+on:
+  push:
+    branches: [develop, master]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  latest:
-    name: Python 3.14 PyTorch latest (CPU)
+  full:
+    if: github.ref_name == 'develop'
+    name: Full suite — Python 3.14 PyTorch 2.13 CPU
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
       image: archlinux:latest
       options: --shm-size=8g
+    env:
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
     steps:
       - name: Install system dependencies
-        run: |
-          pacman -Syu --noconfirm git python uv zip base-devel libxcb mesa
-
-      - uses: actions/checkout@v5
-
-      - name: Create venv
+        run: pacman -Syu --noconfirm git python uv zip base-devel libxcb mesa
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: .uv-cache
+          key: uv-linux-py314-${{ hashFiles('ci/locks/pylock.linux-py314-cpu.toml') }}
+          restore-keys: uv-linux-py314-
+      - name: Install locked dependencies
         run: |
           uv venv --python 3.14 .venv
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-
-      - name: Install ComfyUI
-        run: |
-          uv pip install --python .venv/bin/python --torch-backend=auto --prerelease allow ".[dev]"
-          uv cache clean
-
-      - name: Install custom nodes
-        env:
-          UV_NO_CACHE: "1"
-        run: |
-          uv pip install --python .venv/bin/python --constraints tests/opencv_constraints.txt -r tests/custom_nodes_requirements.txt --extra-index-url https://nodes.appmana.com/simple --inexact
-
+          ci/install-locked.sh ci/locks/pylock.linux-py314-cpu.toml .venv/bin/python
       - name: Environment info
         run: |
           .venv/bin/python --version
-          .venv/bin/python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available())"
-
+          .venv/bin/python -c "import torch; print('torch', torch.__version__); assert torch.__version__.startswith('2.13.0'); assert not torch.cuda.is_available()"
       - name: Lint
         run: |
+          .venv/bin/python -m ruff check comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
           .venv/bin/python -m pylint --disable=W4902 comfy/ comfy_extras/ comfy_api/ comfy_api_nodes/ comfy_compatibility/ comfy_execution/
-
       - name: Unit tests
+        env:
+          COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+        run: .venv/bin/python -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+
+  package-smoke:
+    if: github.ref_name == 'master'
+    name: Master package smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: ci/locks/pylock.linux-py314-core.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Build and install the package
         run: |
-          .venv/bin/python -m pytest -v tests/unit --ignore=tests/unit/test_workflow_convert_playwright.py
+          uv venv --python 3.14
+          ci/install-locked.sh ci/locks/pylock.linux-py314-core.toml .venv/bin/python
+          uv build --wheel --out-dir dist
+          uv pip install --python .venv/bin/python --reinstall --no-deps dist/*.whl
+      - name: Package smoke
+        env:
+          COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+        run: |
+          .venv/bin/python -c "from comfy.cli_args_types import Configuration; from comfy.client.embedded_comfy_client import Comfy; client = Comfy(configuration=Configuration()); assert client is not None"
+          .venv/bin/python -m pytest -q tests/unit/test_comfy_instance.py tests/unit/test_cli_args_types_sync.py

@@ -16,8 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Build wheel and sdist
         run: uv build --wheel --sdist --out-dir dist
@@ -25,7 +25,7 @@ jobs:
       - name: Show artifacts
         run: ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: comfyui-dist
           path: dist/*
@@ -53,7 +53,7 @@ jobs:
       #     permissions:
       #       id-token: write
       #     steps:
-      #       - uses: actions/download-artifact@v4
+      #       - uses: actions/download-artifact@v8
       #         with: { name: comfyui-dist, path: dist }
       #       - uses: pypa/gh-action-pypi-publish@release/v1
       #

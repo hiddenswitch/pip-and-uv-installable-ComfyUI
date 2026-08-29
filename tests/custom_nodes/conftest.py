@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import shutil
+from typing import TYPE_CHECKING
 
 from comfy.app.custom_node_manager import CustomNodeManager
-from comfy.component_model.site_packages import add_node_site, add_site_dir
+from comfy.component_model.site_packages import add_node_site
 from comfy.component_model.node_registry import CustomNodeSpec, CUSTOM_NODE_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from comfy.cli_args_types import Configuration
 
 _RUNTIME_PACKAGES = ("torch", "torchvision", "torchaudio", "torchsde")
 
@@ -29,11 +33,6 @@ def add_node_site_to_path(base_dir: Path) -> None:
     """Add the ``node_site`` directory to ``sys.path`` and ``PYTHONPATH``."""
     _remove_shadowed_runtime_packages(base_dir)
     add_node_site(base_dir)
-    # Ensure the test source root is on PYTHONPATH so that subprocess workers
-    # (ProcessPoolExecutor with spawn context) can resolve pkg:// URIs for
-    # test data packages like tests.custom_nodes.test_data.
-    src_root = str(Path(__file__).resolve().parents[2])
-    add_site_dir(src_root)
 
 
 def install_custom_node_from_spec(spec: CustomNodeSpec, base_dir: Path) -> Path:

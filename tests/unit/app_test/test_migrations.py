@@ -7,8 +7,8 @@ Migrations 0001 and 0002 are already shipped, so we only exercise
 upgrade/downgrade for 0003+.
 """
 
-import os
 import sqlite3
+from importlib.resources import files
 
 import pytest
 from alembic import command
@@ -21,9 +21,9 @@ _BASELINE = "0002_merge_to_asset_references"
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../../..")
-    config_path = os.path.abspath(os.path.join(root, "comfy", "alembic.ini"))
-    scripts_path = os.path.abspath(os.path.join(root, "comfy", "alembic_db"))
+    comfy_resources = files("comfy")
+    config_path = str(comfy_resources.joinpath("alembic.ini"))
+    scripts_path = str(comfy_resources.joinpath("alembic_db"))
 
     cfg = Config(config_path)
     cfg.set_main_option("script_location", scripts_path)

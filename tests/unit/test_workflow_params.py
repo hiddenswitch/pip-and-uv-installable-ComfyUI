@@ -13,6 +13,8 @@ Two layers:
 from __future__ import annotations
 
 import json
+from importlib.metadata import packages_distributions
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -171,9 +173,7 @@ def test_discover_collapses_equivalent_flags_and_suffixes_distinct_collisions():
 
 
 def test_ideogram_default_workflow_has_unique_dynamic_flags():
-    workflow_path = Path("/home/administrator/Downloads/Ideogram-4-Default-WF-With-Sigma-Node.json")
-    if not workflow_path.exists():
-        pytest.skip(f"{workflow_path} is not available on this machine")
+    workflow_path = files("tests.inference.workflows").joinpath("ideogram4-0.json")
 
     workflow = json.loads(workflow_path.read_text())
     params = discover(workflow)
@@ -975,10 +975,10 @@ def test_count_input_slots_returns_zero_when_no_loaders():
 
 
 def test_kontext_template_input_count_includes_bypassed_image():
-    import glob
-    matches = glob.glob(
-        "/home/administrator/Documents/appmana/.venv/lib/python3.12/site-packages/comfyui_workflow_templates_*/templates/flux_kontext_dev_basic.json"
-    )
+    matches = [
+        path for path in _builtin_template_paths()
+        if path.name == "flux_kontext_dev_basic.json"
+    ]
     if not matches:
         pytest.skip("flux_kontext_dev_basic template not installed")
     workflow = json.loads(Path(matches[0]).read_text(encoding="utf-8"))
@@ -1051,7 +1051,7 @@ def test_params_by_role_finds_role_tagged_params():
 # two keys belongs in a normal pytest function below — write the assertion
 # directly rather than extending the sidecar schema.
 
-_WORKFLOWS_DIR = Path(__file__).parent.parent / "data" / "workflows"
+_WORKFLOWS_DIR = files("tests").joinpath("data", "workflows")
 
 WORKFLOW_FIXTURES: list[str] = [
     "yt_bgswap_v01",
@@ -1113,25 +1113,36 @@ def test_real_workflow(name: str):
 # Case-specific assertions that don't fit the sidecar schema go here as plain
 # tests. Keep them thin and named after what they verify.
 
-def _collect_builtin_templates() -> list:
-    import glob
+def _builtin_template_paths() -> list:
     paths = []
-    for d in glob.glob(
-        "/home/administrator/Documents/appmana/.venv/lib/python3.12/site-packages/comfyui_workflow_templates_*/templates/"
-    ):
-        for p in sorted(Path(d).glob("*.json")):
-            try:
-                wf = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            is_ui = isinstance(wf, dict) and "nodes" in wf and "links" in wf
-            is_api = (
-                isinstance(wf, dict)
-                and wf
-                and all(isinstance(v, dict) and "class_type" in v for v in wf.values())
-            )
-            if is_ui or is_api:
-                paths.append(p)
+    for package in sorted(packages_distributions()):
+        if not package.startswith("comfyui_workflow_templates_"):
+            continue
+        templates = files(package).joinpath("templates")
+        if not templates.is_dir():
+            continue
+        paths.extend(
+            path for path in templates.iterdir()
+            if path.is_file() and path.name.endswith(".json")
+        )
+    return sorted(paths, key=lambda path: (str(path.parent), path.name))
+
+
+def _collect_builtin_templates() -> list:
+    paths = []
+    for p in _builtin_template_paths():
+        try:
+            wf = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        is_ui = isinstance(wf, dict) and "nodes" in wf and "links" in wf
+        is_api = (
+            isinstance(wf, dict)
+            and wf
+            and all(isinstance(v, dict) and "class_type" in v for v in wf.values())
+        )
+        if is_ui or is_api:
+            paths.append(p)
     return [pytest.param(p, id=p.stem) for p in paths]
 
 
@@ -1168,10 +1179,8 @@ def test_qwen_image_layered_blueprint_sampler_parameter_values():
     from comfy.nodes.package_typing import ExportedNodes
 
     blueprint = (
-        Path(__file__).parents[2]
-        / "comfy"
-        / "blueprints"
-        / "Image to Layers(Qwen-Image-Layered).json"
+        files("comfy.blueprints")
+        .joinpath("Image to Layers(Qwen-Image-Layered).json")
     )
     workflow = json.loads(blueprint.read_text(encoding="utf-8"))
     params = discover(workflow, node_mappings=ExportedNodes())

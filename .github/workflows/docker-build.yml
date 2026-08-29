@@ -1,11 +1,19 @@
 name: Build and Publish Docker Image
 on:
   push:
+    branches: [develop, master]
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
 jobs:
   build:
+    if: startsWith(github.ref, 'refs/heads/')
     runs-on: "ubuntu-latest"
     environment: Testing
     permissions:
@@ -20,20 +28,20 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: true
-      - uses: actions/checkout@v5
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: nvcr.io
           username: "$oauthtoken"
           password: ${{ secrets.NVCR_NGC_TOKEN }}
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -50,10 +58,53 @@ jobs:
             type=match,pattern=v?(\d+\.\d+),group=1
             type=match,pattern=v?(\d+\.\d+),group=1,suffix=-cuda
       - name: Build and push CUDA (NVIDIA) image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  retag:
+    # A release tag points at a commit already built by the master/develop
+    # workflow. Publish version aliases for that immutable image instead of
+    # spending another runner cycle rebuilding identical layers.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: Testing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Retag the existing commit image
+        shell: bash
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME}"
+          source="${image}:${GITHUB_SHA::7}"
+          version="${GITHUB_REF_NAME#v}"
+
+          for attempt in {1..30}; do
+            docker buildx imagetools inspect "$source" >/dev/null 2>&1 && break
+            if [ "$attempt" -eq 30 ]; then
+              echo "Commit image did not become available: $source" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          IFS=. read -r major minor patch revision <<< "$version"
+          tags=(--tag "${image}:${version}" --tag "${image}:${version}-cuda")
+          if [ -n "${patch:-}" ]; then
+            tags+=(--tag "${image}:${major}.${minor}.${patch}" --tag "${image}:${major}.${minor}.${patch}-cuda")
+          fi
+          if [ -n "${minor:-}" ]; then
+            tags+=(--tag "${image}:${major}.${minor}" --tag "${image}:${major}.${minor}-cuda")
+          fi
+          docker buildx imagetools create "${tags[@]}" "$source"

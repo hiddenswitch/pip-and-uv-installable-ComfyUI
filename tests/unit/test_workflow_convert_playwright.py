@@ -20,6 +20,7 @@ import threading
 import time
 import traceback
 from importlib.metadata import distributions, version as pkg_version
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -74,7 +75,7 @@ _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
     # provider model slug, then reads that value as the promoted aspect ratio.
     "templates_graphic_design_recomposer": _DYNAMIC_COMBO_MIGRATION_SHIFT,
     # These packaged workflows retain a positional widget array from an older
-    # subgraph definition. Frontend 1.49.6 SubgraphNode.configure delegates to
+    # subgraph definition. Frontend SubgraphNode.configure delegates to
     # _applyPromotedWidgetValues, which walks the current promoted inputs and
     # assigns that stale array sequentially. The resulting frontend prompts
     # put sizes, booleans, seeds, and model names into unrelated fields. Keep
@@ -96,7 +97,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 # ---------------------------------------------------------------------------
 # Cache directory for frontend outputs
 # ---------------------------------------------------------------------------
-_CACHE_DIR = Path(__file__).resolve().parent / "playwright_cache"
+_CACHE_DIR = Path(str(files("tests.unit").joinpath("playwright_cache")))
 
 
 def _frontend_version() -> str:
@@ -574,6 +575,12 @@ _UI_STATE_INPUTS: set[tuple[str, str]] = {
     ("SaveAudioOpus", "audioUI"),
     ("RecordAudio", "audio"),
     ("Preview3D", "image"),
+    ("Preview3DAdvanced", "viewport_state"),
+    ("Save3DAdvanced", "viewport_state"),
+    ("PreviewGaussianSplat", "viewport_state"),
+    ("PreviewPointCloud", "viewport_state"),
+    ("SaveGaussianSplat", "viewport_state"),
+    ("SavePointCloud", "viewport_state"),
     ("SaveGLB", "image"),
     ("Load3D", "image"),
     ("ImageCompare", "compare_view"),

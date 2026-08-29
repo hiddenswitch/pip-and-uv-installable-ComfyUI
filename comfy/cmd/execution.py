@@ -7,7 +7,6 @@ import heapq
 import inspect
 import json
 import logging
-import psutil
 import sys
 import threading
 import time
@@ -55,6 +54,7 @@ from comfy_execution.validation import validate_node_input
 from .. import interruption
 from .. import memory_management
 from .. import model_management
+from .. import system_memory
 from .. import model_patcher as model_patcher_module
 from .. import model_prefetch
 from ..cli_args_types import LatentPreviewMethod
@@ -965,7 +965,7 @@ class PromptExecutor:
 
                     if self.cache_type == CacheType.RAM_PRESSURE:
                         ram_release_callback(ram_inactive_headroom)
-                        ram_shortfall = ram_headroom - psutil.virtual_memory().available
+                        ram_shortfall = ram_headroom - system_memory.virtual_memory_available()
                         if ram_shortfall > 0:
                             freed = ram_release_callback(ram_headroom, free_active=True, min_entry_size=RAM_CACHE_LARGE_INTERMEDIATE)
                             ram_shortfall -= freed

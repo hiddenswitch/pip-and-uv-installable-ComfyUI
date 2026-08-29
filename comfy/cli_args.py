@@ -301,7 +301,12 @@ args = _ConfigurationProxy()
 database_default_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "user", "comfyui.db")
 )
-parser.add_argument("--database-url", type=str, default=f"sqlite:///{database_default_path}", help="Specify the database URL, e.g. for an in-memory database you can use 'sqlite:///:memory:'.")
+parser.add_argument(
+    "--database-url",
+    type=str,
+    default=None,
+    help="Specify the database URL, e.g. 'sqlite:///:memory:'. Defaults to 'comfyui.db' in the effective user directory.",
+)
 parser.add_argument("--enable-assets", action="store_true", help="Enable the assets system.")
 parser.add_argument("--enable-asset-hashing", action="store_true", help="Compute blake3 content hashes when scanning assets.")
 parser.add_argument("--disable-assets-autoscan", action="store_true", help="Disable asset scanning on startup for database synchronization.")

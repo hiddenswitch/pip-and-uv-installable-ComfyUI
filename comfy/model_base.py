@@ -80,6 +80,7 @@ from .ldm.joyimage.model import JoyImageTransformer3DModel
 from .ldm.ideogram4.model import Ideogram4Transformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
 from .ldm.triposplat.model import LatentSeqMMFlowModel
+from .ldm.trellis2.model import Trellis2 as Trellis2Model
 from .ldm.sam3.detector import SAM3Model
 from .ldm.seedvr.model import NaDiT
 from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel, SCAIL2WanModel
@@ -2090,6 +2091,28 @@ class WAN22(WAN21):
 
     def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
         return latent_image
+
+
+class Trellis2(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None, unet_model=Trellis2Model):
+        super().__init__(model_config, model_type, device, unet_model)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        out["embeds"] = conds.CONDRegular(kwargs.get("embeds"))
+        # Shared across positive and negative conditioning.
+        for key in (
+            "trellis2_coords",
+            "trellis2_coord_counts",
+            "trellis2_generation_mode",
+            "trellis2_shape_slat",
+            "trellis2_proj_feats",
+            "trellis2_model_frame",
+        ):
+            value = kwargs.get(key)
+            if value is not None:
+                out[key] = conds.CONDConstant(value)
+        return out
 
 
 class WAN21_FlowRVS(WAN21):

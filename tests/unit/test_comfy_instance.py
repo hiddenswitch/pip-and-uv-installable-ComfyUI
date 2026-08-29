@@ -87,9 +87,11 @@ async def test_comfy_mismatch_instance_raises():
 
 
 @pytest.mark.asyncio
-async def test_comfy_context_manager():
-    """Test the async context manager behavior."""
-    async with Comfy() as client:
+async def test_comfy_context_manager_accepts_configuration():
+    """A Configuration can start an embedded Comfy lifecycle directly."""
+    configuration = Configuration(disable_all_custom_nodes=True)
+
+    async with Comfy(configuration=configuration) as client:
         assert client.is_running
-        assert isinstance(client._executor, ContextVarExecutor)
+        assert client._configuration is configuration
     assert not client.is_running

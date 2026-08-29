@@ -850,7 +850,8 @@ def _test_attention(query, key, value, heads, mask=None, **kwargs):
     return torch.matmul(scores.softmax(dim=-1), value).transpose(1, 2).flatten(2)
 
 
-def test_minimax_two_stage_forward_matches_unpartitioned(monkeypatch):
+@pytest.mark.parametrize("pdd_heads", [1, 3])
+def test_minimax_two_stage_forward_matches_unpartitioned(monkeypatch, pdd_heads):
     monkeypatch.setattr("comfy.ldm.minimax.model.Attention.forward", _test_minimax_attention)
     kwargs = {
         "hidden_size": 12,
@@ -880,6 +881,16 @@ def test_minimax_two_stage_forward_matches_unpartitioned(monkeypatch):
 
     first = MiniMaxH3Model(**kwargs, pipeline_stage=PipelineStageConfig(0, 2, 0, 1))
     second = MiniMaxH3Model(**kwargs, pipeline_stage=PipelineStageConfig(1, 2, 1, 2))
+
+    def expand_pdd_heads(model):
+        if pdd_heads == 1 or not hasattr(model.final_layer, "video_out"):
+            return
+        for head in (model.final_layer.video_out, model.final_layer.audio_out):
+            head.weight = torch.nn.Parameter(head.weight.detach().repeat(pdd_heads, 1))
+            head.bias = torch.nn.Parameter(head.bias.detach().repeat(pdd_heads))
+
+    expand_pdd_heads(full)
+    expand_pdd_heads(second)
     first.load_state_dict(full.state_dict(), strict=False)
     second.load_state_dict(full.state_dict(), strict=False)
     plans = (
@@ -895,9 +906,17 @@ def test_minimax_two_stage_forward_matches_unpartitioned(monkeypatch):
     audio = torch.randn(1, 4, 2, 2)
     context = torch.randn(1, 3, 12)
     timestep = torch.tensor([500.0])
+    transformer_options = {
+        "sample_sigmas": torch.tensor([0.5, 0.25, 0.0]),
+    }
 
-    expected = full([video, audio], timestep, context)
-    actual = executor.execute([video, audio], timestep, context)
+    expected = full([video, audio], timestep, context, transformer_options=transformer_options)
+    actual = executor.execute(
+        [video, audio],
+        timestep,
+        context,
+        transformer_options=transformer_options,
+    )
     torch.testing.assert_close(actual[0], expected[0])
     torch.testing.assert_close(actual[1], expected[1])
 

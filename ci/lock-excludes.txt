@@ -1,0 +1,4 @@
+# Custom-node packages may declare an unbounded dependency on ComfyUI. The
+# checkout itself is installed separately after the lock, so never resolve a
+# second ComfyUI distribution from an index.
+comfyui

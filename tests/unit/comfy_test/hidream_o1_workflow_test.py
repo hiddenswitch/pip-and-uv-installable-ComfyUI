@@ -1,11 +1,11 @@
 import json
-from pathlib import Path
+from importlib.resources import files
 
 from comfy.api.components.schema.prompt import Prompt
 from comfy.model_downloader import KNOWN_HUGGINGFACE_MODEL_REPOS
 
 
-WORKFLOW_PATH = Path(__file__).parents[2] / "inference" / "workflows" / "hidream-o1-0.json"
+WORKFLOW_PATH = files("tests.inference.workflows").joinpath("hidream-o1-0.json")
 
 
 def _load_workflow():

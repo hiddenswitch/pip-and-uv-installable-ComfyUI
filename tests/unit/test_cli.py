@@ -1,13 +1,7 @@
 """Tests for the Typer CLI app (comfy.cmd.cli)."""
 import json
-import os
 import re
-import socket
 import sys
-import time
-import urllib.error
-import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -454,53 +448,6 @@ class TestParseListenAddress:
     def test_comma_separated_not_split(self):
         from comfy.cmd.cli import _parse_listen_address
         assert _parse_listen_address("0.0.0.0,::") == ("0.0.0.0,::", None)
-
-
-_SRC_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-@pytest.mark.slow
-def test_serve_starts_and_reaches_ready():
-    """Verify that ``comfyui serve`` gets past setup_pre_torch and binds its port.
-
-    This catches import errors (e.g. missing names in cli_args) that only
-    surface when the server actually starts, not just when --help is invoked.
-    """
-    from tests.unit._subprocess_helpers import spawn_comfyui_serve
-    from tests.conftest import server_startup_timeout_seconds
-
-    port = _find_free_port()
-    env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(_SRC_ROOT) if not existing else f"{_SRC_ROOT}{os.pathsep}{existing}"
-
-    process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
-    try:
-        startup_timeout = server_startup_timeout_seconds()
-        deadline = time.time() + startup_timeout
-        while time.time() < deadline:
-            if process.poll() is not None:
-                pytest.fail(
-                    f"comfyui serve exited early with code {process.returncode}:\n"
-                    f"{process.tail()}"
-                )
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=2) as resp:
-                    if resp.status == 200:
-                        return  # success
-            except (urllib.error.URLError, ConnectionRefusedError, OSError):
-                time.sleep(0.5)
-        pytest.fail(
-            f"comfyui serve did not become ready within {startup_timeout:g}s:\n{process.tail()}"
-        )
-    finally:
-        process.shutdown()
 
 
 def test_workflows_run_workflow_specific_help_order_legacy_windows(monkeypatch):

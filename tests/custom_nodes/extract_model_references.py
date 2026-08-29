@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from collections import defaultdict
+from importlib.resources import files
 from pathlib import Path
-from typing import Optional
 
 from comfy.app.custom_node_manager import CustomNodeManager
 
@@ -186,7 +185,7 @@ def test_extract_model_references(tmp_path):
     custom_nodes_root = str(base_dir / "custom_nodes")
     model_refs = scan_all_workflows(custom_nodes_root)
 
-    output_path = Path(__file__).parent / "model_references.json"
+    output_path = files("tests.custom_nodes").joinpath("model_references.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(model_refs, f, indent=2)
     logger.info("Wrote model references to %s", output_path)
@@ -205,7 +204,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         custom_nodes_root = sys.argv[1]
     else:
-        custom_nodes_root = str(Path(__file__).resolve().parents[3] / "custom_nodes")
+        custom_nodes_root = str(files("tests").parent.joinpath("custom_nodes"))
 
     if not Path(custom_nodes_root).is_dir():
         print(f"Custom nodes directory not found: {custom_nodes_root}")
@@ -215,7 +214,7 @@ if __name__ == "__main__":
     report = generate_report(model_refs)
     print(report)
 
-    output_path = Path(__file__).parent / "model_references.json"
+    output_path = files("tests.custom_nodes").joinpath("model_references.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(model_refs, f, indent=2)
     print(f"\nWrote {output_path}")

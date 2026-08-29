@@ -10,15 +10,12 @@ command line.
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from importlib.resources import files
 
 import pytest
-from typer.testing import CliRunner
-
-from comfy.cmd.cli import app
 
 
-CLI_PY = Path(__file__).resolve().parents[2] / "comfy" / "cmd" / "cli.py"
+CLI_PY = files("comfy.cmd").joinpath("cli.py")
 
 # Flags for which ``--no-<flag>`` would be a linguistic double-negative and
 # the CLI intentionally does not provide the inverse. A positive counterpart

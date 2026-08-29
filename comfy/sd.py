@@ -45,6 +45,7 @@ from .ldm.minimax_music.dav import MiniMaxMusic3DAV
 from .ldm.mmaudio.vae.autoencoder import AudioAutoencoder
 from .ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
 from .ldm.seedvr import vae as seedvr_vae
+from .ldm.trellis2 import vae as trellis2_vae
 from .ldm.triposplat.vae import OctreeGaussianDecoder
 from .ldm.wan import vae as wan_vae
 from .ldm.wan import vae2_2 as wan_vae2_2
@@ -596,6 +597,16 @@ class VAE:
                 self.first_stage_model = StageC_coder()
                 self.downscale_ratio = 32
                 self.latent_channels = 16
+            elif "shape_dec.blocks.1.16.to_subdiv.weight" in sd:  # Trellis2 shape VAE
+                self.working_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+                self.memory_used_decode = lambda shape, dtype: (2500 * math.prod(shape[2:])) * model_management.dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: (2500 * math.prod(shape[2:])) * model_management.dtype_size(dtype)
+                self.first_stage_model = trellis2_vae.ShapeVae()
+            elif "txt_dec.blocks.3.4.conv2.weight" in sd:  # Trellis2 texture VAE
+                self.working_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+                self.memory_used_decode = lambda shape, dtype: (2500 * math.prod(shape[2:])) * model_management.dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: (2500 * math.prod(shape[2:])) * model_management.dtype_size(dtype)
+                self.first_stage_model = trellis2_vae.TextureVae()
             elif "decoder.up_blocks.2.upsamplers.0.upscale_conv.weight" in sd: # seedvr2
                 self.first_stage_model = seedvr_vae.VideoAutoencoderKLWrapper()
                 self.latent_channels = seedvr_vae.SEEDVR2_LATENT_CHANNELS
@@ -1347,6 +1358,19 @@ class VAE:
 
         pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
         return pixel_samples
+
+    def prepare_decode(self, sample_shape, memory_required=None):
+        """Prepare VAEs whose real decode entry point bypasses ``decode()``."""
+        if memory_required is None:
+            memory_required = self.memory_used_decode(sample_shape, self.vae_dtype)
+        memory_required = max(1, int(memory_required))
+        model_management.load_models_gpu(
+            [self.patcher],
+            memory_required=memory_required,
+            force_full_load=self.disable_offload,
+        )
+        free_memory = self.patcher.get_free_memory(self.device)
+        return max(1, int(free_memory / memory_required))
 
     def _tile_bounded_shape(self, shape, tile_x, tile_y, tile_t):
         """Clamp a latent shape to a single tile for peak-memory estimates."""

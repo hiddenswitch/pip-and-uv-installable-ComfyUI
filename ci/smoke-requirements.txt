@@ -1,0 +1,2 @@
+# Only the test runner needed by the short master package smoke.
+pytest>=8
