@@ -1,2 +1,3 @@
-# Only the test runner needed by the short master package smoke.
+# Only the test runner and async plugin needed by the short master package smoke.
 pytest>=8
+pytest-asyncio
