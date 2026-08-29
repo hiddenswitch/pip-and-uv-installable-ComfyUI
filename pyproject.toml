@@ -61,7 +61,8 @@ dependencies = [
     "protobuf>=3.20.0",
     "psutil",
     "ConfigArgParse>=1.7.1",
-    "aio-pika",
+    # OpenTelemetry's aio-pika instrumentation currently supports aio-pika 7-9.
+    "aio-pika>=7.2,<10",
     "pyjwt[crypto]",
     "kornia>=0.7.1",
     "mpmath>=1.1.0,<1.4",

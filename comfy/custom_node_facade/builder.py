@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -27,7 +28,12 @@ from pathlib import Path
 import aiohttp
 import fsspec
 
-from .registry import FacadeProject, FacadeRegistryProtocol, FacadeVersion, canonicalize_project_name
+from .registry import (
+    FacadeProject,
+    FacadeRegistryProtocol,
+    FacadeVersion,
+    canonicalize_project_name,
+)
 
 _WHEEL_NAME_RE = re.compile(r"[^A-Za-z0-9.]+")
 # 5: gguf stripped from generated dependencies (upstreamed into this fork)
@@ -35,18 +41,23 @@ _FACADE_BUILD_REVISION = 5
 # Dependencies stripped from every generated wheel. gguf is a runtime
 # dependency of this fork itself (pyproject.toml), and the registry node with
 # the same name vendors an unrelated repo that breaks `import gguf`.
-_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset({
-    "gguf",
-})
-_OBJECT_CACHE_PROTOCOLS: frozenset[str] = frozenset({
-    "s3",
-    "s3a",
-})
+_FACADE_ALWAYS_SKIPPED_DEPENDENCIES: frozenset[str] = frozenset(
+    {
+        "gguf",
+    }
+)
+_OBJECT_CACHE_PROTOCOLS: frozenset[str] = frozenset(
+    {
+        "s3",
+        "s3a",
+    }
+)
 
 
 @dataclass(frozen=True)
 class PyPIRewriteSpec:
     """A PyPI package to re-serve with patched dependency metadata."""
+
     name: str
     version: str
     wheel_url: str
@@ -76,10 +87,22 @@ _PYPI_REWRITE_INDEX: dict[str, PyPIRewriteSpec] = {
 
 
 DEFAULT_CUDA_VARIANT = "cu130"
-FLASH_ATTENTION_CUDA_VARIANTS = ("cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132")
+FLASH_ATTENTION_CUDA_VARIANTS = (
+    "cu118",
+    "cu121",
+    "cu124",
+    "cu126",
+    "cu128",
+    "cu129",
+    "cu130",
+    "cu131",
+    "cu132",
+)
 FLASH_ATTENTION_3_CUDA_VARIANTS = ("cu124", "cu126", "cu128", "cu129", "cu130", "cu132")
 STABLE_ABI_CUDA_VARIANTS = ("cu128", "cu130")
-SUPPORTED_CUDA_VARIANTS = tuple(sorted(set(FLASH_ATTENTION_CUDA_VARIANTS) | set(STABLE_ABI_CUDA_VARIANTS)))
+SUPPORTED_CUDA_VARIANTS = tuple(
+    sorted(set(FLASH_ATTENTION_CUDA_VARIANTS) | set(STABLE_ABI_CUDA_VARIANTS))
+)
 
 # flash-attn / flash-attn-3 wheels are tagged with the CUDA *and* torch ABI
 # (e.g. ``+cu130torch2.12``). We expose those combined tokens as additional
@@ -107,7 +130,9 @@ def _project_cuda_torch_variants(wheel_project_prefix: str) -> frozenset[str]:
 @functools.lru_cache(maxsize=1)
 def cuda_torch_variants() -> frozenset[str]:
     """All ``cuXXXtorchY.Z`` index variants served (union across flash-attn wheels)."""
-    return _project_cuda_torch_variants("flash_attn") | _project_cuda_torch_variants("flash_attn_3")
+    return _project_cuda_torch_variants("flash_attn") | _project_cuda_torch_variants(
+        "flash_attn_3"
+    )
 
 
 def is_index_variant(segment: str) -> bool:
@@ -123,6 +148,7 @@ class PyPIProxySpec:
     ``upstream_index_url_template`` contains a ``{cuda}`` placeholder that is
     replaced at request time with the selected CUDA variant (e.g. ``cu130``).
     """
+
     name: str
     upstream_index_url_template: str
     cuda_variants: tuple[str, ...] | None = None
@@ -147,6 +173,7 @@ class FlashAttentionProxySpec:
     simple-package index. The wheel links are snapshotted into
     flash_attention_wheels.py by scripts/snapshot_flash_attention_wheels.py.
     """
+
     name: str
     wheel_project_prefix: str
     cuda_variants: tuple[str, ...] = FLASH_ATTENTION_CUDA_VARIANTS
@@ -191,6 +218,7 @@ class GithubReleaseWheelProxySpec:
     Used for the fork's own ``comfyui`` package: a GitHub Actions workflow builds
     the wheel on each release and uploads it as a release asset; this lists those
     assets as a PEP 503 page. CUDA-agnostic (pure-python wheel)."""
+
     name: str
     repo: str
     asset_prefix: str
@@ -202,7 +230,37 @@ class GithubReleaseWheelProxySpec:
 
     async def render_index(self, session: aiohttp.ClientSession, cuda: str) -> str:
         del cuda
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        key = (self.repo, self.asset_prefix)
+        now = time.monotonic()
+        cached = _GITHUB_RELEASE_INDEX_CACHE.get(key)
+        if cached is not None and now - cached[0] < _GITHUB_RELEASE_INDEX_TTL_SECONDS:
+            return cached[1]
+
+        lock = _GITHUB_RELEASE_INDEX_LOCKS.setdefault(key, asyncio.Lock())
+        async with lock:
+            now = time.monotonic()
+            cached = _GITHUB_RELEASE_INDEX_CACHE.get(key)
+            if (
+                cached is not None
+                and now - cached[0] < _GITHUB_RELEASE_INDEX_TTL_SECONDS
+            ):
+                return cached[1]
+            try:
+                body = await self._render_uncached(session)
+            except Exception:
+                # A stale release list is preferable to taking the package
+                # index offline during a transient GitHub API failure.
+                if cached is not None:
+                    return cached[1]
+                raise
+            _GITHUB_RELEASE_INDEX_CACHE[key] = (now, body)
+            return body
+
+    async def _render_uncached(self, session: aiohttp.ClientSession) -> str:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -224,6 +282,11 @@ class GithubReleaseWheelProxySpec:
             for filename, target in sorted(set(links))
         )
         return _simple_package_html(self.name, body)
+
+
+_GITHUB_RELEASE_INDEX_TTL_SECONDS = 5 * 60.0
+_GITHUB_RELEASE_INDEX_CACHE: dict[tuple[str, str], tuple[float, str]] = {}
+_GITHUB_RELEASE_INDEX_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 
 
 @dataclass(frozen=True)
@@ -264,11 +327,17 @@ class PyPISdistRewriteProxySpec:
     def rewrite_sdist(self, source: bytes) -> bytes:
         output = io.BytesIO()
         rewritten = False
-        with tarfile.open(fileobj=io.BytesIO(source), mode="r:gz") as source_tar, \
-             tarfile.open(fileobj=output, mode="w:gz") as output_tar:
+        with (
+            tarfile.open(fileobj=io.BytesIO(source), mode="r:gz") as source_tar,
+            tarfile.open(fileobj=output, mode="w:gz") as output_tar,
+        ):
             for member in source_tar.getmembers():
-                data = source_tar.extractfile(member).read() if member.isfile() else None
-                if member.isfile() and member.name.rstrip("/").endswith("/pyproject.toml"):
+                data = (
+                    source_tar.extractfile(member).read() if member.isfile() else None
+                )
+                if member.isfile() and member.name.rstrip("/").endswith(
+                    "/pyproject.toml"
+                ):
                     assert data is not None
                     data = _remove_pyproject_build_requirements(
                         data,
@@ -286,7 +355,9 @@ class PyPISdistRewriteProxySpec:
         return output.getvalue()
 
 
-def _remove_pyproject_build_requirements(source: bytes, requirements: tuple[str, ...]) -> bytes:
+def _remove_pyproject_build_requirements(
+    source: bytes, requirements: tuple[str, ...]
+) -> bytes:
     text = source.decode("utf-8")
     section_match = re.search(r"(?ms)^\[build-system\]\s*$.*?(?=^\[|\Z)", text)
     if section_match is None:
@@ -315,9 +386,17 @@ def _remove_pyproject_build_requirements(source: bytes, requirements: tuple[str,
     )
     missing = removals - removed
     if missing:
-        raise ValueError(f"Build requirements not found in pyproject.toml: {sorted(missing)}")
-    rewritten_section = section[:requires_match.start(1)] + rewritten_body + section[requires_match.end(1):]
-    return (text[:section_match.start()] + rewritten_section + text[section_match.end():]).encode("utf-8")
+        raise ValueError(
+            f"Build requirements not found in pyproject.toml: {sorted(missing)}"
+        )
+    rewritten_section = (
+        section[: requires_match.start(1)]
+        + rewritten_body
+        + section[requires_match.end(1) :]
+    )
+    return (
+        text[: section_match.start()] + rewritten_section + text[section_match.end() :]
+    ).encode("utf-8")
 
 
 from .triton_wheels import TritonProxySpec  # noqa: E402
@@ -337,7 +416,9 @@ COMFYUI_RELEASE_REPO = "hiddenswitch/pip-and-uv-installable-ComfyUI"
 PYPI_PROXY_PACKAGES: list[PyPIProxy] = [
     # The fork's own package: `pip install comfyui --extra-index-url=.../simple/`.
     # Wheels are built and attached to GitHub releases by .github/workflows/build-wheel.yml.
-    GithubReleaseWheelProxySpec(name="comfyui", repo=COMFYUI_RELEASE_REPO, asset_prefix="comfyui-"),
+    GithubReleaseWheelProxySpec(
+        name="comfyui", repo=COMFYUI_RELEASE_REPO, asset_prefix="comfyui-"
+    ),
     PyPISdistRewriteProxySpec(
         name="sam2",
         version="1.1.0",
@@ -392,14 +473,16 @@ PYPI_SDIST_REWRITE_FILENAME_INDEX: dict[str, PyPISdistRewriteProxySpec] = {
     if isinstance(spec, PyPISdistRewriteProxySpec)
 }
 
-_FACADE_STRIP_VERSION_DEPENDENCIES = frozenset({
-    "image-reward",
-    "jax",
-    "jaxlib",
-    "numpy",
-    "protobuf",
-    "timm",
-})
+_FACADE_STRIP_VERSION_DEPENDENCIES = frozenset(
+    {
+        "image-reward",
+        "jax",
+        "jaxlib",
+        "numpy",
+        "protobuf",
+        "timm",
+    }
+)
 
 _OPENCV_HEADLESS = ["opencv-contrib-python-headless"]
 
@@ -464,7 +547,9 @@ def _build_record_from_tree_unix(tree: Path) -> list[tuple[str, str, str]]:
         capture_output=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"sha256sum failed: {result.stderr.decode(errors='replace')}")
+        raise RuntimeError(
+            f"sha256sum failed: {result.stderr.decode(errors='replace')}"
+        )
 
     hash_map: dict[str, str] = {}
     for line in result.stdout.decode().splitlines():
@@ -486,6 +571,7 @@ def _build_record_from_tree_unix(tree: Path) -> list[tuple[str, str, str]]:
 
 def _build_record_from_tree_python(tree: Path) -> list[tuple[str, str, str]]:
     import hashlib
+
     records: list[tuple[str, str, str]] = []
     for full in sorted(tree.rglob("*")):
         if not full.is_file():
@@ -501,6 +587,7 @@ def _build_record_from_tree_python(tree: Path) -> list[tuple[str, str, str]]:
 def _strip_url_dependency(requirement: str) -> str:
     """Strip the URL from a PEP 440 URL dependency, keeping name/extras/specifier/marker."""
     from packaging.requirements import Requirement, InvalidRequirement
+
     try:
         parsed = Requirement(requirement)
     except InvalidRequirement:
@@ -576,7 +663,9 @@ def _read_requirements_file(repo_root: Path) -> list[str]:
         return []
 
     requirements: list[str] = []
-    for line in requirements_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+    for line in requirements_path.read_text(
+        encoding="utf-8", errors="ignore"
+    ).splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("-r"):
             continue
@@ -591,15 +680,29 @@ class CachedWheel:
 
 
 class FacadeCacheStore:
-    def __init__(self, prefix: str | os.PathLike[str], *, storage_options: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        prefix: str | os.PathLike[str],
+        *,
+        storage_options: Mapping[str, Any] | None = None,
+    ) -> None:
         self._prefix = str(prefix)
-        self._fs, self._root = fsspec.core.url_to_fs(self._prefix, **(storage_options or {}))
+        self._fs, self._root = fsspec.core.url_to_fs(
+            self._prefix, **(storage_options or {})
+        )
         protocol = self._fs.protocol
         protocols = {protocol} if isinstance(protocol, str) else set(protocol)
         self._is_object_cache = bool(protocols & _OBJECT_CACHE_PROTOCOLS)
 
-    def wheel_path(self, project: FacadeProject, filename: str, revision: int = _FACADE_BUILD_REVISION) -> str:
-        return self._join(f"v{revision}", canonicalize_project_name(project.canonical_name), filename)
+    def wheel_path(
+        self,
+        project: FacadeProject,
+        filename: str,
+        revision: int = _FACADE_BUILD_REVISION,
+    ) -> str:
+        return self._join(
+            f"v{revision}", canonicalize_project_name(project.canonical_name), filename
+        )
 
     def exists(self, path: str) -> bool:
         return bool(self._fs.exists(path))
@@ -613,6 +716,7 @@ class FacadeCacheStore:
         def fill(tmp: str) -> None:
             with self._fs.open(tmp, "wb") as handle:
                 handle.write(data)
+
         self._install_atomically(path, fill)
 
     def copy_from(self, source_path: str, dest_path: str) -> None:
@@ -624,6 +728,7 @@ class FacadeCacheStore:
         def fill(tmp: str) -> None:
             with open(source_path, "rb") as src, self._fs.open(tmp, "wb") as dst:
                 shutil.copyfileobj(src, dst)
+
         self._install_atomically(dest_path, fill)
 
     def _install_atomically(self, dest_path: str, fill) -> None:
@@ -706,7 +811,9 @@ class FacadeWheelBuilder:
     ) -> None:
         self._session = session
         self._registry = registry
-        self._cache = FacadeCacheStore(cache_prefix, storage_options=cache_storage_options)
+        self._cache = FacadeCacheStore(
+            cache_prefix, storage_options=cache_storage_options
+        )
         self._cache_revision = cache_revision or _FACADE_BUILD_REVISION
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
@@ -724,43 +831,73 @@ class FacadeWheelBuilder:
         name — pip and uv reject an index that returns a distribution named
         differently from the one they asked for.
         """
-        resolved_project = await self._registry.get_project(project) if isinstance(project, str) else project
+        resolved_project = (
+            await self._registry.get_project(project)
+            if isinstance(project, str)
+            else project
+        )
         if resolved_project is None:
             raise KeyError(f"Unknown facade project: {project}")
 
-        resolved_version = await self._registry.get_version(resolved_project, version) if isinstance(version, str) else version
+        resolved_version = (
+            await self._registry.get_version(resolved_project, version)
+            if isinstance(version, str)
+            else version
+        )
         if resolved_version is None:
-            raise KeyError(f"Unknown facade version: {resolved_project.canonical_name}@{version}")
+            raise KeyError(
+                f"Unknown facade version: {resolved_project.canonical_name}@{version}"
+            )
 
-        name = canonicalize_project_name(distribution_name) if distribution_name else resolved_project.canonical_name
+        name = (
+            canonicalize_project_name(distribution_name)
+            if distribution_name
+            else resolved_project.canonical_name
+        )
 
         with tracer.start_as_current_span("Build Facade Wheel") as span:
             span.set_attribute("facade.project_name", resolved_project.canonical_name)
             span.set_attribute("facade.distribution_name", name)
             span.set_attribute("facade.node_id", resolved_project.node_id)
             span.set_attribute("facade.version", resolved_version.version)
-            wheel_name = self.wheel_filename(resolved_project, resolved_version.version, name)
-            wheel_path = self._cache.wheel_path(resolved_project, wheel_name, self._cache_revision)
+            wheel_name = self.wheel_filename(
+                resolved_project, resolved_version.version, name
+            )
+            wheel_path = self._cache.wheel_path(
+                resolved_project, wheel_name, self._cache_revision
+            )
             span.set_attribute("facade.wheel_path", wheel_path)
             if self._cache.exists(wheel_path):
                 span.set_attribute("facade.cache_hit", True)
                 return self._cache.cached_wheel(wheel_path)
 
             span.set_attribute("facade.cache_hit", False)
-            lock = self._locks.setdefault((name, resolved_version.version), asyncio.Lock())
+            lock = self._locks.setdefault(
+                (name, resolved_version.version), asyncio.Lock()
+            )
             async with lock:
                 if self._cache.exists(wheel_path):
                     span.set_attribute("facade.cache_hit_after_lock", True)
                     return self._cache.cached_wheel(wheel_path)
                 rewrite = _PYPI_REWRITE_INDEX.get(resolved_project.canonical_name)
                 if rewrite is not None:
-                    return await self._build_rewrite_wheel(rewrite, resolved_project, resolved_version, wheel_path)
-                with tracer.start_as_current_span("Download Facade Source Archive") as download_span:
-                    download_span.set_attribute("facade.download_url", resolved_version.download_url)
-                    async with self._session.get(resolved_version.download_url) as response:
+                    return await self._build_rewrite_wheel(
+                        rewrite, resolved_project, resolved_version, wheel_path
+                    )
+                with tracer.start_as_current_span(
+                    "Download Facade Source Archive"
+                ) as download_span:
+                    download_span.set_attribute(
+                        "facade.download_url", resolved_version.download_url
+                    )
+                    async with self._session.get(
+                        resolved_version.download_url
+                    ) as response:
                         response.raise_for_status()
                         archive_bytes = await response.read()
-                    download_span.set_attribute("facade.archive_bytes", len(archive_bytes))
+                    download_span.set_attribute(
+                        "facade.archive_bytes", len(archive_bytes)
+                    )
                 dependency_package_names = [
                     await self._registry.dependency_project_name(dependency_id)
                     for dependency_id in resolved_project.depends_on
@@ -796,9 +933,22 @@ class FacadeWheelBuilder:
                 repo_root = self._select_repo_root(source_root)
                 span.set_attribute("facade.repo_root", str(repo_root))
 
-                requirements = self._collect_requirements(project, version, repo_root, dependency_package_names, distribution_name)
+                requirements = self._collect_requirements(
+                    project,
+                    version,
+                    repo_root,
+                    dependency_package_names,
+                    distribution_name,
+                )
                 span.set_attribute("facade.requirement_count", len(requirements))
-                self._write_wheel(project, version, repo_root, requirements, wheel_path, distribution_name)
+                self._write_wheel(
+                    project,
+                    version,
+                    repo_root,
+                    requirements,
+                    wheel_path,
+                    distribution_name,
+                )
             return self._cache.cached_wheel(wheel_path)
 
     def _collect_requirements(
@@ -809,7 +959,9 @@ class FacadeWheelBuilder:
         dependency_package_names: list[str],
         distribution_name: str | None = None,
     ) -> list[str]:
-        dependencies: list[str] = list(version.dependencies) or _read_requirements_file(repo_root)
+        dependencies: list[str] = list(version.dependencies) or _read_requirements_file(
+            repo_root
+        )
         dependencies.extend(project.extra_requirements)
 
         dependencies.extend(dependency_package_names)
@@ -820,7 +972,9 @@ class FacadeWheelBuilder:
 
         filtered: list[str] = []
         seen: set[str] = set()
-        skipped = {canonicalize_project_name(item) for item in project.skip_requirements}
+        skipped = {
+            canonicalize_project_name(item) for item in project.skip_requirements
+        }
         skipped.update(_FACADE_ALWAYS_SKIPPED_DEPENDENCIES)
         for dependency in dependencies:
             stripped = dependency.strip()
@@ -865,11 +1019,17 @@ class FacadeWheelBuilder:
             # Lay out the full wheel directory structure on disk
             (tree / module_name).mkdir(parents=True)
             (tree / module_name / "__init__.py").write_bytes(b"")
-            (tree / module_name / "entrypoint.py").write_bytes(_render_entrypoint_module(project))
+            (tree / module_name / "entrypoint.py").write_bytes(
+                _render_entrypoint_module(project)
+            )
             (tree / dist_info).mkdir()
-            (tree / dist_info / "METADATA").write_bytes(_render_metadata(project, version, requirements, served_name))
+            (tree / dist_info / "METADATA").write_bytes(
+                _render_metadata(project, version, requirements, served_name)
+            )
             (tree / dist_info / "WHEEL").write_bytes(_render_wheel())
-            (tree / dist_info / "entry_points.txt").write_bytes(_render_entry_points(served_name, module_name))
+            (tree / dist_info / "entry_points.txt").write_bytes(
+                _render_entry_points(served_name, module_name)
+            )
 
             # Symlink vendor tree (zip follows symlinks by default on Linux)
             vendor_dir = tree / module_name / "_vendor" / project.repo_name
@@ -883,7 +1043,9 @@ class FacadeWheelBuilder:
             for row in records:
                 writer.writerow(row)
             writer.writerow((f"{dist_info}/RECORD", "", ""))
-            (tree / dist_info / "RECORD").write_bytes(record_buf.getvalue().encode("utf-8"))
+            (tree / dist_info / "RECORD").write_bytes(
+                record_buf.getvalue().encode("utf-8")
+            )
 
             # Create the zip with system zip (constant memory, follows symlinks)
             # Falls back to Python zipfile on Windows where zip is unavailable
@@ -895,9 +1057,13 @@ class FacadeWheelBuilder:
                     capture_output=True,
                 )
                 if result.returncode != 0:
-                    raise RuntimeError(f"zip failed: {result.stderr.decode(errors='replace')}")
+                    raise RuntimeError(
+                        f"zip failed: {result.stderr.decode(errors='replace')}"
+                    )
             else:
-                with zipfile.ZipFile(temp_wheel, "w", compression=zipfile.ZIP_STORED) as zf:
+                with zipfile.ZipFile(
+                    temp_wheel, "w", compression=zipfile.ZIP_STORED
+                ) as zf:
                     for root, _dirs, files in os.walk(tree, followlinks=True):
                         for fname in sorted(files):
                             full = Path(root) / fname
@@ -906,8 +1072,12 @@ class FacadeWheelBuilder:
             self._cache.copy_from(str(temp_wheel), wheel_path)
 
     @staticmethod
-    def wheel_filename(project: FacadeProject, version: str, distribution_name: str | None = None) -> str:
-        dist_name = _wheel_distribution_name(distribution_name or project.canonical_name)
+    def wheel_filename(
+        project: FacadeProject, version: str, distribution_name: str | None = None
+    ) -> str:
+        dist_name = _wheel_distribution_name(
+            distribution_name or project.canonical_name
+        )
         return f"{dist_name}-{version}-py3-none-any.whl"
 
     async def _build_rewrite_wheel(
@@ -925,7 +1095,12 @@ class FacadeWheelBuilder:
                 wheel_bytes = await response.read()
             span.set_attribute("facade.wheel_bytes", len(wheel_bytes))
             await asyncio.to_thread(
-                self._patch_wheel_metadata, wheel_bytes, project, version, list(rewrite.dependencies), wheel_path,
+                self._patch_wheel_metadata,
+                wheel_bytes,
+                project,
+                version,
+                list(rewrite.dependencies),
+                wheel_path,
             )
             return self._cache.cached_wheel(wheel_path)
 
@@ -939,11 +1114,15 @@ class FacadeWheelBuilder:
     ) -> None:
         """Rewrite METADATA inside a wheel zip and cache the result."""
         new_metadata = _render_metadata(project, version, dependencies)
-        with tempfile.NamedTemporaryFile(prefix="comfyui_rewrite_", suffix=".whl", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            prefix="comfyui_rewrite_", suffix=".whl", delete=False
+        ) as tmp:
             tmp_path = tmp.name
         try:
-            with zipfile.ZipFile(io.BytesIO(wheel_bytes), "r") as src, \
-                 zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+            with (
+                zipfile.ZipFile(io.BytesIO(wheel_bytes), "r") as src,
+                zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst,
+            ):
                 metadata_suffix = ".dist-info/METADATA"
                 record_suffix = ".dist-info/RECORD"
                 for item in src.infolist():
@@ -965,7 +1144,9 @@ class FacadeWheelBuilder:
             return await asyncio.to_thread(self._cache.read_bytes, wheel.cache_path)
 
     @staticmethod
-    def _extract_archive(archive_bytes: bytes, download_url: str, destination: Path) -> None:
+    def _extract_archive(
+        archive_bytes: bytes, download_url: str, destination: Path
+    ) -> None:
         archive = io.BytesIO(archive_bytes)
         lowered = download_url.lower()
         if lowered.endswith(".zip") or archive_bytes[:4] == b"PK\x03\x04":
@@ -980,7 +1161,9 @@ class FacadeWheelBuilder:
 
     @staticmethod
     def _select_repo_root(source_root: Path) -> Path:
-        children = [child for child in source_root.iterdir() if child.name not in ("__MACOSX",)]
+        children = [
+            child for child in source_root.iterdir() if child.name not in ("__MACOSX",)
+        ]
         if len(children) == 1 and children[0].is_dir():
             return children[0]
         return source_root

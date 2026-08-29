@@ -27,16 +27,26 @@ from ..nodes.custom_node_dependencies import CUSTOM_NODE_RUNTIME_DEPS
 logger = logging.getLogger(__name__)
 
 _SIMPLE_NAME_RE = re.compile(r"[-_.]+")
-EXCLUDED_FACADE_PROJECT_NAMES: frozenset[str] = frozenset({
-    # ComfyUI-Manager is a first-class dependency of this fork, not a facade
-    # package. Publishing a facade with the same normalized name shadows the
-    # real comfyui_manager distribution when uv resolves extra indexes.
-    "comfyui-manager",
-    # gguf is a PyPI runtime dependency imported by core ComfyUI code. The
-    # custom-node facade entry with this name vendors an unrelated node repo
-    # and breaks `import gguf` when it wins dependency resolution.
-    "gguf",
-})
+EXCLUDED_FACADE_PROJECT_NAMES: frozenset[str] = frozenset(
+    {
+        # ComfyUI-Manager is a first-class dependency of this fork, not a facade
+        # package. Publishing a facade with the same normalized name shadows the
+        # real comfyui_manager distribution when uv resolves extra indexes.
+        "comfyui-manager",
+        # gguf is a PyPI runtime dependency imported by core ComfyUI code. The
+        # custom-node facade entry with this name vendors an unrelated node repo
+        # and breaks `import gguf` when it wins dependency resolution.
+        "gguf",
+    }
+)
+EXCLUDED_FACADE_REPOSITORIES: frozenset[str] = frozenset(
+    {
+        # The Manager registry still advertises this repository, but GitHub has
+        # removed it.  Keeping it in the facade creates a project page whose only
+        # wheel fails to build with a 404.
+        "https://github.com/kayarte/geonodes",
+    }
+)
 
 
 def canonicalize_project_name(name: str) -> str:
@@ -55,6 +65,10 @@ def normalize_repo_url(url: str) -> str:
     scheme = parsed.scheme.lower() if parsed.scheme else "https"
     netloc = parsed.netloc.lower()
     return f"{scheme}://{netloc}{path.lower()}"
+
+
+def is_excluded_facade_repository(url: str) -> bool:
+    return normalize_repo_url(url) in EXCLUDED_FACADE_REPOSITORIES
 
 
 def repo_basename(url: str) -> str:
@@ -79,7 +93,9 @@ def _sort_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
             valid.append((Version(item.version), item))
         except Exception:
             invalid.append(item)
-    valid_sorted = [item for _, item in sorted(valid, key=lambda pair: pair[0], reverse=True)]
+    valid_sorted = [
+        item for _, item in sorted(valid, key=lambda pair: pair[0], reverse=True)
+    ]
     invalid_sorted = sorted(invalid, key=lambda item: item.version, reverse=True)
     return valid_sorted + invalid_sorted
 
@@ -87,14 +103,46 @@ def _sort_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
 def _is_pep440_version(version: str) -> bool:
     try:
         from packaging.version import Version
+
         Version(version)
         return True
     except Exception:
         return False
 
 
-def _filter_pep440_versions(versions: list["FacadeVersion"]) -> list["FacadeVersion"]:
-    return [item for item in versions if _is_pep440_version(item.version)]
+def _normalize_pep440_version(version: str) -> str | None:
+    if _is_pep440_version(version):
+        return version
+
+    # Comfy Registry contains a small number of otherwise conventional
+    # versions with a free-form suffix separated by a hyphen, for example
+    # ``2.0.0-inprogress``.  PEP 440 represents that information as a local
+    # version, so expose ``2.0.0+inprogress`` instead of silently dropping the
+    # newest release from the package index.
+    base, separator, suffix = version.partition("-")
+    if not separator or not _is_pep440_version(base):
+        return None
+    local = re.sub(r"[^A-Za-z0-9]+", ".", suffix).strip(".").lower()
+    if not local:
+        return None
+    normalized = f"{base}+{local}"
+    return normalized if _is_pep440_version(normalized) else None
+
+
+def _normalize_pep440_versions(
+    versions: list["FacadeVersion"],
+) -> list["FacadeVersion"]:
+    normalized: list[FacadeVersion] = []
+    seen: set[str] = set()
+    for item in versions:
+        version = _normalize_pep440_version(item.version)
+        if version is None or version in seen:
+            continue
+        seen.add(version)
+        normalized.append(
+            item if version == item.version else replace(item, version=version)
+        )
+    return normalized
 
 
 _MANAGER_REGISTRY_URL = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json"
@@ -110,14 +158,18 @@ def _load_bundled_manager_registry() -> list[dict[str, Any]]:
     return list(data.get("custom_nodes", ()))
 
 
-async def _load_manager_registry(session: aiohttp.ClientSession) -> list[dict[str, Any]]:
+async def _load_manager_registry(
+    session: aiohttp.ClientSession,
+) -> list[dict[str, Any]]:
     try:
         async with session.get(_MANAGER_REGISTRY_URL) as response:
             response.raise_for_status()
             data = await response.json(content_type=None)
             return list(data.get("custom_nodes", ()))
     except Exception:
-        logger.debug("Failed to fetch live custom-node-list.json, using bundled fallback")
+        logger.debug(
+            "Failed to fetch live custom-node-list.json, using bundled fallback"
+        )
         return _load_bundled_manager_registry()
 
 
@@ -159,20 +211,19 @@ class FacadeProject:
 
 
 class FacadeRegistryProtocol(Protocol):
-    async def list_projects(self) -> list["FacadeProject"]:
-        ...
+    async def list_projects(self) -> list["FacadeProject"]: ...
 
-    async def get_project(self, name: str) -> "FacadeProject | None":
-        ...
+    async def get_project(self, name: str) -> "FacadeProject | None": ...
 
-    async def list_versions(self, project: "FacadeProject | str") -> list["FacadeVersion"]:
-        ...
+    async def list_versions(
+        self, project: "FacadeProject | str"
+    ) -> list["FacadeVersion"]: ...
 
-    async def get_version(self, project: "FacadeProject | str", version: str) -> "FacadeVersion | None":
-        ...
+    async def get_version(
+        self, project: "FacadeProject | str", version: str
+    ) -> "FacadeVersion | None": ...
 
-    async def dependency_project_name(self, dependency_id: str) -> str:
-        ...
+    async def dependency_project_name(self, dependency_id: str) -> str: ...
 
 
 class SnapshotFacadeRegistry:
@@ -188,7 +239,9 @@ class SnapshotFacadeRegistry:
     def _file_path(self) -> str | None:
         if self._snapshot_uri.startswith("file://"):
             return self._snapshot_uri.removeprefix("file://")
-        if not self._snapshot_uri.startswith(("pkg://", "s3://", "http://", "https://")):
+        if not self._snapshot_uri.startswith(
+            ("pkg://", "s3://", "http://", "https://")
+        ):
             return self._snapshot_uri
         return None
 
@@ -235,13 +288,17 @@ class SnapshotFacadeRegistry:
         return None
 
     async def list_versions(self, project: FacadeProject | str) -> list[FacadeVersion]:
-        resolved = await self.get_project(project) if isinstance(project, str) else project
+        resolved = (
+            await self.get_project(project) if isinstance(project, str) else project
+        )
         if resolved is None:
             return []
         await self._ensure_loaded()
         return self._versions_cache.get(resolved.node_id, [])
 
-    async def get_version(self, project: FacadeProject | str, version: str) -> FacadeVersion | None:
+    async def get_version(
+        self, project: FacadeProject | str, version: str
+    ) -> FacadeVersion | None:
         for item in await self.list_versions(project):
             if item.version == version:
                 return item
@@ -257,7 +314,9 @@ class SnapshotFacadeRegistry:
     def _needs_decompression(path: str) -> bool:
         return path.endswith((".xz", ".gz", ".bz2", ".zst"))
 
-    def _load_all(self) -> tuple[list[FacadeProject], dict[str, str], dict[str, list[FacadeVersion]]]:
+    def _load_all(
+        self,
+    ) -> tuple[list[FacadeProject], dict[str, str], dict[str, list[FacadeVersion]]]:
         path = self._file_path()
         if path is not None and not self._needs_decompression(path):
             db_path = path
@@ -278,16 +337,24 @@ class SnapshotFacadeRegistry:
                         repo_name=row["repo_name"],
                         description=row["description"],
                         aliases=tuple(json.loads(row["aliases_json"])),
-                        extra_requirements=tuple(json.loads(row["extra_requirements_json"])),
-                        skip_requirements=frozenset(json.loads(row["skip_requirements_json"])),
+                        extra_requirements=tuple(
+                            json.loads(row["extra_requirements_json"])
+                        ),
+                        skip_requirements=frozenset(
+                            json.loads(row["skip_requirements_json"])
+                        ),
                         depends_on=tuple(json.loads(row["depends_on_json"])),
                         latest_version=row["latest_version"],
                     )
-                    for row in conn.execute("SELECT * FROM projects ORDER BY canonical_name")
+                    for row in conn.execute(
+                        "SELECT * FROM projects ORDER BY canonical_name"
+                    )
                     if row["canonical_name"] not in EXCLUDED_FACADE_PROJECT_NAMES
                 ]
                 raw_versions: dict[str, list[FacadeVersion]] = {}
-                for row in conn.execute("SELECT * FROM versions ORDER BY node_id, version"):
+                for row in conn.execute(
+                    "SELECT * FROM versions ORDER BY node_id, version"
+                ):
                     if row["node_id"] in EXCLUDED_FACADE_PROJECT_NAMES:
                         continue
                     raw_versions.setdefault(row["node_id"], []).append(
@@ -306,7 +373,7 @@ class SnapshotFacadeRegistry:
 
         versions_cache: dict[str, list[FacadeVersion]] = {}
         for node_id, versions in raw_versions.items():
-            filtered = _filter_pep440_versions(versions)
+            filtered = _normalize_pep440_versions(versions)
             if filtered:
                 versions_cache[node_id] = _sort_versions(filtered)
 
@@ -315,7 +382,9 @@ class SnapshotFacadeRegistry:
             if not any(p.canonical_name == rp.canonical_name for p in projects):
                 projects.append(rp)
         for node_id, rv in rewrite_versions.items():
-            versions_cache.setdefault(node_id, []).extend(rv)
+            versions_cache[node_id] = _sort_versions(
+                _normalize_pep440_versions([*versions_cache.get(node_id, ()), *rv])
+            )
 
         aliases = _build_alias_cache(projects)
         return projects, aliases, versions_cache
@@ -329,7 +398,9 @@ class SnapshotFacadeRegistry:
             temp_path = temp_file.name
 
         try:
-            with fsspec.open(self._snapshot_uri, mode="rb", compression="infer") as source:
+            with fsspec.open(
+                self._snapshot_uri, mode="rb", compression="infer"
+            ) as source:
                 with open(temp_path, "wb") as destination:
                     shutil.copyfileobj(source, destination)
         except Exception:
@@ -338,9 +409,12 @@ class SnapshotFacadeRegistry:
         return temp_path
 
 
-def _rewrite_projects_and_versions() -> tuple[list[FacadeProject], dict[str, list[FacadeVersion]]]:
+def _rewrite_projects_and_versions() -> tuple[
+    list[FacadeProject], dict[str, list[FacadeVersion]]
+]:
     """Build synthetic FacadeProject/FacadeVersion entries for PyPI rewrite packages."""
     from .builder import PYPI_REWRITE_PACKAGES
+
     projects: list[FacadeProject] = []
     versions: dict[str, list[FacadeVersion]] = {}
     for spec in PYPI_REWRITE_PACKAGES:
@@ -378,14 +452,14 @@ class _OverlayIndex:
             self._by_node_id[canonicalize_project_name(spec.node_id)] = spec
             self._by_repo[normalize_repo_url(spec.repo_url)] = spec
 
-    def match(self, node_id: str | None, repo_url: str, repo_name: str, title: str) -> CustomNodeSpec | None:
+    def match(
+        self, node_id: str | None, repo_url: str, repo_name: str, title: str
+    ) -> CustomNodeSpec | None:
         keys = []
         if node_id:
             keys.append(canonicalize_project_name(node_id))
         keys.extend(
-            canonicalize_project_name(value)
-            for value in (repo_name, title)
-            if value
+            canonicalize_project_name(value) for value in (repo_name, title) if value
         )
         for key in keys:
             spec = self._by_node_id.get(key)
@@ -409,6 +483,7 @@ class FacadeRegistry:
         self._project_cache: list[FacadeProject] | None = None
         self._alias_cache: dict[str, str] = {}
         self._versions_cache: dict[str, list[FacadeVersion]] = {}
+        self._manager_versions_by_repo: dict[str, list[FacadeVersion]] = {}
         self._projects_lock = asyncio.Lock()
         self._versions_lock = asyncio.Lock()
 
@@ -438,11 +513,18 @@ class FacadeRegistry:
         return None
 
     async def list_versions(self, project: FacadeProject | str) -> list[FacadeVersion]:
-        resolved = await self.get_project(project) if isinstance(project, str) else project
+        resolved = (
+            await self.get_project(project) if isinstance(project, str) else project
+        )
         if resolved is None:
             return []
         if resolved.node_id in self._versions_cache:
             return self._versions_cache[resolved.node_id]
+        manager_versions = self._manager_versions_by_repo.get(
+            normalize_repo_url(resolved.repo_url)
+        )
+        if manager_versions is not None:
+            return manager_versions
         async with self._versions_lock:
             if resolved.node_id in self._versions_cache:
                 return self._versions_cache[resolved.node_id]
@@ -470,10 +552,12 @@ class FacadeRegistry:
                     if item.get("version") and item.get("downloadUrl")
                 ]
                 dropped_versions = len(versions)
-                versions = _filter_pep440_versions(versions)
+                versions = _normalize_pep440_versions(versions)
                 dropped_versions -= len(versions)
                 if dropped_versions:
-                    span.set_attribute("facade.dropped_non_pep440_versions", dropped_versions)
+                    span.set_attribute(
+                        "facade.dropped_non_pep440_versions", dropped_versions
+                    )
             if not versions and resolved.repo_url:
                 fallback = self._fallback_version_from_repo(resolved)
                 if fallback is not None:
@@ -481,7 +565,9 @@ class FacadeRegistry:
             self._versions_cache[resolved.node_id] = _sort_versions(versions)
             return self._versions_cache[resolved.node_id]
 
-    async def get_version(self, project: FacadeProject | str, version: str) -> FacadeVersion | None:
+    async def get_version(
+        self, project: FacadeProject | str, version: str
+    ) -> FacadeVersion | None:
         for item in await self.list_versions(project):
             if item.version == version:
                 return item
@@ -511,6 +597,8 @@ class FacadeRegistry:
             repo_url = self._extract_repo_url(item)
             if repo_url is None:
                 continue
+            if is_excluded_facade_repository(repo_url):
+                continue
             if is_excluded_facade_project(repo_basename(repo_url)):
                 continue
             cnr = repo_to_cnr.get(normalize_repo_url(repo_url))
@@ -534,8 +622,6 @@ class FacadeRegistry:
                 project = self._build_project(item, cnr, spec.repo_url)
                 if project is not None:
                     projects_by_name.setdefault(project.canonical_name, project)
-                    if spec.inject_version is not None:
-                        self._seed_injected_version(spec, cnr["id"])
             elif spec.inject_version is not None:
                 project = self._build_injected_project(spec)
                 projects_by_name.setdefault(project.canonical_name, project)
@@ -548,7 +634,9 @@ class FacadeRegistry:
         for node_id, rv in rewrite_versions.items():
             self._versions_cache.setdefault(node_id, []).extend(rv)
 
-        projects = sorted(projects_by_name.values(), key=lambda project: project.canonical_name)
+        projects = sorted(
+            projects_by_name.values(), key=lambda project: project.canonical_name
+        )
         self._alias_cache = _build_alias_cache(projects)
         return projects
 
@@ -579,6 +667,10 @@ class FacadeRegistry:
                 continue
             if is_excluded_facade_project(node_id):
                 continue
+            if cnr.get("repository") and is_excluded_facade_repository(
+                cnr["repository"]
+            ):
+                continue
             if cnr.get("status") in ("NodeStatusBanned", "NodeStatusDeleted"):
                 continue
             project = self._build_cnr_only_project(cnr)
@@ -586,7 +678,9 @@ class FacadeRegistry:
             projects_by_name[project.canonical_name] = project
             represented_node_ids.add(canonical_id)
             if existing is not None:
-                self._rekey_displaced_project(projects_by_name, existing, project.canonical_name)
+                self._rekey_displaced_project(
+                    projects_by_name, existing, project.canonical_name
+                )
 
     @staticmethod
     def _rekey_displaced_project(
@@ -627,7 +721,11 @@ class FacadeRegistry:
             canonicalize_project_name(display_name),
         }
         latest = cnr.get("latest_version")
-        latest_version = latest.get("version") if isinstance(latest, dict) else None
+        latest_version = (
+            _normalize_pep440_version(latest.get("version", ""))
+            if isinstance(latest, dict)
+            else None
+        )
         return FacadeProject(
             canonical_name=canonical_name,
             display_name=display_name,
@@ -636,7 +734,9 @@ class FacadeRegistry:
             repo_name=repo_name,
             description=cnr.get("description") or "",
             aliases=tuple(sorted(aliases)),
-            extra_requirements=tuple(self._runtime_dependencies(None, node_id, repo_name)),
+            extra_requirements=tuple(
+                self._runtime_dependencies(None, node_id, repo_name)
+            ),
             skip_requirements=frozenset(CustomNodeManager.DEFAULT_SKIP),
             depends_on=(),
             latest_version=latest_version,
@@ -656,7 +756,9 @@ class FacadeRegistry:
                     "comfyui_version": "unknown",
                     "form_factor": self._form_factor(),
                 }
-                async with self._session.get(f"{self._base_url}/nodes", params=params) as response:
+                async with self._session.get(
+                    f"{self._base_url}/nodes", params=params
+                ) as response:
                     response.raise_for_status()
                     payload = await response.json()
                 total_pages = int(payload.get("totalPages", 1))
@@ -665,7 +767,9 @@ class FacadeRegistry:
             span.set_attribute("facade.cnr_node_count", len(nodes))
         return nodes
 
-    def _build_project(self, item: dict[str, Any], cnr: dict[str, Any], repo_url: str) -> FacadeProject | None:
+    def _build_project(
+        self, item: dict[str, Any], cnr: dict[str, Any], repo_url: str
+    ) -> FacadeProject | None:
         repo_name = repo_basename(repo_url)
         overlay = self._overlay_index.match(
             cnr.get("id"),
@@ -687,7 +791,9 @@ class FacadeRegistry:
         if title := item.get("title"):
             aliases.add(canonicalize_project_name(title))
 
-        extra_requirements = list(self._runtime_dependencies(overlay, cnr["id"], repo_name))
+        extra_requirements = list(
+            self._runtime_dependencies(overlay, cnr["id"], repo_name)
+        )
         skip_requirements = set(CustomNodeManager.DEFAULT_SKIP)
         depends_on: tuple[str, ...] = ()
         display_name = item.get("title") or cnr.get("name") or repo_name
@@ -710,7 +816,7 @@ class FacadeRegistry:
         latest_version = None
         latest = cnr.get("latest_version")
         if isinstance(latest, dict):
-            latest_version = latest.get("version")
+            latest_version = _normalize_pep440_version(latest.get("version", ""))
 
         return FacadeProject(
             canonical_name=canonical_name,
@@ -736,7 +842,9 @@ class FacadeRegistry:
         )
         self._versions_cache.setdefault(node_id, [version])
 
-    def _build_manager_only_project(self, item: dict[str, Any], repo_url: str) -> FacadeProject | None:
+    def _build_manager_only_project(
+        self, item: dict[str, Any], repo_url: str
+    ) -> FacadeProject | None:
         if self._only_known_nodes:
             return None
         repo_name = repo_basename(repo_url)
@@ -751,7 +859,7 @@ class FacadeRegistry:
             dependencies=(),
             deprecated=False,
         )
-        self._versions_cache[canonical_name] = [version]
+        self._manager_versions_by_repo[normalize_repo_url(repo_url)] = [version]
         return FacadeProject(
             canonical_name=canonical_name,
             display_name=display_name,
@@ -807,6 +915,7 @@ class FacadeRegistry:
             # GitLab's archive URL: encoded project ID-or-path + /archive.zip
             # The path-encoded form works without auth for public repos.
             import urllib.parse as _up
+
             encoded = _up.quote(path, safe="")
             r = ref or "HEAD"
             return f"https://gitlab.com/api/v4/projects/{encoded}/repository/archive.zip?sha={r}"
@@ -859,12 +968,14 @@ class FacadeRegistry:
             canonicalize_project_name(repo_name),
         }
         if overlay is not None:
-            keys.update({
-                overlay.node_id,
-                canonicalize_project_name(overlay.node_id),
-                overlay.display_name,
-                canonicalize_project_name(overlay.display_name),
-            })
+            keys.update(
+                {
+                    overlay.node_id,
+                    canonicalize_project_name(overlay.node_id),
+                    overlay.display_name,
+                    canonicalize_project_name(overlay.display_name),
+                }
+            )
 
         deps: list[str] = []
         for candidate, requirements in CUSTOM_NODE_RUNTIME_DEPS.items():

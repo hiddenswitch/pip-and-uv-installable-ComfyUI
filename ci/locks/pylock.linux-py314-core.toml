@@ -12,9 +12,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/a8/db/253133d7e7cb40d
 
 [[packages]]
 name = "aio-pika"
-version = "10.0.1"
-sdist = { url = "https://files.pythonhosted.org/packages/8f/7f/01f4ea7fe3490194420bb52e596b9619092ed13c5a230014b02075c3bd77/aio_pika-10.0.1.tar.gz", upload-time = 2026-07-09T13:31:35Z, size = 70882, hashes = { sha256 = "96ec3ef748ca7a25a9d2fa6e511c16c3ffcfa6b1f40ade79b8a5baabba682efd" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/65/3f/329d0e52f994349ff7449c714c242ad65f14586b0e205ca632ac817fda72/aio_pika-10.0.1-py3-none-any.whl", upload-time = 2026-07-09T13:31:33Z, size = 56332, hashes = { sha256 = "12120a3cf8022d2a8bc5dc89e716512a38bf742c24c5562f54764af27eec7edd" } }]
+version = "9.6.2"
+sdist = { url = "https://files.pythonhosted.org/packages/96/63/56354526f2e6e915c93bee6e4dedb35888fe82d6bc1a19f35f5a77e795ff/aio_pika-9.6.2.tar.gz", upload-time = 2026-03-22T19:03:20Z, size = 70851, hashes = { sha256 = "c49e9246080dc8ffa1bb0e4aca407bf3d8ad78c3ee3a93df88b68fe65d7a49b9" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/25/05/256fa313f48bed075056d13593b92ce804be05d75f4f312be24edb82860a/aio_pika-9.6.2-py3-none-any.whl", upload-time = 2026-03-22T19:03:19Z, size = 56269, hashes = { sha256 = "2a5478af920d169795071c9c09c7542cd8cdece60438cf7804533dcbcce93b7f" } }]
 
 [[packages]]
 name = "aiobotocore"
@@ -54,9 +54,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/10/a1/510b0a7fadc6f43
 
 [[packages]]
 name = "aiormq"
-version = "7.0.0"
-sdist = { url = "https://files.pythonhosted.org/packages/00/16/7e1c2bb887db6cbad191db9a1562e1cf5c0c61ad93f194ddc7baf5661f02/aiormq-7.0.0.tar.gz", upload-time = 2026-07-09T11:40:51Z, size = 49231, hashes = { sha256 = "f524121f1afbb875f50235b2748f81331e3be47542ee600e83c321c4e97ea168" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/53/88/8da3627882f6bd75f780f87e46d0b58da99332c1b71d038db7a127a80648/aiormq-7.0.0-py3-none-any.whl", upload-time = 2026-07-09T11:40:50Z, size = 32152, hashes = { sha256 = "df49bb2282e5374a28507c4c43948e8c8e5321590f2998781c2d90a34e100789" } }]
+version = "6.9.4"
+sdist = { url = "https://files.pythonhosted.org/packages/6c/0e/db90154d52d399108903fe603e5110a533c42065180265dd003788264080/aiormq-6.9.4.tar.gz", upload-time = 2026-03-23T09:18:19Z, size = 49232, hashes = { sha256 = "0e7c01b662804e1cc7ace9a17794e8c1192a27fc2afa96162362a6e61ae8e8ef" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/6c/48/1ce3773f392f02ceda37aee168fade9d725483a9592c202d06044cd093ff/aiormq-6.9.4-py3-none-any.whl", upload-time = 2026-03-23T09:18:17Z, size = 32166, hashes = { sha256 = "726a8586695e863fba68cf88842065ab12348c9438dcebdfc9d0bddaf6083277" } }]
 
 [[packages]]
 name = "aiosignal"
@@ -755,9 +755,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/37/b5/41c315ccd94ca33
 
 [[packages]]
 name = "openai"
-version = "3.5.0"
-sdist = { url = "https://files.pythonhosted.org/packages/3e/d3/50ffb9a7bce5097ffeb476905c0661f4468a3ca7bb489b152542f14fdd8e/openai-3.5.0.tar.gz", upload-time = 2026-08-27T01:00:49Z, size = 1355486, hashes = { sha256 = "743738bb458a586d0d02d173bf398d29d7d7a80d182d167aa74f1c08814ecc78" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/9d/9f/03bba05ade050f306c9b9e8b99e3681791dbb30148cd76a793c277fed494/openai-3.5.0-py3-none-any.whl", upload-time = 2026-08-27T01:00:47Z, size = 1697968, hashes = { sha256 = "7c0873d379655f65fa515c5692c8620e73bf6a6dce3e63f37589bc99bda3fdfd" } }]
+version = "3.6.0"
+sdist = { url = "https://files.pythonhosted.org/packages/ac/76/913b755a1a6b54e2d9140eb8d488aa0d47c7359b1d7eac5e864cb7913bbf/openai-3.6.0.tar.gz", upload-time = 2026-08-28T22:29:18Z, size = 1455376, hashes = { sha256 = "18fe3f6e96390ef41ee27b152fc9effefca321c33673bd9b956a572493d3ab9b" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/a1/94/805b87ecc951c49ec8f247f5e8eb324ab064bd2ad73b6a0e704dd49aa073/openai-3.6.0-py3-none-any.whl", upload-time = 2026-08-28T22:29:16Z, size = 1699841, hashes = { sha256 = "508e2158bf971687f953b62e44b02f207792c815aac306816386d7ba34d37f5f" } }]
 
 [[packages]]
 name = "opencv-contrib-python-headless"
@@ -905,9 +905,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9ead
 
 [[packages]]
 name = "pamqp"
-version = "4.0.1"
-sdist = { url = "https://files.pythonhosted.org/packages/31/4c/33a0ddaaac7bc42f9a542dbaaee8b580ceca3f89bf5da7c498d1fa97ff9a/pamqp-4.0.1.tar.gz", upload-time = 2026-07-06T16:37:51Z, size = 137192, hashes = { sha256 = "9dd13b828e346622793981f14a5df817fce5de998c746209d6c0154eb8403970" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/71/14/1dfc08b743ba995a38dee0ea09beb46a05c7fe8ac53d729095905f7bf11d/pamqp-4.0.1-py3-none-any.whl", upload-time = 2026-07-06T16:37:50Z, size = 32773, hashes = { sha256 = "a547f45128b06e42ce8d7a739b0cfcc40f2c724770622eaaff4a3f587b1cf7d0" } }]
+version = "3.3.0"
+sdist = { url = "https://files.pythonhosted.org/packages/fb/62/35bbd3d3021e008606cd0a9532db7850c65741bbf69ac8a3a0d8cfeb7934/pamqp-3.3.0.tar.gz", upload-time = 2024-01-12T20:37:25Z, size = 30993, hashes = { sha256 = "40b8795bd4efcf2b0f8821c1de83d12ca16d5760f4507836267fd7a02b06763b" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/ac/8d/c1e93296e109a320e508e38118cf7d1fc2a4d1c2ec64de78565b3c445eb5/pamqp-3.3.0-py2.py3-none-any.whl", upload-time = 2024-01-12T20:37:21Z, size = 33848, hashes = { sha256 = "c901a684794157ae39b52cbf700db8c9aae7a470f13528b9d7b4e5f7202f8eb0" } }]
 
 [[packages]]
 name = "pathlib-abc"

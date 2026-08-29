@@ -50,15 +50,19 @@ def _make_tar_gz_bytes(files: dict[str, bytes]) -> bytes:
 def test_sam2_proxy_removes_torch_only_from_isolated_build_requirements():
     proxy = PYPI_PROXY_INDEX["sam2"]
     assert isinstance(proxy, PyPISdistRewriteProxySpec)
-    source = _make_tar_gz_bytes({
-        "sam2-1.1.0/pyproject.toml": b"""[build-system]\nrequires = [\n    \"setuptools>=61.0\",\n    \"torch>=2.5.1\",\n]\nbuild-backend = \"setuptools.build_meta\"\n""",
-        "sam2-1.1.0/setup.py": b"REQUIRED_PACKAGES = ['torch>=2.5.1', 'torchvision>=0.20.1']\n",
-    })
+    source = _make_tar_gz_bytes(
+        {
+            "sam2-1.1.0/pyproject.toml": b"""[build-system]\nrequires = [\n    \"setuptools>=61.0\",\n    \"torch>=2.5.1\",\n]\nbuild-backend = \"setuptools.build_meta\"\n""",
+            "sam2-1.1.0/setup.py": b"REQUIRED_PACKAGES = ['torch>=2.5.1', 'torchvision>=0.20.1']\n",
+        }
+    )
 
     rewritten = proxy.rewrite_sdist(source)
 
     with tarfile.open(fileobj=io.BytesIO(rewritten), mode="r:gz") as archive:
-        pyproject = archive.extractfile("sam2-1.1.0/pyproject.toml").read().decode("utf-8")
+        pyproject = (
+            archive.extractfile("sam2-1.1.0/pyproject.toml").read().decode("utf-8")
+        )
         setup_py = archive.extractfile("sam2-1.1.0/setup.py").read().decode("utf-8")
     assert "torch" not in pyproject
     assert "setuptools>=61.0" in pyproject
@@ -73,7 +77,9 @@ from comfy.custom_node_facade.builder import _strip_url_dependency
 
 class _NoNetworkSession:
     def get(self, url: str):
-        raise AssertionError(f"Flash Attention proxy should not fetch at request time: {url}")
+        raise AssertionError(
+            f"Flash Attention proxy should not fetch at request time: {url}"
+        )
 
 
 _FLASH_ATTENTION_WHEEL_URLS = (
@@ -113,7 +119,10 @@ def fixture_seaweedfs_s3_endpoint():
 
 
 def test_strip_url_dependency_rewrites_sam2():
-    assert _strip_url_dependency("sam2 @ git+https://github.com/facebookresearch/sam2") == "sam2"
+    assert (
+        _strip_url_dependency("sam2 @ git+https://github.com/facebookresearch/sam2")
+        == "sam2"
+    )
 
 
 def test_strip_url_dependency_preserves_plain_requirement():
@@ -121,25 +130,39 @@ def test_strip_url_dependency_preserves_plain_requirement():
 
 
 def test_strip_url_dependency_preserves_extras_and_markers():
-    result = _strip_url_dependency("pkg[extra1] @ https://example.com/pkg.tar.gz ; python_version >= '3.10'")
+    result = _strip_url_dependency(
+        "pkg[extra1] @ https://example.com/pkg.tar.gz ; python_version >= '3.10'"
+    )
     assert result == 'pkg[extra1]; python_version >= "3.10"'
 
 
 async def test_flash_attention_proxy_filters_packages_by_cuda(monkeypatch):
-    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    monkeypatch.setattr(
+        flash_attention_wheels,
+        "FLASH_ATTENTION_WHEEL_URLS",
+        _FLASH_ATTENTION_WHEEL_URLS,
+    )
     session = _NoNetworkSession()
-    proxy = FlashAttentionProxySpec(name="flash-attn", wheel_project_prefix="flash_attn")
+    proxy = FlashAttentionProxySpec(
+        name="flash-attn", wheel_project_prefix="flash_attn"
+    )
 
     html = await proxy.render_index(session, "cu128")  # type: ignore[arg-type]
 
     assert "flash_attn-2.8.3+cu128torch2.8" in html
     assert "flash_attn-2.8.3+cu126torch2.8" not in html
     assert "flash_attn_3-3.0.0+cu128torch2.8" not in html
-    assert "github.com/mjun0812/flash-attention-prebuild-wheels/releases/download" in html
+    assert (
+        "github.com/mjun0812/flash-attention-prebuild-wheels/releases/download" in html
+    )
 
 
 async def test_flash_attention_3_proxy_filters_packages_by_distribution(monkeypatch):
-    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    monkeypatch.setattr(
+        flash_attention_wheels,
+        "FLASH_ATTENTION_WHEEL_URLS",
+        _FLASH_ATTENTION_WHEEL_URLS,
+    )
     session = _NoNetworkSession()
     proxy = FlashAttentionProxySpec(
         name="flash-attn-3",
@@ -155,7 +178,11 @@ async def test_flash_attention_3_proxy_filters_packages_by_distribution(monkeypa
 
 
 async def test_flash_attention_3_proxy_rejects_unsupported_cuda(monkeypatch):
-    monkeypatch.setattr(flash_attention_wheels, "FLASH_ATTENTION_WHEEL_URLS", _FLASH_ATTENTION_WHEEL_URLS)
+    monkeypatch.setattr(
+        flash_attention_wheels,
+        "FLASH_ATTENTION_WHEEL_URLS",
+        _FLASH_ATTENTION_WHEEL_URLS,
+    )
     session = _NoNetworkSession()
     proxy = FlashAttentionProxySpec(
         name="flash-attn-3",
@@ -170,22 +197,43 @@ async def test_flash_attention_3_proxy_rejects_unsupported_cuda(monkeypatch):
 
 def test_cuda_specific_proxy_support_matrix():
     expected = {
-        "flash-attn": {"cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132"},
+        "flash-attn": {
+            "cu118",
+            "cu121",
+            "cu124",
+            "cu126",
+            "cu128",
+            "cu129",
+            "cu130",
+            "cu131",
+            "cu132",
+        },
         "flash-attn-3": {"cu124", "cu126", "cu128", "cu129", "cu130", "cu132"},
         "sageattention": {"cu128", "cu130"},
         "nunchaku": {"cu128", "cu130"},
     }
-    checked_cuda_variants = {"cu118", "cu121", "cu124", "cu126", "cu128", "cu129", "cu130", "cu131", "cu132"}
+    checked_cuda_variants = {
+        "cu118",
+        "cu121",
+        "cu124",
+        "cu126",
+        "cu128",
+        "cu129",
+        "cu130",
+        "cu131",
+        "cu132",
+    }
 
     for project_name, supported_cuda_variants in expected.items():
         proxy = PYPI_PROXY_INDEX[project_name]
         assert {
-            cuda
-            for cuda in checked_cuda_variants
-            if proxy.supports_cuda(cuda)
+            cuda for cuda in checked_cuda_variants if proxy.supports_cuda(cuda)
         } == supported_cuda_variants
 
-    assert all(PYPI_PROXY_INDEX["insightface"].supports_cuda(cuda) for cuda in checked_cuda_variants)
+    assert all(
+        PYPI_PROXY_INDEX["insightface"].supports_cuda(cuda)
+        for cuda in checked_cuda_variants
+    )
 
 
 def test_triton_xpu_proxy_uses_pytorch_xpu_index():
@@ -193,7 +241,10 @@ def test_triton_xpu_proxy_uses_pytorch_xpu_index():
 
     assert isinstance(proxy, PyPIProxySpec)
     assert proxy.supports_cuda("cu130")
-    assert proxy.upstream_index_url("cu130") == "https://download.pytorch.org/whl/xpu/triton-xpu/"
+    assert (
+        proxy.upstream_index_url("cu130")
+        == "https://download.pytorch.org/whl/xpu/triton-xpu/"
+    )
 
 
 def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):
@@ -224,13 +275,19 @@ def test_url_dependency_stripped_from_wheel_metadata(tmp_path: Path):
         {"ComfyUI-Impact-Pack/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"}
     )
 
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
-    wheel_path = str(tmp_path / "comfyui-impact-pack" / "comfyui_impact_pack-8.28.2-py3-none-any.whl")
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
+    wheel_path = str(
+        tmp_path / "comfyui-impact-pack" / "comfyui_impact_pack-8.28.2-py3-none-any.whl"
+    )
 
     builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
 
     with zipfile.ZipFile(wheel_path) as wheel:
-        metadata = wheel.read("comfyui_impact_pack-8.28.2.dist-info/METADATA").decode("utf-8")
+        metadata = wheel.read("comfyui_impact_pack-8.28.2.dist-info/METADATA").decode(
+            "utf-8"
+        )
         assert "Requires-Dist: sam2" in metadata
         assert "git+https" not in metadata
         assert "Requires-Dist: segment-anything>=1.0" in metadata
@@ -264,7 +321,9 @@ def test_version_constraints_stripped_from_pinned_dependencies(tmp_path: Path):
         deprecated=False,
     )
     archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
     wheel_path = str(tmp_path / "test-node" / "test_node-1.0.0-py3-none-any.whl")
     builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
 
@@ -301,8 +360,12 @@ def test_onnxruntime_expanded_to_platform_variants(tmp_path: Path):
         deprecated=False,
     )
     archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
-    wheel_path = str(tmp_path / "test-onnx-node" / "test_onnx_node-1.0.0-py3-none-any.whl")
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
+    wheel_path = str(
+        tmp_path / "test-onnx-node" / "test_onnx_node-1.0.0-py3-none-any.whl"
+    )
     builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
 
     with zipfile.ZipFile(wheel_path) as wheel:
@@ -341,12 +404,18 @@ def test_pynvml_rewritten_to_nvidia_ml_py(tmp_path: Path):
         deprecated=False,
     )
     archive_bytes = _make_zip_bytes({"test/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"})
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
-    wheel_path = str(tmp_path / "test-pynvml-node" / "test_pynvml_node-1.0.0-py3-none-any.whl")
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
+    wheel_path = str(
+        tmp_path / "test-pynvml-node" / "test_pynvml_node-1.0.0-py3-none-any.whl"
+    )
     builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
 
     with zipfile.ZipFile(wheel_path) as wheel:
-        metadata = wheel.read("test_pynvml_node-1.0.0.dist-info/METADATA").decode("utf-8")
+        metadata = wheel.read("test_pynvml_node-1.0.0.dist-info/METADATA").decode(
+            "utf-8"
+        )
         assert "Requires-Dist: nvidia-ml-py" in metadata
         assert "Requires-Dist: pillow" in metadata
         bare = [l for l in metadata.splitlines() if l == "Requires-Dist: pynvml"]
@@ -377,7 +446,10 @@ def test_injected_project_has_github_archive_version():
     versions = registry._versions_cache["test-injected-node"]
     assert len(versions) == 1
     assert versions[0].version == "0.1.0"
-    assert versions[0].download_url == "https://api.github.com/repos/TestOrg/TestRepo/zipball/main"
+    assert (
+        versions[0].download_url
+        == "https://api.github.com/repos/TestOrg/TestRepo/zipball/main"
+    )
 
 
 async def test_int8_fast_is_served_as_injected_facade_project(monkeypatch):
@@ -390,7 +462,9 @@ async def test_int8_fast_is_served_as_injected_facade_project(monkeypatch):
     async def empty_cnr_nodes(_self):
         return []
 
-    monkeypatch.setattr(registry_module, "_load_manager_registry", empty_manager_registry)
+    monkeypatch.setattr(
+        registry_module, "_load_manager_registry", empty_manager_registry
+    )
     monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", empty_cnr_nodes)
 
     registry = FacadeRegistry(session=None, only_known_nodes=True)  # type: ignore[arg-type]
@@ -404,22 +478,33 @@ async def test_int8_fast_is_served_as_injected_facade_project(monkeypatch):
     versions = await registry.list_versions(project)
     assert len(versions) == 1
     assert versions[0].version == "0.1.0"
-    assert versions[0].download_url == "https://api.github.com/repos/BobJohnson24/ComfyUI-INT8-Fast/zipball"
+    assert (
+        versions[0].download_url
+        == "https://api.github.com/repos/BobJohnson24/ComfyUI-INT8-Fast/zipball"
+    )
 
 
 def test_github_archive_url_uses_zipball_for_default_branch():
     from comfy.custom_node_facade.registry import FacadeRegistry
 
     # No ref: uses zipball endpoint that resolves to the repo's default branch
-    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo")
+    url = FacadeRegistry._github_archive_url(
+        "https://github.com/Lightricks/ComfyUI-LTXVideo"
+    )
     assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball"
 
     # Explicit ref: uses zipball with that ref
-    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo", "master")
-    assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball/master"
+    url = FacadeRegistry._github_archive_url(
+        "https://github.com/Lightricks/ComfyUI-LTXVideo", "master"
+    )
+    assert (
+        url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball/master"
+    )
 
     # Strips trailing .git
-    url = FacadeRegistry._github_archive_url("https://github.com/Lightricks/ComfyUI-LTXVideo.git")
+    url = FacadeRegistry._github_archive_url(
+        "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+    )
     assert url == "https://api.github.com/repos/Lightricks/ComfyUI-LTXVideo/zipball"
 
 
@@ -460,7 +545,12 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
     version = FacadeVersion(
         version="3.3.3",
         download_url="https://example.invalid/node.zip",
-        dependencies=("requests>=2", "torch", "numpy<2", "opencv-python-headless==4.7.0.72"),
+        dependencies=(
+            "requests>=2",
+            "torch",
+            "numpy<2",
+            "opencv-python-headless==4.7.0.72",
+        ),
         deprecated=False,
     )
     archive_bytes = _make_zip_bytes(
@@ -470,8 +560,14 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
         }
     )
 
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
-    wheel_path = str(tmp_path / "comfyui-wanvideowrapper" / "comfyui_wanvideowrapper-3.3.3-py3-none-any.whl")
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
+    wheel_path = str(
+        tmp_path
+        / "comfyui-wanvideowrapper"
+        / "comfyui_wanvideowrapper-3.3.3-py3-none-any.whl"
+    )
 
     built_path = builder._build_wheel_from_archive(
         project,
@@ -488,7 +584,10 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
     with zipfile.ZipFile(wheel_path) as wheel:
         names = set(wheel.namelist())
         assert "_appmana_facade_comfyui_wanvideowrapper/entrypoint.py" in names
-        assert "_appmana_facade_comfyui_wanvideowrapper/_vendor/ComfyUI-WanVideoWrapper/__init__.py" in names
+        assert (
+            "_appmana_facade_comfyui_wanvideowrapper/_vendor/ComfyUI-WanVideoWrapper/__init__.py"
+            in names
+        )
 
         metadata_name = "comfyui_wanvideowrapper-3.3.3.dist-info/METADATA"
         entry_points_name = "comfyui_wanvideowrapper-3.3.3.dist-info/entry_points.txt"
@@ -507,9 +606,14 @@ def test_build_wheel_from_archive_injects_entrypoint_and_metadata(tmp_path: Path
 
         entry_points = wheel.read(entry_points_name).decode("utf-8")
         assert "[comfyui.custom_nodes]" in entry_points
-        assert "comfyui-wanvideowrapper = _appmana_facade_comfyui_wanvideowrapper.entrypoint" in entry_points
+        assert (
+            "comfyui-wanvideowrapper = _appmana_facade_comfyui_wanvideowrapper.entrypoint"
+            in entry_points
+        )
 
-        entrypoint_module = wheel.read("_appmana_facade_comfyui_wanvideowrapper/entrypoint.py").decode("utf-8")
+        entrypoint_module = wheel.read(
+            "_appmana_facade_comfyui_wanvideowrapper/entrypoint.py"
+        ).decode("utf-8")
         assert "COMFYUI_VANILLA_NODE_PATHS" in entrypoint_module
 
 
@@ -537,7 +641,9 @@ def test_build_wheel_to_memory_fs_prefix(tmp_path: Path):
         {"ComfyUI-Custom-Scripts/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"}
     )
 
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix="memory://facade-cache")  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix="memory://facade-cache"
+    )  # type: ignore[arg-type]
     wheel = builder._build_wheel_from_archive(
         project,
         version,
@@ -549,11 +655,15 @@ def test_build_wheel_to_memory_fs_prefix(tmp_path: Path):
     assert wheel.local_path is None
     payload = builder._cache.read_bytes(wheel.cache_path)  # type: ignore[attr-defined]
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-        assert "_appmana_facade_comfyui_custom_scripts/entrypoint.py" in archive.namelist()
+        assert (
+            "_appmana_facade_comfyui_custom_scripts/entrypoint.py" in archive.namelist()
+        )
 
 
 def test_facade_cache_store_handles_windows_local_parent(tmp_path: Path):
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
     cache = builder._cache  # type: ignore[attr-defined]
 
     windows_style_path = str(tmp_path / "facade" / "wheel.whl").replace("/", "\\")
@@ -566,7 +676,9 @@ def test_facade_cache_store_filesystem_copy_from_installs_complete_file(tmp_path
     destination is always one complete source, never a mixture or truncation."""
     import threading
 
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
     cache = builder._cache  # type: ignore[attr-defined]
 
     size = 2 * 1024 * 1024
@@ -581,7 +693,8 @@ def test_facade_cache_store_filesystem_copy_from_installs_complete_file(tmp_path
         sources.append(str(src))
 
     dest = cache.wheel_path(  # a realistic nested cache path
-        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"),
+        "comfyui_kjnodes-1.4.7-py3-none-any.whl",
     )
 
     barrier = threading.Barrier(workers)
@@ -599,7 +712,9 @@ def test_facade_cache_store_filesystem_copy_from_installs_complete_file(tmp_path
     data = Path(dest).read_bytes()
     assert len(data) == size, f"truncated/torn write: {len(data)} != {size}"
     distinct = set(data)
-    assert len(distinct) == 1, f"interleaved write: destination mixes {len(distinct)} byte values"
+    assert len(distinct) == 1, (
+        f"interleaved write: destination mixes {len(distinct)} byte values"
+    )
     assert (distinct.pop() - 1) in range(workers)
 
     # No temp siblings left behind after a clean run.
@@ -608,19 +723,29 @@ def test_facade_cache_store_filesystem_copy_from_installs_complete_file(tmp_path
 
 
 def test_facade_cache_store_write_bytes_is_atomic(tmp_path: Path):
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
     cache = builder._cache  # type: ignore[attr-defined]
 
-    dest = cache.custom_path("triton", "cu130", "triton-3.7.0-cp312-cp312-win_amd64.whl")
+    dest = cache.custom_path(
+        "triton", "cu130", "triton-3.7.0-cp312-cp312-win_amd64.whl"
+    )
     cache.write_bytes(dest, b"PK\x03\x04payload")
     assert Path(dest).read_bytes() == b"PK\x03\x04payload"
     assert list(Path(dest).parent.glob(".facade-*.tmp")) == []
 
 
-def test_facade_cache_store_object_cache_writes_final_key_without_rename(tmp_path: Path, monkeypatch):
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix="memory://facade-object-cache")  # type: ignore[arg-type]
+def test_facade_cache_store_object_cache_writes_final_key_without_rename(
+    tmp_path: Path, monkeypatch
+):
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix="memory://facade-object-cache"
+    )  # type: ignore[arg-type]
     cache = builder._cache  # type: ignore[attr-defined]
-    cache._is_object_cache = True  # exercise S3-style object-store behavior without s3fs
+    cache._is_object_cache = (
+        True  # exercise S3-style object-store behavior without s3fs
+    )
 
     def fail_mv(*_args, **_kwargs):
         raise AssertionError("object cache writes must not rename or move temp objects")
@@ -630,7 +755,8 @@ def test_facade_cache_store_object_cache_writes_final_key_without_rename(tmp_pat
     source = tmp_path / "source.whl"
     source.write_bytes(b"PK\x03\x04wheel")
     dest = cache.wheel_path(
-        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"),
+        "comfyui_kjnodes-1.4.7-py3-none-any.whl",
     )
 
     cache.copy_from(str(source), dest)
@@ -656,7 +782,9 @@ def test_facade_cache_store_seaweedfs_s3_concurrent_puts_publish_complete_object
         "client_kwargs": {"endpoint_url": seaweedfs_s3_endpoint},
     }
     s3fs.S3FileSystem(**storage_options).mkdir(bucket)
-    cache = FacadeCacheStore(f"s3://{bucket}/pip-facade", storage_options=storage_options)
+    cache = FacadeCacheStore(
+        f"s3://{bucket}/pip-facade", storage_options=storage_options
+    )
 
     size = 1024 * 1024
     workers = 8
@@ -667,7 +795,8 @@ def test_facade_cache_store_seaweedfs_s3_concurrent_puts_publish_complete_object
         sources.append(source)
 
     dest = cache.wheel_path(
-        types.SimpleNamespace(canonical_name="comfyui-kjnodes"), "comfyui_kjnodes-1.4.7-py3-none-any.whl"
+        types.SimpleNamespace(canonical_name="comfyui-kjnodes"),
+        "comfyui_kjnodes-1.4.7-py3-none-any.whl",
     )
 
     for _ in range(3):
@@ -694,7 +823,10 @@ def test_stamp_relative_python_modules_uses_class_module():
 
     _stamp_relative_python_modules({"ExampleNode": ExampleNode})
 
-    assert getattr(ExampleNode, "RELATIVE_PYTHON_MODULE", None) == "vendor.custom_scripts.nodes"
+    assert (
+        getattr(ExampleNode, "RELATIVE_PYTHON_MODULE", None)
+        == "vendor.custom_scripts.nodes"
+    )
 
 
 def test_node_info_python_module_falls_back_to_class_module():
@@ -745,7 +877,9 @@ async def test_cnr_only_node_becomes_facade_project(monkeypatch):
             },
         ]
 
-    monkeypatch.setattr(registry_module, "_load_manager_registry", empty_manager_registry)
+    monkeypatch.setattr(
+        registry_module, "_load_manager_registry", empty_manager_registry
+    )
     monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", cnr_nodes)
 
     registry = FacadeRegistry(session=None)  # type: ignore[arg-type]
@@ -754,7 +888,10 @@ async def test_cnr_only_node_becomes_facade_project(monkeypatch):
     assert project is not None
     assert project.canonical_name == "qwen-whitebg-detector"
     assert project.node_id == "qwen-whitebg-detector"
-    assert project.repo_url == "https://github.com/Holonica-Development-Team/QwenWhiteBgDetector"
+    assert (
+        project.repo_url
+        == "https://github.com/Holonica-Development-Team/QwenWhiteBgDetector"
+    )
     assert project.latest_version == "1.0.0"
     assert "qwenwhitebgdetector" in project.aliases
 
@@ -762,7 +899,9 @@ async def test_cnr_only_node_becomes_facade_project(monkeypatch):
     assert await registry.get_project("gguf") is None
 
 
-async def test_registry_id_wins_name_collision_and_displaced_project_rekeys(monkeypatch):
+async def test_registry_id_wins_name_collision_and_displaced_project_rekeys(
+    monkeypatch,
+):
     from comfy.custom_node_facade import registry as registry_module
     from comfy.custom_node_facade.registry import FacadeRegistry
 
@@ -810,6 +949,76 @@ async def test_registry_id_wins_name_collision_and_displaced_project_rekeys(monk
     assert displaced.repo_url == "https://github.com/smthemex/ComfyUI_LongCat_Avatar"
     assert displaced.node_id == "longcat_avatar"
     assert "comfyui-longcat-avatar" not in displaced.aliases
+
+
+async def test_manager_fallback_does_not_poison_registry_owner_versions(monkeypatch):
+    """A stale Manager repo with the same basename must not replace versions
+    belonging to the authoritative Comfy Registry project."""
+    from comfy.custom_node_facade import registry as registry_module
+    from comfy.custom_node_facade.registry import FacadeRegistry
+
+    async def manager_registry(_session):
+        return [
+            {
+                "title": "ComfyUI BAGEL",
+                "reference": "https://github.com/neverbiasu/ComfyUI-BAGEL",
+                "description": "authoritative",
+            },
+            {
+                "title": "Old ComfyUI BAGEL fork",
+                "reference": "https://github.com/Yuan-ManX/ComfyUI_Bagel",
+                "description": "stale manager-only collision",
+            },
+        ]
+
+    async def cnr_nodes(_self):
+        return [
+            {
+                "id": "comfyui-bagel",
+                "name": "ComfyUI-BAGEL",
+                "repository": "https://github.com/neverbiasu/ComfyUI-BAGEL",
+                "status": "NodeStatusActive",
+                "latest_version": {"version": "1.1.0"},
+            }
+        ]
+
+    class _VersionsResponse:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        async def json(self):
+            return [
+                {
+                    "version": "1.1.0",
+                    "downloadUrl": "https://cdn.comfy.org/faych/comfyui-bagel/1.1.0/node.zip",
+                    "dependencies": [],
+                    "deprecated": False,
+                }
+            ]
+
+    class _VersionsSession:
+        def get(self, url, params=None):
+            assert url.endswith("/nodes/comfyui-bagel/versions")
+            assert params is not None
+            return _VersionsResponse()
+
+    monkeypatch.setattr(registry_module, "_load_manager_registry", manager_registry)
+    monkeypatch.setattr(FacadeRegistry, "_fetch_cnr_nodes", cnr_nodes)
+
+    registry = FacadeRegistry(session=_VersionsSession())  # type: ignore[arg-type]
+    project = await registry.get_project("comfyui-bagel")
+    assert project is not None
+    assert project.repo_url == "https://github.com/neverbiasu/ComfyUI-BAGEL"
+
+    versions = await registry.list_versions(project)
+    assert [item.version for item in versions] == ["1.1.0"]
+    assert "Yuan-ManX" not in versions[0].download_url
 
 
 async def test_manager_only_gitlab_project_served(monkeypatch):
@@ -868,14 +1077,18 @@ def test_gguf_stripped_from_wheel_metadata(tmp_path: Path):
         {"ComfyUI-GGUF/__init__.py": b"NODE_CLASS_MAPPINGS = {}\n"}
     )
 
-    builder = FacadeWheelBuilder(session=None, registry=None, cache_prefix=str(tmp_path))  # type: ignore[arg-type]
+    builder = FacadeWheelBuilder(
+        session=None, registry=None, cache_prefix=str(tmp_path)
+    )  # type: ignore[arg-type]
     wheel_path = str(tmp_path / "comfyui-gguf" / "comfyui_gguf-1.1.7-py3-none-any.whl")
 
     builder._build_wheel_from_archive(project, version, archive_bytes, wheel_path, [])
 
     with zipfile.ZipFile(wheel_path) as wheel:
         metadata = wheel.read("comfyui_gguf-1.1.7.dist-info/METADATA").decode("utf-8")
-        requires = [line for line in metadata.splitlines() if line.startswith("Requires-Dist:")]
+        requires = [
+            line for line in metadata.splitlines() if line.startswith("Requires-Dist:")
+        ]
         assert requires == ["Requires-Dist: sentencepiece"]
 
 
@@ -905,34 +1118,58 @@ class _GithubSession:
         self._obj = obj
         self.last_headers = None
         self.last_url = None
+        self.calls = 0
 
     def get(self, url, headers=None):
+        self.calls += 1
         self.last_url = url
         self.last_headers = headers
         return _GithubResp(self._obj)
 
 
 async def test_comfyui_proxy_lists_release_wheels():
-    from comfy.custom_node_facade.builder import GithubReleaseWheelProxySpec, PYPI_PROXY_INDEX
+    from comfy.custom_node_facade.builder import (
+        GithubReleaseWheelProxySpec,
+        PYPI_PROXY_INDEX,
+        _GITHUB_RELEASE_INDEX_CACHE,
+        _GITHUB_RELEASE_INDEX_LOCKS,
+    )
+
+    _GITHUB_RELEASE_INDEX_CACHE.clear()
+    _GITHUB_RELEASE_INDEX_LOCKS.clear()
 
     # registered as a default proxy project
     assert "comfyui" in PYPI_PROXY_INDEX
 
     releases = [
-        {"assets": [
-            {"name": "comfyui-0.24.0.4-py3-none-any.whl",
-             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4-py3-none-any.whl"},
-            {"name": "comfyui-0.24.0.4.tar.gz",
-             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4.tar.gz"},
-            {"name": "some-other-thing.zip",
-             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/some-other-thing.zip"},
-        ]},
-        {"assets": [
-            {"name": "comfyui-0.24.0.3-py3-none-any.whl",
-             "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.3/comfyui-0.24.0.3-py3-none-any.whl"},
-        ]},
+        {
+            "assets": [
+                {
+                    "name": "comfyui-0.24.0.4-py3-none-any.whl",
+                    "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4-py3-none-any.whl",
+                },
+                {
+                    "name": "comfyui-0.24.0.4.tar.gz",
+                    "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/comfyui-0.24.0.4.tar.gz",
+                },
+                {
+                    "name": "some-other-thing.zip",
+                    "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.4/some-other-thing.zip",
+                },
+            ]
+        },
+        {
+            "assets": [
+                {
+                    "name": "comfyui-0.24.0.3-py3-none-any.whl",
+                    "browser_download_url": "https://github.com/o/r/releases/download/v0.24.0.3/comfyui-0.24.0.3-py3-none-any.whl",
+                },
+            ]
+        },
     ]
-    proxy = GithubReleaseWheelProxySpec(name="comfyui", repo="o/r", asset_prefix="comfyui-")
+    proxy = GithubReleaseWheelProxySpec(
+        name="comfyui", repo="o/r", asset_prefix="comfyui-"
+    )
     session = _GithubSession(releases)
 
     # CUDA-agnostic: in every plain index, not the flash-attn torch indexes
@@ -940,6 +1177,7 @@ async def test_comfyui_proxy_lists_release_wheels():
     assert not proxy.supports_cuda("cu130torch2.12")
 
     body = await proxy.render_index(session, "cu130")
+    cached_body = await proxy.render_index(session, "cu128")
     assert "comfyui-0.24.0.4-py3-none-any.whl" in body
     assert "comfyui-0.24.0.4.tar.gz" in body
     assert "comfyui-0.24.0.3-py3-none-any.whl" in body
@@ -947,6 +1185,8 @@ async def test_comfyui_proxy_lists_release_wheels():
     assert "some-other-thing.zip" not in body
     # queries the configured repo
     assert "/repos/o/r/releases" in session.last_url
+    assert cached_body == body
+    assert session.calls == 1
 
 
 async def test_manager_name_collision_resolves_to_registry_owner(monkeypatch):

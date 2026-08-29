@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import lzma
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -19,6 +20,7 @@ from .registry import (
     FacadeProject,
     FacadeRegistry,
     FacadeVersion,
+    SnapshotFacadeRegistry,
     canonicalize_project_name,
     is_excluded_facade_project,
     normalize_repo_url,
@@ -61,6 +63,7 @@ async def _load_class_type_to_repo(session: aiohttp.ClientSession) -> dict[str, 
     except Exception:
         logger.debug("Failed to fetch live extension-node-map, using bundled fallback")
         from importlib.resources import files as resource_files
+
         path = resource_files("comfyui_manager").joinpath("extension-node-map.json")
         data = json.loads(path.read_text(encoding="utf-8"))
         return _parse_extension_node_map(data)
@@ -76,7 +79,9 @@ def _build_class_type_rows(
     repo_to_canonical: dict[str, str] = {}
     for project in projects:
         if project.repo_url:
-            repo_to_canonical[normalize_repo_url(project.repo_url)] = project.canonical_name
+            repo_to_canonical[normalize_repo_url(project.repo_url)] = (
+                project.canonical_name
+            )
 
     rows: list[tuple[str, str]] = []
     for class_type, repo_url in class_type_to_repo.items():
@@ -206,7 +211,9 @@ def _write_snapshot_sqlite(
             ("project_count", str(len(projects))),
             ("version_count", str(len(version_rows))),
         ]
-        connection.executemany("INSERT INTO metadata (key, value) VALUES (?, ?)", metadata_rows)
+        connection.executemany(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)", metadata_rows
+        )
         connection.commit()
         connection.execute("VACUUM")
     finally:
@@ -241,11 +248,25 @@ def write_facade_registry_snapshot(
             base_url=base_url,
             only_known_nodes=only_known_nodes,
         )
-        if resolved_compression == "xz":
-            with sqlite_path.open("rb") as source, lzma.open(destination, "wb", preset=9) as compressed:
-                shutil.copyfileobj(source, compressed)
-        else:
-            shutil.copyfile(sqlite_path, destination)
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as staged_file:
+            staged_path = Path(staged_file.name)
+        try:
+            if resolved_compression == "xz":
+                with (
+                    sqlite_path.open("rb") as source,
+                    lzma.open(staged_path, "wb", preset=9) as compressed,
+                ):
+                    shutil.copyfileobj(source, compressed)
+            else:
+                shutil.copyfile(sqlite_path, staged_path)
+            os.replace(staged_path, destination)
+        finally:
+            staged_path.unlink(missing_ok=True)
     return destination
 
 
@@ -256,16 +277,28 @@ async def snapshot_facade_registry(configuration: Configuration) -> Path:
 
     timeout = aiohttp.ClientTimeout(total=10 * 60.0, connect=60.0)
     async with aiohttp.ClientSession(timeout=timeout) as session:
+        previous = await _load_previous_snapshot(Path(output_path))
         registry = FacadeRegistry(
             session,
             base_url=configuration.pip_facade_registry_base_url,
             only_known_nodes=configuration.pip_facade_only_known_nodes,
         )
         with tracer.start_as_current_span("Snapshot Facade Registry") as span:
-            span.set_attribute("facade.registry_base_url", configuration.pip_facade_registry_base_url)
-            span.set_attribute("facade.only_known_nodes", configuration.pip_facade_only_known_nodes)
+            span.set_attribute(
+                "facade.registry_base_url", configuration.pip_facade_registry_base_url
+            )
+            span.set_attribute(
+                "facade.only_known_nodes", configuration.pip_facade_only_known_nodes
+            )
             projects = await registry.list_projects()
-            versions_by_node_id = await _collect_versions(registry, projects)
+            versions_by_node_id = await _collect_versions(
+                registry, projects, previous=previous
+            )
+            projects = _validated_installable_projects(projects, versions_by_node_id)
+            versions_by_node_id = {
+                project.node_id: versions_by_node_id[project.node_id]
+                for project in projects
+            }
             class_type_to_repo = await _load_class_type_to_repo(session)
             class_type_rows = _build_class_type_rows(projects, class_type_to_repo)
             span.set_attribute("facade.class_type_count", len(class_type_rows))
@@ -281,24 +314,107 @@ async def snapshot_facade_registry(configuration: Configuration) -> Path:
                 overwrite=configuration.pip_facade_snapshot_overwrite,
             )
             span.set_attribute("facade.project_count", len(projects))
-            span.set_attribute("facade.version_count", sum(len(items) for items in versions_by_node_id.values()))
+            span.set_attribute(
+                "facade.version_count",
+                sum(len(items) for items in versions_by_node_id.values()),
+            )
             span.set_attribute("facade.snapshot_path", str(snapshot_path))
             return snapshot_path
+
+
+def _validated_installable_projects(
+    projects: list[FacadeProject],
+    versions_by_node_id: dict[str, list[FacadeVersion]],
+) -> list[FacadeProject]:
+    missing_latest = [
+        project
+        for project in projects
+        if project.latest_version is not None
+        and not any(
+            version.version == project.latest_version
+            for version in versions_by_node_id.get(project.node_id, ())
+        )
+    ]
+    if missing_latest:
+        details = ", ".join(
+            f"{project.canonical_name}={project.latest_version}"
+            for project in missing_latest[:20]
+        )
+        raise RuntimeError(f"Snapshot omitted declared latest version(s): {details}")
+
+    unavailable = [
+        project.canonical_name
+        for project in projects
+        if not versions_by_node_id.get(project.node_id)
+    ]
+    if unavailable:
+        logger.warning(
+            "Omitting %d facade projects without installable versions: %s",
+            len(unavailable),
+            ", ".join(unavailable[:20]),
+        )
+    return [project for project in projects if versions_by_node_id.get(project.node_id)]
 
 
 async def _collect_versions(
     registry: FacadeRegistry,
     projects: list[FacadeProject],
+    *,
+    previous: dict[tuple[str, str], tuple[str | None, list[FacadeVersion]]]
+    | None = None,
 ) -> dict[str, list[FacadeVersion]]:
     semaphore = asyncio.Semaphore(12)
+    previous = previous or {}
 
     async def load(project: FacadeProject) -> tuple[str, list[FacadeVersion]]:
+        previous_project = previous.get(
+            (project.node_id, normalize_repo_url(project.repo_url))
+        )
+        if previous_project is not None:
+            previous_latest, previous_versions = previous_project
+            has_latest = project.latest_version is None or any(
+                version.version == project.latest_version
+                for version in previous_versions
+            )
+            if (
+                previous_latest == project.latest_version
+                and previous_versions
+                and has_latest
+            ):
+                return project.node_id, previous_versions
         async with semaphore:
             try:
                 return project.node_id, await registry.list_versions(project)
             except Exception:
-                logger.warning("Failed to list versions for %s, omitting from snapshot", project.node_id, exc_info=True)
+                logger.warning(
+                    "Failed to list versions for %s, omitting from snapshot",
+                    project.node_id,
+                    exc_info=True,
+                )
                 return project.node_id, []
 
     results = await asyncio.gather(*(load(project) for project in projects))
     return dict(results)
+
+
+async def _load_previous_snapshot(
+    output_path: Path,
+) -> dict[tuple[str, str], tuple[str | None, list[FacadeVersion]]]:
+    if not output_path.exists():
+        return {}
+    try:
+        registry = SnapshotFacadeRegistry(snapshot_uri=str(output_path))
+        projects = await registry.list_projects()
+        return {
+            (project.node_id, normalize_repo_url(project.repo_url)): (
+                project.latest_version,
+                await registry.list_versions(project),
+            )
+            for project in projects
+        }
+    except Exception:
+        logger.warning(
+            "Could not reuse previous facade snapshot; performing a full refresh",
+            exc_info=True,
+        )
+        return {}
