@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import lzma
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -192,6 +193,71 @@ async def test_snapshot_registry_reads_plain_sqlite(tmp_path: Path):
     assert project.canonical_name in [item.canonical_name for item in projects]
     loaded_version = await registry.get_version(project.canonical_name, version.version)
     assert loaded_version == version
+
+
+async def test_snapshot_registry_retries_replacement_during_load(
+    tmp_path: Path, monkeypatch
+):
+    output = tmp_path / "registry.sqlite"
+    old_project = _sample_project()
+    old_version = _sample_version()
+    write_facade_registry_snapshot(
+        output,
+        projects=[old_project],
+        versions_by_node_id={old_project.node_id: [old_version]},
+        base_url="https://registry.example.invalid",
+        only_known_nodes=True,
+    )
+
+    new_project = FacadeProject(
+        canonical_name="new-project",
+        display_name="New Project",
+        node_id="new-project",
+        repo_url="https://github.com/example/new-project",
+        repo_name="new-project",
+        description="New snapshot generation",
+        aliases=("new-project",),
+        extra_requirements=(),
+        skip_requirements=frozenset(),
+        depends_on=(),
+        latest_version="2.0.0",
+    )
+    new_version = FacadeVersion(
+        version="2.0.0",
+        download_url="https://example.invalid/new-project.zip",
+        dependencies=(),
+        deprecated=False,
+    )
+    replacement = tmp_path / "replacement.sqlite"
+    write_facade_registry_snapshot(
+        replacement,
+        projects=[new_project],
+        versions_by_node_id={new_project.node_id: [new_version]},
+        base_url="https://registry.example.invalid",
+        only_known_nodes=True,
+    )
+
+    registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
+    original_load = registry._load_all  # pylint: disable=protected-access
+    load_count = 0
+
+    def replace_after_first_load():
+        nonlocal load_count
+        loaded = original_load()
+        load_count += 1
+        if load_count == 1:
+            os.replace(replacement, output)
+        return loaded
+
+    monkeypatch.setattr(registry, "_load_all", replace_after_first_load)
+
+    projects = await registry.list_projects()
+
+    assert load_count == 2
+    project_names = {project.canonical_name for project in projects}
+    assert "new-project" in project_names
+    assert old_project.canonical_name not in project_names
+    assert await registry.get_version("new-project", "2.0.0") == new_version
 
 
 async def test_snapshot_registry_reads_pkg_xz_uri(tmp_path: Path, monkeypatch):

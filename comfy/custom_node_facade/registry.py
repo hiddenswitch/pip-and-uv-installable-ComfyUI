@@ -234,7 +234,7 @@ class SnapshotFacadeRegistry:
         self._projects: list[FacadeProject] = []
         self._alias_cache: dict[str, str] = {}
         self._versions_cache: dict[str, list[FacadeVersion]] = {}
-        self._loaded_mtime: float = 0.0
+        self._loaded_signature: tuple[int, int, int, int, int] | None = None
 
     def _file_path(self) -> str | None:
         if self._snapshot_uri.startswith("file://"):
@@ -249,11 +249,26 @@ class SnapshotFacadeRegistry:
         path = self._file_path()
         if path is None:
             return not self._projects
-        try:
-            mtime = os.stat(path).st_mtime
-        except OSError:
+        signature = self._file_signature()
+        if signature is None:
             return not self._projects
-        return mtime != self._loaded_mtime
+        return signature != self._loaded_signature
+
+    def _file_signature(self) -> tuple[int, int, int, int, int] | None:
+        path = self._file_path()
+        if path is None:
+            return None
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return None
+        return (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+        )
 
     async def _ensure_loaded(self) -> None:
         if not self._needs_reload():
@@ -261,16 +276,23 @@ class SnapshotFacadeRegistry:
         async with self._lock:
             if not self._needs_reload():
                 return
-            projects, aliases, versions = await asyncio.to_thread(self._load_all)
-            self._projects = projects
-            self._alias_cache = aliases
-            self._versions_cache = versions
-            path = self._file_path()
-            if path:
-                try:
-                    self._loaded_mtime = os.stat(path).st_mtime
-                except OSError:
-                    pass
+            while True:
+                signature_before = self._file_signature()
+                projects, aliases, versions = await asyncio.to_thread(self._load_all)
+                signature_after = self._file_signature()
+                if (
+                    self._file_path() is not None
+                    and signature_before != signature_after
+                ):
+                    logger.debug(
+                        "Facade snapshot changed while loading; retrying the new generation"
+                    )
+                    continue
+                self._projects = projects
+                self._alias_cache = aliases
+                self._versions_cache = versions
+                self._loaded_signature = signature_after
+                return
 
     async def list_projects(self) -> list[FacadeProject]:
         await self._ensure_loaded()
