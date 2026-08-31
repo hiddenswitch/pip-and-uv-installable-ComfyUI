@@ -90,9 +90,12 @@ jobs:
           source="${image}:${GITHUB_SHA::7}"
           version="${GITHUB_REF_NAME#v}"
 
-          for attempt in {1..30}; do
+          # Master builds and release-tag workflows start independently. A cold
+          # CUDA image build can exceed five minutes, so allow the commit image
+          # enough time to arrive before treating it as genuinely unavailable.
+          for attempt in {1..120}; do
             docker buildx imagetools inspect "$source" >/dev/null 2>&1 && break
-            if [ "$attempt" -eq 30 ]; then
+            if [ "$attempt" -eq 120 ]; then
               echo "Commit image did not become available: $source" >&2
               exit 1
             fi
