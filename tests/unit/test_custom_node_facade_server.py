@@ -4,6 +4,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from comfy.component_model.configuration import Configuration
 from comfy.custom_node_facade import server as facade_server
+from comfy.custom_node_facade.rocm_index import RocmSimpleIndexProxy, _absolute_links
 
 
 class _FakeRegistry:
@@ -92,6 +93,44 @@ async def test_serve_pip_warms_registry_before_reporting_ready(monkeypatch):
         assert await health.json() == {"ok": True, "live": True, "ready": True}
     finally:
         await client.close()
+
+
+def test_rocm_index_rewrites_relative_links_and_preserves_metadata():
+    html = '<a data-requires-python="&gt;=3.10" href="torch/torch.whl#sha256=abc">torch</a>'
+    rewritten = _absolute_links(html, "https://stable.repo.amd.com/rocm/whl-next/")
+    assert 'data-requires-python="&gt;=3.10"' in rewritten
+    assert 'href="https://stable.repo.amd.com/rocm/whl-next/torch/torch.whl#sha256=abc"' in rewritten
+
+
+async def test_rocm_index_proxy_fetches_root_and_project_pages():
+    class _Response:
+        def __init__(self, body):
+            self.body = body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def text(self):
+            return self.body
+
+    class _Session:
+        def get(self, url):
+            if url.endswith("whl-next/"):
+                return _Response('<a href="torch/">torch</a>')
+            return _Response('<a data-variant="gfx1102" href="torch.whl">torch</a>')
+
+    proxy = RocmSimpleIndexProxy()
+    root = await proxy.render_root(_Session())
+    project = await proxy.render_project(_Session(), "torch")
+    assert "https://stable.repo.amd.com/rocm/whl-next/torch/" in root
+    assert "https://stable.repo.amd.com/rocm/whl-next/torch/torch.whl" in project
+    assert 'data-variant="gfx1102"' in project
 
 
 async def test_rewritten_pypi_sdist_route_builds_once_and_uses_cache(monkeypatch, tmp_path):
