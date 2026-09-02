@@ -55,6 +55,10 @@ jobs:
     env:
       UV_BREAK_SYSTEM_PACKAGES: "true"
       UV_SYSTEM_PYTHON: "true"
+      # This path is mounted on the self-hosted GPU runners and is shared by
+      # CUDA jobs.  Keep uv's wheel/archive cache warm across runs instead of
+      # downloading the lock closure for every matrix entry.
+      UV_CACHE_DIR: /opt/comfyui-ci-cache/uv
     steps:
       - name: Install system dependencies
         run: |
@@ -66,6 +70,8 @@ jobs:
           apt-get install -y --no-install-recommends curl ca-certificates git $COMFYUI_LINUX_SYSTEM_PACKAGES
           curl -LsSf https://astral.sh/uv/install.sh | sh
       - uses: actions/checkout@v7
+      - name: Initialize shared uv cache
+        run: mkdir -p "$UV_CACHE_DIR"
       - name: Install locked dependencies
         run: ci/install-locked.sh ${{ matrix.target.lock }} python
       - name: Install pinned stable-ABI CUDA extensions

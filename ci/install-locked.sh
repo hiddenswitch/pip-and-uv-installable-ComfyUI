@@ -48,9 +48,23 @@ torch_before=$(
   "$python" -c 'import importlib.metadata as metadata; print(metadata.version("torch"))' 2>/dev/null || true
 )
 
+# CUDA/NGC and other accelerator images own their runtime distributions. Keep
+# uv's resolver from selecting a different copy of those packages from the
+# cross-platform lock (which would both waste bandwidth and risk an ABI mix).
+# CPU/macOS environments have no matching ambient set, so this is empty there.
+ambient_overrides=$(mktemp)
+uv pip freeze --python "$python" | awk \
+  '/^(nvidia-[^=]*|torch(vision|audio)?|triton|flash-attn)==/' \
+  > "$ambient_overrides"
+override_args=
+if [ -s "$ambient_overrides" ]; then
+  override_args="--overrides $ambient_overrides"
+fi
+
 uv pip install \
   --python "$python" \
   --no-build-isolation \
+  $override_args \
   -r "$lock_file"
 
 # ComfyUI itself was omitted from every lock so the tested package is always

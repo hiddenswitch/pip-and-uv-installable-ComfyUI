@@ -3,7 +3,11 @@
 The CI environments install from the platform-specific `pylock.*.toml` files in
 this directory. Backend locks omit ComfyUI and Torch: ComfyUI is installed from
 the checkout, while the CUDA, XPU, and Windows jobs retain the Torch build
-provided or explicitly selected by that backend. All locks use the single
+provided or explicitly selected by that backend. During installation,
+`ci/install-locked.sh` also constrains already-installed accelerator runtime
+distributions (`nvidia-*`, Torch, Triton, and FlashAttention) to the versions
+supplied by the image. This prevents a broad lock from replacing an
+NVIDIA-authored ABI set or downloading a second copy. All locks use the single
 headless OpenCV distribution in `headless-requirements.txt` instead of
 installing multiple distributions that provide the same `cv2` module.
 
