@@ -44,8 +44,8 @@ Visit the ComfyUI interface and design your workflow. You can export it using ei
 You can use the built-in Python client library by installing this package without its dependencies.
 
 ```shell
-pip install aiohttp
-pip install --no-deps --extra-index-url https://nodes.appmana.com/simple/ comfyui
+uv pip install aiohttp
+uv pip install --no-deps --extra-index-url https://nodes.appmana.com/simple/ comfyui
 ```
 
 Then the following idiomatic pattern is available:

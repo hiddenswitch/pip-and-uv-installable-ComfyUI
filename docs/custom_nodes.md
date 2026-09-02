@@ -13,7 +13,7 @@ uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui
 The wheel is built and attached to each GitHub release by
 `.github/workflows/build-wheel.yml`, and the index serves those release assets.
 
-## Installing Custom Nodes with `pip` or `uv`
+## Installing Custom Nodes with uv
 
 Install custom nodes from the package index at `nodes.appmana.com`:
 
@@ -24,11 +24,23 @@ uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-contr
 uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-videohelpersuite
 ```
 
-Or with pip:
+All supported installation paths use uv so the active Torch backend remains
+under one resolver and lockfile policy.
+
+### AMD TheRock packages
+
+The facade exposes AMD’s allowlisted TheRock simple index without rehosting
+large wheels. Use it when installing the split host/device packages directly:
 
 ```bash
-pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui-wanvideowrapper
+uv pip install --index-url https://nodes.appmana.com/simple/rocm/ \
+  torch==2.13.0+rocm10.0.0 torchvision==0.28.0+rocm10.0.0
 ```
+
+The current stable uv resolver does not select TheRock’s `device-all` extras
+reliably, so use the validated AppMana ROCm image or explicitly pin the device
+packages listed by that release. The facade preserves future WheelNext index
+metadata, but does not pretend to implement resolver-side variant selection.
 
 ### Selecting a CUDA version
 
@@ -248,9 +260,10 @@ The bundled `pip_facade_registry_snapshot.sqlite.xz` carries the `class_type →
 2. `comfy.custom_node_facade.local_build.build_local_facade_wheel(canonical_name)` synthesizes a one-shot `FacadeRegistry`, points `FacadeWheelBuilder` at the GitHub or GitLab archive URL (`https://api.github.com/repos/<owner>/<repo>/zipball` or `https://gitlab.com/api/v4/projects/<encoded>/repository/archive.zip`), and produces the same kind of wheel the remote facade serves.
 3. `uv pip install <wheel-path>` installs it.
 
-This goes through the same `_appmana_facade_<name>` rename and stub-shim path as a remotely-built wheel, so ComfyUI's node loader picks it up without any special-casing. Examples that resolve via this path: `comfyui-umeairt-toolkit` (GitLab), `daxnodes` (GitHub but no wheel on the index), `comfyui-fbcnn`, `comfyui-image-saver`. Direct `pip install git+<url>` is **not** used because it would skip the rename and break ComfyUI's vanilla-custom-node import path.
+This goes through the same `_appmana_facade_<name>` rename and stub-shim path as a remotely-built wheel, so ComfyUI's node loader picks it up without any special-casing. Examples that resolve via this path: `comfyui-umeairt-toolkit` (GitLab), `daxnodes` (GitHub but no wheel on the index), `comfyui-fbcnn`, `comfyui-image-saver`. Direct installers are not used because they would skip the rename and break ComfyUI's vanilla-custom-node import path.
 
-Cache lives at `~/.cache/comfyui/facade_build/`; rebuild by removing it.
+Cache lives at the configured ComfyUI cache location; rebuild it through the
+facade cache command rather than installing the repository directly.
 
 ---
 
@@ -908,9 +921,11 @@ class OpenAINode(CustomNode):
 
 ---
 
-## Custom Node Compatibility Test Results
+## Custom Node Compatibility
 
-This section documents the compatibility status of the 38 registered custom node packs tested against this fork's infrastructure. Tests verify installation, import, workflow conversion (UI-to-API), and workflow execution using each node's bundled example workflows.
+This section documents the compatibility status of the registered custom-node
+packs. Tests verify installation/import, UI-to-API conversion, workflow
+execution, and model-source registration.
 
 ### Test Infrastructure
 
@@ -937,7 +952,28 @@ CUDA_VISIBLE_DEVICES=1 pytest tests/unit/custom_node_compat_test/test_custom_nod
 
 Models referenced by custom node workflows are registered in `comfy/model_downloader.py` so they can be downloaded on-demand during execution. The download interception layer (`comfy/nodes/download_interception.py`) routes `huggingface_hub.hf_hub_download()`, `snapshot_download()`, and `torch.hub.download_url_to_file()` calls through the centralized model downloader.
 
-### Compatibility Table
+### At a glance
+
+| Status | Meaning |
+|:---:|---|
+| ✅ | Passing installation, conversion, and execution checks |
+| 🟡 | Core checks pass; one or more examples need a model, API key, or upstream fix |
+| ⚪ | Not applicable to this node pack |
+| ❌ | Reproducible incompatibility requiring investigation |
+
+The detailed matrix below is grouped by the type of dependency involved. The
+long expected-failure inventory is kept below in a collapsible section so the
+current status is visible without scrolling through historical workflow data.
+
+### Detailed compatibility matrix
+
+<details>
+<summary>Expand the per-pack installation, conversion, execution, and model-source results</summary>
+
+Use the legend above rather than interpreting prose such as “Pass” and
+“Partial” as a different status. The source tests in
+`tests/unit/custom_node_compat_test/` are authoritative when this table is
+refreshed.
 
 **Legend:**
 - **Install** = clones and imports without errors
@@ -989,6 +1025,11 @@ Models referenced by custom node workflows are registered in `comfy/model_downlo
 | ComfyUI_Fill-Nodes | High | Pass | Pass | xfail | None (API-based) | Requires anthropic/openai API keys |
 | Bjornulf_custom_nodes | Mid | Pass | Pass | xfail | TTS models auto-download | Complex TTS dependencies |
 | ComfyUI-FlashVSR_Ultra_Fast | Mid | Pass | Pass | Pass | `KNOWN_FLASHVSR_MODELS` + WanVideo FlashVSR | From `JunhaoZhuang/FlashVSR-v1.1` + `Kijai/WanVideo_comfy` |
+
+The model-source summary below records the current `KNOWN_*` registrations;
+counts are regenerated from the source tables during the compatibility pass.
+
+</details>
 
 ### Known Workflow Xfails
 

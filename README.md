@@ -1,4 +1,4 @@
-# ComfyUI LTS
+# ComfyUI
 
 A vanilla, up-to-date fork of [ComfyUI](https://github.com/comfyanonymous/comfyui) intended for long term support (LTS) from [AppMana](https://appmana.com) and [Hidden Switch](https://hiddenswitch.com).
 

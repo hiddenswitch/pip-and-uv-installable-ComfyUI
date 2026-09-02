@@ -5,7 +5,7 @@
 # Python application or located elsewhere. It should **not** be in the Git repository directory.
 #
 # First, you will need to install ComfyUI. Follow the **Manual Install (Windows, Linux, macOS)** instructions in the
-# README.md. If you are an experienced developer, instead run `pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui`
+# README.md. If you are an experienced developer, instead run `uv pip install --extra-index-url https://nodes.appmana.com/simple/ comfyui`
 #
 # Now you should develop your workflow. Start ComfyUI as normal; navigate to "Settings" in the menu, and check "Enable
 # Dev mode Options". Then click "Save (API Format)". Copy and paste the contents of this file here:

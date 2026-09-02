@@ -6,8 +6,8 @@
 #
 # First, you will need to install ComfyUI. You do not need the ComfyUI repository or all of the ComfyUI dependencies to
 # run a script against a server on your machine or elsewhere. You can install the convenient client and types with:
-#   pip install --no-deps --extra-index-url https://nodes.appmana.com/simple/ comfyui
-#   pip install aiohttp[speedups]
+#   uv pip install --no-deps --extra-index-url https://nodes.appmana.com/simple/ comfyui
+#   uv pip install aiohttp[speedups]
 #
 # Now you should develop your workflow. Start ComfyUI as normal; navigate to "Settings" in the menu, and check "Enable
 # Dev mode Options". Then click "Save (API Format)". Copy and paste the contents of this file here:

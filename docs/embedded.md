@@ -417,27 +417,13 @@ Or via CLI:
 uv run comfyui --disable-known-models
 ```
 
-## When to Use `--novram`
+## Memory management
 
-The `--novram` flag (or `config.novram = True`) aggressively offloads all model weights to CPU RAM between operations, minimizing GPU VRAM usage at the cost of speed. Use it when:
-
-- **Your GPU has 16 GB of VRAM or less** and you're running large models (FLUX, SD3.5, video models like Wan 2.1 or HunyuanVideo).
-- **Running automated tests or CI** where reliability matters more than speed. The test suite defaults to `novram=True` to avoid OOM crashes.
-- **Running multiple workflows in sequence** where different models need to load/unload cleanly.
-- **Your system has limited swap or RAM** and you want to prevent the OS from thrashing.
-
-```python
-config = default_configuration()
-config.novram = True
-```
-
-Or via CLI:
-
-```bash
-uv run comfyui --novram
-```
-
-Without `--novram`, ComfyUI will sometimes OOM because you are using your computer interactively and it has less VRAM than it expected during inference. `--novram` reduces peak VRAM usage, making it less likely to OOM due to interactive use. `--guess-settings` will choose `--novram` when you have other applications using your GPU.
+DynamicVRAM is the normal embedded memory-management path. It tracks model
+dependencies and active devices, ejecting inactive weights when memory is
+needed and restoring them transparently. Configure a desktop reservation with
+`Configuration(reserve_vram=...)`; use `novram=True` only as an explicit
+compatibility fallback when DynamicVRAM cannot satisfy an unusual workload.
 
 ## Automated Testing
 
