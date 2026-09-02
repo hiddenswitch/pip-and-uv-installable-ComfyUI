@@ -1,4 +1,5 @@
-name: Build and Publish Docker Image (AMD)
+name: Build and Validate ROCm Image
+
 on:
   push:
     branches: [develop, master]
@@ -10,10 +11,11 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
+  ROCM_TAG: ${{ github.sha }}-rocm
+
 jobs:
   build:
-    if: false
-    runs-on: "ubuntu-latest"
+    runs-on: ubuntu-latest
     environment: Testing
     permissions:
       contents: read
@@ -33,22 +35,86 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest-rocm,enable={{is_default_branch}}
-            type=sha,prefix=,suffix=-rocm
-            type=match,pattern=v?(\d+\.\d+\.\d+\.\d+),group=1,suffix=-rocm
-            type=match,pattern=v?(\d+\.\d+\.\d+),group=1,suffix=-rocm
-            type=match,pattern=v?(\d+\.\d+),group=1,suffix=-rocm
-      - name: Build and push ROCm (AMD) image
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and push immutable ROCm candidate
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./amd.Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.ROCM_TAG }}
+          cache-from: type=gha,scope=rocm
+          cache-to: type=gha,mode=max,scope=rocm
+
+  validate-rx7600:
+    needs: build
+    runs-on: [self-hosted, linux, X64, rocm-7600-8gb]
+    timeout-minutes: 35
+    container:
+      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-rocm
+      options: --shm-size=8g
+    env:
+      COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify RX 7600 and TheRock device closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kfd
+          test -e /dev/dri/renderD128
+          test -e /sys/class/drm/card0/device/vendor
+          python - <<'PY'
+          import os
+          import torch
+          assert torch.__version__.startswith("2.13.0"), torch.__version__
+          assert torch.version.hip is not None
+          assert torch.cuda.is_available()
+          print("torch", torch.__version__)
+          print("hip", torch.version.hip)
+          print("device", torch.cuda.get_device_name(0))
+          assert "HSA_OVERRIDE_GFX_VERSION" not in os.environ
+          result = (torch.ones(16, device="cuda") * 2).sum()
+          torch.cuda.synchronize()
+          assert result.item() == 32
+          PY
+          rocm-sdk test
+      - name: ComfyUI GPU smoke
+        run: python -m comfy.cmd.main --quick-test-for-ci --cwd /workspace
+      - name: AMD compatibility tests
+        run: |
+          uv pip install --python /opt/venv/bin/python \
+            pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout
+          uv pip install --python /opt/venv/bin/python --no-deps .
+          /opt/venv/bin/pytest -v --timeout=900 \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_mixed_precision.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_weight_cast.py \
+            tests/quantization/test_kitchen_backends.py
+
+  promote:
+    needs: [build, validate-rx7600]
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: Testing
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote validated ROCm image
+        run: |
+          docker pull "${REGISTRY}/${IMAGE_NAME}:${ROCM_TAG}"
+          if [ "${GITHUB_REF}" = "refs/heads/master" ]; then
+            tag=latest-rocm
+          else
+            tag=develop-rocm
+          fi
+          docker tag "${REGISTRY}/${IMAGE_NAME}:${ROCM_TAG}" "${REGISTRY}/${IMAGE_NAME}:${tag}"
+          docker push "${REGISTRY}/${IMAGE_NAME}:${tag}"
