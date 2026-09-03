@@ -84,7 +84,7 @@ jobs:
     needs: build-candidates
     name: Validate ${{ matrix.target.name }} candidate
     runs-on: [self-hosted, linux, X64, cuda-3060-12gb]
-    timeout-minutes: 35
+    timeout-minutes: 60
     container:
       image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-${{ matrix.target.id }}-${{ github.run_id }}-${{ github.run_attempt }}.dev
       options: --shm-size=8g
@@ -95,7 +95,6 @@ jobs:
         target:
           - name: CUDA 13.3 / PyTorch 2.13
             id: cuda133
-            primary: true
     env:
       COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
     defaults:
@@ -114,33 +113,12 @@ jobs:
           assert result.item() == 32
           PY
           python -m comfy.cmd.main --quick-test-for-ci --cwd /workspace/src
-      - name: Primary CUDA compatibility tests
-        if: matrix.target.primary
+      - name: Unit and CUDA tests
         run: |
-          pytest -v \
-            tests/unit/test_comfy_instance.py \
-            tests/unit/test_cuda_env.py \
-            tests/unit/test_guess_settings.py \
-            tests/unit/test_mixed_precision.py \
-            tests/unit/test_pipeline_parallel.py \
-            tests/unit/test_sdpa.py \
-            tests/unit/test_tensor_parallel.py \
-            tests/unit/test_torchvision_compat.py \
-            tests/unit/test_transformers_compat.py \
-            tests/unit/test_triton_wheels.py \
-            tests/unit/test_weight_cast.py \
-            tests/unit/test_xdit_attention.py \
+          pytest -v --timeout=900 \
+            tests/unit \
+            --ignore=tests/unit/test_workflow_convert_playwright.py \
             tests/quantization
-      - name: Legacy CUDA compatibility tests
-        if: ${{ !matrix.target.primary }}
-        run: |
-          pytest -v \
-            tests/unit/test_comfy_instance.py \
-            tests/unit/test_guess_settings.py \
-            tests/unit/test_torchvision_compat.py \
-            tests/unit/test_transformers_compat.py \
-            tests/unit/test_weight_cast.py \
-            tests/quantization/test_kitchen_backends.py
 
   promote:
     needs: [build-candidates, validate-candidates]

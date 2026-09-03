@@ -48,8 +48,11 @@ CUDA and ROCm builds first publish immutable candidate tags such as
 `<full-commit>-cuda133-<run>-<attempt>.dev` and
 `<full-commit>-rocm-<run>-<attempt>.dev`. Hardware jobs execute
 the application and tests already baked into those images; they do not mutate
-the environment. Only after every required check succeeds is the exact manifest
-retagged with the short commit and branch channel (`develop-*` or `latest-*`).
+the environment. Each accelerator candidate runs the full unit suite (apart
+from the browser-only Playwright conversion test), the quantization suite, and
+hardware-specific smoke tests. Only after every required check succeeds is the
+exact manifest retagged with the short commit and branch channel (`develop-*`
+or `latest-*`).
 Those promoted images also carry inline BuildKit cache metadata and are the
 shared cache source for later builds. This reuses the stable dependency layer
 without separately uploading the same accelerator layers to a GHA cache.

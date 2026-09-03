@@ -33,6 +33,18 @@ def test_accelerator_validation_consumes_baked_candidate_images():
         assert validation_name in jobs[promotion_name]["needs"]
 
 
+def test_accelerator_candidates_run_the_full_unit_suite_before_promotion():
+    cases = (
+        ("docker-build.yml", "validate-candidates"),
+        ("docker-build-amd.yml", "validate-rx7600"),
+    )
+    for filename, validation_name in cases:
+        validation = _workflow(filename)["jobs"][validation_name]
+        commands = "\n".join(step.get("run", "") for step in validation["steps"])
+        assert "tests/unit" in commands
+        assert "--ignore=tests/unit/test_workflow_convert_playwright.py" in commands
+
+
 def test_cuda_image_preserves_the_ngc_python_environment():
     dockerfile = (_source_root() / "Dockerfile").read_text(encoding="utf-8")
     assert "ngc-preserved.txt" in dockerfile
@@ -44,6 +56,7 @@ def test_cuda_image_preserves_the_ngc_python_environment():
 def test_source_is_added_after_the_reusable_dependency_layer():
     for name in ("Dockerfile", "amd.Dockerfile"):
         dockerfile = (_source_root() / name).read_text(encoding="utf-8")
+        assert "uv pip install --extra dev" in dockerfile
         assert dockerfile.index("-r /workspace/project/pyproject.toml") < dockerfile.index(
             "ADD . /workspace/src"
         )

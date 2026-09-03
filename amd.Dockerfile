@@ -44,9 +44,8 @@ COPY pyproject.toml README.md /workspace/project/
 COPY tests/custom_nodes_requirements.txt /workspace/requirements/
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv pip install \
+    uv pip install --extra dev \
       -r /workspace/project/pyproject.toml \
-      pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout \
     && uv pip install --no-build-isolation \
       -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
