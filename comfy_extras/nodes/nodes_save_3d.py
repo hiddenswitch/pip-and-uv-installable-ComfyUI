@@ -17,7 +17,7 @@ from typing_extensions import override
 from comfy.cmd import folder_paths
 from comfy.cli_args import args
 from comfy_api.latest import ComfyExtension, IO, Types, UI
-from server import PromptServer
+from comfy.cmd.server import PromptServer
 
 
 def pack_variable_mesh_batch(vertices, faces, colors=None, uvs=None, texture=None, unlit=False,
