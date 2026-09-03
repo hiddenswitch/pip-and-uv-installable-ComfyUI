@@ -57,6 +57,7 @@ def test_source_is_added_after_the_reusable_dependency_layer():
     for name in ("Dockerfile", "amd.Dockerfile"):
         dockerfile = (_source_root() / name).read_text(encoding="utf-8")
         assert "uv pip install --extra dev" in dockerfile
+        assert "UV_HTTP_RETRIES=10" in dockerfile
         assert dockerfile.index("-r /workspace/project/pyproject.toml") < dockerfile.index(
             "ADD . /workspace/src"
         )
