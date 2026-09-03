@@ -50,6 +50,9 @@ CUDA and ROCm builds first publish immutable candidate tags such as
 the application and tests already baked into those images; they do not mutate
 the environment. Only after every required check succeeds is the exact manifest
 retagged with the short commit and branch channel (`develop-*` or `latest-*`).
+Those promoted images also carry inline BuildKit cache metadata and are the
+shared cache source for later builds. This reuses the stable dependency layer
+without separately uploading the same accelerator layers to a GHA cache.
 
 OCI defines annotations for source, revision, version, and base-image identity,
 but it does not define a prerelease flag. The `.dev` tag suffix is therefore the

@@ -47,3 +47,13 @@ def test_source_is_added_after_the_reusable_dependency_layer():
         assert dockerfile.index("-r /workspace/project/pyproject.toml") < dockerfile.index(
             "ADD . /workspace/src"
         )
+
+
+def test_accelerator_builds_reuse_promoted_images_without_duplicate_gha_export():
+    for name in ("docker-build.yml", "docker-build-amd.yml"):
+        workflow = (_source_root() / ".github" / "workflows" / name).read_text(
+            encoding="utf-8"
+        )
+        assert "cache-to: type=inline" in workflow
+        assert "type=registry" in workflow
+        assert "type=gha" not in workflow

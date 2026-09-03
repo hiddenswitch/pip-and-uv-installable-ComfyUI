@@ -45,8 +45,10 @@ jobs:
           file: ./amd.Dockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.ROCM_CANDIDATE_TAG }}
-          cache-from: type=gha,scope=rocm
-          cache-to: type=gha,mode=max,scope=rocm
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-rocm
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-rocm
+          cache-to: type=inline
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

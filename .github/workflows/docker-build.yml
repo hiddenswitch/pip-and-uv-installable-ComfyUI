@@ -63,8 +63,10 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ matrix.target.base }}
             STABLE_ABI_CUDA=${{ matrix.target.stable_abi_cuda }}
-          cache-from: type=gha,scope=${{ matrix.target.id }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target.id }}
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-cuda
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-cuda
+          cache-to: type=inline
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
