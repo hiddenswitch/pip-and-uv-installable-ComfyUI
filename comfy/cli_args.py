@@ -353,7 +353,13 @@ def dynamic_vram_supported() -> bool:
     import torch
 
     torch_version = version.parse(torch.__version__.split("+", maxsplit=1)[0])
-    return torch_version >= version.parse("2.8")
+    # comfy-aimdo replaces PyTorch's allocator with a CUDA pluggable allocator.
+    # ROCm intentionally exposes its HIP devices through ``torch.cuda``, so a
+    # device-type check alone cannot distinguish the unsupported HIP runtime.
+    return (
+        torch_version >= version.parse("2.8")
+        and getattr(torch.version, "hip", None) is None
+    )
 
 
 def enables_dynamic_vram():
