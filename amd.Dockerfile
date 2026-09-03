@@ -1,11 +1,13 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
 
 ENV TZ="Etc/UTC" \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive \
+    SAM2_BUILD_CUDA=0 \
     UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
     UV_PYTHON=/opt/venv/bin/python \
     UV_OVERRIDE=/overrides.txt \
     PATH=/opt/venv/bin:/usr/local/bin:$PATH
@@ -20,7 +22,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 # TheRock separates the Torch frontend from architecture-specific ROCm
 # devices. device-all is intentional: this one image serves every architecture
 # published by the selected stable release, including RX 7600/gfx1102.
-RUN uv pip install --python /opt/venv/bin/python \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install --python /opt/venv/bin/python \
     --index-url https://stable.repo.amd.com/rocm/whl-next/ \
     "torch==2.13.0+rocm10.0.0" \
     "torchvision==0.28.0+rocm10.0.0" \
@@ -30,15 +33,24 @@ RUN uv pip install --python /opt/venv/bin/python \
            "amd-torch-device-${arch}==2.13.0+rocm10.0.0" \
            "amd-torchvision-device-${arch}==0.28.0+rocm10.0.0"; \
        done \
-    && uv pip freeze --python /opt/venv/bin/python | \
-       sed -n -E '/^(torch|torchvision|torchaudio|amd-|rocm-)/I p' > /overrides.txt
+    && uv pip list --python /opt/venv/bin/python --format freeze --exclude-editable > /overrides.txt \
+    && printf "%s\n" \
+       "opencv-python; python_version < '0'" \
+       "opencv-python-headless; python_version < '0'" \
+       "opencv-contrib-python; python_version < '0'" \
+       >> /overrides.txt
 
 ADD . /workspace/src
 WORKDIR /workspace
 
-ARG SOURCES="comfyui@./src"
-ENV SOURCES=$SOURCES
-RUN uv pip install "$SOURCES"
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install \
+      "comfyui@./src" \
+      pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout \
+    && uv pip install --no-build-isolation \
+      -r src/tests/custom_nodes_requirements.txt \
+      --extra-index-url https://nodes.appmana.com/simple \
+      --index-strategy unsafe-best-match
 
 RUN python - <<'PY'
 import torch
@@ -47,5 +59,6 @@ assert torch.version.hip is not None
 print("torch", torch.__version__, "hip", torch.version.hip)
 PY
 
+WORKDIR /workspace/src
 EXPOSE 8188
 CMD ["python", "-m", "comfy.cmd.main", "--listen", "--reserve-vram=0", "--logging-level=INFO", "--enable-cors"]

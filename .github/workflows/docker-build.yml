@@ -1,4 +1,5 @@
-name: Build and Publish Docker Image
+name: Build, Validate, and Publish CUDA Images
+
 on:
   push:
     branches: [develop, master]
@@ -11,14 +12,26 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
+
 jobs:
-  build:
+  build-candidates:
     if: startsWith(github.ref, 'refs/heads/')
-    runs-on: "ubuntu-latest"
+    name: Build ${{ matrix.target.name }} candidate
+    runs-on: ubuntu-latest
     environment: Testing
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: CUDA 13.3 / PyTorch 2.13
+            id: cuda133
+            base: nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c
+            base_name: nvcr.io/nvidia/pytorch:26.07-py3
+            base_digest: sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c
+            stable_abi_cuda: cu130
     steps:
       - uses: insightsengineering/disk-space-reclaimer@v1
         with:
@@ -39,37 +52,123 @@ jobs:
           registry: nvcr.io
           username: "$oauthtoken"
           password: ${{ secrets.NVCR_NGC_TOKEN }}
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=latest-cuda,enable={{is_default_branch}}
-            type=raw,value={{branch}},enable=${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=raw,value={{branch}}-{{sha}}-{{date 'X'}},enable=${{ startsWith(github.ref, 'refs/heads/') }}
-            type=sha,prefix=
-            type=sha,prefix=,suffix=-cuda
-            type=match,pattern=v?(\d+\.\d+\.\d+\.\d+),group=1
-            type=match,pattern=v?(\d+\.\d+\.\d+\.\d+),group=1,suffix=-cuda
-            type=match,pattern=v?(\d+\.\d+\.\d+),group=1
-            type=match,pattern=v?(\d+\.\d+\.\d+),group=1,suffix=-cuda
-            type=match,pattern=v?(\d+\.\d+),group=1
-            type=match,pattern=v?(\d+\.\d+),group=1,suffix=-cuda
-      - name: Build and push CUDA (NVIDIA) image
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and push immutable candidate
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.target.id }}-${{ github.run_id }}-${{ github.run_attempt }}.dev
+          build-args: |
+            BASE_IMAGE=${{ matrix.target.base }}
+            STABLE_ABI_CUDA=${{ matrix.target.stable_abi_cuda }}
+          cache-from: type=gha,scope=${{ matrix.target.id }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.id }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+            org.opencontainers.image.base.name=${{ matrix.target.base_name }}
+            org.opencontainers.image.base.digest=${{ matrix.target.base_digest }}
+          annotations: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+            org.opencontainers.image.base.name=${{ matrix.target.base_name }}
+            org.opencontainers.image.base.digest=${{ matrix.target.base_digest }}
 
-  retag:
-    # A release tag points at a commit already built by the master/develop
-    # workflow. Publish version aliases for that immutable image instead of
-    # spending another runner cycle rebuilding identical layers.
+  validate-candidates:
+    needs: build-candidates
+    name: Validate ${{ matrix.target.name }} candidate
+    runs-on: [self-hosted, linux, X64, cuda-3060-12gb]
+    timeout-minutes: 35
+    container:
+      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-${{ matrix.target.id }}-${{ github.run_id }}-${{ github.run_attempt }}.dev
+      options: --shm-size=8g
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        target:
+          - name: CUDA 13.3 / PyTorch 2.13
+            id: cuda133
+            primary: true
+    env:
+      COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+    defaults:
+      run:
+        working-directory: /workspace/src
+    steps:
+      - name: CUDA and ComfyUI smoke
+        run: |
+          python - <<'PY'
+          import torch
+          print("torch", torch.__version__)
+          print("device", torch.cuda.get_device_name(0))
+          assert torch.cuda.is_available()
+          result = (torch.ones(16, device="cuda") * 2).sum()
+          torch.cuda.synchronize()
+          assert result.item() == 32
+          PY
+          python -m comfy.cmd.main --quick-test-for-ci --cwd /workspace/src
+      - name: Primary CUDA compatibility tests
+        if: matrix.target.primary
+        run: |
+          pytest -v \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_cuda_env.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_mixed_precision.py \
+            tests/unit/test_pipeline_parallel.py \
+            tests/unit/test_sdpa.py \
+            tests/unit/test_tensor_parallel.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_triton_wheels.py \
+            tests/unit/test_weight_cast.py \
+            tests/unit/test_xdit_attention.py \
+            tests/quantization
+      - name: Legacy CUDA compatibility tests
+        if: ${{ !matrix.target.primary }}
+        run: |
+          pytest -v \
+            tests/unit/test_comfy_instance.py \
+            tests/unit/test_guess_settings.py \
+            tests/unit/test_torchvision_compat.py \
+            tests/unit/test_transformers_compat.py \
+            tests/unit/test_weight_cast.py \
+            tests/quantization/test_kitchen_backends.py
+
+  promote:
+    needs: [build-candidates, validate-candidates]
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    environment: Testing
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Promote validated CUDA image
+        shell: bash
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME}"
+          source="${image}:${GITHUB_SHA}-cuda133-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.dev"
+          short_sha="${GITHUB_SHA::7}"
+          tags=(--tag "${image}:${short_sha}" --tag "${image}:${short_sha}-cuda")
+          if [ "$GITHUB_REF" = refs/heads/master ]; then
+            tags+=(--tag "${image}:latest" --tag "${image}:latest-cuda")
+          else
+            tags+=(--tag "${image}:develop" --tag "${image}:develop-cuda")
+          fi
+          docker buildx imagetools create "${tags[@]}" "$source"
+
+  retag-release:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: Testing
@@ -83,26 +182,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v4
-      - name: Retag the existing commit image
+      - name: Retag the validated commit image
         shell: bash
         run: |
           image="${REGISTRY}/${IMAGE_NAME}"
-          source="${image}:${GITHUB_SHA::7}"
+          source="${image}:${GITHUB_SHA::7}-cuda"
           version="${GITHUB_REF_NAME#v}"
 
-          # Master builds and release-tag workflows start independently. A cold
-          # CUDA image build can exceed five minutes, so allow the commit image
-          # enough time to arrive before treating it as genuinely unavailable.
           for attempt in {1..120}; do
             docker buildx imagetools inspect "$source" >/dev/null 2>&1 && break
             if [ "$attempt" -eq 120 ]; then
-              echo "Commit image did not become available: $source" >&2
+              echo "Validated commit image did not become available: $source" >&2
               exit 1
             fi
             sleep 10
           done
 
-          IFS=. read -r major minor patch revision <<< "$version"
+          IFS=. read -r major minor patch _revision <<< "$version"
           tags=(--tag "${image}:${version}" --tag "${image}:${version}-cuda")
           if [ -n "${patch:-}" ]; then
             tags+=(--tag "${image}:${major}.${minor}.${patch}" --tag "${image}:${major}.${minor}.${patch}-cuda")

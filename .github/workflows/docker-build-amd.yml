@@ -3,6 +3,7 @@ name: Build and Validate ROCm Image
 on:
   push:
     branches: [develop, master]
+    tags: ["v*"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,10 +12,11 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
-  ROCM_TAG: ${{ github.sha }}-rocm
+  ROCM_CANDIDATE_TAG: ${{ github.sha }}-rocm-${{ github.run_id }}-${{ github.run_attempt }}.dev
 
 jobs:
   build:
+    if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
     environment: Testing
     permissions:
@@ -42,21 +44,35 @@ jobs:
           context: .
           file: ./amd.Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.ROCM_TAG }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.ROCM_CANDIDATE_TAG }}
           cache-from: type=gha,scope=rocm
           cache-to: type=gha,mode=max,scope=rocm
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+            org.opencontainers.image.base.name=docker.io/library/python:3.12-slim-bookworm
+            org.opencontainers.image.base.digest=sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+          annotations: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+            org.opencontainers.image.base.name=docker.io/library/python:3.12-slim-bookworm
+            org.opencontainers.image.base.digest=sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 
   validate-rx7600:
     needs: build
     runs-on: [self-hosted, linux, X64, rocm-7600-8gb]
     timeout-minutes: 35
     container:
-      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-rocm
+      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-rocm-${{ github.run_id }}-${{ github.run_attempt }}.dev
       options: --shm-size=8g
     env:
       COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+    defaults:
+      run:
+        working-directory: /workspace/src
     steps:
-      - uses: actions/checkout@v7
       - name: Verify RX 7600 and TheRock device closure
         shell: bash
         run: |
@@ -80,13 +96,10 @@ jobs:
           PY
           rocm-sdk test
       - name: ComfyUI GPU smoke
-        run: python -m comfy.cmd.main --quick-test-for-ci --cwd /workspace
+        run: python -m comfy.cmd.main --quick-test-for-ci --cwd /workspace/src
       - name: AMD compatibility tests
         run: |
-          uv pip install --python /opt/venv/bin/python \
-            pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout
-          uv pip install --python /opt/venv/bin/python --no-deps .
-          /opt/venv/bin/pytest -v --timeout=900 \
+          pytest -v --timeout=900 \
             tests/unit/test_comfy_instance.py \
             tests/unit/test_guess_settings.py \
             tests/unit/test_mixed_precision.py \
@@ -108,13 +121,48 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
       - name: Promote validated ROCm image
+        shell: bash
         run: |
-          docker pull "${REGISTRY}/${IMAGE_NAME}:${ROCM_TAG}"
-          if [ "${GITHUB_REF}" = "refs/heads/master" ]; then
-            tag=latest-rocm
+          image="${REGISTRY}/${IMAGE_NAME}"
+          source="${image}:${ROCM_CANDIDATE_TAG}"
+          short_sha="${GITHUB_SHA::7}"
+          tags=(--tag "${image}:${short_sha}-rocm")
+          if [ "$GITHUB_REF" = refs/heads/master ]; then
+            tags+=(--tag "${image}:latest-rocm")
           else
-            tag=develop-rocm
+            tags+=(--tag "${image}:develop-rocm")
           fi
-          docker tag "${REGISTRY}/${IMAGE_NAME}:${ROCM_TAG}" "${REGISTRY}/${IMAGE_NAME}:${tag}"
-          docker push "${REGISTRY}/${IMAGE_NAME}:${tag}"
+          docker buildx imagetools create "${tags[@]}" "$source"
+
+  retag-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: Testing
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Retag the validated ROCm commit image
+        shell: bash
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME}"
+          source="${image}:${GITHUB_SHA::7}-rocm"
+          version="${GITHUB_REF_NAME#v}"
+          for attempt in {1..120}; do
+            docker buildx imagetools inspect "$source" >/dev/null 2>&1 && break
+            if [ "$attempt" -eq 120 ]; then
+              echo "Validated ROCm commit image did not become available: $source" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          docker buildx imagetools create \
+            --tag "${image}:${version}-rocm" \
+            "$source"
