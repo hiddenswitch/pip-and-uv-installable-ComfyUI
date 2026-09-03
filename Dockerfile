@@ -46,8 +46,10 @@ RUN uv pip list --system --format freeze --exclude-editable \
        > /workspace/resolver-overrides.txt
 ENV UV_OVERRIDE=/workspace/resolver-overrides.txt
 
-ADD . /workspace/src
-WORKDIR /workspace
+# Dependency inputs are copied before the source tree so ordinary code changes
+# reuse the complete Python/custom-node layer on ephemeral builders.
+COPY pyproject.toml README.md /workspace/project/
+COPY tests/custom_nodes_requirements.txt tests/custom_nodes_stable_abi_requirements.txt /workspace/requirements/
 
 # Bake the application, test tooling, and custom-node dependency closure into
 # the candidate. Hardware jobs consume this exact image and perform no installs.
@@ -56,10 +58,10 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
       --index-url https://download.pytorch.org/whl/cpu \
       "torchaudio==2.11.0+cpu" \
     && uv pip install \
-      "comfyui@./src" \
+      -r /workspace/project/pyproject.toml \
       pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout \
     && uv pip install --no-build-isolation \
-      -r src/tests/custom_nodes_requirements.txt \
+      -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
       --index-strategy unsafe-best-match \
     && if [ -n "$STABLE_ABI_CUDA" ]; then \
@@ -70,9 +72,14 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
            "nunchaku==1.3.0.dev20260717+${STABLE_ABI_CUDA}" \
            --index-url "https://appmana.github.io/forks-nunchaku-stable-abi/${STABLE_ABI_CUDA}"; \
          uv pip install --no-deps \
-           -r src/tests/custom_nodes_stable_abi_requirements.txt \
+           -r /workspace/requirements/custom_nodes_stable_abi_requirements.txt \
            --extra-index-url https://nodes.appmana.com/simple; \
        fi
+
+ADD . /workspace/src
+WORKDIR /workspace
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install --no-deps "comfyui@./src"
 
 # Make the preservation rule executable: every distribution from the NGC
 # snapshot must still be installed at precisely the version NVIDIA supplied.

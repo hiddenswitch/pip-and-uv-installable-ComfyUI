@@ -40,17 +40,22 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
        "opencv-contrib-python; python_version < '0'" \
        >> /overrides.txt
 
-ADD . /workspace/src
-WORKDIR /workspace
+COPY pyproject.toml README.md /workspace/project/
+COPY tests/custom_nodes_requirements.txt /workspace/requirements/
 
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install \
-      "comfyui@./src" \
+      -r /workspace/project/pyproject.toml \
       pytest pytest-asyncio pytest-mock pytest-aiohttp pytest-xdist pytest-timeout \
     && uv pip install --no-build-isolation \
-      -r src/tests/custom_nodes_requirements.txt \
+      -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
       --index-strategy unsafe-best-match
+
+ADD . /workspace/src
+WORKDIR /workspace
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install --no-deps "comfyui@./src"
 
 RUN python - <<'PY'
 import torch

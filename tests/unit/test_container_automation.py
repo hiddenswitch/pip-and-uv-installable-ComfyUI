@@ -39,3 +39,11 @@ def test_cuda_image_preserves_the_ngc_python_environment():
     assert "torchaudio==2.11.0+cpu" in dockerfile
     assert "UV_NO_CACHE" not in dockerfile
     assert not re.search(r"(?<!uv )\bpip install\b", dockerfile)
+
+
+def test_source_is_added_after_the_reusable_dependency_layer():
+    for name in ("Dockerfile", "amd.Dockerfile"):
+        dockerfile = (_source_root() / name).read_text(encoding="utf-8")
+        assert dockerfile.index("-r /workspace/project/pyproject.toml") < dockerfile.index(
+            "ADD . /workspace/src"
+        )
