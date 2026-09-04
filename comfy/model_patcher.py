@@ -25,6 +25,7 @@ import logging
 import time
 import typing
 import uuid
+import weakref
 from math import isclose
 from typing import Callable, Optional
 
