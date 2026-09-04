@@ -39,6 +39,25 @@ def test_process_group_marker_runs_before_xdist_rewrites_node_ids():
     assert hook_options["tryfirst"] is True
 
 
+def test_process_backed_tests_are_marked_for_an_isolated_ci_phase():
+    process_item = SimpleNamespace(
+        fixturenames=["manager_enabled_server"],
+        add_marker=MagicMock(),
+        module=SimpleNamespace(__name__="test_process"),
+    )
+    ordinary_item = SimpleNamespace(
+        fixturenames=["tmp_path"],
+        add_marker=MagicMock(),
+        module=SimpleNamespace(__name__="test_ordinary"),
+    )
+
+    conftest.pytest_collection_modifyitems([process_item, ordinary_item])
+
+    marker_names = [call.args[0].name for call in process_item.add_marker.call_args_list]
+    assert marker_names == ["server_process", "xdist_group"]
+    ordinary_item.add_marker.assert_not_called()
+
+
 def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = None

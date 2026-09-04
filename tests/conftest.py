@@ -297,10 +297,12 @@ def pytest_collection_modifyitems(items):
 
     # Windows cold-imports Torch in every spawned process. Running several
     # server/process fixtures concurrently both wastes that work and can starve
-    # an otherwise healthy server past its readiness budget. Keep those tests
-    # on one xdist worker while the in-process unit suite remains parallel.
+    # an otherwise healthy server past its readiness budget. Mark them for an
+    # isolated CI phase and keep them on one xdist worker in runs which do use
+    # xdist.
     for item in items:
         if requires_serial_process_group(item.fixturenames):
+            item.add_marker(pytest.mark.server_process)
             item.add_marker(pytest.mark.xdist_group(name="server-process"))
 
     LAST_TESTS = ['test_quality']

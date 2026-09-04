@@ -203,6 +203,9 @@ asyncio_mode = "auto"
 timeout = 300
 timeout_method = "thread"
 faulthandler_timeout = 600
+markers = [
+    "server_process: tests which start a child process or a ComfyUI server",
+]
 filterwarnings = [
     "ignore",
 ]

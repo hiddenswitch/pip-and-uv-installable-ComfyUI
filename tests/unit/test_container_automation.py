@@ -57,10 +57,16 @@ def test_windows_process_tests_have_the_cold_start_budget():
     windows_job = _workflow("test.yml")["jobs"]["windows_nvidia"]
     steps = windows_job["steps"]
     unit_tests = next(step for step in steps if step["name"] == "Windows unit tests")
+    process_tests = next(
+        step for step in steps if step["name"] == "Windows server process unit tests"
+    )
 
     assert windows_job["timeout-minutes"] >= 90
-    assert int(unit_tests["env"]["COMFYUI_TEST_SERVER_STARTUP_TIMEOUT"]) >= 240
-    assert "-n 4 --dist=loadgroup" in unit_tests["run"]
+    assert '-m "not server_process"' in unit_tests["run"]
+    assert "-n 4" in unit_tests["run"]
+    assert int(process_tests["env"]["COMFYUI_TEST_SERVER_STARTUP_TIMEOUT"]) >= 240
+    assert "-m server_process" in process_tests["run"]
+    assert "-n" not in process_tests["run"]
 
 
 def test_cuda_image_preserves_the_ngc_python_environment():
