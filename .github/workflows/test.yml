@@ -61,15 +61,9 @@ jobs:
           torch.xpu.synchronize()
           assert result.item() == 32
           PY
-      - name: XPU compatibility tests
+      - name: XPU unit tests
         run: |
-          pytest -v --timeout=900 \
-            tests/unit/test_comfy_instance.py \
-            tests/unit/test_guess_settings.py \
-            tests/unit/test_mixed_precision.py \
-            tests/unit/test_torchvision_compat.py \
-            tests/unit/test_transformers_compat.py \
-            tests/unit/test_weight_cast.py
+          pytest -v --timeout=900 tests/unit
 
   windows_nvidia:
     environment: Testing
@@ -129,19 +123,11 @@ jobs:
       - name: CUDA smoke
         run: |
           C:/venv/Scripts/python.exe -c "import torch; print(torch.__version__, torch.cuda.get_device_name(0)); assert torch.__version__.startswith('2.10.0+cu128'); assert (torch.ones(16, device='cuda') * 2).sum().item() == 32"
-      - name: Windows compatibility tests
+      - name: Windows unit tests
         env:
           COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v \
-            tests/unit/test_cli.py \
-            tests/unit/test_cli_args.py \
-            tests/unit/test_cli_args_types_sync.py \
-            tests/unit/test_comfy_instance.py \
-            tests/unit/test_guess_settings.py \
-            tests/unit/test_torchvision_compat.py \
-            tests/unit/test_transformers_compat.py \
-            tests/unit/test_triton_wheels.py
+          C:/venv/Scripts/python.exe -m pytest -v --timeout=900 tests/unit
 
   macos:
     environment: Testing

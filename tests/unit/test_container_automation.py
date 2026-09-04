@@ -45,6 +45,14 @@ def test_accelerator_candidates_run_the_full_unit_suite_before_promotion():
         assert "--ignore=tests/unit/test_workflow_convert_playwright.py" in commands
 
 
+def test_xpu_and_windows_run_the_full_unit_suite():
+    jobs = _workflow("test.yml")["jobs"]
+    for job_name in ("intel", "windows_nvidia"):
+        commands = "\n".join(step.get("run", "") for step in jobs[job_name]["steps"])
+        assert "tests/unit" in commands
+        assert not re.search(r"tests/unit/[^\s]+\.py", commands)
+
+
 def test_cuda_image_preserves_the_ngc_python_environment():
     dockerfile = (_source_root() / "Dockerfile").read_text(encoding="utf-8")
     assert "ngc-preserved.txt" in dockerfile
