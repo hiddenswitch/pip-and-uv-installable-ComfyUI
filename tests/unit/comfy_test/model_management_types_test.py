@@ -48,6 +48,10 @@ def test_protocol_declares_every_hot_path_method():
     assert missing == [], f"ModelManageable Protocol missing: {missing}"
 
 
+def test_protocol_declares_clone_identity():
+    assert "clone_base_uuid" in ModelManageable.__annotations__
+
+
 def test_stub_provides_every_hot_path_method():
     missing = [m for m in _HOT_PATH_METHODS if not hasattr(ModelManageableStub, m)]
     assert missing == [], f"ModelManageableStub missing: {missing}"

@@ -589,7 +589,11 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
         if force_core:
             kwargs["_force_core"] = True
         n = class_(model_override[0], self.load_device, self.offload_device, self.model_size(), **kwargs)
-        n._memory_measurements = copy.copy(self._memory_measurements)
+        if n.model is self.model:
+            n._memory_measurements = self._memory_measurements
+        else:
+            n._memory_measurements = copy.copy(self._memory_measurements)
+            n._memory_measurements._model_ref = weakref.ref(n.model)
         n.ckpt_name = self.ckpt_name
         n.patches = {}
         for k in self.patches:
