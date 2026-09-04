@@ -127,7 +127,7 @@ jobs:
         env:
           COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v --timeout=900 tests/unit
+          C:/venv/Scripts/python.exe -m pytest -v -n auto --timeout=900 tests/unit
 
   macos:
     environment: Testing
