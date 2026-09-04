@@ -1,106 +1,79 @@
 # Configuration
 
-This project supports configuration with command line arguments, the environment and a configuration file.
+The CLI and embedded API use the same `Configuration` object. Explicit values
+win over defaults; launcher identity (`RANK`, `WORLD_SIZE`, and friends) is
+resolved only when an external process group is being used.
 
-## Configuration File
+## Starting ComfyUI
 
-Run `comfyui --help` for available commands, or `comfyui serve --help` for all server configuration options.
-
-Args that start with `--` can also be set in a config file (`config.yaml`, `config.ini`, `config.conf` or `config.json` or specified via `-c`). Config file syntax allows: `key=value`, `flag=true`, `stuff=[a,b,c]` (for details, see syntax [here](https://goo.gl/R74nmi)). In general, command-line values override environment variables which override config file values which override defaults.
-
-## Extra Model Paths
-
-Copy [docs/examples/configuration/extra_model_paths.yaml](examples/configuration/extra_model_paths.yaml) to your working directory, and modify the folder paths to match your folder structure.
-
-You can pass additional extra model path configurations with one or more copies of `--extra-model-paths-config=some_configuration.yaml`.
-
-### Commands
-
-```
-comfyui --help
+```console
+comfyui                         # serve is the default command
+comfyui serve --listen 0.0.0.0
+comfyui --cuda-device 0,1 --tensor-parallel-size 2
+comfyui run-workflow image_flux2_text_to_image --all
+comfyui models list
+comfyui workflows list
+comfyui nodes list
+comfyui env
 ```
 
-| Command | Description |
-|---------|-------------|
-| `serve` | Start the ComfyUI server (default command) |
-| `run-workflow` | Execute workflow(s) and exit |
-| `worker` | Run as a distributed queue worker |
-| `create-directories` | Create default model/input/output/temp directories |
-| `workflow-requirements` | List custom node packages required by a workflow |
-| `env check` | Print system diagnostics and verify installation integrity |
-
-When no subcommand is given, `serve` is used by default (e.g. `comfyui --novram` is equivalent to `comfyui serve --novram`).
-
-### `comfyui serve` Options
-
-Run `comfyui serve --help` for the full list. All options can also be set via environment variables (prefixed with `COMFYUI_`).
-
-### `Configuration` Object
-
-All CLI options correspond to attributes on `comfy.cli_args_types.Configuration`. Use `default_configuration()` to create one programmatically:
+In Python, pass a configuration directly; no setup call, subprocess, or
+`PYTHONPATH` modification is required:
 
 ```python
-from comfy.cli_args import default_configuration
-from comfy.cli_args_types import Configuration, PerformanceFeature
+from comfy import Comfy
+from comfy.component_model.configuration import Configuration
 
-config: Configuration = default_configuration()
-config.novram = True
-config.fast = {PerformanceFeature.CublasOps}
-config.guess_settings = True
+configuration = Configuration(cuda_device="0,1", tensor_parallel_size=2)
+app = Comfy(configuration=configuration)
 ```
 
-`Configuration` is a `dict` subclass with attribute access and observer support — set attributes directly or call `config.update({...})`. See [Embedded / Library Usage](embedded.md) for usage with `Comfy()`.
+## Memory and device selection
 
-### Auto-Detection (--guess-settings)
+`guess_settings` is enabled by default. It selects a suitable device, dtype,
+attention implementation, and DynamicVRAM policy from the hardware and the
+requested model. An explicit CLI or `Configuration` value always wins.
 
-`--guess-settings` auto-detects the best settings for the current machine. It only touches settings still at their defaults — explicit flags always override guessed values.
+Use `--reserve-vram` to leave a fixed amount available for the desktop or
+other workloads. `--novram` is an explicit compatibility escape hatch, not the
+normal recommendation; DynamicVRAM can eject dependencies when memory is
+needed and works across pipeline stages.
 
-```bash
-comfyui serve --guess-settings
-comfyui run-workflow my_workflow.json --guess-settings
+## Distributed configuration
+
+The model-parallel flags are ordinary configuration values:
+
+```console
+comfyui --cuda-device 0,1 --tensor-parallel-size 2
+comfyui --cuda-device 0,1 --pipeline-parallel-size 2
+comfyui --cuda-device 0,1 --ulysses-degree 2
+comfyui --cuda-device 0,1 --ring-degree 2
 ```
 
-What it detects:
+For `torchrun` or another launcher, canonical `RANK`, `WORLD_SIZE`,
+`LOCAL_RANK`, `LOCAL_WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` are read
+alongside common MPI/PMI/Slurm aliases. Do not configure normal application
+behavior by inventing additional environment variables.
 
-| Condition | Action |
-|-----------|--------|
-| NVIDIA GPU present | Enables `--fast cublas_ops` |
-| NVIDIA GPU with material competing GPU memory use (for example another model process or a game) | Enables `--novram` to avoid VRAM contention |
-| AMD RDNA 4 GPU (gfx12xx) | Enables `--fp16-vae` |
-| AMD GPU (older than RDNA 4) | Enables `--fp32-vae` |
-| AMD GPU on Windows | Enables `--use-quad-cross-attention` |
-| `sageattention` package installed | Enables `--use-sage-attention` |
-| `xformers` package installed (no sageattention) | Keeps xformers enabled |
-| No attention packages | Falls back to `--use-pytorch-cross-attention` |
-| Less than 32 GB RAM | Enables `--disable-pinned-memory` |
+## Tracing and benchmarking
 
-For programmatic use, set `config.guess_settings = True` — detection runs automatically when `Comfy` starts:
+ComfyUI emits OpenTelemetry spans for workflow execution and sampling. Set the
+configured OTLP/JSONL exporter destination through the CLI configuration and
+compare the sampler span after one warm-up run. The sampler span excludes
+custom-node import and checkpoint-load time, which makes TP comparisons
+meaningful. See [distributed inference](distributed.md#collected-tp-benchmark)
+for the collected reference table.
+
+## Embedded applications
+
+The embedded entry point and the server use the same configuration surface:
 
 ```python
-from comfy.cli_args import default_configuration
+from comfy import Comfy
+from comfy.component_model.configuration import Configuration
 
-config = default_configuration()
-config.guess_settings = True
+app = Comfy(configuration=Configuration(guess_settings=True))
 ```
 
-### Performance Optimizations (--fast)
-
-The `--fast` option accepts space-separated feature names (not comma-separated):
-
-```bash
-# Enable single optimization
-comfyui --fast cublas_ops
-
-# Enable multiple optimizations (space-separated)
-comfyui --fast cublas_ops dynamic_vram
-
-# Enable all available optimizations
-comfyui --fast fp16_accumulation fp8_matrix_mult cublas_ops autotune dynamic_vram
-```
-
-Available optimizations:
-- `fp16_accumulation` - Use fp16 for accumulation in matrix operations
-- `fp8_matrix_mult` - Enable fp8 matrix multiplication
-- `cublas_ops` - Use cuBLAS for linear operations
-- `autotune` - Enable PyTorch autotuning
-- `dynamic_vram` - Enable dynamic VRAM management
+Keep model paths, device choices, and feature flags in `Configuration` so an
+embedded run and a CLI run have identical behavior.

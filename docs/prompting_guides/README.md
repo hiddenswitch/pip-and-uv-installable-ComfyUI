@@ -5,6 +5,10 @@ fetch date in their header.
 
 These are local snapshots of the vendor prompting guides referenced from `../../llms.txt`. Use the original source links when freshness matters; update these snapshots when `llms.txt` changes or a model family is refreshed.
 
+The snapshots retain upstream instructions for provenance. Do not copy their
+environment-install commands into a ComfyUI environment: use the repository's
+`uv` setup and the native ComfyUI workflow instead.
+
 ## Black Forest Labs
 - [FLUX Prompting Guide](bfl_flux_prompting_summary.md) ([source](https://docs.bfl.ml/guides/prompting_summary))
 - [FLUX Prompting Basics](bfl_flux_prompting_t2i_fundamentals.md) ([source](https://docs.bfl.ml/guides/prompting_unified_basics); replaces retired `prompting_guide_t2i_fundamentals`)

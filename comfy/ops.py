@@ -188,13 +188,22 @@ try:
         from torch.nn.attention import SDPBackend, sdpa_kernel
         import inspect
         if "set_priority" in inspect.signature(sdpa_kernel).parameters:
-            SDPA_BACKEND_PRIORITY = [
-                SDPBackend.FLASH_ATTENTION,
-                SDPBackend.EFFICIENT_ATTENTION,
-                SDPBackend.MATH,
-            ]
+            nvidia_cuda = model_management.is_nvidia()
+            if nvidia_cuda:
+                SDPA_BACKEND_PRIORITY = [
+                    SDPBackend.FLASH_ATTENTION,
+                    SDPBackend.EFFICIENT_ATTENTION,
+                    SDPBackend.MATH,
+                ]
+            else:
+                # TheRock's multi-architecture wheels do not currently provide
+                # reliable fused SDPA kernels across every supported AMD target.
+                # The math backend remains accelerated by ROCm BLAS and avoids
+                # invalid kernels or silent corruption from an incompatible
+                # AOTriton selection.
+                SDPA_BACKEND_PRIORITY = [SDPBackend.MATH]
 
-            if _check_cudnn_nvrtc_compatibility():
+            if nvidia_cuda and _check_cudnn_nvrtc_compatibility():
                 SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
             else:
                 logger.debug("Skipping cuDNN attention backend due to potential version compatibility")
@@ -202,7 +211,7 @@ try:
             def _scaled_dot_product_attention_sdpa2(q, k, v, *args, **kwargs):
                 global _cudnn_attention_disabled
                 try:
-                    if q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
+                    if nvidia_cuda and q.nelement() < 1024 * 128:  # arbitrary number, for small inputs cudnn attention seems slower
                         return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                     attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
                     if kwargs.get("enable_gqa", False) and attn_mask is not None and not model_management.is_nvidia():

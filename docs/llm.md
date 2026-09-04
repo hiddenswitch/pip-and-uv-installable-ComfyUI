@@ -1,9 +1,38 @@
-# Large Language Models
+# Native language-model workflows
 
-ComfyUI LTS supports text and multi-modal LLM models from the `transformers` ecosystem. This means all the LLaMA family models, LLAVA-NEXT, Phi-3, etc. are supported out-of-the-box with no configuration necessary.
+The preferred LLM path is ComfyUI’s native text-generation nodes. They use
+the loaded ComfyUI `CLIP` object, so tokenization, device placement,
+DynamicVRAM, templates, and workflow serialization stay inside the normal
+ComfyUI machinery.
 
-![llava_example_01.gif](assets/llava_example_01.gif)
+## Native setup
 
-In this example, LLAVA-NEXT (LLAVA 1.6) is prompted to describe an image.
+Build a workflow with:
 
-You can try the [LLAVA-NEXT](../tests/inference/workflows/llava-0.json), [Phi-3](../tests/inference/workflows/phi-4-0.json), and two [translation](../tests/inference/workflows/translation-0.json) [workflows](../tests/inference/workflows/translation-1.json).
+```text
+CLIPLoader → TextGenerate → downstream conditioning/video/image node
+```
+
+`TextGenerate` accepts text and optional image, video, or audio inputs. Its
+controls include maximum length, sampling mode, thinking mode, and an optional
+model template. The node returns generated text and the updated conditioning
+object expected by the rest of the workflow. `TextGenerateLTX2Prompt` provides
+the native prompt-enhancement path for LTX-2 workflows.
+
+Use the packaged workflow templates whenever possible; they already connect
+the correct CLIP loader and generation node for the model family.
+
+## Models and memory
+
+Place model files in the configured model directories and use the ordinary
+model loaders. DynamicVRAM may eject a text encoder or other dependency when
+the diffusion model needs its memory, then reload it when required. This is
+the same policy used for image and video workflows; do not add a special
+offloading node.
+
+## Legacy Transformers nodes
+
+`TransformersLoader` and `TransformersGenerate` remain available for existing
+workflows that directly manage a Hugging Face Transformers model. Treat them
+as an advanced compatibility path: they do not automatically receive all
+native CLIP templates, memory-management decisions, or workflow conveniences.

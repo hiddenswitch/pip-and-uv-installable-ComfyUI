@@ -3,7 +3,10 @@
 The CI environments install from the platform-specific `pylock.*.toml` files in
 this directory. Backend locks omit ComfyUI and Torch: ComfyUI is installed from
 the checkout, while the CUDA, XPU, and Windows jobs retain the Torch build
-provided or explicitly selected by that backend. All locks use the single
+provided or explicitly selected by that backend. CUDA image builds freeze the
+Python environment supplied by NGC, except for named compatibility exceptions,
+as resolver overrides before adding ComfyUI. Hardware jobs test that immutable
+candidate image without installing anything. All locks use the single
 headless OpenCV distribution in `headless-requirements.txt` instead of
 installing multiple distributions that provide the same `cv2` module.
 
@@ -38,3 +41,31 @@ OpenCV pin with the last NumPy-1-compatible wheel for that resolution.
 `pylock.linux-py314-core.toml` intentionally omits the development extra and
 custom nodes. Master uses it for a short wheel/install/import smoke; the larger
 Python 3.14 CPU lock remains the single broad develop validation environment.
+
+## Accelerator image promotion
+
+CUDA and ROCm builds first publish immutable candidate tags such as
+`<full-commit>-cuda133-<run>-<attempt>.dev` and
+`<full-commit>-rocm-<run>-<attempt>.dev`. Hardware jobs execute
+the application and tests already baked into those images; they do not mutate
+the environment. Each accelerator candidate runs the full unit suite (apart
+from the browser-only Playwright conversion test), the quantization suite, and
+hardware-specific smoke tests. Only after every required check succeeds is the
+exact manifest retagged with the short commit and branch channel (`develop-*`
+or `latest-*`).
+Those promoted images also carry inline BuildKit cache metadata and are the
+shared cache source for later builds. This reuses the stable dependency layer
+without separately uploading the same accelerator layers to a GHA cache.
+
+OCI defines annotations for source, revision, version, and base-image identity,
+but it does not define a prerelease flag. The `.dev` tag suffix is therefore the
+human-visible candidate channel; content digests provide the immutable identity.
+
+The CUDA build has explicit, narrow exceptions to NGC's Python package set.
+Its OpenCV provider is replaced by the single headless contrib provider required
+by ComfyUI; `huggingface-hub` and `tokenizers` resolve with the supported
+Transformers line; `protobuf` and `requests` resolve with ComfyUI's API and
+object-store clients; and the official CPU TorchAudio wheel avoids TorchAudio's
+exact CUDA-minor check while retaining Torch-backed tensor transforms. The
+build compares every other NGC distribution before and after installation and
+fails if any version changes.

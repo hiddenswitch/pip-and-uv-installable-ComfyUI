@@ -439,7 +439,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install uv
+          curl -LsSf https://astral.sh/uv/install.sh | sh
           uv pip install --torch-backend=auto -e ".[ci]"
 
       - name: Run tests
@@ -521,7 +521,7 @@ If this test does not reproduce locally but fails in CI, first check whether Chr
 Install the browser runtime with:
 
 ```shell
-source /home/administrator/Documents/appmana/.venv/bin/activate
+source .venv/bin/activate
 python -m playwright install chromium
 ```
 
@@ -547,13 +547,13 @@ Or from the command line:
 python -c "from tests.unit.test_workflow_convert_playwright import invalidate_stale_cache; print(invalidate_stale_cache())"
 ```
 
-The next test run will regenerate those entries via Playwright (requires `pip install playwright && python -m playwright install chromium`).
+The next test run will regenerate those entries via Playwright (requires `uv pip install playwright && python -m playwright install chromium`).
 
 If you want to reproduce a current frontend mismatch from scratch, delete the whole cache directory for the active frontend version and rerun a specific template:
 
 ```shell
-source /home/administrator/Documents/appmana/.venv/bin/activate
-cd /home/administrator/Documents/appmana/appmana-comfyui/src
+source .venv/bin/activate
+cd path/to/appmana-comfyui/src
 rm -rf tests/unit/playwright_cache/$(python -c "from importlib.metadata import version; print(version('comfyui-frontend-package'))")
 pytest -q "tests/unit/test_workflow_convert_playwright.py::TestFrontendParity::test_convert_matches_frontend[api_google_gemini_image]"
 ```

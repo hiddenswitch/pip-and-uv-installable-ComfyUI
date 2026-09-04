@@ -1,4 +1,5 @@
 import pytest
+import torch
 from comfy.cli_args_types import LatentPreviewMethod, PerformanceFeature, Configuration
 from comfy.cmd.cli import _build_config, app, _validate_mutex
 
@@ -306,6 +307,14 @@ def test_cli_args_enables_dynamic_vram():
     from comfy.cli_args import dynamic_vram_supported, enables_dynamic_vram
     # PyTorch 2.8+ enables dynamic VRAM by default.
     assert enables_dynamic_vram() is dynamic_vram_supported()
+
+
+def test_cli_args_dynamic_vram_is_not_supported_on_rocm(monkeypatch):
+    from comfy.cli_args import dynamic_vram_supported
+
+    monkeypatch.setattr(torch.version, "hip", "7.11", raising=False)
+
+    assert dynamic_vram_supported() is False
 
 
 def test_cli_args_enables_dynamic_vram_respects_highvram():

@@ -21,6 +21,7 @@ from .builder import (
     is_index_variant,
 )
 from .triton_wheels import TritonWheelBuilder, prewarm_targets as triton_prewarm_targets
+from .rocm_index import RocmSimpleIndexProxy
 from .registry import FacadeRegistry, FacadeRegistryProtocol, SnapshotFacadeRegistry, canonicalize_project_name
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ def create_facade_app(
             application["facade_triton_cache"] = FacadeCacheStore(cache_prefix, storage_options=cache_storage_options)
             application["facade_triton_locks"] = {}
             application["facade_pypi_rewrite_locks"] = {}
+            application["facade_rocm_proxy"] = RocmSimpleIndexProxy()
             with tracer.start_as_current_span("Warm Pip Facade Registry") as warmup_span:
                 projects = await registry.list_projects()
                 warmup_span.set_attribute("facade.project_count", len(projects))
@@ -289,6 +291,10 @@ def create_facade_app(
     async def simple_two_segments(request: web.Request) -> web.Response:
         """Handles /simple/{first}/{second}/ — CUDA variant + project."""
         first = request.match_info["first"]
+        if first == "rocm":
+            proxy: RocmSimpleIndexProxy = app["facade_rocm_proxy"]
+            body = await proxy.render_project(app["facade_session"], request.match_info["second"])
+            return web.Response(text=body, content_type="text/html")
         if not is_index_variant(first):
             raise web.HTTPNotFound(text=f"Unsupported CUDA variant: {first}")
         request.match_info["project"] = request.match_info["second"]
@@ -296,6 +302,13 @@ def create_facade_app(
 
     app.router.add_get("/simple", index)
     app.router.add_get("/simple/", index)
+    async def rocm_index(_: web.Request) -> web.Response:
+        proxy: RocmSimpleIndexProxy = app["facade_rocm_proxy"]
+        body = await proxy.render_root(app["facade_session"])
+        return web.Response(text=body, content_type="text/html")
+
+    app.router.add_get("/simple/rocm", rocm_index)
+    app.router.add_get("/simple/rocm/", rocm_index)
     app.router.add_get("/simple/{first}/{second}/", simple_two_segments)
     app.router.add_get("/simple/{segment}/", simple_one_segment)
     app.router.add_get("/packages/triton/{cuda}/{filename}", triton_package_download)

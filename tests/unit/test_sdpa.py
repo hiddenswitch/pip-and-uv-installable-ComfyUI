@@ -1,6 +1,7 @@
 import pytest
 import torch
 import importlib
+import contextlib
 from unittest.mock import patch, MagicMock
 
 # For version comparison
@@ -122,6 +123,25 @@ def test_sdpa_import_exception():
             assert output.shape == q.shape
 
 
+def test_sdpa_rocm_small_inputs_use_math_backend():
+    """ROCm must not bypass the explicit backend policy for small inputs."""
+    from torch.nn.attention import SDPBackend
+    import comfy.model_management as model_management
+
+    with patch('torch.cuda.is_available', return_value=True), \
+            patch.object(model_management, 'is_nvidia', return_value=False):
+        importlib.reload(comfy.ops)
+
+        q = torch.randn(1, 1, 8, 16)
+        expected = torch.randn_like(q)
+        with patch.object(comfy.ops, 'sdpa_kernel', return_value=contextlib.nullcontext()) as kernel, \
+                patch.object(torch.nn.functional, 'scaled_dot_product_attention', return_value=expected):
+            actual = comfy.ops.scaled_dot_product_attention(q, q, q)
+
+        assert actual is expected
+        kernel.assert_called_once_with([SDPBackend.MATH], set_priority=True)
+
+
 @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA is not available")
 @pytest.mark.skipif(TORCH_VERSION < parse_version("2.6.0"), reason="Requires torch version 2.6.0 or greater")
 def test_sdpa_with_cuda_and_priority():
@@ -154,6 +174,7 @@ def test_sdpa_with_cuda_and_priority():
 
 @pytest.mark.skipif(not CUDA_AVAILABLE, reason="CUDA is not available")
 @pytest.mark.skipif(TORCH_VERSION < parse_version("2.6.0"), reason="Requires torch version 2.6.0 or greater")
+@pytest.mark.skipif(torch.version.hip is not None, reason="cuDNN is not available on ROCm")
 def test_sdpa_cudnn_fallback():
     """
     Tests that the SDPA function gracefully falls back when cuDNN fails.

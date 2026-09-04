@@ -1,4 +1,4 @@
-# ComfyUI LTS Documentation
+# ComfyUI Documentation
 
 ## Core
 - [Installation & Getting Started](installing.md)
@@ -18,6 +18,12 @@
 ## Deployment
 - [Distributed / Multi-GPU](distributed.md)
 - [Docker & Containers](docker.md)
+
+## Development
+- [Testing](testing.md)
+- [Linting](linting.md)
+- [Merging upstream](merging.md)
+- [Troubleshooting](troubleshooting.md)
 
 ## Community & Support
 - [Discord](https://comfy.org/discord)

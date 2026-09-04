@@ -170,6 +170,8 @@ class ModelManageable(HooksSupport, TrainingSupport, Protocol):
     model: torch.nn.Module
     ckpt_name: Optional[str]
 
+    clone_base_uuid: Any
+
     @property
     def current_device(self) -> torch.device: ...
 
@@ -242,6 +244,10 @@ class ModelManageableStub(HooksSupportStub, TrainingSupportStub, ModelManageable
     :see: PatchSupport
     """
     ckpt_name: Optional[str] = None
+
+    @property
+    def clone_base_uuid(self):
+        return id(self.model)
 
     @abstractmethod
     def patch_model(self, device_to: torch.device | None = None, lowvram_model_memory: int = 0, load_weights: bool = True,
