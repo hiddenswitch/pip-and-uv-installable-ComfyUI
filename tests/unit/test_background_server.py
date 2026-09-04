@@ -33,6 +33,12 @@ def test_process_isolated_fixtures_are_serialized(fixtures, expected):
     assert conftest.requires_serial_process_group(fixtures) is expected
 
 
+def test_process_group_marker_runs_before_xdist_rewrites_node_ids():
+    hook_options = conftest.pytest_collection_modifyitems.pytest_impl
+
+    assert hook_options["tryfirst"] is True
+
+
 def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = None

@@ -291,6 +291,7 @@ def skip_timing_checks(pytestconfig):
     return False
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items):
     # Modifies items so tests run in the correct order
 
