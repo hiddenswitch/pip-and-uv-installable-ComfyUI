@@ -40,7 +40,7 @@ def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatc
     connection.__enter__.return_value = connection
     create_connection = MagicMock(return_value=connection)
 
-    monkeypatch.setattr(conftest.subprocess, "Popen", MagicMock(return_value=process))
+    monkeypatch.setattr(conftest, "_DrainingProcess", MagicMock(return_value=process))
     monkeypatch.setattr(conftest.socket, "create_connection", create_connection)
 
     server = conftest.comfy_background_server_from_config(
@@ -51,23 +51,23 @@ def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatc
 
     assert returned_process is process
     create_connection.assert_called_once_with(("127.0.0.1", 8188), timeout=1)
-    process.terminate.assert_called_once_with()
-    process.wait.assert_called_once_with(timeout=10)
+    process.shutdown.assert_called_once_with()
 
 
 def test_background_server_reports_early_exit_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = 17
-    popen = MagicMock(return_value=process)
-    monkeypatch.setattr(conftest.subprocess, "Popen", popen)
+    process.tail.return_value = "manager startup failed\n"
+    draining_process = MagicMock(return_value=process)
+    monkeypatch.setattr(conftest, "_DrainingProcess", draining_process)
 
     server = conftest.comfy_background_server_from_config(
         SimpleNamespace(listen="127.0.0.1", port=8188)
     )
 
-    with pytest.raises(RuntimeError, match="exited during startup with code 17"):
+    with pytest.raises(RuntimeError, match="manager startup failed"):
         next(server)
 
-    config_path = pathlib.Path(popen.call_args.args[0][-1])
+    config_path = pathlib.Path(draining_process.call_args.args[0][-1])
     assert not config_path.exists()
-    process.terminate.assert_not_called()
+    process.shutdown.assert_called_once_with()
