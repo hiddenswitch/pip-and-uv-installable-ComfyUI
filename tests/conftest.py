@@ -36,6 +36,24 @@ logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
 
 
+_SERIAL_PROCESS_FIXTURES = frozenset(
+    {
+        "comfy_background_server",
+        "comfy_url_and_proc",
+        "frontend_backend_worker_with_rabbitmq",
+        "manager_disabled_server",
+        "manager_enabled_server",
+        "manager_with_disabled_custom_nodes_server",
+        "process_startup_timeout_seconds",
+    }
+)
+
+
+def requires_serial_process_group(fixture_names) -> bool:
+    """Return whether a test starts an isolated process or ComfyUI server."""
+    return not _SERIAL_PROCESS_FIXTURES.isdisjoint(fixture_names)
+
+
 @pytest.fixture
 def mock_user_directory():
     from comfy.component_model.folder_path_types import FolderNames
@@ -273,6 +291,14 @@ def skip_timing_checks(pytestconfig):
 
 def pytest_collection_modifyitems(items):
     # Modifies items so tests run in the correct order
+
+    # Windows cold-imports Torch in every spawned process. Running several
+    # server/process fixtures concurrently both wastes that work and can starve
+    # an otherwise healthy server past its readiness budget. Keep those tests
+    # on one xdist worker while the in-process unit suite remains parallel.
+    for item in items:
+        if requires_serial_process_group(item.fixturenames):
+            item.add_marker(pytest.mark.xdist_group(name="server-process"))
 
     LAST_TESTS = ['test_quality']
 

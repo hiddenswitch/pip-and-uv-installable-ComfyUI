@@ -20,6 +20,19 @@ def test_background_server_startup_timeout_must_be_positive(monkeypatch):
         conftest.server_startup_timeout_seconds()
 
 
+@pytest.mark.parametrize(
+    ("fixtures", "expected"),
+    [
+        ({"tmp_path"}, False),
+        ({"tmp_path", "comfy_url_and_proc"}, True),
+        ({"process_startup_timeout_seconds"}, True),
+        ({"manager_enabled_server"}, True),
+    ],
+)
+def test_process_isolated_fixtures_are_serialized(fixtures, expected):
+    assert conftest.requires_serial_process_group(fixtures) is expected
+
+
 def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = None

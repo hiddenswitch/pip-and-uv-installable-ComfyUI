@@ -58,6 +58,7 @@ def test_windows_process_tests_have_the_cold_start_budget():
     unit_tests = next(step for step in steps if step["name"] == "Windows unit tests")
 
     assert int(unit_tests["env"]["COMFYUI_TEST_SERVER_STARTUP_TIMEOUT"]) >= 240
+    assert "-n 4 --dist=loadgroup" in unit_tests["run"]
 
 
 def test_cuda_image_preserves_the_ngc_python_environment():

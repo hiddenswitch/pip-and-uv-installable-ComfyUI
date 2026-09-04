@@ -131,7 +131,7 @@ jobs:
           # process-pool fixtures consume this same cold-start allowance.
           COMFYUI_TEST_SERVER_STARTUP_TIMEOUT: "240"
         run: |
-          C:/venv/Scripts/python.exe -m pytest -v -n auto --timeout=900 tests/unit
+          C:/venv/Scripts/python.exe -m pytest -v -n 4 --dist=loadgroup --timeout=900 tests/unit
 
   macos:
     environment: Testing
