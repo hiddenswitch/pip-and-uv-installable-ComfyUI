@@ -53,6 +53,13 @@ def test_xpu_and_windows_run_the_full_unit_suite():
         assert not re.search(r"tests/unit/[^\s]+\.py", commands)
 
 
+def test_windows_process_tests_have_the_cold_start_budget():
+    steps = _workflow("test.yml")["jobs"]["windows_nvidia"]["steps"]
+    unit_tests = next(step for step in steps if step["name"] == "Windows unit tests")
+
+    assert int(unit_tests["env"]["COMFYUI_TEST_SERVER_STARTUP_TIMEOUT"]) >= 240
+
+
 def test_cuda_image_preserves_the_ngc_python_environment():
     dockerfile = (_source_root() / "Dockerfile").read_text(encoding="utf-8")
     assert "ngc-preserved.txt" in dockerfile

@@ -134,7 +134,7 @@ def _server_is_down(port: int) -> bool:
     sys.version_info < (3, 12),
     reason="server startup too slow on Python <3.12 containers"
 )
-def test_reboot_restarts_server_process():
+def test_reboot_restarts_server_process(process_startup_timeout_seconds: float):
     """Start a real server, POST /api/v1/reboot, verify it comes back up.
 
     After os.execv the PID is the same (the process image is replaced),
@@ -148,7 +148,7 @@ def test_reboot_restarts_server_process():
     process = spawn_comfyui_serve(sys.executable, port=port, cwd=str(_SRC_ROOT), env=env)
     try:
         # 1. Wait for the server to be ready
-        _wait_for_server(port)
+        _wait_for_server(port, timeout=process_startup_timeout_seconds)
 
         # 2. POST /api/v1/reboot
         req = urllib.request.Request(
@@ -174,7 +174,7 @@ def test_reboot_restarts_server_process():
 
         # Even if we never observed the gap (execv can be very fast),
         # the server should still be reachable after the restart.
-        _wait_for_server(port, timeout=60)
+        _wait_for_server(port, timeout=process_startup_timeout_seconds)
 
         # 4. Sanity: the restarted server returns valid system_stats
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=5) as resp:

@@ -126,6 +126,10 @@ jobs:
       - name: Windows unit tests
         env:
           COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
+          # Importing Torch and the packaged nodes in a fresh Windows process
+          # takes longer than the default readiness budget. Shared server and
+          # process-pool fixtures consume this same cold-start allowance.
+          COMFYUI_TEST_SERVER_STARTUP_TIMEOUT: "240"
         run: |
           C:/venv/Scripts/python.exe -m pytest -v -n auto --timeout=900 tests/unit
 
