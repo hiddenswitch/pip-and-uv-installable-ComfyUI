@@ -45,7 +45,7 @@ RUN uv pip list --system --format freeze --exclude-editable \
        "opencv-python; python_version < '0'" \
        "opencv-python-headless; python_version < '0'" \
        "opencv-contrib-python; python_version < '0'" \
-       > /workspace/resolver-overrides.txt
+       > /workspace/resolver-overrides.txt \
     && printf "%s\n" \
        "comfyui; python_version < '0'" \
        > /workspace/custom-node-overrides.txt \

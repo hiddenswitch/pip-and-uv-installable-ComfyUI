@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
        "opencv-python; python_version < '0'" \
        "opencv-python-headless; python_version < '0'" \
        "opencv-contrib-python; python_version < '0'" \
-       >> /overrides.txt
+       >> /overrides.txt \
     && printf "%s\n" "comfyui; python_version < '0'" > /custom-node-overrides.txt \
     && cat /overrides.txt >> /custom-node-overrides.txt
 
