@@ -653,11 +653,12 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
             try:
                 output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
             finally:
-                if memory_management.aimdo_enabled():
+                if memory_management.aimdo_enabled:
                     if logger.isEnabledFor(logging.DEBUG) and hasattr(comfy_aimdo, "control"):
                         comfy_aimdo.control.analyze()
-                    model_management.reset_cast_buffers()
                     model_prefetch.cleanup_prefetch_queues()
+                    model_management.reset_cast_buffers()
+                    comfy_aimdo.model_vbar.vbars_reset_watermark_limits()
 
             if has_pending_tasks:
                 pending_async_nodes[unique_id] = output_data

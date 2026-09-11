@@ -1068,7 +1068,6 @@ class NormalizeImagesNode(ImageProcessingNode):
             min=0.0,
             max=1.0,
             tooltip="Mean value for normalization.",
-            advanced=True,
         ),
         io.Float.Input(
             "std",
@@ -1076,13 +1075,15 @@ class NormalizeImagesNode(ImageProcessingNode):
             min=0.001,
             max=1.0,
             tooltip="Standard deviation for normalization.",
-            advanced=True,
         ),
     ]
 
     @classmethod
     def _process(cls, image, mean, std):
-        return (image - mean) / std
+        out = (image - mean) / std
+        if image.shape[-1] == 4:  # alpha stores transparency, not color
+            out[..., 3] = image[..., 3]
+        return out
 
 
 class AdjustBrightnessNode(ImageProcessingNode):
@@ -1104,7 +1105,10 @@ class AdjustBrightnessNode(ImageProcessingNode):
 
     @classmethod
     def _process(cls, image, factor):
-        return (image * factor).clamp(0.0, 1.0)
+        out = (image * factor).clamp(0.0, 1.0)
+        if image.shape[-1] == 4:  # alpha stores transparency, not color
+            out[..., 3] = image[..., 3]
+        return out
 
 
 class AdjustContrastNode(ImageProcessingNode):
@@ -1126,7 +1130,10 @@ class AdjustContrastNode(ImageProcessingNode):
 
     @classmethod
     def _process(cls, image, factor):
-        return ((image - 0.5) * factor + 0.5).clamp(0.0, 1.0)
+        out = ((image - 0.5) * factor + 0.5).clamp(0.0, 1.0)
+        if image.shape[-1] == 4:  # alpha stores transparency, not color
+            out[..., 3] = image[..., 3]
+        return out
 
 
 class ShuffleDatasetNode(ImageProcessingNode):
@@ -1410,7 +1417,7 @@ class ShuffleVideoTextDatasetNode(io.ComfyNode):
             node_id="ShuffleVideoTextDataset",
             search_aliases=["shuffle", "randomize", "mix"],
             display_name="Shuffle Pairs of Video-Text",
-            category="dataset/video",
+            category="video/batch",
             description="Randomly shuffle the order of pairs of video-text in a list.",
             is_experimental=True,
             is_input_list=True,

@@ -1064,7 +1064,7 @@ class disable_weight_init:
 
         def __init__(self, in_features, out_features, bias=True, device=None, dtype=None):
             # don't trust subclasses that BYO state dict loader to call us.
-            if (not memory_management.aimdo_enabled()
+            if (not memory_management.aimdo_enabled
                 or type(self)._load_from_state_dict is not disable_weight_init.Linear._load_from_state_dict):
                 super().__init__(in_features, out_features, bias, device, dtype)
                 return
@@ -1086,7 +1086,7 @@ class disable_weight_init:
         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
                                 strict, missing_keys, unexpected_keys, error_msgs):
 
-            if (not memory_management.aimdo_enabled()
+            if (not memory_management.aimdo_enabled
                 or type(self)._load_from_state_dict is not disable_weight_init.Linear._load_from_state_dict):
                 return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                                      missing_keys, unexpected_keys, error_msgs)
@@ -1305,7 +1305,7 @@ class disable_weight_init:
                      norm_type=2.0, scale_grad_by_freq=False, sparse=False, _weight=None,
                      _freeze=False, device=None, dtype=None):
             # don't trust subclasses that BYO state dict loader to call us.
-            if (not memory_management.aimdo_enabled()
+            if (not memory_management.aimdo_enabled
                     or type(self)._load_from_state_dict is not disable_weight_init.Embedding._load_from_state_dict):
                 super().__init__(num_embeddings, embedding_dim, padding_idx, max_norm,
                                  norm_type, scale_grad_by_freq, sparse, _weight,
@@ -1332,7 +1332,7 @@ class disable_weight_init:
         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
                                 strict, missing_keys, unexpected_keys, error_msgs):
 
-            if (not memory_management.aimdo_enabled()
+            if (not memory_management.aimdo_enabled
                     or type(self)._load_from_state_dict is not disable_weight_init.Embedding._load_from_state_dict):
                 return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                                      missing_keys, unexpected_keys, error_msgs)
@@ -1910,6 +1910,16 @@ def _quantized_weight_state_dict(module, sd, prefix, extra_quant_conf=None, extr
     return sd
 
 
+class MixedPrecisionOp(CastWeightBiasOp):
+    quant_format = None
+
+    def can_use_quantized_matmul(self, disabled_formats):
+        return (self.quant_format in QUANT_ALGOS
+                and not self._full_precision_mm_config
+                and self.quant_format not in self._disabled_formats
+                and self.quant_format not in disabled_formats)
+
+
 def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_precision_mm=False, disabled=[], disabled_storage=[]):
     class MixedPrecisionOps(manual_cast):
         _quant_config = quant_config
@@ -1918,7 +1928,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
         _disabled = disabled
         _disabled_storage = disabled_storage
 
-        class Linear(torch.nn.Module, CastWeightBiasOp):
+        class Linear(torch.nn.Module, MixedPrecisionOp):
             _disabled_formats = disabled
             _disabled_storage_formats = disabled_storage
 
@@ -1980,6 +1990,8 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         compute_dtype=compute_dtype,
                         want_requant=want_requant,
                     )
+                    if self._full_precision_mm and isinstance(weight, QuantizedTensor):
+                        weight = weight.dequantize()
                 x = self._forward(input, weight, bias)
                 return _release_weight_bias(self, x, cast_state)
 
@@ -2116,7 +2128,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
             def _apply(self, fn, recurse=True):  # This is to get torch.compile + moving weights to another device working
                 return _quantized_apply(self, fn, recurse)
 
-        class MoEExperts(torch.nn.Module, CastWeightBiasOp):
+        class MoEExperts(torch.nn.Module, MixedPrecisionOp):
             """Container for E quantized expert weights, indexed via expert_weight(i).
 
             The bank lives on self.weight as a single 3D tensor — either a
@@ -2336,43 +2348,71 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
 
     return MixedPrecisionOps
 
+def get_disabled_quant_formats(device=None):
+    """Quantized formats whose fast matmul must be emulated on ``device``."""
+    disabled = set()
+    if not mixed_precision_quantization_available():
+        disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4", "int8_tensorwise", "svdquant_w4a4", "awq_w4a16"})
+    if not int8_quantization_available():
+        disabled.add("int8_tensorwise")
+    svdq_layout = get_layout_class("TensorCoreSVDQuantW4A4Layout")
+    if svdq_layout is None or not svdq_layout.supports_fast_matmul():
+        # SVDQuant W4A4 needs sm_80+ int4 tensor cores (layout MIN_SM (8,0)).
+        disabled.add("svdquant_w4a4")
+    if not model_management.supports_nvfp4_compute(device):
+        disabled.add("nvfp4")
+    if not model_management.supports_mxfp8_compute(device):
+        disabled.add("mxfp8")
+    if not model_management.supports_fp8_compute(device):
+        disabled.add("float8_e4m3fn")
+        disabled.add("float8_e5m2")
+    if not model_management.supports_int8_compute(device):
+        # int8 storage stays enabled: the dequantizing math fallback works
+        # on every device, halving weight memory either way.
+        disabled.add("int8_tensorwise")
+        disabled.add("convrot_w4a4")
+        disabled.add("asym_w4a8_int8")
+    return disabled
+
+
+def get_disabled_storage_formats():
+    """Quantized formats that cannot even be kept quantized in memory."""
+    disabled_storage = set()
+    if not mixed_precision_quantization_available():
+        disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4", "int8_tensorwise", "svdquant_w4a4", "awq_w4a16"})
+    if not int8_quantization_available():
+        disabled_storage.add("int8_tensorwise")
+    if not args.fp8_storage:
+        disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8"})
+    return disabled_storage
+
+
+@contextlib.contextmanager
+def use_quantized_matmul(model, device):
+    disabled = get_disabled_quant_formats(device)
+    previous = []
+    try:
+        for module in model.modules():
+            if isinstance(module, MixedPrecisionOp) and module.can_use_quantized_matmul(disabled):
+                previous.append((module, module._full_precision_mm))
+                module._full_precision_mm = False
+        yield
+    finally:
+        for module, full_precision_mm in previous:
+            module._full_precision_mm = full_precision_mm
+
+
 def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_fp8=False, fp8_optimizations=False, model_config=None, inference_mode: Optional[bool] = None):
     if inference_mode is None:
         inference_mode = current_execution_context().inference_mode
-    fp8_compute = model_management.supports_fp8_compute(load_device) # TODO: if we support more ops this needs to be more granular
-    nvfp4_compute = model_management.supports_nvfp4_compute(load_device)
-    mxfp8_compute = model_management.supports_mxfp8_compute(load_device)
-    int8_compute = model_management.supports_int8_compute(load_device)
-
     if model_config and hasattr(model_config, 'quant_config') and model_config.quant_config:
         logger.info("Using mixed precision operations")
-        disabled = set()
-        disabled_storage = set()
-        if not mixed_precision_quantization_available():
-            disabled.update({"float8_e4m3fn", "float8_e5m2", "nvfp4", "int8_tensorwise", "svdquant_w4a4", "awq_w4a16"})
-            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4", "int8_tensorwise", "svdquant_w4a4", "awq_w4a16"})
-        if not int8_quantization_available():
-            disabled.add("int8_tensorwise")
-            disabled_storage.add("int8_tensorwise")
-        svdq_layout = get_layout_class("TensorCoreSVDQuantW4A4Layout")
-        if svdq_layout is None or not svdq_layout.supports_fast_matmul():
-            # SVDQuant W4A4 needs sm_80+ int4 tensor cores (layout MIN_SM (8,0)).
-            disabled.add("svdquant_w4a4")
-        if not nvfp4_compute:
-            disabled.add("nvfp4")
-        if not mxfp8_compute:
-            disabled.add("mxfp8")
-        if not fp8_compute:
-            disabled.add("float8_e4m3fn")
-            disabled.add("float8_e5m2")
-        if not int8_compute:
-            # int8 storage stays enabled: the dequantizing math fallback works
-            # on every device, halving weight memory either way.
-            disabled.add("int8_tensorwise")
-        if not args.fp8_storage:
-            disabled_storage.update({"float8_e4m3fn", "float8_e5m2", "mxfp8"})
+        disabled = get_disabled_quant_formats(load_device)
+        disabled_storage = get_disabled_storage_formats()
+        logger.info("Native ops: {} {}".format(", ".join(QUANT_ALGOS.keys() - disabled), ", emulated ops: {}".format(", ".join(disabled)) if len(disabled) > 0 else ""))
         return mixed_precision_ops(model_config.quant_config, compute_dtype, disabled=disabled, disabled_storage=disabled_storage)
 
+    fp8_compute = model_management.supports_fp8_compute(load_device)
     if (
         fp8_compute and
         (fp8_optimizations or PerformanceFeature.Fp8MatrixMultiplication in args.fast) and

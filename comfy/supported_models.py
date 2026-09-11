@@ -39,6 +39,7 @@ from .text_encoders import ernie
 from .text_encoders import cogvideo
 from .text_encoders import gpt_oss
 from .text_encoders import hidream_o1
+from .text_encoders import sensenova
 from .text_encoders import ideogram4
 from .text_encoders import boogu
 from .text_encoders import krea2
@@ -1831,6 +1832,44 @@ class HiDreamO1(supported_models_base.BASE):
             hidream_o1.HiDreamO1TE,
         )
 
+class SenseNovaU15(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "sensenova_u15",
+    }
+
+    sampling_settings = {
+        "shift": 3.0,
+        "noise_scale": 1.0,
+    }
+
+    latent_format = latent_formats.HiDreamO1Pixel
+    memory_usage_factor = 0.033
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    optimizations = {"fp8": False}
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.SenseNovaU15(self, device=device)
+
+    def process_unet_state_dict(self, state_dict):
+        state_dict.pop("language_model.lm_head.weight", None)
+        return state_dict
+
+    def process_vae_state_dict(self, state_dict):
+        return {"pixel_space_vae": torch.tensor(1.0)}
+
+    def process_clip_state_dict(self, state_dict):
+        return {"_sensenova_te_sentinel": torch.zeros(1)}
+
+    def clip_target(self, state_dict={}):
+        return supported_models_base.ClipTarget(
+            sensenova.SenseNovaTokenizer,
+            sensenova.SenseNovaTextEncoder,
+        )
+
 class Chroma(supported_models_base.BASE):
     unet_config = {
         "image_model": "chroma",
@@ -2661,6 +2700,7 @@ models = [
     TripoSplat,
     HiDream,
     HiDreamO1,
+    SenseNovaU15,
     Chroma,
     SeedVR2,
     ChromaRadiance,

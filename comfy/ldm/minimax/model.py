@@ -84,6 +84,15 @@ def prepare_audio_carry(x, timestep, transformer_options, minimax_payload, sigma
     return [x[0], audio], (scale, audio, sigma_a)
 
 
+def scale_masked_velocity(output, denoise_mask, audio_denoise_mask):
+    """Masked rows predict at mask * sigma; scale their velocity to match the outer x0 conversion."""
+    if denoise_mask is not None:
+        output[0] = output[0] * denoise_mask
+    if audio_denoise_mask is not None:
+        output[1] = output[1] * audio_denoise_mask
+    return output
+
+
 def restore_audio_carry(output, carry_state):
     """Convert the network's audio velocity back to the sampler's schedule."""
     if carry_state is None:
@@ -210,7 +219,7 @@ def rope_rotation_table(angles, dtype):
 
 
 class Attention(nn.Module):
-    def __init__(self, hidden, heads, head_dim, eps, dtype=None, device=None, operations=None):
+    def __init__(self, hidden, heads, head_dim, eps, gate_compress=False, dtype=None, device=None, operations=None):
         super().__init__()
         self.heads = local_size(operations, heads, "MiniMax H3 attention heads")
         self.head_dim = head_dim
@@ -224,6 +233,11 @@ class Attention(nn.Module):
         )
         self.q_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
+        self.out_proj = operations.Linear(inner, hidden, bias=False, dtype=dtype, device=device)
+        self.to_gate_compress = None
+        if gate_compress:
+            # VSA gate, unused by the dense forward; consumed by sparse attention patches
+            self.to_gate_compress = operations.Linear(hidden, inner, bias=False, dtype=dtype, device=device)
 
     def forward(self, x, rope_freqs=None, transformer_options={}):
         s = x.shape[0]
@@ -247,7 +261,7 @@ class Attention(nn.Module):
         else:
             q = self.q_norm(q.view(s, self.heads, self.head_dim))
             k = self.k_norm(k.view(s, self.heads, self.head_dim))
-        v = v.clone()
+
         q = AttentionTensorContainer(q.transpose(0, 1).unsqueeze(0))
         k = AttentionTensorContainer(k.transpose(0, 1).unsqueeze(0))
         v = AttentionTensorContainer(v.transpose(0, 1).unsqueeze(0))
@@ -338,20 +352,22 @@ class TokenRefiner(nn.Module):
 
 class DiTBlock(nn.Module):
     def __init__(self, hidden, heads, head_dim, ffn, t_dim, eps, qk_eps,
-                 apply_silu=True, adaln_dtype=None, dtype=None, device=None, operations=None):
+                 apply_silu=True, adaln_dtype=None, gate_compress=False, dtype=None, device=None, operations=None):
         super().__init__()
         self.norm1 = operations.RMSNorm(hidden, eps=eps, dtype=dtype, device=device)
         self.norm2 = operations.RMSNorm(hidden, eps=eps, dtype=dtype, device=device)
-        self.attn = Attention(hidden, heads, head_dim, qk_eps, dtype=dtype, device=device, operations=operations)
+        self.attn = Attention(hidden, heads, head_dim, qk_eps, gate_compress=gate_compress,
+                              dtype=dtype, device=device, operations=operations)
         self.mlp = MLP(hidden, ffn, dtype=dtype, device=device, operations=operations)
         self.adaln_proj = AdalnProj(t_dim, hidden, 6, 3, apply_silu=apply_silu,
                                     dtype=adaln_dtype if adaln_dtype is not None else dtype,
                                     device=device, operations=operations)
 
-    def forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}):
+    def forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}, attention=None):
+        attention = self.attn if attention is None else attention
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaln_proj(t_emb)
         h = _mod_scale_shift(self.norm1(x), shift_msa, scale_msa, mod_segments)
-        x = _mod_gate(x, gate_msa, self.attn(h, rope_freqs=rope_freqs, transformer_options=transformer_options), mod_segments)
+        x = _mod_gate(x, gate_msa, attention(h, rope_freqs=rope_freqs, transformer_options=transformer_options), mod_segments)
         h = _mod_scale_shift(self.norm2(x), shift_mlp, scale_mlp, mod_segments)
         return _mod_gate(x, gate_mlp, self.mlp(h), mod_segments)
 
@@ -536,7 +552,7 @@ class MiniMaxH3Model(nn.Module):
                  timestep_input_dim=256, time_embed_hidden_size=5376, time_embed_dim=2688,
                  rope_inv_freq_len=16, norm_eps=1e-5, qk_norm_eps=1e-5, final_norm_eps=1e-5,
                  sigma_shift_video=12.0, sigma_shift_audio=3.0,
-                 adaln_curve_grid=None,
+                 adaln_curve_grid=None, gate_compress=False,
                  image_model=None, dtype=None, device=None, operations=None,
                  pipeline_stage: PipelineStageConfig | None = None, **kwargs):
         super().__init__()
@@ -590,13 +606,15 @@ class MiniMaxH3Model(nn.Module):
             self.token_refiner = PipelineMissingLayer()
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_attention_heads, attention_head_dim, ffn_hidden_size,
-                     time_embed_dim, norm_eps, qk_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
+                     time_embed_dim, norm_eps, qk_norm_eps, **curve, gate_compress=gate_compress,
+                     dtype=dtype, device=device, operations=operations)
             if pipeline_stage is None or pipeline_stage.start_layer <= index < pipeline_stage.end_layer
             else PipelineMissingLayer()
             for index in range(num_layers)])
         if is_last_stage:
             self.final_layer = FinalLayer(hidden_size, time_embed_dim, video_patch_dim, audio_latents_dim,
-                                          final_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
+                                          final_norm_eps, **curve, gate_compress=gate_compress,
+                     dtype=dtype, device=device, operations=operations)
         else:
             self.final_layer = PipelineMissingLayer()
 
@@ -684,7 +702,13 @@ class MiniMaxH3Model(nn.Module):
                 self.sigma_shift_video,
                 self.sigma_shift_audio,
             )
-        out = comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        # Allocation compilation records a single-process forward; pipeline stages
+        # run their layers through forward_pipeline_stage instead.
+        compile_allocations = self.pipeline_stage is None and comfy.model_prefetch.malloc_graph_enabled(x[0].device)
+        if compile_allocations:
+            out = [torch.empty_like(x[0]), torch.empty_like(x[1])]
+            comfy.model_prefetch.malloc_graph_begin(x[0].device)
+        graph_out = comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
             comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
@@ -695,6 +719,15 @@ class MiniMaxH3Model(nn.Module):
             audio_denoise_mask=audio_denoise_mask,
             **kwargs,
         )
+        if compile_allocations:
+            out[0].copy_(graph_out[0])
+            out[1].copy_(graph_out[1])
+            del graph_out
+            comfy.model_prefetch.malloc_graph_end()
+        else:
+            out = graph_out
+        if self.pipeline_stage is None:
+            out = scale_masked_velocity(out, denoise_mask, audio_denoise_mask)
         return restore_audio_carry(out, carry_state)
 
     def _forward(self, x, timestep, context, transformer_options={}, minimax_payload=None,
@@ -720,6 +753,8 @@ class MiniMaxH3Model(nn.Module):
             layout = PackedLayout(text_len, latent_t, lat_h, lat_w, audio_t,
                                   keyframes=payload.get("keyframes"),
                                   refs=payload.get("refs"))
+
+        transformer_options["minimax_h3_layout"] = layout   # segment spans for attention patches
 
         # model_base passes model_sampling.timestep(sigma) = sigma * 1000
         shift_v = float(transformer_options.get("minimax_h3_sigma_shift_video", self.sigma_shift_video))
@@ -895,6 +930,10 @@ class MiniMaxH3Model(nn.Module):
 
         if self.pipeline_stage is not None and not self.pipeline_stage.is_last:
             tensors = {"hidden_states": h, "t_emb": t_emb, "rope_freqs": rope_freqs}
+            if denoise_mask is not None:
+                tensors["denoise_mask"] = denoise_mask
+            if audio_denoise_mask is not None:
+                tensors["audio_denoise_mask"] = audio_denoise_mask
             metadata = {
                 "mod_segments": pack_pipeline_value(tuple(mod_segments), tensors, "mod_segments"),
                 "video_seg": pack_pipeline_value(video_seg, tensors, "video_seg"),
@@ -924,19 +963,19 @@ class MiniMaxH3Model(nn.Module):
         prefetch_queue = comfy.model_prefetch.make_prefetch_queue(blocks, device, transformer_options)
         for i in range(start_layer, end_layer):
             block = self.blocks[i]
-            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, block)
+            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, block, malloc_scope="block")
+            transformer_options["block_index"] = i
             if ("double_block", i) in blocks_replace:
                 def block_wrap(args):
                     return {"img": block(args["img"], args["t_emb"], args["mod_segments"], args["rope_freqs"],
-                                         transformer_options=args["transformer_options"])}
+                                         transformer_options=args["transformer_options"], attention=args.get("attention"))}
                 h = blocks_replace[("double_block", i)](
                     {"img": h, "t_emb": t_emb, "mod_segments": mod_segments, "rope_freqs": rope_freqs,
-                     "transformer_options": transformer_options},
+                     "layout": layout, "transformer_options": transformer_options},
                     {"original_block": block_wrap})["img"]
             else:
                 h = block(h, t_emb, mod_segments, rope_freqs, transformer_options=transformer_options)
-        if prefetch_queue is not None:
-            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, None)
+        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, None, malloc_scope="block")
         return h
 
     def forward_pipeline_stage(self, intermediate: PipelineIntermediateTensors):
@@ -956,7 +995,7 @@ class MiniMaxH3Model(nn.Module):
             return PipelineIntermediateTensors(tensors, metadata)
         latent_t, lat_h, lat_w = metadata["latent_shape"]
         orig_t, orig_h, orig_w = metadata["original_shape"]
-        return self._forward_exit(
+        out = self._forward_exit(
             h, tensors["t_emb"],
             unpack_pipeline_value(metadata["video_seg"], tensors),
             unpack_pipeline_value(metadata["audio_seg"], tensors),
@@ -967,6 +1006,7 @@ class MiniMaxH3Model(nn.Module):
             unpack_pipeline_value(metadata["pdd_context"], tensors),
             transformer_options.get("sample_sigmas"),
         )
+        return scale_masked_velocity(out, tensors.get("denoise_mask"), tensors.get("audio_denoise_mask"))
 
     def _forward_exit(self, h, t_emb, video_seg, audio_seg, latent_t, lat_h, lat_w,
                       orig_t, orig_h, orig_w, video_dtype, audio_dtype, pdd_context,

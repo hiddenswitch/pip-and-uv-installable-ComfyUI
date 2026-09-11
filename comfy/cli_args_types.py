@@ -161,6 +161,8 @@ class Configuration(dict):
         vram_headroom (float): Extra DynamicVRAM headroom in GB above the default reservation.
         disable_dynamic_vram (bool): Disable dynamic VRAM and use estimate-based model loading.
         disable_cuda_graphs (bool): Disable CUDA graph capture and replay.
+        disable_comfy_compiler (bool): Disable the Comfy model compiler, including its CUDA graph subfeature.
+        assert_graph_breaks (bool): Fail on Comfy model compiler graph breaks.
         fast_disk (bool): Prefer disk-backed dynamic loading and offload over unpinned RAM.
         disable_smart_memory (bool): Disable smart memory management.
         deterministic (bool): Use deterministic algorithms where possible.
@@ -338,6 +340,8 @@ class Configuration(dict):
         self.enable_dynamic_vram: bool = False
         self.fast_disk: bool = False
         self.disable_cuda_graphs: bool = False
+        self.disable_comfy_compiler: bool = False
+        self.assert_graph_breaks: bool = False
         self.disable_smart_memory: bool = False
         self.deterministic: bool = False
         self.dont_print_server: bool = False

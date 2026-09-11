@@ -818,6 +818,7 @@ class LoraLoaderModelOnly(LoraLoader):
 
     RETURN_TYPES = ("MODEL",)
     DESCRIPTION = "This LoRAs loader is used to modify the diffusion model, altering the way in which latents are denoised such as applying styles. Multiple LoRA nodes can be linked together."
+    SEARCH_ALIASES = ["lora", "load lora", "apply lora", "lora loader", "lora model"]
     FUNCTION = "load_lora_model_only"
 
     def load_lora_model_only(self, model, lora_name, strength_model):
@@ -2126,6 +2127,8 @@ class ImageInvert:
 
     def invert(self, image):
         s = 1.0 - image
+        if image.shape[-1] == 4:  # alpha stores transparency, not color
+            s[..., 3] = image[..., 3]
         return (s,)
 
 
