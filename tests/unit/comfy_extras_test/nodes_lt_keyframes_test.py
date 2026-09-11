@@ -52,7 +52,7 @@ def _get_keyframe_idxs(cond, latent_shape=None):
 
 
 def _append_guide_attention_entry(positive, negative, pre_filter_count, latent_shape, strength=1.0, attention_mask=None):
-    import node_helpers
+    from comfy import node_helpers
 
     new_entry = {
         "pre_filter_count": pre_filter_count,
