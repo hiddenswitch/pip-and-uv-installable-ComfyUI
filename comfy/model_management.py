@@ -2058,6 +2058,25 @@ if not args.disable_pinned_memory:
 
 PINNING_ALLOWED_TYPES = set(["Tensor", "Parameter", "QuantizedTensor"])
 
+_UNSHARED_MAX_PINNED_MEMORY = None
+
+
+def share_pinned_memory_budget(participants: int) -> None:
+    """Split this host's pinned memory budget across model-parallel processes.
+
+    Every pipeline or tensor parallel rank is a separate process that would
+    otherwise register up to the whole per-host budget; the sum can exceed
+    physical RAM, and pinned pages cannot be reclaimed.
+    """
+    global MAX_PINNED_MEMORY, _UNSHARED_MAX_PINNED_MEMORY
+    if MAX_PINNED_MEMORY <= 0 or participants <= 1:
+        return
+    if _UNSHARED_MAX_PINNED_MEMORY is None:
+        _UNSHARED_MAX_PINNED_MEMORY = MAX_PINNED_MEMORY
+    MAX_PINNED_MEMORY = _UNSHARED_MAX_PINNED_MEMORY // participants
+    logger.info("Pinned memory budget shared across %d model-parallel processes: %d MB each", participants, MAX_PINNED_MEMORY // (1024 * 1024))
+
+
 def pinned_hostbuf_size(size):
     if args.high_ram:
         return max(0, int(size * 2))
