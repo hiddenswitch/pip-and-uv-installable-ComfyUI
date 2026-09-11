@@ -4,6 +4,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import copy
+import multiprocessing
 import gc
 import json
 import logging
@@ -46,6 +47,28 @@ def _add_node_site_to_path(configuration: Configuration | None) -> None:
     add_node_site(configuration.base_directory)
 
 
+_worker_process_setup_done = False
+
+
+def _setup_worker_process(configuration: Configuration) -> None:
+    """Run the CLI's post-torch setup once inside a spawned worker process.
+
+    ``comfyui serve`` reaches DynamicVRAM (comfy-aimdo) through
+    ``setup_post_torch``; a process-pool worker otherwise imports torch and
+    model_management without it and silently runs the legacy ModelPatcher.
+    The in-process thread executor is left alone: swapping the CUDA allocator
+    of the host process is the caller's decision, not the client's.
+    """
+    global _worker_process_setup_done
+    if _worker_process_setup_done or multiprocessing.parent_process() is None:
+        return
+    _worker_process_setup_done = True
+    from ..component_model.setup import setup_post_torch
+    from ..execution_context import context_configuration
+    with context_configuration(configuration):
+        setup_post_torch(configuration)
+
+
 def _execute_prompt(
         prompt: dict,
         prompt_id: str,
@@ -63,6 +86,7 @@ def _execute_prompt(
     if configuration is not None:
         from ..component_model.setup import setup_cuda_devices
         setup_cuda_devices(configuration)
+        _setup_worker_process(configuration)
 
     # Ensure custom-node deps installed to node_site/ are importable in this
     # worker (thread or spawned process).
