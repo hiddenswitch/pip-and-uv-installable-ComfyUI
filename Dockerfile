@@ -46,6 +46,10 @@ RUN uv pip list --system --format freeze --exclude-editable \
        "opencv-python-headless; python_version < '0'" \
        "opencv-contrib-python; python_version < '0'" \
        > /workspace/resolver-overrides.txt
+    && printf "%s\n" \
+       "comfyui; python_version < '0'" \
+       > /workspace/custom-node-overrides.txt \
+    && cat /workspace/resolver-overrides.txt >> /workspace/custom-node-overrides.txt
 ENV UV_OVERRIDE=/workspace/resolver-overrides.txt
 
 # Dependency inputs are copied before the source tree so ordinary code changes
@@ -55,6 +59,10 @@ COPY tests/custom_nodes_requirements.txt tests/custom_nodes_stable_abi_requireme
 
 # Bake the application, test tooling, and custom-node dependency closure into
 # the candidate. Hardware jobs consume this exact image and perform no installs.
+# Custom-node packages declare an unbounded dependency on comfyui; the index
+# would satisfy it with a published release whose pins downgrade comfy-aimdo
+# and comfy-kitchen, so that requirement is overridden away (the checkout is
+# installed below, and ci/lock-excludes.txt does the same for the locks).
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --no-deps \
       --index-url https://download.pytorch.org/whl/cpu \
@@ -62,6 +70,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     && uv pip install --extra dev \
       -r /workspace/project/pyproject.toml \
     && uv pip install --no-build-isolation \
+      --override /workspace/custom-node-overrides.txt \
       -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
       --index-strategy unsafe-best-match \
