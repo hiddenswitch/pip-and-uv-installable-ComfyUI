@@ -90,9 +90,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/8e/64/013409c451a44b6
 
 [[packages]]
 name = "alembic"
-version = "1.19.2"
-sdist = { url = "https://files.pythonhosted.org/packages/34/10/181eecdd552217d0342492bd6f3b8a96e973083379aace3d3402830ddc03/alembic-1.19.2.tar.gz", upload-time = 2026-09-04T17:10:11Z, size = 2082643, hashes = { sha256 = "297950a8a91f6770eb82bfbce9bea55c728b90a5386c6e81430191a319d138b0" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/9c/cb/9014784dcb0585977ae23b6f43331d0a33c51ac0d692506d12b4f5ee9f3b/alembic-1.19.2-py3-none-any.whl", upload-time = 2026-09-04T17:10:12Z, size = 267399, hashes = { sha256 = "32d553dcd577e6fe5c3c63e91468526d35e4dcecafe865d7db4e9b328fa93cb2" } }]
+version = "1.20.0"
+sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", upload-time = 2026-09-11T19:09:11Z, size = 2093272, hashes = { sha256 = "db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", upload-time = 2026-09-11T19:09:12Z, size = 268719, hashes = { sha256 = "77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d" } }]
 
 [[packages]]
 name = "altgraph"
@@ -473,9 +473,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/b6/e6/cf29a5b21528779
 
 [[packages]]
 name = "contourpy"
-version = "1.3.3"
-sdist = { url = "https://files.pythonhosted.org/packages/58/01/1253e6698a07380cd31a736d248a3f2a50a7c88779a1813da27503cadc2a/contourpy-1.3.3.tar.gz", upload-time = 2025-07-26T12:03:12Z, size = 13466174, hashes = { sha256 = "083e12155b210502d0bca491432bb04d56dc3432f95a979b429f2848c3dbe880" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/cc/8f/ec6289987824b29529d0dfda0d74a07cec60e54b9c92f3c9da4c0ac732de/contourpy-1.3.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2025-07-26T12:01:28Z, size = 362601, hashes = { sha256 = "4d00e655fcef08aba35ec9610536bfe90267d7ab5ba944f7032549c55a146da1" } }]
+version = "1.4.0"
+sdist = { url = "https://files.pythonhosted.org/packages/83/5a/a55177dd22553a277388e8a1b3220e92de91bacb28356cdc73caa240121d/contourpy-1.4.0.tar.gz", upload-time = 2026-09-11T19:05:05Z, size = 13323726, hashes = { sha256 = "20156f5a1ac4f8ce02656e39a61e82164a3d359796dc8026f75b062783d500e1" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/78/f9/b6831508960d559581c448532ba4df312217072975486dbf2b24fcc5b76f/contourpy-1.4.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2026-09-11T19:02:58Z, size = 383243, hashes = { sha256 = "875f42444c9cf48d56f724f2637e60d0f73b3b12c9041e1484580a233edf9591" } }]
 
 [[packages]]
 name = "coverage"
@@ -1065,9 +1065,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/3c/2e/8d0c2ab90a8c1d9
 
 [[packages]]
 name = "matplotlib"
-version = "3.11.1"
-sdist = { url = "https://files.pythonhosted.org/packages/49/64/f9a391af28f518b11ad45a8a712353c94a0aefce09d3703200e5c54b610a/matplotlib-3.11.1.tar.gz", upload-time = 2026-07-18T03:39:46Z, size = 32612045, hashes = { sha256 = "69647db5746941c793d6e445a4cd349323ffb87d9cc958c2ad84a659b4832d30" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/c9/cf/b4ad2cc81b6672ea29ea04e64e350a9f9b493b0908ccd884c67eeff8f7b2/matplotlib-3.11.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", upload-time = 2026-07-18T03:38:24Z, size = 10035615, hashes = { sha256 = "ba8f811b8ddfac493734d6af0b2dff96919d0c28ca0d641858dab4262777c6ea" } }]
+version = "3.11.2"
+sdist = { url = "https://files.pythonhosted.org/packages/e7/c8/9aa712a0afb882649424dd8de8ad9aa6235e796e84c6052e8f6dc1598d0d/matplotlib-3.11.2.tar.gz", upload-time = 2026-09-11T19:05:31Z, size = 32660610, hashes = { sha256 = "cec596316640f2b394b8f0daa0ea61a8eae82d017b620b9f202befb972a59ea4" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/b8/90/2b3fd67ee273163faeda6d514be70b5596eaa0fd77b60ffc294ad0b34f5f/matplotlib-3.11.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", upload-time = 2026-09-11T19:03:25Z, size = 9860353, hashes = { sha256 = "df4f7784aca81a94f254c0a2767d592ee25f407e488f5fa7203e51093fb6ca27" } }]
 
 [[packages]]
 name = "matrix-nio"

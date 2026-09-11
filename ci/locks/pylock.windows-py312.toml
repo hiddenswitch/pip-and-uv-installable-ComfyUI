@@ -90,9 +90,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/8e/64/013409c451a44b6
 
 [[packages]]
 name = "alembic"
-version = "1.19.2"
-sdist = { url = "https://files.pythonhosted.org/packages/34/10/181eecdd552217d0342492bd6f3b8a96e973083379aace3d3402830ddc03/alembic-1.19.2.tar.gz", upload-time = 2026-09-04T17:10:11Z, size = 2082643, hashes = { sha256 = "297950a8a91f6770eb82bfbce9bea55c728b90a5386c6e81430191a319d138b0" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/9c/cb/9014784dcb0585977ae23b6f43331d0a33c51ac0d692506d12b4f5ee9f3b/alembic-1.19.2-py3-none-any.whl", upload-time = 2026-09-04T17:10:12Z, size = 267399, hashes = { sha256 = "32d553dcd577e6fe5c3c63e91468526d35e4dcecafe865d7db4e9b328fa93cb2" } }]
+version = "1.20.0"
+sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", upload-time = 2026-09-11T19:09:11Z, size = 2093272, hashes = { sha256 = "db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", upload-time = 2026-09-11T19:09:12Z, size = 268719, hashes = { sha256 = "77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d" } }]
 
 [[packages]]
 name = "altgraph"
@@ -480,9 +480,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/b6/e6/cf29a5b21528779
 
 [[packages]]
 name = "contourpy"
-version = "1.3.3"
-sdist = { url = "https://files.pythonhosted.org/packages/58/01/1253e6698a07380cd31a736d248a3f2a50a7c88779a1813da27503cadc2a/contourpy-1.3.3.tar.gz", upload-time = 2025-07-26T12:03:12Z, size = 13466174, hashes = { sha256 = "083e12155b210502d0bca491432bb04d56dc3432f95a979b429f2848c3dbe880" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/19/e8/6026ed58a64563186a9ee3f29f41261fd1828f527dd93d33b60feca63352/contourpy-1.3.3-cp312-cp312-win_amd64.whl", upload-time = 2025-07-26T12:01:36Z, size = 226567, hashes = { sha256 = "8153b8bfc11e1e4d75bcb0bff1db232f9e10b274e0929de9d608027e0d34ff8b" } }]
+version = "1.4.0"
+sdist = { url = "https://files.pythonhosted.org/packages/83/5a/a55177dd22553a277388e8a1b3220e92de91bacb28356cdc73caa240121d/contourpy-1.4.0.tar.gz", upload-time = 2026-09-11T19:05:05Z, size = 13323726, hashes = { sha256 = "20156f5a1ac4f8ce02656e39a61e82164a3d359796dc8026f75b062783d500e1" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/50/a9/dab08786bb4d77ef9a046b3c1be923be4e73c5d07d91f5a54e8ea9b09e41/contourpy-1.4.0-cp312-cp312-win_amd64.whl", upload-time = 2026-09-11T19:03:08Z, size = 234083, hashes = { sha256 = "6e697d94e69f499ff6bebb899cae97a58d5d14f0e1fe9568b43a0248d2f9af8c" } }]
 
 [[packages]]
 name = "coverage"
@@ -1046,9 +1046,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/aa/5b/bec5aa9bbbb2c94
 
 [[packages]]
 name = "matplotlib"
-version = "3.11.1"
-sdist = { url = "https://files.pythonhosted.org/packages/49/64/f9a391af28f518b11ad45a8a712353c94a0aefce09d3703200e5c54b610a/matplotlib-3.11.1.tar.gz", upload-time = 2026-07-18T03:39:46Z, size = 32612045, hashes = { sha256 = "69647db5746941c793d6e445a4cd349323ffb87d9cc958c2ad84a659b4832d30" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/88/89/56649bbaa2fd12e20f3be03dbcc135b0c8676d88bac17977599e3eb442a0/matplotlib-3.11.1-cp312-cp312-win_amd64.whl", upload-time = 2026-07-18T03:38:30Z, size = 9333886, hashes = { sha256 = "88a2a27dd9691ae448dfae4b26f59036be90c3c28757edd3553a29559d00859f" } }]
+version = "3.11.2"
+sdist = { url = "https://files.pythonhosted.org/packages/e7/c8/9aa712a0afb882649424dd8de8ad9aa6235e796e84c6052e8f6dc1598d0d/matplotlib-3.11.2.tar.gz", upload-time = 2026-09-11T19:05:31Z, size = 32660610, hashes = { sha256 = "cec596316640f2b394b8f0daa0ea61a8eae82d017b620b9f202befb972a59ea4" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/04/93/0d239bde12b308262265c2d98909b2f0ecad2b5deeae96241642e822e9c7/matplotlib-3.11.2-cp312-cp312-win_amd64.whl", upload-time = 2026-09-11T19:03:34Z, size = 9349409, hashes = { sha256 = "c5c1c68ee401fc98271263410f0e5ce88285abacf7627132914e8adf3d70ff43" } }]
 
 [[packages]]
 name = "matrix-nio"
