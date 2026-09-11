@@ -5,7 +5,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-from comfy_extras.nodes_text_overlay import TextOverlay  # noqa: E402
+from comfy_extras.nodes.nodes_text_overlay import TextOverlay  # noqa: E402
 
 TEXT = "Hello"
 SIZE = 64

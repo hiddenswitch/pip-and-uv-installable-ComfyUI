@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy_api.latest import IO, UI, Types
-from comfy_extras.nodes_load_3d import Preview3DAdvanced, PreviewGaussianSplat, PreviewPointCloud
-from comfy_extras.nodes_save_3d import Save3DAdvanced, SaveGaussianSplat, SavePointCloud
+from comfy_extras.nodes.nodes_load_3d import Preview3DAdvanced, PreviewGaussianSplat, PreviewPointCloud
+from comfy_extras.nodes.nodes_save_3d import Save3DAdvanced, SaveGaussianSplat, SavePointCloud
 
 
 def test_preview_ui_3d_advanced_keeps_bare_path_by_default():

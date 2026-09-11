@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from comfy_extras.nodes_compositing import PorterDuffMode, porter_duff_composite
+from comfy_extras.nodes.nodes_compositing import PorterDuffMode, _porter_duff_composite as porter_duff_composite
 
 
 SOURCE = torch.tensor([0.8, 0.2, 0.6])
@@ -46,11 +46,12 @@ def reference_source_over(mode, source_alpha, backdrop_alpha):
     [(1.0, 0.0), (0.0, 1.0), (0.35, 0.65), (1.0, 1.0)],
 )
 def test_blend_modes_use_source_over_alpha(mode, source_alpha, backdrop_alpha):
+    # The fork's helper takes alpha in and returns a mask; the node wrappers convert input masks.
     output, output_mask = porter_duff_composite(
         SOURCE.reshape(1, 1, 3),
-        torch.tensor(1 - source_alpha).reshape(1, 1, 1),
+        torch.tensor(source_alpha).reshape(1, 1, 1),
         BACKDROP.reshape(1, 1, 3),
-        torch.tensor(1 - backdrop_alpha).reshape(1, 1, 1),
+        torch.tensor(backdrop_alpha).reshape(1, 1, 1),
         mode,
     )
     expected, expected_mask = reference_source_over(mode, source_alpha, backdrop_alpha)

@@ -1,5 +1,5 @@
 from comfy_api.latest._io import ResolutionPreview
-from comfy_extras.nodes_resolution import ResolutionSelector
+from comfy_extras.nodes.nodes_resolution import ResolutionSelector
 
 
 def test_resolution_preview_defaults_optional_and_socketless():

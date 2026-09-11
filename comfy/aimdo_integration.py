@@ -16,7 +16,7 @@ import torch
 from .cli_args import args, dynamic_vram_requested, dynamic_vram_supported, enables_dynamic_vram
 
 if dynamic_vram_requested() and not dynamic_vram_supported():
-    logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
+    logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later (2.12+ is recommended). Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
     memory_management.aimdo_allocator = None
 elif enables_dynamic_vram() and model_management.get_torch_device().type == "cuda":
     torch.cuda.init()

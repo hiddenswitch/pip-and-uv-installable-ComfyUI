@@ -8,9 +8,13 @@ tokens; their order is significant because the checkpoint embeds them by id.
 import os
 
 import torch
+
+from ..transformers_compat import patch_transformers_finegrained_fp8_import
+
+patch_transformers_finegrained_fp8_import()
 from transformers import Qwen2Tokenizer
 
-from comfy import sd1_clip
+from .. import sd1_clip
 
 
 SYSTEM_MESSAGE = (

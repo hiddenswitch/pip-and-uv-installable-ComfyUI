@@ -1,11 +1,11 @@
 import math
 import re
 
-import node_helpers
+from comfy import node_helpers
 import torch
 from comfy.ldm.lightricks.symmetric_patchifier import SymmetricPatchifier, latent_to_pixel_coords
 from comfy_api.latest import ComfyExtension, io
-from comfy_extras.nodes_lt import (
+from .nodes_lt import (
     LTXVAddGuide,
     _append_guide_attention_entry,
     conditioning_get_any_value,

@@ -20,14 +20,22 @@ def test_new_claude_models_expose_expected_thinking_controls():
         for schema_input in nodes_anthropic._claude_model_inputs("Sonnet 5")
     }
     assert "temperature" not in sonnet_inputs
-    assert sonnet_inputs["reasoning_effort"].options == ["off", "low", "medium", "high"]
+    assert sonnet_inputs["reasoning_effort"].options == ["off", "low", "medium", "high", "xhigh", "max"]
 
     fable_inputs = {
         schema_input.id: schema_input
         for schema_input in nodes_anthropic._claude_model_inputs("Fable 5")
     }
     assert "temperature" not in fable_inputs
-    assert fable_inputs["reasoning_effort"].options == ["low", "medium", "high"]
+    assert fable_inputs["reasoning_effort"].options == ["low", "medium", "high", "xhigh", "max"]
+
+    assert nodes_anthropic.CLAUDE_MODELS["Fable 5.1"] == "claude-fable-5-1"
+    fable51_inputs = {
+        schema_input.id: schema_input
+        for schema_input in nodes_anthropic._claude_model_inputs("Fable 5.1")
+    }
+    assert "temperature" not in fable51_inputs
+    assert fable51_inputs["reasoning_effort"].options == ["low", "medium", "high", "xhigh", "max"]
 
 
 @pytest.mark.asyncio

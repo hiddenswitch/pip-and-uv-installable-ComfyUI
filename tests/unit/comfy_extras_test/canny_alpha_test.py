@@ -5,7 +5,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-from comfy_extras.nodes_canny import Canny  # noqa: E402
+from comfy_extras.nodes.nodes_canny import Canny  # noqa: E402
 
 
 def edged_image(channels, alpha=0.8, size=16):

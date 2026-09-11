@@ -9,7 +9,7 @@ args.cpu = True
 from comfy import model_base, model_detection
 import comfy.latent_formats
 import comfy.sample
-import nodes
+from comfy.nodes import base_nodes as nodes
 from comfy.ldm.sensenova import model as sensenova_model
 from comfy.ldm.sensenova.conditioning import (
     block_causal_mask,
@@ -25,8 +25,8 @@ from comfy.ldm.sensenova.sampling import (
     upstream_sigmas,
 )
 from comfy.text_encoders.sensenova import SenseNovaTokenizer
-from comfy_extras.nodes_hidream_o1 import HiDreamO1ReferenceImages
-from comfy_extras.nodes_sensenova import SenseNovaSamplingOptions
+from comfy_extras.nodes.nodes_hidream_o1 import HiDreamO1ReferenceImages
+from comfy_extras.nodes.nodes_sensenova import SenseNovaSamplingOptions
 
 
 def _minimal_state_dict():

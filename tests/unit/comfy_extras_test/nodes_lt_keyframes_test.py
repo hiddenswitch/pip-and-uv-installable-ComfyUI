@@ -134,7 +134,7 @@ _nodes_lt_stub._append_guide_attention_entry = _append_guide_attention_entry
 _nodes_lt_stub.LTXVAddGuide = _StubAddGuide
 
 def _import_keyframes_against_stub():
-    """Import the module under test with comfy_extras.nodes_lt stubbed, then put it back.
+    """Import the module under test with comfy_extras.nodes.nodes_lt stubbed, then put it back.
 
     Only the stubbed keys are restored, not the whole of sys.modules: patch.dict
     restores the entire dict on exit, which evicts every module imported inside the
@@ -145,12 +145,12 @@ def _import_keyframes_against_stub():
     stubs = {
         "nodes": mock_nodes,
         "server": mock_server,
-        "comfy_extras.nodes_lt": _nodes_lt_stub,
+        "comfy_extras.nodes.nodes_lt": _nodes_lt_stub,
     }
     saved = {name: sys.modules.get(name) for name in stubs}
     sys.modules.update(stubs)
     try:
-        import comfy_extras.nodes_lt_keyframes as module
+        import comfy_extras.nodes.nodes_lt_keyframes as module
 
         return module
     finally:
@@ -162,7 +162,7 @@ def _import_keyframes_against_stub():
         # The imported module stays bound to the stubs above, so drop it from the cache
         # rather than let a later import pick up a stub-backed copy. The reference
         # returned to this module keeps working.
-        sys.modules.pop("comfy_extras.nodes_lt_keyframes", None)
+        sys.modules.pop("comfy_extras.nodes.nodes_lt_keyframes", None)
 
 
 keyframes = _import_keyframes_against_stub()

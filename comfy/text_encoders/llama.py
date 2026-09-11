@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from . import qwen_vl
-from .. import clip_model, model_management, model_prefetch, ops as comfy_ops
+from .. import clip_model, model_prefetch, ops as comfy_ops
 from ..clip_model import clip_preprocess, CLIPVision
 from ..ldm.common_dit import rms_norm
 from ..ldm.modules.attention import optimized_attention_for_device

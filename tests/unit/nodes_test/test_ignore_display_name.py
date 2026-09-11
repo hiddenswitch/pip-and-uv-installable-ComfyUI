@@ -1,38 +1,25 @@
 import sys
 
 import pytest
-import torch
 
-from comfy.cli_args import args
-
-if not torch.cuda.is_available():
-    args.cpu = True
-
-import nodes
-
-
-pytestmark = pytest.mark.asyncio
+from comfy.nodes.vanilla_node_importing import _vanilla_load_custom_nodes_1
 
 
 @pytest.fixture(autouse=True)
-def _restore_node_mappings():
-    class_mappings = dict(nodes.NODE_CLASS_MAPPINGS)
-    display_name_mappings = dict(nodes.NODE_DISPLAY_NAME_MAPPINGS)
+def _drop_test_modules():
     try:
         yield
     finally:
-        nodes.NODE_CLASS_MAPPINGS.clear()
-        nodes.NODE_CLASS_MAPPINGS.update(class_mappings)
-        nodes.NODE_DISPLAY_NAME_MAPPINGS.clear()
-        nodes.NODE_DISPLAY_NAME_MAPPINGS.update(display_name_mappings)
-        sys.modules.pop("test_v1_custom_node", None)
-        sys.modules.pop("test_v3_custom_node", None)
+        for name in list(sys.modules):
+            if name.endswith("test_v1_custom_node") or name.endswith("test_v3_custom_node"):
+                sys.modules.pop(name, None)
 
 
-async def test_load_custom_node_skips_display_names_for_ignored_nodes(tmp_path, monkeypatch):
+def test_load_custom_node_skips_display_names_for_ignored_nodes(tmp_path, monkeypatch):
     v1_module = tmp_path / "test_v1_custom_node.py"
     v1_module.write_text(
-        "NODE_CLASS_MAPPINGS = {\"LeakTest\": object}\n"
+        "class LeakTest:\n    pass\n\n\n"
+        "NODE_CLASS_MAPPINGS = {\"LeakTest\": LeakTest}\n"
         "NODE_DISPLAY_NAME_MAPPINGS = {\"LeakTest\": \"Leak Test\"}\n",
     )
 
@@ -55,8 +42,25 @@ async def test_load_custom_node_skips_display_names_for_ignored_nodes(tmp_path, 
 
     monkeypatch.syspath_prepend(str(tmp_path))
 
-    assert await nodes.load_custom_node(str(v1_module), ignore={"LeakTest"})
-    assert await nodes.load_custom_node(str(v3_module), ignore={"LeakTestV3"})
+    v1 = _vanilla_load_custom_nodes_1(str(v1_module), ignore={"LeakTest"})
+    v3 = _vanilla_load_custom_nodes_1(str(v3_module), ignore={"LeakTestV3"})
 
-    assert "LeakTest" not in nodes.NODE_DISPLAY_NAME_MAPPINGS
-    assert "LeakTestV3" not in nodes.NODE_DISPLAY_NAME_MAPPINGS
+    assert "LeakTest" not in v1.NODE_CLASS_MAPPINGS
+    assert "LeakTest" not in v1.NODE_DISPLAY_NAME_MAPPINGS
+    assert "LeakTestV3" not in v3.NODE_CLASS_MAPPINGS
+    assert "LeakTestV3" not in v3.NODE_DISPLAY_NAME_MAPPINGS
+
+
+def test_load_custom_node_keeps_display_names_for_kept_nodes(tmp_path, monkeypatch):
+    v1_module = tmp_path / "test_v1_custom_node.py"
+    v1_module.write_text(
+        "class KeepTest:\n    pass\n\n\n"
+        "NODE_CLASS_MAPPINGS = {\"KeepTest\": KeepTest}\n"
+        "NODE_DISPLAY_NAME_MAPPINGS = {\"KeepTest\": \"Keep Test\"}\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    exported = _vanilla_load_custom_nodes_1(str(v1_module))
+
+    assert exported.NODE_CLASS_MAPPINGS["KeepTest"].__name__ == "KeepTest"
+    assert exported.NODE_DISPLAY_NAME_MAPPINGS["KeepTest"] == "Keep Test"

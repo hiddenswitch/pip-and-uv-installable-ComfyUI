@@ -5,7 +5,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-import nodes  # noqa: E402
+from comfy.nodes import base_nodes as nodes  # noqa: E402
 
 
 def test_invert_rgb_inverts_every_channel():

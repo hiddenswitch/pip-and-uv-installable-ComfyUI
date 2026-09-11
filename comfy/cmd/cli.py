@@ -196,7 +196,7 @@ _VRAM_OPTS: list[tuple] = [
     ("fast_disk", bool, typer.Option(False, "--fast-disk/--no-fast-disk", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")),
     ("disable_cuda_graphs", bool, typer.Option(False, "--disable-cuda-graphs", help="Disable CUDA graph capture and replay.")),
     ("disable_comfy_compiler", bool, typer.Option(False, "--disable-comfy-compiler", help="Disable the Comfy model compiler, including its CUDA graph subfeature.")),
-    ("assert_graph_breaks", bool, typer.Option(False, "--assert-graph-breaks", help="Fail on Comfy model compiler graph breaks.")),
+    ("assert_graph_breaks", bool, typer.Option(False, "--assert-graph-breaks/--no-assert-graph-breaks", help="Fail on Comfy model compiler graph breaks.")),
 ]
 
 _PRECISION_OPTS: list[tuple] = [

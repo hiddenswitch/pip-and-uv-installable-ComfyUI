@@ -6,7 +6,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-from comfy_extras.nodes_post_processing import Blend  # noqa: E402
+from comfy_extras.nodes.nodes_post_processing import Blend  # noqa: E402
 
 MODES = ["normal", "multiply", "screen", "overlay", "soft_light", "difference"]
 

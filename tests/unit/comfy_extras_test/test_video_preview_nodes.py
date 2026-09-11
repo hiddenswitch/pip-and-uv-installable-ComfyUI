@@ -4,9 +4,9 @@ import os
 import av
 import torch
 
-import folder_paths
+from comfy.cmd import folder_paths
 from comfy_api.input_impl.video_types import VideoFromFile
-from comfy_extras import nodes_video
+from comfy_extras.nodes import nodes_video
 
 
 def _make_video(path, width=64, height=48, frames=3, fps=8):

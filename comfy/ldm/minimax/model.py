@@ -233,7 +233,6 @@ class Attention(nn.Module):
         )
         self.q_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=eps, dtype=dtype, device=device)
-        self.out_proj = operations.Linear(inner, hidden, bias=False, dtype=dtype, device=device)
         self.to_gate_compress = None
         if gate_compress:
             # VSA gate, unused by the dense forward; consumed by sparse attention patches
@@ -613,8 +612,7 @@ class MiniMaxH3Model(nn.Module):
             for index in range(num_layers)])
         if is_last_stage:
             self.final_layer = FinalLayer(hidden_size, time_embed_dim, video_patch_dim, audio_latents_dim,
-                                          final_norm_eps, **curve, gate_compress=gate_compress,
-                     dtype=dtype, device=device, operations=operations)
+                                          final_norm_eps, **curve, dtype=dtype, device=device, operations=operations)
         else:
             self.final_layer = PipelineMissingLayer()
 
@@ -958,6 +956,7 @@ class MiniMaxH3Model(nn.Module):
     def _run_blocks(self, h, t_emb, mod_segments, rope_freqs, transformer_options, start_layer, end_layer):
         patches_replace = transformer_options.get("patches_replace", {})
         blocks_replace = patches_replace.get("dit", {})
+        layout = transformer_options.get("minimax_h3_layout")
         device = h.device
         blocks = [self.blocks[index] for index in range(start_layer, end_layer)]
         prefetch_queue = comfy.model_prefetch.make_prefetch_queue(blocks, device, transformer_options)

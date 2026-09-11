@@ -2,12 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.patcher_extension
-import comfy.utils
-from comfy.ldm.common_dit import pad_to_patch_size
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.modules.attention import optimized_attention
-from comfy.ldm.modules.diffusionmodules.mmdit import TimestepEmbedder
+from ... import patcher_extension, utils
+from ..common_dit import pad_to_patch_size
+from ..flux.math import apply_rope1
+from ..modules.attention import optimized_attention
+from ..modules.diffusionmodules.mmdit import TimestepEmbedder
 
 from .sampling import resolution_noise_scale
 
@@ -47,13 +46,13 @@ def _generation_batch_size(total_batch, prefix_batch):
 def _match_prefix_batch(total_batch, text_input_ids, prefix_indexes, prefix_mask):
     prefix_batch = text_input_ids.shape[0]
     if prefix_batch > 0 and total_batch % prefix_batch:
-        text_input_ids = comfy.utils.resize_to_batch_size(text_input_ids, total_batch)
+        text_input_ids = utils.resize_to_batch_size(text_input_ids, total_batch)
         if prefix_indexes is not None:
-            prefix_indexes = comfy.utils.resize_to_batch_size(
+            prefix_indexes = utils.resize_to_batch_size(
                 prefix_indexes, total_batch
             )
         if prefix_mask is not None:
-            prefix_mask = comfy.utils.resize_to_batch_size(prefix_mask, total_batch)
+            prefix_mask = utils.resize_to_batch_size(prefix_mask, total_batch)
     return text_input_ids, prefix_indexes, prefix_mask
 
 
@@ -437,11 +436,11 @@ class SenseNovaU15(nn.Module):
         )
 
     def forward(self, x, timesteps, context=None, transformer_options={}, **kwargs):
-        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        return patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
-            comfy.patcher_extension.get_all_wrappers(
-                comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options
+            patcher_extension.get_all_wrappers(
+                patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options
             ),
         ).execute(x, timesteps, context, transformer_options, **kwargs)
 
@@ -539,7 +538,7 @@ class SenseNovaU15(nn.Module):
             prefix_batch = text_input_ids.shape[0]
             if reference_images:
                 reference_images = [
-                    comfy.utils.resize_to_batch_size(reference, prefix_batch)
+                    utils.resize_to_batch_size(reference, prefix_batch)
                     for reference in reference_images
                 ]
             else:
@@ -548,14 +547,14 @@ class SenseNovaU15(nn.Module):
             prefix_batch = prefix_keys[0].shape[0]
             if prefix_batch > 0 and batch % prefix_batch:
                 prefix_keys = [
-                    comfy.utils.resize_to_batch_size(value, batch)
+                    utils.resize_to_batch_size(value, batch)
                     for value in prefix_keys
                 ]
                 prefix_values = [
-                    comfy.utils.resize_to_batch_size(value, batch)
+                    utils.resize_to_batch_size(value, batch)
                     for value in prefix_values
                 ]
-                prefix_time = comfy.utils.resize_to_batch_size(prefix_time, batch)
+                prefix_time = utils.resize_to_batch_size(prefix_time, batch)
                 prefix_batch = batch
         generation_batch = _generation_batch_size(batch, prefix_batch)
         token_height = height // MERGED_PATCH_SIZE

@@ -144,6 +144,12 @@ class PipelineIntermediateTensors:
         )
 
 
+# Layout objects are process-local caches rebuilt by the stage that owns the
+# inputs; MiniMax H3 publishes its packed layout under minimax_h3_layout for
+# attention patches, which pipeline stages do not run.
+_PROCESS_LOCAL_TRANSFORMER_OPTIONS = frozenset(("layout", "minimax_h3_layout"))
+
+
 def prepare_model_parallel_value(value):
     """Drop process-local execution state before transporting model inputs.
 
@@ -157,7 +163,7 @@ def prepare_model_parallel_value(value):
         cleaned = {
             key: prepare_model_parallel_value(item)
             for key, item in value.items()
-            if key != "layout"
+            if key not in _PROCESS_LOCAL_TRANSFORMER_OPTIONS
         }
         wrappers = cleaned.get("wrappers")
         if isinstance(wrappers, dict):

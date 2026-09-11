@@ -10,6 +10,7 @@ def make_model(video_output, audio_output):
     nn.Module.__init__(model)
     model.sigma_shift_video = 12.0
     model.sigma_shift_audio = 3.0
+    model.pipeline_stage = None
     model._forward = lambda *args, **kwargs: [video_output.clone(), audio_output.clone()]
     return model
 

@@ -25,7 +25,7 @@ _stubs = {"nodes": MagicMock(MAX_RESOLUTION=16384), "server": MagicMock()}
 _saved = {name: sys.modules.get(name) for name in _stubs}
 sys.modules.update(_stubs)
 try:
-    import comfy_extras.nodes_lt as nodes_lt
+    import comfy_extras.nodes.nodes_lt as nodes_lt
 finally:
     for _name, _original in _saved.items():
         if _original is None:

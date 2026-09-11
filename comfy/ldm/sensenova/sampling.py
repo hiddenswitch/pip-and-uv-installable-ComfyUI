@@ -2,7 +2,7 @@ import math
 
 import torch
 
-import comfy.model_sampling
+from ... import model_sampling
 
 
 def time_snr_shift(shift, value):
@@ -36,7 +36,7 @@ def resolution_noise_scale(
 
 
 class SenseNovaModelSampling(
-    comfy.model_sampling.ModelSamplingDiscreteFlow, comfy.model_sampling.CONST
+    model_sampling.ModelSamplingDiscreteFlow, model_sampling.CONST
 ):
     def set_parameters(self, shift=1.0, timesteps=1000, multiplier=1000):
         self.shift = shift
@@ -60,7 +60,7 @@ class SenseNovaModelSampling(
         return float(time_snr_shift(self.shift, 1.0 - percent))
 
     def noise_scaling(self, sigma, noise, latent_image, max_denoise=False):
-        sigma = comfy.model_sampling.reshape_sigma(sigma, noise.ndim)
+        sigma = model_sampling.reshape_sigma(sigma, noise.ndim)
         scale = resolution_noise_scale(
             latent_image.shape[-2],
             latent_image.shape[-1],

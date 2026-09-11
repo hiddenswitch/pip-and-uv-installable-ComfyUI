@@ -197,7 +197,7 @@ def dynamic_vram_available_memory(device: torch.device) -> int:
     from . import model_management
 
     available = int(model_management.get_free_memory(device))
-    if aimdo_enabled:
+    if _aimdo_enabled():
         import comfy_aimdo.model_vbar
 
         aimdo_device = device.index if getattr(device, "type", None) == "cuda" else None

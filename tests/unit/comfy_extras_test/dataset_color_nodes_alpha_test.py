@@ -6,7 +6,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-from comfy_extras.nodes_dataset import (  # noqa: E402
+from comfy_extras.nodes.nodes_dataset import (  # noqa: E402
     AdjustBrightnessNode,
     AdjustContrastNode,
     NormalizeImagesNode,
