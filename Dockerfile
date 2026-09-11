@@ -63,6 +63,8 @@ COPY tests/custom_nodes_requirements.txt tests/custom_nodes_stable_abi_requireme
 # would satisfy it with a published release whose pins downgrade comfy-aimdo
 # and comfy-kitchen, so that requirement is overridden away (the checkout is
 # installed below, and ci/lock-excludes.txt does the same for the locks).
+# The NGC snapshot doubles as the constraint set so a node requirement cannot
+# move a preserved distribution; the check below then only confirms it.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --no-deps \
       --index-url https://download.pytorch.org/whl/cpu \
@@ -71,6 +73,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
       -r /workspace/project/pyproject.toml \
     && uv pip install --no-build-isolation \
       --override /workspace/custom-node-overrides.txt \
+      --constraints /workspace/ngc-preserved.txt \
       -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
       --index-strategy unsafe-best-match \
