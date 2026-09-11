@@ -1,0 +1,7 @@
+# Torch line the CI locks resolve against. Lock regeneration runs with
+# --upgrade, so without this the resolver would move every lock (and the
+# triton the linux locks emit) to the newest Torch release as a side effect
+# of an unrelated dependency change. Bump these deliberately.
+torch==2.13.0
+torchvision==0.28.0
+torchaudio==2.11.0

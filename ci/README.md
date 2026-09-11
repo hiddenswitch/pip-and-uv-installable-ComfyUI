@@ -25,6 +25,10 @@ silently change a lock. The AppMana node index is combined with the public
 indexes only while generating the trusted lock; installs use the exact URLs and
 hashes recorded in the resulting pylock files.
 
+`torch-constraints.txt` holds the Torch line every lock resolves against, so
+`--upgrade` cannot move Torch (or the Triton the Linux locks emit) as a side
+effect of an unrelated dependency change. Bump it deliberately.
+
 Pre-releases are selected only when a project explicitly requests one or no
 stable distribution supports the target. This keeps Python 3.14 workable
 without turning every dependency into a moving nightly-build target.
