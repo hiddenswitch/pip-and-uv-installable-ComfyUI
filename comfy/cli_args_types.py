@@ -159,6 +159,7 @@ class Configuration(dict):
         fast (set[PerformanceFeature]): Enable some untested and potentially quality deteriorating optimizations. Pass specific optimizations if you only want to enable some (e.g. --fast fp16_accumulation fp8_matrix_mult or --fast fp16_accumulation,fp8_matrix_mult). Valid optimizations: fp16_accumulation, fp8_matrix_mult, cublas_ops, autotune, dynamic_vram
         reserve_vram (Optional[float]): Set the amount of vram in GB you want to reserve for use by your OS/other software. By default some amount is reserved depending on your OS
         vram_headroom (float): Extra DynamicVRAM headroom in GB above the default reservation.
+        disable_nvml_pressure (bool): Use CUDA instead of NVML for DynamicVRAM memory pressure.
         disable_dynamic_vram (bool): Disable dynamic VRAM and use estimate-based model loading.
         disable_cuda_graphs (bool): Disable CUDA graph capture and replay.
         disable_comfy_compiler (bool): Disable the Comfy model compiler, including its CUDA graph subfeature.
@@ -336,6 +337,7 @@ class Configuration(dict):
         # reserve 0, because this has been exceptionally buggy
         self.reserve_vram: Optional[float] = None
         self.vram_headroom: float = 0.0
+        self.disable_nvml_pressure: bool = False
         self.disable_dynamic_vram: bool = False
         self.enable_dynamic_vram: bool = False
         self.fast_disk: bool = False

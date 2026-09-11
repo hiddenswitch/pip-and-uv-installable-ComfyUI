@@ -192,6 +192,7 @@ _VRAM_OPTS: list[tuple] = [
     ("cpu", bool, typer.Option(False, "--cpu/--no-cpu", help="Use CPU for processing.")),
     ("reserve_vram", Optional[float], typer.Option(None, "--reserve-vram", help="Set the amount of vram in GB you want to reserve for use by your OS/other software.")),
     ("vram_headroom", float, typer.Option(0, "--vram-headroom", help="Set extra DynamicVRAM headroom in GB above the default reservation.")),
+    ("disable_nvml_pressure", bool, typer.Option(False, "--disable-nvml-pressure", help="Use CUDA instead of NVML for DynamicVRAM memory pressure.")),
     ("disable_dynamic_vram", bool, typer.Option(False, "--disable-dynamic-vram", help="Disable dynamic VRAM and use estimate based model loading.")),
     ("fast_disk", bool, typer.Option(False, "--fast-disk/--no-fast-disk", help="Prefer disk-backed dynamic loading and offload over unpinned RAM. Can be faster for users with fast NVME disks.")),
     ("disable_cuda_graphs", bool, typer.Option(False, "--disable-cuda-graphs", help="Disable CUDA graph capture and replay.")),

@@ -37,11 +37,10 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
         )
 
     simple_vram_headroom = None if args.reserve_vram is None else int(args.reserve_vram * 1024 ** 3)
-    try:
-        control_initialized = comfy_aimdo.control.init(simple_vram_headroom=simple_vram_headroom)
-    except (AttributeError, TypeError):
-        # comfy-aimdo 0.4.9 protocol.
-        control_initialized = comfy_aimdo.control.init()
+    control_initialized = comfy_aimdo.control.init(
+        simple_vram_headroom=simple_vram_headroom,
+        nvml_pressure=not args.disable_nvml_pressure,
+    )
 
     if control_initialized:
         importlib.reload(comfy_aimdo.host_buffer)
