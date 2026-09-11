@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from comfy.api.components.schema.prompt import Prompt
+from comfy.cli_args import dynamic_vram_supported
 from comfy.cli_args_types import Configuration
 from comfy.client.embedded_comfy_client import Comfy
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
@@ -25,6 +26,8 @@ def _probe_prompt() -> dict:
 async def test_process_pool_worker_enables_dynamic_vram_like_the_cli():
     if not torch.cuda.is_available():
         pytest.skip("requires a CUDA device")
+    if not dynamic_vram_supported():
+        pytest.skip("DynamicVRAM is not supported on this runtime (HIP or old torch)")
     config = Configuration()
     config.disable_all_custom_nodes = True
     config.enable_eval = True
