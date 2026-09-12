@@ -220,6 +220,15 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
                     time_before = time.perf_counter()
                     success = execute_script(script_path)
                     node_prestartup_times.append((time.perf_counter() - time_before, module_path, success))
+    if len(node_prestartup_times) > 0:
+        logger.info("\nPrestartup times for custom nodes:")
+        for n in sorted(node_prestartup_times):
+            if n[2]:
+                import_message = ""
+            else:
+                import_message = " (PRESTARTUP FAILED)"
+            logger.info("{:6.1f} seconds{}: {}".format(n[0], import_message, n[1]))
+        logger.info("")
 
 
 _MITIGATED_MODULES = frozenset((
@@ -595,11 +604,13 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
                     exported_nodes.NODE_CLASS_MAPPINGS[name] = module.NODE_CLASS_MAPPINGS[name]
             if hasattr(module, "NODE_DISPLAY_NAME_MAPPINGS") and getattr(module,
                                                                          "NODE_DISPLAY_NAME_MAPPINGS") is not None:
-                exported_nodes.NODE_DISPLAY_NAME_MAPPINGS.update(module.NODE_DISPLAY_NAME_MAPPINGS)
+                for name, display_name in module.NODE_DISPLAY_NAME_MAPPINGS.items():
+                    if name not in ignore:
+                        exported_nodes.NODE_DISPLAY_NAME_MAPPINGS[name] = display_name
         else:
             logger.error(f"Skip {module_path} module for custom nodes due to the lack of NODE_CLASS_MAPPINGS.")
 
-        exported_nodes.update(_comfy_entrypoint_upstream_v3_imports(module))
+        exported_nodes.update(_comfy_entrypoint_upstream_v3_imports(module, ignore=ignore))
     except Exception as e:
         logger.error(f"Cannot import {module_path} module for custom nodes:", exc_info=e)
     return exported_nodes

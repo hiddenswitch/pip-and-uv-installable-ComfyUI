@@ -614,6 +614,7 @@ def _worker_main(
         model_management.set_torch_device(device)
         from .. import aimdo_integration  # noqa: F401
 
+        model_management.share_pinned_memory_budget(world_size)
         patcher, geometry = _load_worker_stage(load_spec, rank)
         ready.send({"kind": "ready", "geometry": geometry})
         _run_worker_commands(coordinator, rank, world_size, device, patcher)
@@ -683,6 +684,9 @@ class TorchDistributedPipelineOperations(AbstractBasePipelineOperations):
         listener = multiprocessing.connection.Listener(("127.0.0.1", 0), authkey=listener_authkey)
         listener_host, listener_port = listener.address
         master_host, master_port = init_method.removeprefix("tcp://").rsplit(":", 1)
+        from .. import model_management
+
+        model_management.share_pinned_memory_budget(plan.size)
         workers = []
         ready_connections = [None] * (plan.size - 1)
         device_provider = accelerator_device_provider(plan.stages[0].device.type)

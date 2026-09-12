@@ -6,7 +6,7 @@ import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
 
 import comfy.ops as comfy_ops
-from comfy import model_management
+from comfy import memory_management, model_management
 from comfy.ldm.minimax.model import Attention, MLP
 from comfy.ldm.modules.attention import AttentionTensorContainer
 from comfy.model_base import BaseModel, MiniMaxH3
@@ -467,10 +467,7 @@ def test_dynamic_rank_load_flushes_stale_allocator_reservations(monkeypatch):
     emptied = []
     monkeypatch.setattr(model_management, "free_memory", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(model_management, "get_free_memory", lambda _device: 10_000)
-    monkeypatch.setattr(
-        "comfy.memory_management.aimdo_enabled",
-        lambda: True,
-    )
+    monkeypatch.setattr(memory_management, "aimdo_allocator", object())
     monkeypatch.setattr(
         model_management,
         "_soft_empty_cache",

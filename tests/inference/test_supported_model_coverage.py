@@ -82,6 +82,9 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "Hunyuan3Dv2_1": ("hunyuan_image-0.json",),
     "HiDream": ("hidream-0.json", "hidream-1.json"),
     "HiDreamO1": ("hidream-o1-0.json",),
+    # SenseNova U1.5 shares the HiDream-O1 pixel-space latent and reference nodes; no natively
+    # loadable checkpoint is published yet, so it maps to the shared fixture.
+    "SenseNovaU15": ("hidream-o1-0.json",),
     "Chroma": ("chroma-0.json",),
     "ChromaRadiance": ("chroma-0.json",),
     "ACEStep": ("audio-0.json",),

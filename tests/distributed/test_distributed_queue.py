@@ -220,7 +220,7 @@ async def test_api_error_reporting_blocking_request(frontend_backend_worker_with
         prompt["4"]["inputs"]["ckpt_name"] = "nonexistent_checkpoint.safetensors"
 
         # Post with blocking behavior (no prefer header for async)
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",
             data=prompt_json,
@@ -246,7 +246,7 @@ async def test_api_error_reporting_async_prefer_header(frontend_backend_worker_w
         prompt["4"]["inputs"]["ckpt_name"] = "nonexistent.safetensors"
 
         # Post with Prefer: respond-async header
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",
             data=prompt_json,
@@ -271,7 +271,7 @@ async def test_api_error_reporting_async_accept_mimetype(frontend_backend_worker
         prompt["4"]["inputs"]["ckpt_name"] = "invalid_model.safetensors"
 
         # Post with +respond-async in Accept header
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",
             data=prompt_json,
@@ -379,7 +379,7 @@ async def test_api_validation_error_structure(frontend_backend_worker_with_rabbi
         prompt = sdxl_workflow_with_refiner("test", "", 1, refiner_steps=1)
         prompt["4"]["inputs"]["ckpt_name"] = "fake.safetensors"
 
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
 
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",
@@ -436,7 +436,7 @@ async def test_api_success_response_contract(frontend_backend_worker_with_rabbit
         prompt = sdxl_workflow_with_refiner("test", inference_steps=1, refiner_steps=1)
 
         # Queue and wait for blocking response
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",
             data=prompt_json,
@@ -508,7 +508,7 @@ async def test_api_execution_error_blocking_mode(frontend_backend_worker_with_ra
         g.node("SaveString", value=match_group.out(0), filename_prefix="test")
 
         prompt = g.finalize()
-        prompt_json = client._AsyncRemoteComfyClient__json_encoder.encode(prompt)
+        prompt_json = client.encode_prompt(prompt)
 
         async with client.session.post(
             f"{frontend_backend_worker_with_rabbitmq}/api/v1/prompts",

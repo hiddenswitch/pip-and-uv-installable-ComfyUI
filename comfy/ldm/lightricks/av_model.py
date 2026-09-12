@@ -937,8 +937,11 @@ class LTXAVModel(LTXVModel):
         stg_self_attn_blocks = transformer_options.get("stg_self_attn_blocks", ())
 
         # Process transformer blocks
+        model_prefetch.malloc_graph_begin(vx.device)
         for i, block in enumerate(self.transformer_blocks):
-            model_prefetch.prefetch_queue_pop(prefetch_queue, vx.device, block)
+            model_prefetch.prefetch_queue_pop(
+                prefetch_queue, vx.device, block, malloc_scope="block"
+            )
             block_transformer_options = transformer_options
             if i in stg_self_attn_blocks:
                 block_transformer_options = {**transformer_options, "stg_skip_self_attn": True}
@@ -1014,7 +1017,10 @@ class LTXAVModel(LTXVModel):
                     a_prompt_timestep=a_prompt_timestep,
                 )
 
-        model_prefetch.prefetch_queue_pop(prefetch_queue, vx.device, None)
+        model_prefetch.prefetch_queue_pop(
+            prefetch_queue, vx.device, None, malloc_scope="block"
+        )
+        model_prefetch.malloc_graph_end()
 
         return [vx, ax]
 

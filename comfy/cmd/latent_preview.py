@@ -7,6 +7,7 @@ import torch
 from PIL import Image
 
 from .. import model_management
+from .. import model_prefetch
 from .. import utils
 from ..cli_args import args
 from ..cli_args_types import LatentPreviewMethod
@@ -64,8 +65,16 @@ class TAESDPreviewerImpl(LatentPreviewer):
 
 
 class TAEHVPreviewerImpl(TAESDPreviewerImpl):
+    def __init__(self, taesd, compile_preview=False):
+        super().__init__(taesd)
+        self.compile_preview = compile_preview
+
     def decode_latent_to_preview(self, x0):
-        x_sample = self.taesd.decode(x0[:1, :, :1])[0][0]
+        samples = x0[:1, :, :1]
+        if self.compile_preview and model_prefetch.malloc_graph_enabled(self.taesd.device):
+            model_prefetch.malloc_graph_begin(self.taesd.device)
+        x_sample = self.taesd.decode(samples)[0][0]
+        model_prefetch.malloc_graph_end()
         return preview_to_image(x_sample, do_scale=False)
 
 
@@ -118,7 +127,7 @@ def get_previewer(device, latent_format):
                 if latent_format.taesd_decoder_name in VIDEO_TAES:
                     taesd = VAE(load_torch_file(taesd_decoder_path))
                     taesd.first_stage_model.show_progress_bar = False
-                    previewer = TAEHVPreviewerImpl(taesd)
+                    previewer = TAEHVPreviewerImpl(taesd, compile_preview=latent_format.compile_preview)
                 else:
                     taesd = TAESD(None, taesd_decoder_path, latent_channels=latent_format.latent_channels).to(device)
                     previewer = TAESDPreviewerImpl(taesd)

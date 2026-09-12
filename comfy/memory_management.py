@@ -185,8 +185,11 @@ def _aimdo_enabled() -> bool:
     return aimdo_allocator is not None
 
 
-def aimdo_enabled() -> bool:
-    return _aimdo_enabled()
+# Bare annotation: declares the module property for type checkers without
+# binding a runtime attribute, so ``memory_management.aimdo_enabled`` keeps
+# resolving through the module ``__getattr__`` above (same trick as
+# ``tracer`` in comfy.cmd.main_pre).
+aimdo_enabled: bool
 
 
 def dynamic_vram_available_memory(device: torch.device) -> int:
@@ -194,7 +197,7 @@ def dynamic_vram_available_memory(device: torch.device) -> int:
     from . import model_management
 
     available = int(model_management.get_free_memory(device))
-    if aimdo_enabled():
+    if _aimdo_enabled():
         import comfy_aimdo.model_vbar
 
         aimdo_device = device.index if getattr(device, "type", None) == "cuda" else None

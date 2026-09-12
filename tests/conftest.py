@@ -18,6 +18,8 @@ import sys
 import time
 import fsspec
 
+from tests.unit._subprocess_helpers import _DrainingProcess
+
 faulthandler.enable()
 
 os.environ['OTEL_METRICS_EXPORTER'] = 'none'
@@ -34,6 +36,24 @@ assert "pkg" in fsspec.available_protocols()
 logging.getLogger("pika").setLevel(logging.CRITICAL + 1)
 logging.getLogger("aio_pika").setLevel(logging.CRITICAL + 1)
 setup_logging_filters()
+
+
+_SERIAL_PROCESS_FIXTURES = frozenset(
+    {
+        "comfy_background_server",
+        "comfy_url_and_proc",
+        "frontend_backend_worker_with_rabbitmq",
+        "manager_disabled_server",
+        "manager_enabled_server",
+        "manager_with_disabled_custom_nodes_server",
+        "process_startup_timeout_seconds",
+    }
+)
+
+
+def requires_serial_process_group(fixture_names) -> bool:
+    """Return whether a test starts an isolated process or ComfyUI server."""
+    return not _SERIAL_PROCESS_FIXTURES.isdisjoint(fixture_names)
 
 
 @pytest.fixture
@@ -208,12 +228,14 @@ def comfy_background_server_from_config(configuration: Configuration):
         pickle.dump(configuration, config_file)
         config_path = pathlib.Path(config_file.name)
 
-    server_process = subprocess.Popen([
-        sys.executable,
-        "-m",
-        "tests.background_server",
-        str(config_path),
-    ])
+    server_process = _DrainingProcess(
+        [
+            sys.executable,
+            "-m",
+            "tests.background_server",
+            str(config_path),
+        ]
+    )
 
     success = False
     try:
@@ -222,7 +244,10 @@ def comfy_background_server_from_config(configuration: Configuration):
         while time.monotonic() < deadline:
             return_code = server_process.poll()
             if return_code is not None:
-                raise RuntimeError(f"Background server exited during startup with code {return_code}")
+                raise RuntimeError(
+                    f"Background server exited during startup with code {return_code}\n"
+                    f"Background server output:\n{server_process.tail()}"
+                )
             try:
                 with socket.create_connection((configuration.listen, configuration.port), timeout=1):
                     success = True
@@ -233,17 +258,12 @@ def comfy_background_server_from_config(configuration: Configuration):
 
         if not success:
             raise RuntimeError(
-                f"Failed to start background server within {startup_timeout:g} seconds"
+                f"Failed to start background server within {startup_timeout:g} seconds\n"
+                f"Background server output:\n{server_process.tail()}"
             )
         yield configuration, server_process
     finally:
-        if server_process.poll() is None:
-            server_process.terminate()
-            try:
-                server_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server_process.kill()
-                server_process.wait(timeout=5)
+        server_process.shutdown()
         config_path.unlink(missing_ok=True)
 
     import torch
@@ -271,8 +291,19 @@ def skip_timing_checks(pytestconfig):
     return False
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items):
     # Modifies items so tests run in the correct order
+
+    # Windows cold-imports Torch in every spawned process. Running several
+    # server/process fixtures concurrently both wastes that work and can starve
+    # an otherwise healthy server past its readiness budget. Mark them for an
+    # isolated CI phase and keep them on one xdist worker in runs which do use
+    # xdist.
+    for item in items:
+        if requires_serial_process_group(item.fixturenames):
+            item.add_marker(pytest.mark.server_process)
+            item.add_marker(pytest.mark.xdist_group(name="server-process"))
 
     LAST_TESTS = ['test_quality']
 

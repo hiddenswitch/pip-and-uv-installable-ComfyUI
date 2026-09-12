@@ -23,6 +23,10 @@ from ..cli_args_types import Configuration
 from ..component_model.cuda_env import ensure_pytorch_cuda_alloc_conf, should_skip_cuda_alloc_conf_for_xpu
 
 os.environ['TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'] = '1'
+from .cuda_malloc import get_torch_version_noimport
+if "rocm" in get_torch_version_noimport():
+    # 4TB. Much larger than the ROCM 64GB/256GB defaults for Aimdos liberal VA use
+    os.environ.setdefault('OCL_SET_SVM_SIZE', '4194304')
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 os.environ.setdefault("TORCHINDUCTOR_FX_GRAPH_CACHE", "1")
 os.environ.setdefault("TORCHINDUCTOR_AUTOGRAD_CACHE", "1")

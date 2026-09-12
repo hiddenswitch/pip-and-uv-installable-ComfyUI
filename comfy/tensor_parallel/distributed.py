@@ -503,6 +503,7 @@ def worker_main(host, port, authkey, parallel_kind="tensor"):
     from .. import model_management
     model_management.set_torch_device(device)
     from .. import aimdo_integration  # noqa: F401
+    model_management.share_pinned_memory_budget(world_size)
     try:
         if parallel_kind == "tensor":
             from .loader import load_tensor_parallel_rank
@@ -544,6 +545,9 @@ def launch_model_parallel(load_spec, devices, load_root, parallel_kind):
     listener = multiprocessing.connection.Listener(("127.0.0.1", 0), authkey=authkey)
     host, port = listener.address
     master_host, master_port = init_method.removeprefix("tcp://").rsplit(":", 1)
+    from .. import model_management
+
+    model_management.share_pinned_memory_budget(size)
     workers = []
     connections = [None] * (size - 1)
     for rank in range(1, size):

@@ -206,7 +206,7 @@ def _aimdo_runtime_available():
         import comfy.aimdo_integration  # noqa: F401
     except Exception:
         return False
-    return torch.cuda.is_available() and memory_management.aimdo_enabled()
+    return torch.cuda.is_available() and memory_management.aimdo_enabled
 
 
 @unittest.skipUnless(

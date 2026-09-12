@@ -27,3 +27,11 @@ def test_maintained_docs_use_uv_for_installation_examples():
     for document in docs_root.glob("*.md"):
         contents = document.read_text(encoding="utf-8")
         assert not re.search(r"(?<!uv )(?<!python -m )\bpip install\b", contents), document
+
+
+def test_distributed_docs_show_worker_and_frontend_startup():
+    contents = (_source_root() / "docs" / "distributed.md").read_text(encoding="utf-8")
+    assert "comfyui worker" in contents
+    assert "comfyui serve" in contents
+    assert "--distributed-queue-frontend" in contents
+    assert "--distributed-queue-connection-uri" in contents

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .model_patcher import ModelPatcher
 from . import model_management
+from . import model_prefetch
 
 
 class MultiGPUThreadPool:
@@ -44,18 +45,21 @@ class MultiGPUThreadPool:
                     return
                 result_q.put((None, e))
             return
-        while True:
-            item = work_q.get()
-            if item is None:
-                break
-            fn, args, kwargs = item
-            try:
-                result = fn(*args, **kwargs)
-                result_q.put((result, None))
-            except model_management.InterruptProcessingException as e:
-                result_q.put((None, e))
-            except Exception as e:
-                result_q.put((None, e))
+        try:
+            while True:
+                item = work_q.get()
+                if item is None:
+                    break
+                fn, args, kwargs = item
+                try:
+                    result = fn(*args, **kwargs)
+                    result_q.put((result, None))
+                except model_management.InterruptProcessingException as e:
+                    result_q.put((None, e))
+                except Exception as e:
+                    result_q.put((None, e))
+        finally:
+            model_prefetch.cleanup_malloc_graph()
 
     def submit(self, device: torch.device, fn, *args, **kwargs):
         self._work_queues[device].put((fn, args, kwargs))

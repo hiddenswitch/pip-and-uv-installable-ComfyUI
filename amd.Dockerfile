@@ -40,7 +40,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
        "opencv-python; python_version < '0'" \
        "opencv-python-headless; python_version < '0'" \
        "opencv-contrib-python; python_version < '0'" \
-       >> /overrides.txt
+       >> /overrides.txt \
+    && printf "%s\n" "comfyui; python_version < '0'" > /custom-node-overrides.txt \
+    && cat /overrides.txt >> /custom-node-overrides.txt
 
 COPY pyproject.toml README.md /workspace/project/
 COPY tests/custom_nodes_requirements.txt /workspace/requirements/
@@ -49,6 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --extra dev \
       -r /workspace/project/pyproject.toml \
     && uv pip install --no-build-isolation \
+      --override /custom-node-overrides.txt \
       -r /workspace/requirements/custom_nodes_requirements.txt \
       --extra-index-url https://nodes.appmana.com/simple \
       --index-strategy unsafe-best-match

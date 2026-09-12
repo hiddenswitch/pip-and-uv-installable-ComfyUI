@@ -20,6 +20,44 @@ def test_background_server_startup_timeout_must_be_positive(monkeypatch):
         conftest.server_startup_timeout_seconds()
 
 
+@pytest.mark.parametrize(
+    ("fixtures", "expected"),
+    [
+        ({"tmp_path"}, False),
+        ({"tmp_path", "comfy_url_and_proc"}, True),
+        ({"process_startup_timeout_seconds"}, True),
+        ({"manager_enabled_server"}, True),
+    ],
+)
+def test_process_isolated_fixtures_are_serialized(fixtures, expected):
+    assert conftest.requires_serial_process_group(fixtures) is expected
+
+
+def test_process_group_marker_runs_before_xdist_rewrites_node_ids():
+    hook_options = conftest.pytest_collection_modifyitems.pytest_impl
+
+    assert hook_options["tryfirst"] is True
+
+
+def test_process_backed_tests_are_marked_for_an_isolated_ci_phase():
+    process_item = SimpleNamespace(
+        fixturenames=["manager_enabled_server"],
+        add_marker=MagicMock(),
+        module=SimpleNamespace(__name__="test_process"),
+    )
+    ordinary_item = SimpleNamespace(
+        fixturenames=["tmp_path"],
+        add_marker=MagicMock(),
+        module=SimpleNamespace(__name__="test_ordinary"),
+    )
+
+    conftest.pytest_collection_modifyitems([process_item, ordinary_item])
+
+    marker_names = [call.args[0].name for call in process_item.add_marker.call_args_list]
+    assert marker_names == ["server_process", "xdist_group"]
+    ordinary_item.add_marker.assert_not_called()
+
+
 def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = None
@@ -27,7 +65,7 @@ def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatc
     connection.__enter__.return_value = connection
     create_connection = MagicMock(return_value=connection)
 
-    monkeypatch.setattr(conftest.subprocess, "Popen", MagicMock(return_value=process))
+    monkeypatch.setattr(conftest, "_DrainingProcess", MagicMock(return_value=process))
     monkeypatch.setattr(conftest.socket, "create_connection", create_connection)
 
     server = conftest.comfy_background_server_from_config(
@@ -38,23 +76,23 @@ def test_background_server_uses_bounded_readiness_probe_and_cleans_up(monkeypatc
 
     assert returned_process is process
     create_connection.assert_called_once_with(("127.0.0.1", 8188), timeout=1)
-    process.terminate.assert_called_once_with()
-    process.wait.assert_called_once_with(timeout=10)
+    process.shutdown.assert_called_once_with()
 
 
 def test_background_server_reports_early_exit_and_cleans_up(monkeypatch):
     process = MagicMock()
     process.poll.return_value = 17
-    popen = MagicMock(return_value=process)
-    monkeypatch.setattr(conftest.subprocess, "Popen", popen)
+    process.tail.return_value = "manager startup failed\n"
+    draining_process = MagicMock(return_value=process)
+    monkeypatch.setattr(conftest, "_DrainingProcess", draining_process)
 
     server = conftest.comfy_background_server_from_config(
         SimpleNamespace(listen="127.0.0.1", port=8188)
     )
 
-    with pytest.raises(RuntimeError, match="exited during startup with code 17"):
+    with pytest.raises(RuntimeError, match="manager startup failed"):
         next(server)
 
-    config_path = pathlib.Path(popen.call_args.args[0][-1])
+    config_path = pathlib.Path(draining_process.call_args.args[0][-1])
     assert not config_path.exists()
-    process.terminate.assert_not_called()
+    process.shutdown.assert_called_once_with()

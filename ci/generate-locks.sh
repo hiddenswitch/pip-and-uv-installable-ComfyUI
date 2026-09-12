@@ -9,6 +9,7 @@ common=(
   tests/custom_nodes_requirements.txt
   --extra dev
   --constraints tests/opencv_constraints.txt
+  --constraints ci/torch-constraints.txt
   --excludes ci/lock-excludes.txt
   --extra-index-url https://nodes.appmana.com/simple
   --index-strategy unsafe-best-match
@@ -70,6 +71,7 @@ uv pip compile \
   ci/headless-requirements.txt \
   ci/smoke-requirements.txt \
   --constraints tests/opencv_constraints.txt \
+  --constraints ci/torch-constraints.txt \
   --prerelease if-necessary-or-explicit \
   --upgrade \
   --no-config \

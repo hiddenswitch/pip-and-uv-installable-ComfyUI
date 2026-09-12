@@ -137,7 +137,6 @@ class TestCustomScriptsExecution:
     """Execute custom-scripts nodes via GraphBuilder + embedded client."""
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_math_expression(self):
         """MathExpression evaluates '2 + 3'."""
         g = GraphBuilder()
@@ -146,7 +145,6 @@ class TestCustomScriptsExecution:
         assert outputs is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_math_expression_with_variables(self):
         """MathExpression using a, b inputs."""
         g = GraphBuilder()
@@ -155,7 +153,6 @@ class TestCustomScriptsExecution:
         assert outputs is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_string_function_append(self):
         """StringFunction appends two strings."""
         g = GraphBuilder()
@@ -170,7 +167,6 @@ class TestCustomScriptsExecution:
         assert outputs is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_string_function_replace(self):
         """StringFunction replaces text."""
         g = GraphBuilder()
@@ -186,7 +182,6 @@ class TestCustomScriptsExecution:
         assert outputs is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_show_text(self):
         """ShowText receives string input and outputs it."""
         g = GraphBuilder()

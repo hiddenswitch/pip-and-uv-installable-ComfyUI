@@ -16,7 +16,7 @@ import torch
 from .cli_args import args, dynamic_vram_requested, dynamic_vram_supported, enables_dynamic_vram
 
 if dynamic_vram_requested() and not dynamic_vram_supported():
-    logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later. Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
+    logger.warning("Unsupported Pytorch detected. DynamicVRAM support requires Pytorch version 2.8 or later (2.12+ is recommended). Falling back to legacy ModelPatcher. VRAM estimates may be unreliable especially on Windows")
     memory_management.aimdo_allocator = None
 elif enables_dynamic_vram() and model_management.get_torch_device().type == "cuda":
     torch.cuda.init()
@@ -37,11 +37,10 @@ elif enables_dynamic_vram() and model_management.get_torch_device().type == "cud
         )
 
     simple_vram_headroom = None if args.reserve_vram is None else int(args.reserve_vram * 1024 ** 3)
-    try:
-        control_initialized = comfy_aimdo.control.init(simple_vram_headroom=simple_vram_headroom)
-    except (AttributeError, TypeError):
-        # comfy-aimdo 0.4.9 protocol.
-        control_initialized = comfy_aimdo.control.init()
+    control_initialized = comfy_aimdo.control.init(
+        simple_vram_headroom=simple_vram_headroom,
+        nvml_pressure=not args.disable_nvml_pressure,
+    )
 
     if control_initialized:
         importlib.reload(comfy_aimdo.host_buffer)

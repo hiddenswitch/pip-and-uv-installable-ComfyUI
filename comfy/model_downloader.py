@@ -556,6 +556,7 @@ KNOWN_LATENT_UPSCALE_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"),
     HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"),
     HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-temporal-upscaler-x2-1.0.safetensors"),
+    HuggingFile("Lightricks/LTX-2.5", "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"),
     HuggingFile("Comfy-Org/HunyuanVideo_1.5_repackaged", "split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_1080p.safetensors"),
 ], folder_name="latent_upscale_models")
 
@@ -571,6 +572,7 @@ KNOWN_CLIP_VISION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Wan_2.1_ComfyUI_repackaged", "split_files/clip_vision/clip_vision_h.safetensors"),
     HuggingFile("Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged", "split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"),
     HuggingFile("VAST-AI/TripoSplat", "clip_vision/dino_v3_vit_h.safetensors"),
+    HuggingFile("Comfy-Org/Pixal3D", "clip_vision/dino_v3_L_naf_fp32.safetensors"),
     # WanVideoWrapper (Kijai) -- CLIP vision
     HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors", show_in_ui=False),
 ], folder_name="clip_vision")
@@ -600,6 +602,11 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("lightx2v/Qwen-Image-Lightning", "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors", show_in_ui=False),
     HuggingFile("Lightricks/LTX-2", "ltx-2-19b-distilled-lora-384.safetensors"),
     HuggingFile("Lightricks/LTX-2.3", "ltx-2.3-22b-distilled-lora-384.safetensors"),
+    HuggingFile("Comfy-Org/Krea-2", "loras/krea2_darkbrush.safetensors"),
+    HuggingFile("Comfy-Org/Krea-2", "loras/krea2_style_reference.safetensors"),
+    HuggingFile("Comfy-Org/SCAIL-2", "loras/wan2.1_SCAIL_2_DPO_lora_bf16.safetensors"),
+    HuggingFile("circlestone-labs/Anima-Official-LoRAs", "anima-turbo-lora-v0.2.safetensors"),
+    HuggingFile("lightx2v/Minimax-h3-Turbo", "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"),
     HuggingFile("Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left", "ltx-2-19b-lora-camera-control-dolly-left.safetensors"),
     HuggingFile("Comfy-Org/flux2-dev", "split_files/loras/Flux2TurboComfyv2.safetensors"),
     HuggingFile("Comfy-Org/Qwen-Image-Edit_ComfyUI", "split_files/loras/Qwen-Edit-2509-Multiple-angles.safetensors"),
@@ -840,6 +847,9 @@ KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("VAST-AI/TripoSplat", "vae/triposplat_vae_decoder_fp16.safetensors"),
     HuggingFile("Comfy-Org/Pixal3D", "vae/trellis_2_texture_vae_bf16.safetensors"),
     HuggingFile("Comfy-Org/Pixal3D", "vae/trellis_2_shape_vae_bf16.safetensors"),
+    # LTX-2.5
+    HuggingFile("Lightricks/LTX-2.5", "vae/ltx-2.5-video-vae-bf16.safetensors"),
+    HuggingFile("Lightricks/LTX-2.5", "vae/ltx-2.5-audio-vae-bf16.safetensors"),
     # Z Image Turbo
     HuggingFile("Comfy-Org/z_image_turbo", "split_files/vae/ae.safetensors", save_with_filename="z_image_turbo_vae.safetensors"),
     # SeedVR2
@@ -940,6 +950,8 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_turbo_bf16.safetensors"),
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_turbo_fp8_scaled.safetensors"),
     HuggingFile("Comfy-Org/Krea-2", "diffusion_models/krea2_turbo_int8_convrot.safetensors"),
+    # LTX-2.5
+    HuggingFile("Lightricks/LTX-2.5", "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"),
     # SeedVR2
     HuggingFile("Comfy-Org/SeedVR2", "diffusion_models/seedvr2_3b_fp16.safetensors"),
     HuggingFile("Comfy-Org/SeedVR2", "diffusion_models/seedvr2_3b_fp8_e4m3fn.safetensors"),
@@ -1465,6 +1477,7 @@ KNOWN_LOTUS_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Comfy-Org/SDPose", "diffusion_models/rt_detr_v4-x-hgnet_fp32.safetensors"),
     # Pixal3D / TRELLIS.2
     HuggingFile("Comfy-Org/Pixal3D", "diffusion_models/pixal3d_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Pixal3D", "diffusion_models/pixal3d_multiview_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/TRELLIS.2", "diffusion_models/trellis_2_int8_convrot.safetensors"),
     # MelBandRoformer (Kijai) -- audio separation
     HuggingFile("Kijai/MelBandRoFormer_comfy", "MelBandRoformer_fp16.safetensors", alternate_filenames=("MelRoFormer\\MelBandRoformer_fp16.safetensors", "MelRoFormer/MelBandRoformer_fp16.safetensors")),
@@ -1697,6 +1710,7 @@ KNOWN_LTX2_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/LTX-Video_comfy", "LTX2_audio_vae_bf16.safetensors",
                 alternate_filenames=("LTX2_video_vae_bf16.safetensors",)),
     HuggingFile("Kijai/LTX-Video_comfy", "ltx-2.3_text_projection_bf16.safetensors"),
+    HuggingFile("Lightricks/LTX-2.5", "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"),
     HuggingFile("Kijai/LTX-Video_comfy", "LTX23_audio_vae_bf16.safetensors"),
 ], folder_name="diffusion_models")
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import logging
 
@@ -8,8 +10,10 @@ from comfy_api.internal.async_to_sync import AsyncToSyncConverter
 logger = logging.getLogger(__name__)
 
 
-def _comfy_entrypoint_upstream_v3_imports(module) -> ExportedNodes:
+def _comfy_entrypoint_upstream_v3_imports(module, ignore: set | None = None) -> ExportedNodes:
     exported_nodes = ExportedNodes()
+    if ignore is None:
+        ignore = set()
     if hasattr(module, "comfy_entrypoint"):
         entrypoint = getattr(module, "comfy_entrypoint")
         if not callable(entrypoint):
@@ -31,12 +35,10 @@ def _comfy_entrypoint_upstream_v3_imports(module) -> ExportedNodes:
                         from comfy_api.latest import io
                         node_cls: io.ComfyNode
                         schema = node_cls.GET_SCHEMA()
-                        # todo: implement ignore list
-                        ignore = {}
                         if schema.node_id not in ignore:
                             exported_nodes.NODE_CLASS_MAPPINGS[schema.node_id] = node_cls
                             # todo: truly, why in the world would you need this?
                             node_cls.RELATIVE_PYTHON_MODULE = "{}.{}".format("", "")
-                        if schema.display_name is not None:
-                            exported_nodes.NODE_DISPLAY_NAME_MAPPINGS[schema.node_id] = schema.display_name
+                            if schema.display_name is not None:
+                                exported_nodes.NODE_DISPLAY_NAME_MAPPINGS[schema.node_id] = schema.display_name
     return exported_nodes

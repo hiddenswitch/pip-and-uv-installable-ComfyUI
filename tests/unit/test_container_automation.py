@@ -45,6 +45,30 @@ def test_accelerator_candidates_run_the_full_unit_suite_before_promotion():
         assert "--ignore=tests/unit/test_workflow_convert_playwright.py" in commands
 
 
+def test_xpu_and_windows_run_the_full_unit_suite():
+    jobs = _workflow("test.yml")["jobs"]
+    for job_name in ("intel", "windows_nvidia"):
+        commands = "\n".join(step.get("run", "") for step in jobs[job_name]["steps"])
+        assert "tests/unit" in commands
+        assert not re.search(r"tests/unit/[^\s]+\.py", commands)
+
+
+def test_windows_process_tests_have_the_cold_start_budget():
+    windows_job = _workflow("test.yml")["jobs"]["windows_nvidia"]
+    steps = windows_job["steps"]
+    unit_tests = next(step for step in steps if step["name"] == "Windows unit tests")
+    process_tests = next(
+        step for step in steps if step["name"] == "Windows server process unit tests"
+    )
+
+    assert windows_job["timeout-minutes"] >= 90
+    assert '-m "not server_process"' in unit_tests["run"]
+    assert "-n 4" in unit_tests["run"]
+    assert int(process_tests["env"]["COMFYUI_TEST_SERVER_STARTUP_TIMEOUT"]) >= 240
+    assert "-m server_process" in process_tests["run"]
+    assert "-n" not in process_tests["run"]
+
+
 def test_cuda_image_preserves_the_ngc_python_environment():
     dockerfile = (_source_root() / "Dockerfile").read_text(encoding="utf-8")
     assert "ngc-preserved.txt" in dockerfile

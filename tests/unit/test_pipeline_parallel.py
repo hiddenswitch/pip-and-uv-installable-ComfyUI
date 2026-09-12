@@ -7,7 +7,7 @@ import pytest
 import torch
 
 import comfy.ops as comfy_ops
-from comfy import model_management
+from comfy import memory_management, model_management
 from comfy.distributed.config import DistributedConfiguration
 from comfy.ldm.qwen_image.model import QwenImageTransformer2DModel
 from comfy.ldm.minimax.model import MiniMaxH3Model
@@ -340,7 +340,7 @@ def test_projected_dynamic_vram_capacity_includes_ejectable_loaded_models(monkey
     )
     monkeypatch.setattr(model_management, "current_loaded_models", [loaded])
     monkeypatch.setattr(model_management, "get_free_memory", lambda _device: 25)
-    monkeypatch.setattr("comfy.memory_management.aimdo_enabled", lambda: False)
+    monkeypatch.setattr(memory_management, "aimdo_allocator", None)
 
     assert model_management.projected_dynamic_vram_available_memory((device,))[device] == 100
 

@@ -70,6 +70,11 @@ class AsyncRemoteComfyClient:
     def session(self) -> aiohttp.ClientSession:
         return self._ensure_session()
 
+    @staticmethod
+    def encode_prompt(prompt: PromptDict | dict) -> str:
+        """Serialize a prompt exactly as the client posts it."""
+        return json.dumps(prompt, separators=(",", ":"), default=_json_default)
+
     def _build_headers(self, accept_header: str, prefer_header: Optional[str] = None, content_type: str = "application/json") -> dict:
         """Build HTTP headers for requests."""
         headers = {'Content-Type': content_type, 'Accept': accept_header}
@@ -87,7 +92,7 @@ class AsyncRemoteComfyClient:
         :param prefer_header: Optional Prefer header value
         :return: The response object
         """
-        prompt_json = json.dumps(prompt, separators=(",", ":"), default=_json_default)
+        prompt_json = self.encode_prompt(prompt)
         headers = self._build_headers(accept_header, prefer_header)
         return await self.session.post(urljoin(self.server_address, endpoint), data=prompt_json, headers=headers)
 
