@@ -403,3 +403,109 @@ class TestGuessSettingsCliArg:
         cfg = Configuration(guess_settings=True)
         setup_guess_settings(cfg)
         assert PerformanceFeature.CublasOps in cfg.fast
+
+
+class TestGuessSettingsTensorParallel:
+    """Identical NVIDIA GPUs default to tensor parallelism on Linux."""
+
+    def _apply(self, cfg, names, environment=None, os_name="posix"):
+        from comfy.component_model import guess_settings
+        environment = {} if environment is None else environment
+        with patch("comfy.component_model.guess_settings._has_nvidia_gpu", return_value=True), \
+             patch("comfy.component_model.guess_settings._has_amd_gpu", return_value=False), \
+             patch("comfy.component_model.guess_settings._total_ram_gb", return_value=128.0), \
+             patch("comfy.component_model.guess_settings._competing_gpu_processes", return_value=[]), \
+             patch("comfy.component_model.guess_settings._nvidia_compute_caps", return_value=[(8, 6)] * len(names)), \
+             patch("comfy.component_model.guess_settings._nvidia_gpu_names", return_value=list(names)), \
+             patch("comfy.component_model.guess_settings._has_package", return_value=False), \
+             patch("sys.platform", "linux"), \
+             patch.object(guess_settings.os, "name", os_name), \
+             patch.dict("os.environ", environment, clear=True):
+            apply_guess_settings(cfg)
+        return cfg
+
+    def test_two_identical_gpus_default_to_tensor_parallel(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000", "NVIDIA RTX A5000"])
+        assert cfg.tensor_parallel_size == 2
+        assert cfg.pipeline_parallel_size is None
+
+    def test_four_identical_gpus_use_all_four(self):
+        cfg = self._apply(_config(), ["NVIDIA GeForce RTX 3090"] * 4)
+        assert cfg.tensor_parallel_size == 4
+
+    def test_three_identical_gpus_use_the_largest_power_of_two(self):
+        cfg = self._apply(_config(), ["NVIDIA GeForce RTX 3090"] * 3)
+        assert cfg.tensor_parallel_size == 2
+
+    def test_mixed_gpus_keep_the_default(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090"])
+        assert cfg.tensor_parallel_size is None
+
+    def test_single_gpu_keeps_the_default(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"])
+        assert cfg.tensor_parallel_size is None
+
+    def test_explicit_tensor_parallel_size_wins(self):
+        cfg = self._apply(_config(tensor_parallel_size=1), ["NVIDIA RTX A5000"] * 2)
+        assert cfg.tensor_parallel_size == 1
+
+    def test_explicit_pipeline_parallel_size_wins(self):
+        cfg = self._apply(_config(pipeline_parallel_size=2), ["NVIDIA RTX A5000"] * 2)
+        assert cfg.tensor_parallel_size is None
+        assert cfg.pipeline_parallel_size == 2
+
+    def test_explicit_sequence_parallel_degree_wins(self):
+        cfg = self._apply(_config(ulysses_degree=2), ["NVIDIA RTX A5000"] * 2)
+        assert cfg.tensor_parallel_size is None
+
+    def test_environment_tensor_parallel_size_wins(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"] * 4, {"COMFYUI_TENSOR_PARALLEL_SIZE": "1"})
+        assert cfg.tensor_parallel_size is None
+
+    def test_external_launcher_keeps_the_default(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"] * 2, {"RANK": "0", "WORLD_SIZE": "2"})
+        assert cfg.tensor_parallel_size is None
+
+    def test_cuda_device_selection_limits_the_group(self):
+        cfg = self._apply(_config(cuda_device="0"), ["NVIDIA RTX A5000"] * 2)
+        assert cfg.tensor_parallel_size is None
+        cfg = self._apply(_config(cuda_device="1,2"), ["NVIDIA GeForce RTX 3090", "NVIDIA RTX A5000", "NVIDIA RTX A5000"])
+        assert cfg.tensor_parallel_size == 2
+
+    def test_cuda_visible_devices_limits_the_group(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"] * 2, {"CUDA_VISIBLE_DEVICES": "1"})
+        assert cfg.tensor_parallel_size is None
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"] * 2, {"CUDA_VISIBLE_DEVICES": "GPU-0123"})
+        assert cfg.tensor_parallel_size is None
+
+    def test_torch_device_selection_keeps_the_default(self):
+        cfg = self._apply(_config(torch_device="cuda:0"), ["NVIDIA RTX A5000"] * 2)
+        assert cfg.tensor_parallel_size is None
+
+    def test_windows_keeps_the_default(self):
+        cfg = self._apply(_config(), ["NVIDIA RTX A5000"] * 2, os_name="nt")
+        assert cfg.tensor_parallel_size is None
+
+
+class TestDefaultTensorParallelSize:
+    def test_rule(self):
+        from comfy.component_model.guess_settings import default_tensor_parallel_size
+        assert default_tensor_parallel_size([]) == 1
+        assert default_tensor_parallel_size(["a"]) == 1
+        assert default_tensor_parallel_size(["a", "a"]) == 2
+        assert default_tensor_parallel_size(["a", "a", "a"]) == 2
+        assert default_tensor_parallel_size(["a"] * 8) == 8
+        assert default_tensor_parallel_size(["a", "b"]) == 1
+
+
+class TestNvidiaGpuNames:
+    def test_parses_index_and_name(self):
+        from comfy.component_model.guess_settings import _nvidia_gpu_names
+        result = MagicMock(returncode=0, stdout="1, NVIDIA RTX A5000\n0, NVIDIA GeForce RTX 3090, extra\n")
+        with patch("subprocess.run", return_value=result):
+            assert _nvidia_gpu_names() == ["NVIDIA GeForce RTX 3090, extra", "NVIDIA RTX A5000"]
+
+    def test_missing_nvidia_smi(self):
+        from comfy.component_model.guess_settings import _nvidia_gpu_names
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            assert _nvidia_gpu_names() == []

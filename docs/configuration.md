@@ -32,7 +32,9 @@ app = Comfy(configuration=configuration)
 
 `guess_settings` is enabled by default. It selects a suitable device, dtype,
 attention implementation, and DynamicVRAM policy from the hardware and the
-requested model. An explicit CLI or `Configuration` value always wins.
+requested model, and on Linux defaults to tensor parallelism across identical
+NVIDIA GPUs (see [distributed inference](distributed.md#defaults)). An
+explicit CLI or `Configuration` value always wins.
 
 Use `--reserve-vram` to leave a fixed amount available for the desktop or
 other workloads. `--novram` is an explicit compatibility escape hatch, not the
