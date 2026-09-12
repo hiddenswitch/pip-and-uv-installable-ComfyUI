@@ -12,7 +12,6 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: hiddenswitch/comfyui
-  ROCM_CANDIDATE_TAG: ${{ github.sha }}-rocm-${{ github.run_id }}-${{ github.run_attempt }}.dev
 
 jobs:
   build:
@@ -22,6 +21,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Re-running failed jobs keeps this job's outputs, so validate and
+    # promote pull the image built by the attempt that actually ran build.
+    outputs:
+      build_attempt: ${{ github.run_attempt }}
     steps:
       - uses: insightsengineering/disk-space-reclaimer@v1
         with:
@@ -44,7 +47,7 @@ jobs:
           context: .
           file: ./amd.Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.ROCM_CANDIDATE_TAG }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-rocm-${{ github.run_id }}-${{ github.run_attempt }}.dev
           cache-from: |
             type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-rocm
             type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-rocm
@@ -67,7 +70,7 @@ jobs:
     runs-on: [self-hosted, linux, X64, rocm-7600-8gb]
     timeout-minutes: 60
     container:
-      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-rocm-${{ github.run_id }}-${{ github.run_attempt }}.dev
+      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-rocm-${{ github.run_id }}-${{ needs.build.outputs.build_attempt }}.dev
       options: --shm-size=8g
     env:
       COMFYUI_UNIT_DISABLE_CUSTOM_NODES: "1"
@@ -122,9 +125,11 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Promote validated ROCm image
         shell: bash
+        env:
+          BUILD_ATTEMPT: ${{ needs.build.outputs.build_attempt }}
         run: |
           image="${REGISTRY}/${IMAGE_NAME}"
-          source="${image}:${ROCM_CANDIDATE_TAG}"
+          source="${image}:${GITHUB_SHA}-rocm-${GITHUB_RUN_ID}-${BUILD_ATTEMPT}.dev"
           short_sha="${GITHUB_SHA::7}"
           tags=(--tag "${image}:${short_sha}-rocm")
           if [ "$GITHUB_REF" = refs/heads/master ]; then

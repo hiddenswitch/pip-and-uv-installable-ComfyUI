@@ -22,6 +22,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Re-running failed jobs keeps this job's outputs, so validate and
+    # promote pull the images built by the attempt that actually ran build.
+    outputs:
+      build_attempt: ${{ github.run_attempt }}
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +90,7 @@ jobs:
     runs-on: [self-hosted, linux, X64, cuda-3060-12gb]
     timeout-minutes: 60
     container:
-      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-${{ matrix.target.id }}-${{ github.run_id }}-${{ github.run_attempt }}.dev
+      image: ghcr.io/hiddenswitch/comfyui:${{ github.sha }}-${{ matrix.target.id }}-${{ github.run_id }}-${{ needs.build-candidates.outputs.build_attempt }}.dev
       options: --shm-size=8g
     strategy:
       fail-fast: false
@@ -136,9 +140,11 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Promote validated CUDA image
         shell: bash
+        env:
+          BUILD_ATTEMPT: ${{ needs.build-candidates.outputs.build_attempt }}
         run: |
           image="${REGISTRY}/${IMAGE_NAME}"
-          source="${image}:${GITHUB_SHA}-cuda133-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.dev"
+          source="${image}:${GITHUB_SHA}-cuda133-${GITHUB_RUN_ID}-${BUILD_ATTEMPT}.dev"
           short_sha="${GITHUB_SHA::7}"
           tags=(--tag "${image}:${short_sha}" --tag "${image}:${short_sha}-cuda")
           if [ "$GITHUB_REF" = refs/heads/master ]; then
