@@ -16,6 +16,28 @@ These modes are currently exclusive. Hybrid TP+PP and TP+sequence topologies
 are not implemented yet. The normal ComfyUI memory manager remains in charge
 of residency and offloading; parallelism does not imply `--novram`.
 
+## Defaults
+
+With `guess_settings` on (the default), a Linux machine whose visible NVIDIA
+GPUs are all the same product defaults to tensor parallelism across the largest
+power of two of them: two identical GPUs run `--tensor-parallel-size 2`, four
+run 4, three run 2. `--cuda-device` and `CUDA_VISIBLE_DEVICES` narrow the group
+first. Any explicit `--tensor-parallel-size`, `--pipeline-parallel-size`,
+`--ulysses-degree`, or `--ring-degree` value, the matching `COMFYUI_*`
+environment variable, or a launcher process group turns the guess off;
+`--tensor-parallel-size 1` restores the single-device loader. Windows never
+guesses tensor parallelism because its torch builds ship without NCCL.
+
+A checkpoint outside the tensor-parallel families loads through pipeline
+parallelism when its family supports that and multiple devices are visible,
+and through the ordinary single-device loader otherwise; the fallback is
+logged as a warning rather than failing the load.
+
+`comfyui env check` measures device-to-device copy bandwidth between every
+pair of visible CUDA devices, reports whether each pair uses peer access or
+goes through host memory, and prints the largest tensor-parallel and
+pipeline-parallel sizes this machine supports.
+
 ## Supported model families
 
 | Model family | TP | PP | Ulysses/Ring |

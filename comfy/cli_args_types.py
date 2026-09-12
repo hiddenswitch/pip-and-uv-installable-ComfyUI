@@ -108,7 +108,7 @@ class Configuration(dict):
         master_addr (Optional[str]): Process-group rendezvous host. Defaults to MASTER_ADDR.
         master_port (Optional[int]): Process-group rendezvous port. Defaults to MASTER_PORT.
         pipeline_parallel_size (Optional[int]): Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.
-        tensor_parallel_size (Optional[int]): Number of tensor-parallel ranks. Defaults to COMFYUI_TENSOR_PARALLEL_SIZE or one.
+        tensor_parallel_size (Optional[int]): Number of tensor-parallel ranks. Defaults to COMFYUI_TENSOR_PARALLEL_SIZE, else the largest power of two of identical NVIDIA GPUs when guess_settings is on (Linux only), else one.
         ulysses_degree (Optional[int]): xDiT Ulysses sequence-parallel degree. Defaults to COMFYUI_ULYSSES_DEGREE or one.
         ring_degree (Optional[int]): xDiT ring-attention degree. Defaults to COMFYUI_RING_DEGREE or one.
         nccl_proto (str): NCCL protocol selection: auto, simple, ll, or ll128.

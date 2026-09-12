@@ -176,7 +176,7 @@ _DISTRIBUTED_OPTS: list[tuple] = [
     ("master_addr", Optional[str], typer.Option(None, "--master-addr", envvar="MASTER_ADDR", help="Process-group rendezvous host. Defaults to MASTER_ADDR.")),
     ("master_port", Optional[int], typer.Option(None, "--master-port", envvar="MASTER_PORT", help="Process-group rendezvous port. Defaults to MASTER_PORT.")),
     ("pipeline_parallel_size", Optional[int], typer.Option(None, "--pipeline-parallel-size", "-pp", envvar="COMFYUI_PIPELINE_PARALLEL_SIZE", help="Number of pipeline stages. Defaults to world size for external launchers and selected device count otherwise.")),
-    ("tensor_parallel_size", Optional[int], typer.Option(None, "--tensor-parallel-size", "-tp", envvar="COMFYUI_TENSOR_PARALLEL_SIZE", help="Number of tensor-parallel ranks. Defaults to one; one keeps the ordinary model path.")),
+    ("tensor_parallel_size", Optional[int], typer.Option(None, "--tensor-parallel-size", "-tp", envvar="COMFYUI_TENSOR_PARALLEL_SIZE", help="Number of tensor-parallel ranks. With --guess-settings, identical NVIDIA GPUs on Linux default to the largest power of two of them; one keeps the ordinary model path.")),
     ("ulysses_degree", Optional[int], typer.Option(None, "--ulysses-degree", envvar="COMFYUI_ULYSSES_DEGREE", help="xDiT Ulysses sequence-parallel degree. Defaults to one; one keeps the ordinary attention path.")),
     ("ring_degree", Optional[int], typer.Option(None, "--ring-degree", envvar="COMFYUI_RING_DEGREE", help="xDiT ring-attention degree. Defaults to one; one disables ring attention.")),
     ("nccl_proto", str, typer.Option("auto", "--nccl-proto", click_type=click.Choice(("auto", "simple", "ll", "ll128")), help="Select the NCCL collective protocol. auto preserves NCCL topology tuning.")),

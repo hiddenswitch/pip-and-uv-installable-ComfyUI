@@ -12,7 +12,7 @@ import os
 import subprocess
 import re
 import sys
-from typing import Optional, TYPE_CHECKING
+from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from ..cli_args_types import VRAM_MODES, VAE_MODES, ATTENTION_MODES
 
@@ -162,6 +162,106 @@ def _nvidia_compute_caps() -> list[tuple[int, int]]:
     return caps
 
 
+def _nvidia_gpu_names() -> list[str]:
+    """Return the product name of every NVIDIA GPU in physical index order.
+
+    Empty list if nvidia-smi is missing or fails. Uses ``nvidia-smi`` so the
+    CUDA runtime does not initialise before device visibility is settled.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if result.returncode != 0:
+        return []
+    names: dict[int, str] = {}
+    for line in result.stdout.strip().splitlines():
+        fields = [field.strip() for field in line.split(",", maxsplit=1)]
+        if len(fields) == 2 and fields[0].isdigit():
+            names[int(fields[0])] = fields[1]
+    return [names[index] for index in sorted(names)]
+
+
+def _parse_gpu_indexes(selection: str, gpu_count: int) -> Optional[list[int]]:
+    """Parse a comma-separated GPU index list; None when it is not plain indexes."""
+    indexes: list[int] = []
+    for token in selection.split(","):
+        token = token.strip()
+        if not token.isdigit() or int(token) >= gpu_count:
+            return None
+        indexes.append(int(token))
+    return indexes
+
+
+def _selected_gpu_indexes(configuration: Configuration, gpu_count: int, environment: Mapping[str, str]) -> list[int]:
+    """Physical NVIDIA GPU indexes the configuration leaves visible to torch."""
+    if configuration.torch_device is not None:
+        if not configuration.torch_device.startswith("cuda:"):
+            return []
+        return _parse_gpu_indexes(configuration.torch_device.split(":", 1)[1], gpu_count) or []
+    selection = configuration.cuda_device
+    if selection is None and configuration.default_device is not None:
+        return list(range(gpu_count))
+    if selection is None or selection == "all":
+        visible = environment.get("CUDA_VISIBLE_DEVICES")
+        if visible is None:
+            return list(range(gpu_count))
+        return _parse_gpu_indexes(visible, gpu_count) or []
+    return _parse_gpu_indexes(selection, gpu_count) or []
+
+
+def default_tensor_parallel_size(gpu_names: Sequence[str]) -> int:
+    """Tensor-parallel size for a set of visible GPUs: the largest power of two
+    that fits when every GPU is the same product, otherwise one.
+
+    Attention heads and MLP widths in the supported model families divide by
+    powers of two; an odd rank count would fail the shard divisibility checks.
+    """
+    if len(gpu_names) < 2 or len(set(gpu_names)) != 1:
+        return 1
+    size = 1
+    while size * 2 <= len(gpu_names):
+        size *= 2
+    return size
+
+
+_MODEL_PARALLEL_SETTINGS = ("tensor_parallel_size", "pipeline_parallel_size", "ulysses_degree", "ring_degree")
+
+
+def _guess_tensor_parallel_size(configuration: Configuration) -> None:
+    """Default to tensor parallelism across identical NVIDIA GPUs on Linux.
+
+    Explicit model-parallel settings, launcher variables, and Windows (no NCCL)
+    leave the configuration alone.
+    """
+    from ..distributed.config import resolve_distributed_configuration
+
+    if os.name == "nt":
+        return
+    if any(getattr(configuration, name, None) is not None for name in _MODEL_PARALLEL_SETTINGS):
+        return
+    if any(f"COMFYUI_{name.upper()}" in os.environ for name in _MODEL_PARALLEL_SETTINGS):
+        return
+    distributed = resolve_distributed_configuration(configuration)
+    if distributed.externally_launched or distributed.world_size > 1:
+        return
+    if max(
+        distributed.tensor_parallel_size,
+        distributed.pipeline_parallel_size,
+        distributed.ulysses_degree * distributed.ring_degree,
+    ) > 1:
+        return
+    names = _nvidia_gpu_names()
+    selected = [names[index] for index in _selected_gpu_indexes(configuration, len(names), os.environ)]
+    size = default_tensor_parallel_size(selected)
+    if size > 1:
+        logger.info(f"{len(selected)} identical NVIDIA GPUs detected ({selected[0]}), enabling tensor parallelism across {size}")
+        configuration.tensor_parallel_size = size
+
+
 def _amd_gfx_version() -> Optional[str]:
     """Return the GFX target ID (e.g. 'gfx1100', 'gfx1201') or None."""
     try:
@@ -261,6 +361,7 @@ def apply_guess_settings(configuration: Configuration) -> None:
             if procs:
                 logger.info(f"competing GPU processes detected ({', '.join(procs)}), enabling novram")
                 configuration.novram = True
+        _guess_tensor_parallel_size(configuration)
 
     if is_amd:
         if not any(getattr(configuration, f, False) for f in VAE_MODES):

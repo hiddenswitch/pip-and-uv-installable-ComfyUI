@@ -15,6 +15,8 @@ from rich.console import Console
 from rich.table import Table
 
 from ..cli_args_types import Configuration
+from .. import model_management
+from ..distributed import topology
 
 
 def _pkg_version(name: str) -> str:
@@ -22,6 +24,8 @@ def _pkg_version(name: str) -> str:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return "(not installed)"
+    except Exception as error:  # a dist-info without METADATA, a half-removed package
+        return f"(broken metadata: {type(error).__name__})"
 
 
 def _runtime_pkg_version(name: str) -> str:
@@ -91,7 +95,7 @@ def _section_config_files(console: Console):
 def _section_guess_settings(console: Console):
     from ..component_model.guess_settings import (
         _total_ram_gb, _has_nvidia_gpu, _has_amd_gpu, _competing_gpu_processes,
-        _amd_gfx_version, _has_package, apply_guess_settings,
+        _amd_gfx_version, _has_package, _nvidia_gpu_names, apply_guess_settings,
     )
 
     is_nvidia = _has_nvidia_gpu()
@@ -99,6 +103,7 @@ def _section_guess_settings(console: Console):
     ram_gb = _total_ram_gb()
     gfx = _amd_gfx_version() if is_amd else None
     procs = _competing_gpu_processes() if is_nvidia else []
+    gpu_names = _nvidia_gpu_names() if is_nvidia else []
 
     det = Table(show_edge=False, pad_edge=False, box=None, title="Detected Hardware")
     det.add_column("Check", no_wrap=True)
@@ -108,6 +113,8 @@ def _section_guess_settings(console: Console):
     det.add_row("AMD GPU", str(is_amd))
     if is_amd:
         det.add_row("AMD GFX version", gfx or "unknown")
+    if is_nvidia:
+        det.add_row("NVIDIA GPUs", "; ".join(f"{index}: {name}" for index, name in enumerate(gpu_names)) if gpu_names else "(none reported)")
     det.add_row("Competing GPU processes", ", ".join(procs) if procs else "(none)")
     det.add_row("sageattention", "installed" if _has_package("sageattention") else "not installed")
     det.add_row("xformers", "installed" if _has_package("xformers") else "not installed")
@@ -126,6 +133,13 @@ def _section_guess_settings(console: Console):
         decisions.append(("fast", fast_str, "NVIDIA GPU detected"))
     if fresh.novram:
         decisions.append(("novram", "True", f"competing GPU processes: {', '.join(procs)}"))
+    if fresh.tensor_parallel_size is not None:
+        identical = [name for name in gpu_names if name == gpu_names[0]] if gpu_names else []
+        decisions.append((
+            "tensor_parallel_size",
+            str(fresh.tensor_parallel_size),
+            f"{len(identical)} identical NVIDIA GPUs ({gpu_names[0]})" if identical else "identical NVIDIA GPUs",
+        ))
     if fresh.fp16_vae:
         decisions.append(("fp16_vae", "True", f"AMD RDNA 4 ({gfx})"))
     if fresh.fp32_vae:
@@ -574,6 +588,70 @@ def _section_device(console: Console):
     console.print(table, highlight=False)
 
 
+def _section_interconnect(console: Console):
+    """Measured GPU-to-GPU bandwidth and the model-parallel sizes it supports."""
+    devices = topology.cuda_devices()
+    if not devices:
+        console.print("  No CUDA devices; tensor and pipeline parallelism are unavailable.")
+        return
+
+    names = topology.device_names(devices)
+    table = Table(show_edge=False, pad_edge=False, box=None, title="CUDA Devices")
+    table.add_column("Device", no_wrap=True)
+    table.add_column("Name")
+    table.add_column("VRAM", justify="right")
+    for device, name in zip(devices, names):
+        table.add_row(str(device), name, f"{model_management.get_total_memory(device) / (1024 ** 3):.1f} GB")
+    console.print(table, highlight=False)
+    console.print()
+
+    links = topology.measure_device_links(devices) if len(devices) > 1 else []
+    if links:
+        link_table = Table(show_edge=False, pad_edge=False, box=None, title="Device-to-Device Copy Bandwidth")
+        link_table.add_column("From", no_wrap=True)
+        link_table.add_column("To", no_wrap=True)
+        link_table.add_column("Path", no_wrap=True)
+        link_table.add_column("Bandwidth", justify="right")
+        for link in links:
+            link_table.add_row(
+                str(link.source),
+                str(link.destination),
+                "peer" if link.peer_access else "host",
+                f"{link.bandwidth_bytes_per_second / 1e9:.1f} GB/s",
+            )
+        console.print(link_table, highlight=False)
+        console.print()
+    else:
+        console.print("  Only one CUDA device is visible; no device-to-device links to measure.")
+        console.print()
+
+    nccl = topology.nccl_available()
+    windows = topology.is_windows()
+    tensor_size = topology.max_tensor_parallel_size(names, nccl_available=nccl, windows=windows)
+    pipeline_size, transport = topology.max_pipeline_parallel_size(devices, links)
+    if windows:
+        tensor_reason = "tensor parallelism needs NCCL, which Windows torch builds do not ship"
+    elif not nccl:
+        tensor_reason = "this torch build has no NCCL"
+    elif tensor_size > 1:
+        tensor_reason = f"{tensor_size} identical devices ({names[0]})"
+    elif len(devices) > 1:
+        tensor_reason = "the visible devices are not the same product"
+    else:
+        tensor_reason = "one CUDA device"
+    if pipeline_size > 1:
+        pipeline_reason = "consecutive stages copy over peer access in one process" if transport == "peer" else "stages run in worker processes (peer access is not available along the whole chain)"
+    else:
+        pipeline_reason = "one CUDA device"
+    summary = Table(show_edge=False, pad_edge=False, box=None)
+    summary.add_column("Limit", no_wrap=True)
+    summary.add_column("Value", no_wrap=True)
+    summary.add_column("Reason")
+    summary.add_row("Max tensor parallel size", str(tensor_size), tensor_reason)
+    summary.add_row("Max pipeline parallel size", str(pipeline_size), pipeline_reason)
+    console.print(summary, highlight=False)
+
+
 def _format_size(num_bytes: int) -> str:
     if num_bytes <= 0:
         return "0 B"
@@ -885,6 +963,10 @@ def run_integrity_check(config: Configuration):
 
     console.rule("Device")
     _section_device(console)
+    console.print()
+
+    console.rule("GPU Interconnect")
+    _section_interconnect(console)
     console.print()
 
     console.rule("Folder Paths")

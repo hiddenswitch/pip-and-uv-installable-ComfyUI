@@ -184,6 +184,21 @@ def try_load_diffusion_model_tensor_parallel(unet_path, model_options=None, disa
         return None
     if os.path.splitext(os.fspath(unet_path))[1].lower() not in (".safetensors", ".sft"):
         raise ValueError("Tensor parallel loading requires a safetensors checkpoint")
+    reader = SafetensorsCheckpointReader(unet_path)
+    detection_state, metadata, _prefix = _normalize_detection_state(reader)
+    model_config = model_detection.model_config_from_unet(detection_state, "", metadata=metadata)
+    model_family = None if model_config is None else model_config.unet_config.get("image_model")
+    if model_family not in SUPPORTED_MODEL_FAMILIES:
+        # Tensor parallelism is a default on machines with identical GPUs, so a
+        # checkpoint outside the supported families keeps loading through the
+        # pipeline-parallel and single-device loaders instead of failing.
+        logger.warning(
+            "Tensor parallelism does not support model family %r (%s); loading it without tensor parallelism. Supported families: %s",
+            model_family,
+            os.path.basename(os.fspath(unet_path)),
+            ", ".join(sorted(SUPPORTED_MODEL_FAMILIES)),
+        )
+        return None
     current = model_management.get_torch_device()
     available = model_management.get_all_torch_devices()
     devices = tuple([current] + [device for device in available if device != current])
