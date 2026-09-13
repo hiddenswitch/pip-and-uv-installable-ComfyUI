@@ -110,20 +110,20 @@ async def test_nodes_context_shim():
     """Test panic behavior with different executor types"""
 
     # Initialize the specific executor
-    executor = ProcessPoolExecutor(max_workers=1, initializer=disable_vanilla)
+    with ProcessPoolExecutor(max_workers=1, initializer=disable_vanilla) as executor:
 
-    if 'nodes' in sys.modules:
-        # something else imported it
-        del sys.modules['nodes']
-    assert 'nodes' not in sys.modules
-    with context_add_custom_nodes(ExportedNodes(NODE_CLASS_MAPPINGS={
-        "TestExceptionNode": ThrowsExceptionNode,
-        "AssertVanillaImportFails": AssertVanillaImportFails,
-        "PrepareVanillaEnvironment": PrepareVanillaEnvironment,
-        "AssertVanillaImportSucceeds": AssertVanillaImportSucceeds,
-    }, NODE_DISPLAY_NAME_MAPPINGS=TEST_NODE_DISPLAY_NAME_MAPPINGS)):
-        async with Comfy(executor=executor) as client:
-            # Queue our failing workflow
-            workflow = create_nodes_context_workflow()
-            await client.queue_prompt(workflow)
-    assert 'nodes' not in sys.modules
+        if 'nodes' in sys.modules:
+            # something else imported it
+            del sys.modules['nodes']
+        assert 'nodes' not in sys.modules
+        with context_add_custom_nodes(ExportedNodes(NODE_CLASS_MAPPINGS={
+            "TestExceptionNode": ThrowsExceptionNode,
+            "AssertVanillaImportFails": AssertVanillaImportFails,
+            "PrepareVanillaEnvironment": PrepareVanillaEnvironment,
+            "AssertVanillaImportSucceeds": AssertVanillaImportSucceeds,
+        }, NODE_DISPLAY_NAME_MAPPINGS=TEST_NODE_DISPLAY_NAME_MAPPINGS)):
+            async with Comfy(executor=executor) as client:
+                # Queue our failing workflow
+                workflow = create_nodes_context_workflow()
+                await client.queue_prompt(workflow)
+        assert 'nodes' not in sys.modules

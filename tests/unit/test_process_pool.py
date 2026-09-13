@@ -1,4 +1,6 @@
 import contextvars
+import multiprocessing
+import os
 
 import pytest
 
@@ -27,3 +29,14 @@ async def test_context_preservation():
 
         # Verify context was preserved
         assert result == "test_value"
+
+
+def test_shutdown_wait_reaps_worker():
+    executor = ProcessPoolExecutor(max_workers=1)
+    try:
+        worker_pid = executor.submit(os.getpid).result(timeout=60)
+        executor.shutdown(wait=True)
+        assert worker_pid not in {child.pid for child in multiprocessing.active_children()}
+    finally:
+        executor.stop()
+        executor.join()
