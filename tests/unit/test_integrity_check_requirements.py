@@ -44,3 +44,12 @@ def test_check_installed_requirement_fails_when_package_missing(monkeypatch):
 
     assert result is False
     assert "missing" in detail
+
+
+def test_pkg_version_reports_broken_metadata(monkeypatch):
+    def _broken(name):
+        raise TypeError("'NoneType' object is not subscriptable")
+
+    monkeypatch.setattr(importlib.metadata, "version", _broken)
+
+    assert integrity_check._pkg_version("xformers") == "(broken metadata: TypeError)"
