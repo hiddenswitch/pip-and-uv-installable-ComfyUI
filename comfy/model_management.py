@@ -991,7 +991,8 @@ def offloaded_memory(loaded_models, device):
     return offloaded_mem
 
 
-WINDOWS = any(platform.win32_ver())
+# Avoid a WMI query during import: it can stall in Windows containers.
+WINDOWS = sys.platform == "win32"
 
 EXTRA_RESERVED_VRAM = 400 * 1024 * 1024
 if WINDOWS:
