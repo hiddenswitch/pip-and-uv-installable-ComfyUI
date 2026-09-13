@@ -45,6 +45,7 @@ class ProcessPoolExecutor(ProcessPool, Executor):
             raise NotImplementedError("cannot cancel futures in this implementation")
         if wait:
             self.close()
+            self.join()
         else:
             self.stop()
         return
