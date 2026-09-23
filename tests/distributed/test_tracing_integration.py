@@ -176,7 +176,7 @@ def jaeger_container():
 
     # Wait for Jaeger to be fully ready
     query_url = container.get_query_url()
-    otlp_endpoint = container.get_otlp_endpoint()
+    otlp_endpoint = f"{container.get_otlp_endpoint()}/v1/traces"
 
     for _ in range(30):
         try:
