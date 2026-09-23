@@ -17,6 +17,7 @@ from .distributed_types import RpcRequest, RpcReply
 from .process_pool_executor import ProcessPoolExecutor
 from ..client.embedded_comfy_client import Comfy
 from ..component_model.queue_types import ExecutionStatus
+from ..execution_context import current_execution_context
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class DistributedPromptWorker:
         self._rpc = await JsonRPC.create(channel=self._channel, auto_delete=True, durable=False)
 
         if self._embedded_comfy_client is None:
-            self._embedded_comfy_client = Comfy(progress_handler=DistributedExecutorToClientProgress(self._rpc, self._queue_name, self._loop), executor=self._executor)
+            self._embedded_comfy_client = Comfy(configuration=current_execution_context().configuration, progress_handler=DistributedExecutorToClientProgress(self._rpc, self._queue_name, self._loop), executor=self._executor)
         if not self._embedded_comfy_client.is_running:
             await self._exit_stack.enter_async_context(self._embedded_comfy_client)
 

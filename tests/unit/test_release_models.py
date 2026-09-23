@@ -88,7 +88,7 @@ def test_new_blueprint_artifacts_resolve_in_their_model_folders():
 
 
 @pytest.mark.parametrize("registry,name", [
-    ("KNOWN_MODEL_PATCHES", "MiniMax-H3-Fun-Controlnet-Union-2.0.safetensors"),
+    ("KNOWN_MODEL_PATCHES", "minimax_h3_fun_controlnet_union_pruned_bf16.safetensors"),
     ("KNOWN_MODEL_PATCHES", "minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors"),
     ("KNOWN_UNET_MODELS", "qwen_image_2.1_int8_convrot.safetensors"),
     ("KNOWN_CLIP_MODELS", "qwen3vl_8b_int8_convrot.safetensors"),
