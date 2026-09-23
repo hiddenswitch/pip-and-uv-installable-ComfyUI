@@ -656,6 +656,7 @@ def test_dynamic_vbar_undersized_allocation_releases_successful_fault(monkeypatc
     layer = ops.manual_cast.Linear(2, 2)
     layer._v = (object(), 0, 1)
     layer._v_signature = None
+    layer._pin_state = {"fast_disk": False}
     signature = object()
     unpinned = []
     monkeypatch.setattr(
