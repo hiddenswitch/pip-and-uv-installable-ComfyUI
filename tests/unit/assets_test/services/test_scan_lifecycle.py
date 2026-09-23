@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
-from app.assets.database.models import AssetContent
-from app.assets.scanner import build_asset_specs, seed_asset_specs, sync_prefixes_with_filesystem
+from comfy.app.assets.database.models import AssetContent
+from comfy.app.assets.scanner import build_asset_specs, seed_asset_specs, sync_prefixes_with_filesystem
 
 
 def _scan(session, root: Path) -> int:
@@ -20,12 +20,12 @@ def test_e2e_scan_seed_detect_prune(session, temp_dir: Path):
     edited = root / "edited.bin"
     removed.write_bytes(b"removed")
     edited.write_bytes(b"old")
-    with patch("folder_paths.get_input_directory", return_value=str(root)):
+    with patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(root)):
         assert _scan(session, root) == 2
         removed.unlink()
         edited.write_bytes(b"replacement")
         (root / "partial.part").write_bytes(b"partial")
-        with patch("app.assets.scanner.mode.hashing_enabled", return_value=False):
+        with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=False):
             sync_prefixes_with_filesystem(session, [str(root)])
             _scan(session, root)
     session.commit()
@@ -38,6 +38,6 @@ def test_second_scan_idempotent(session, temp_dir: Path):
     root = temp_dir / "input"
     root.mkdir()
     (root / "stable.bin").write_bytes(b"stable")
-    with patch("folder_paths.get_input_directory", return_value=str(root)):
+    with patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(root)):
         assert _scan(session, root) == 1
         assert _scan(session, root) == 0

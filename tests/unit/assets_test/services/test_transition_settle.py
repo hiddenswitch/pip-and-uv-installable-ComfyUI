@@ -5,12 +5,12 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import Session as SASession
 
-from app.assets import scanner, seeder as seeder_module
-from app.assets.database.models import AssetContent
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.helpers import to_stored_hash
-from app.assets.services import hash_mode_state
-from app.assets.services.hash_mode_state import (
+from comfy.app.assets import scanner, seeder as seeder_module
+from comfy.app.assets.database.models import AssetContent
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.services import hash_mode_state
+from comfy.app.assets.services.hash_mode_state import (
     clear_transition_queue,
     enqueue_transition_work,
     read_stored_mode,
@@ -76,13 +76,13 @@ def test_enrich_phase_settles_an_unreadable_transition_without_looping(
     seeder._run_gate.set()
     seeder._cancel_event.clear()
 
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     monkeypatch.setattr(hash_mode_state, "snapshot_hash", _denied)
     monkeypatch.setattr(scanner, "snapshot_hash", _denied)
     monkeypatch.setattr(scanner, "enrich_asset", counting_enrich_asset)
 
-    with patch("app.assets.seeder.create_session", _create_session), \
-         patch("app.assets.scanner.create_session", _create_session):
+    with patch("comfy.app.assets.seeder.create_session", _create_session), \
+         patch("comfy.app.assets.scanner.create_session", _create_session):
         try:
             cancelled, _enriched = seeder._run_enrich_phase(("input",))
         except _AttemptBudgetExhausted:

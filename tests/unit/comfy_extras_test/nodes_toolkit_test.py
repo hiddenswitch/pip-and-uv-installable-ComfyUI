@@ -1,4 +1,4 @@
-from comfy_extras.nodes_toolkit import CreateList, GetItemFromList
+from comfy_extras.nodes.nodes_toolkit import CreateList, GetItemFromList
 
 
 def test_create_list_accepts_heterogeneous_inputs():

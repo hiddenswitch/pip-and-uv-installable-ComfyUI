@@ -1,12 +1,12 @@
 import os
 from datetime import datetime
 
-import folder_paths
+from comfy.cmd import folder_paths
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.services.ingest import (
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.services.ingest import (
     register_cached_output,
     register_executed_output,
     register_file_in_place,
@@ -222,7 +222,7 @@ def test_registration_failure_never_raises_and_leaves_no_rows(
         raise RuntimeError("simulated create_record failure")
 
     monkeypatch.setattr(
-        "app.assets.services.ingest.create_record", _boom
+        "comfy.app.assets.services.ingest.create_record", _boom
     )
 
     path = _output_path("primitives_reg_fail.png")

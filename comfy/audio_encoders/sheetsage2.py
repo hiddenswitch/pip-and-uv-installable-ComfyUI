@@ -8,13 +8,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.ops
-import comfy.utils
-from comfy.audio_encoders.mert2 import MERT2
-from comfy.ldm.modules.attention import optimized_attention_for_device
-from comfy.text_encoders.llama import FixedKV
+from .. import model_management
+from .. import model_prefetch
+from .. import utils
+from .mert2 import MERT2
+from ..ldm.modules.attention import optimized_attention_for_device
+from ..text_encoders.llama import FixedKV
 
 
 class DecoderAttention(nn.Module):
@@ -100,7 +99,7 @@ class Decoder(nn.Module):
             decode_buffer.copy_(x)
             x = decode_buffer
         attention = optimized_attention_for_device(x.device, mask=mask is not None or graph, small_input=True)
-        queue = comfy.model_prefetch.make_prefetch_queue(list(self.layers), x.device, {"prefetch_dynamic_vbars": True})
+        queue = model_prefetch.make_prefetch_queue(list(self.layers), x.device, {"prefetch_dynamic_vbars": True})
         for i, layer in enumerate(self.layers):
             if fixed:
                 cache[i][0].prepare(length)
@@ -113,11 +112,11 @@ class Decoder(nn.Module):
                 else:
                     x = out
 
-            comfy.model_prefetch.prefetch_queue_pop(queue, x.device, layer, x.dtype, core=core,
+            model_prefetch.prefetch_queue_pop(queue, x.device, layer, x.dtype, core=core,
                                                   enable_graph=graph, malloc_scope="block")
             if fixed:
                 cache[i][0].advance(length)
-        comfy.model_prefetch.prefetch_queue_pop(queue, x.device, None, malloc_scope="block")
+        model_prefetch.prefetch_queue_pop(queue, x.device, None, malloc_scope="block")
         return x
 
 
@@ -151,7 +150,7 @@ class SheetSage2(nn.Module):
 
     def init_cache(self, memory):
         batch, _, dim = memory.shape
-        fixed = comfy.model_prefetch.malloc_graph_enabled(memory.device)
+        fixed = model_prefetch.malloc_graph_enabled(memory.device)
         cache = []
         for layer in self.decoder.layers:
             heads = layer.self_attn.heads
@@ -188,10 +187,10 @@ class SheetSage2(nn.Module):
         fixed = isinstance(cache[0][0], FixedKV)
         # Captured decoder layers must share the same input address on every replay.
         decode_buffer = memory.new_empty((memory.shape[0], 1, memory.shape[-1])) if fixed else None
-        progress = comfy.utils.ProgressBar(self.max_tokens - len(tokens))
+        progress = utils.ProgressBar(self.max_tokens - len(tokens))
         try:
-            for step in comfy.utils.model_trange(self.max_tokens - len(tokens), desc="SheetSage2 transcription", unit="token"):
-                comfy.model_management.throw_exception_if_processing_interrupted()
+            for step in utils.model_trange(self.max_tokens - len(tokens), desc="SheetSage2 transcription", unit="token"):
+                model_management.throw_exception_if_processing_interrupted()
                 scores = logits[0, -1].float().masked_fill(~state.allowed(device), -torch.inf)
                 next_id = scores.argmax()
                 token = next_id.item()
@@ -208,20 +207,20 @@ class SheetSage2(nn.Module):
                     break
                 ids.copy_(next_id)
                 if fixed:
-                    comfy.model_prefetch.malloc_graph_begin(device)
+                    model_prefetch.malloc_graph_begin(device)
                 logits.copy_(self.decode(ids, positions, cache, decode_buffer=decode_buffer))
                 if fixed:
-                    comfy.model_prefetch.malloc_graph_end()
+                    model_prefetch.malloc_graph_end()
                 positions.add_(1)
         finally:
-            comfy.model_prefetch.cleanup_prefetch_queues()
+            model_prefetch.cleanup_prefetch_queues()
         return tokens
 
     def transcribe(self, waveform):
         duration = waveform.shape[-1] / 24000
         stitched = []
         for window in sliding_window_plan(duration):
-            comfy.model_management.throw_exception_if_processing_interrupted()
+            model_management.throw_exception_if_processing_interrupted()
             start = window["start"]
             prefix, base = overlap_prefix(stitched, self.tokenizer, start, window["prefix_end"])
             if prefix is not None and len(prefix) >= self.max_tokens - 128:

@@ -12,21 +12,21 @@ from aiohttp.test_utils import make_mocked_request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as SASession
 
-from app.assets import mode
-from app.assets.api import routes
-import app.assets.mode as mode_module
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import create_record
-from app.assets.scanner import enrich_asset
-from app.assets.scanner_changes import recover_missing_content
-from app.assets.services import asset_management, ingest
-from app.assets.services.asset_management import get_asset_detail
-from app.assets.services.ingest import (
+from comfy.app.assets import mode
+from comfy.app.assets.api import routes
+from comfy.app.assets import mode as mode_module
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import create_record
+from comfy.app.assets.scanner import enrich_asset
+from comfy.app.assets.scanner_changes import recover_missing_content
+from comfy.app.assets.services import asset_management, ingest
+from comfy.app.assets.services.asset_management import get_asset_detail
+from comfy.app.assets.services.ingest import (
     HashMismatchError,
     upload_from_temp_path,
 )
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture

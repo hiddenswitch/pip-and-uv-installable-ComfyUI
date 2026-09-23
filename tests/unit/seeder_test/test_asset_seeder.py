@@ -10,6 +10,7 @@ from comfy.app.assets.seeder import Progress
 from comfy.app.assets.seeder import ScanPhase
 from comfy.app.assets.seeder import State
 from comfy.app.assets.seeder import _AssetSeeder
+from comfy.app.assets.seeder import _ScanState
 
 
 @pytest.fixture()
@@ -53,27 +54,27 @@ class TestEventSink:
 class TestResetToIdle:
     def test_sets_idle_and_clears_progress(self, seeder):
         """_reset_to_idle should move state to IDLE and snapshot progress."""
-        progress = Progress(scanned=10, total=20, created=5, skipped=3)
+        progress = _ScanState(scanned=10, total=20, created=5, skipped=3)
         seeder._state = State.RUNNING
-        seeder._progress = progress
+        seeder._scan_state = progress
 
         with seeder._lock:
             seeder._reset_to_idle()
 
         assert seeder._state is State.IDLE
-        assert seeder._progress is None
-        assert seeder._last_progress is progress
+        assert seeder._scan_state is None
+        assert seeder._last_progress == Progress(scanned=10, total=20, created=5, skipped=3)
 
     def test_noop_when_progress_already_none(self, seeder):
         """_reset_to_idle should handle None progress gracefully."""
         seeder._state = State.CANCELLING
-        seeder._progress = None
+        seeder._scan_state = None
 
         with seeder._lock:
             seeder._reset_to_idle()
 
         assert seeder._state is State.IDLE
-        assert seeder._progress is None
+        assert seeder._scan_state is None
         assert seeder._last_progress is None
 
 

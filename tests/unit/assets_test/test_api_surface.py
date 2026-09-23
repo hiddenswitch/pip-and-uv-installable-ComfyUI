@@ -5,7 +5,7 @@ import re
 import uuid
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from importlib.resources import files
 from typing import Literal, NoReturn, TypedDict
 
 import pytest
@@ -54,7 +54,7 @@ class SmokeAsset(TypedDict):
     hash: str
 
 
-ROUTES_PY = Path(__file__).resolve().parents[2] / "app/assets/api/routes.py"
+ROUTES_PY = files("comfy.app.assets.api").joinpath("routes.py")
 
 ROUTE_DECORATOR_RE = re.compile(
     r"@ROUTES\.(?P<method>get|post|put|delete|head)\((?:f)?[\"'](?P<path>.*?)[\"']\)",

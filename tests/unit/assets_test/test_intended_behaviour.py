@@ -11,10 +11,10 @@ from blake3 import blake3
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.assets import mode
-from app.assets.api import routes
-from app.assets.database.models import Asset, AssetContent, Base
-from app.assets.database.queries import (
+from comfy.app.assets import mode
+from comfy.app.assets.api import routes
+from comfy.app.assets.database.models import Asset, AssetContent, Base
+from comfy.app.assets.database.queries import (
     create_content,
     create_record,
     fetch_record_tags,
@@ -22,36 +22,36 @@ from app.assets.database.queries import (
     mark_content_missing,
     rename_record,
 )
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.queries.records import (
     get_preview_file_paths_by_ids,
     get_record_by_path_or_none,
 )
-from app.assets.helpers import to_stored_hash
-from app.assets.lifecycle import wipe_temp_db_rows
-from app.assets.scanner import (
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.lifecycle import wipe_temp_db_rows
+from comfy.app.assets.scanner import (
     build_asset_specs,
     seed_asset_specs,
     sync_prefixes_with_filesystem,
 )
-from app.assets.scanner_admission import _should_skip_extension
-from app.assets.scanner_changes import (
+from comfy.app.assets.scanner_admission import _should_skip_extension
+from comfy.app.assets.scanner_changes import (
     clear_pending_verifications,
     detect_content_change,
     drain_pending_verifications,
     queue_pending_verification,
 )
-from app.assets.services.asset_management import (
+from comfy.app.assets.services.asset_management import (
     asset_exists,
     delete_asset_reference,
     resolve_hash_to_path,
 )
-from app.assets.services.file_utils import list_files_recursively
-from app.assets.services.ingest import register_cached_output, upload_from_temp_path
-from app.assets.services.lookup import (
+from comfy.app.assets.services.file_utils import list_files_recursively
+from comfy.app.assets.services.ingest import register_cached_output, upload_from_temp_path
+from comfy.app.assets.services.lookup import (
     lookup_for_from_hash,
     lookup_for_view,
 )
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def _record(session, path: Path, name: str, hash_value: str | None = None):
 
 @contextmanager
 def _sandbox_asset_roots(root: Path, model_category: Path | None = None):
-    with patch("app.assets.services.path_utils.folder_paths") as folder_paths_mock:
+    with patch("comfy.app.assets.services.path_utils.folder_paths") as folder_paths_mock:
         folder_paths_mock.get_input_directory.return_value = str(root / "input")
         folder_paths_mock.get_output_directory.return_value = str(root / "output")
         folder_paths_mock.get_temp_directory.return_value = str(root / "temp")
@@ -80,7 +80,7 @@ def _sandbox_asset_roots(root: Path, model_category: Path | None = None):
             else []
         )
         with patch(
-            "app.assets.services.path_utils.get_comfy_models_folders",
+            "comfy.app.assets.services.path_utils.get_comfy_models_folders",
             return_value=categories,
         ):
             yield
@@ -136,7 +136,7 @@ def _writer_lands_mid_hash(path: Path, replacement: bytes):
         def hexdigest(self) -> str:
             return self._inner.hexdigest()
 
-    with patch("app.assets.services.snapshot_hash.blake3", _WriterHasher):
+    with patch("comfy.app.assets.services.snapshot_hash.blake3", _WriterHasher):
         yield _WriterHasher
 
 
@@ -203,7 +203,7 @@ def test_scenario_4_delete_no_revival(session, tmp_path):
     record_id, content_id = record.id, record.content_id
 
     with patch(
-        "app.assets.services.asset_management.create_session",
+        "comfy.app.assets.services.asset_management.create_session",
         lambda: nullcontext(session),
     ):
         assert delete_asset_reference(record_id) is True
@@ -253,10 +253,10 @@ def test_scenario_6_upload_reuses_content_never_the_record(session, tmp_path):
         with (
             _sandbox_asset_roots(tmp_path),
             patch(
-                "folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")
+                "comfy.cmd.folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")
             ),
             patch(
-                "app.assets.services.ingest.create_session",
+                "comfy.app.assets.services.ingest.create_session",
                 lambda: nullcontext(session),
             ),
             patch.object(mode, "hashing_enabled", return_value=hashing),
@@ -370,7 +370,7 @@ def test_scenario_10_cached_delivery_record(session, tmp_path):
     with (
         _sandbox_asset_roots(tmp_path),
         patch(
-            "app.assets.services.ingest.create_session",
+            "comfy.app.assets.services.ingest.create_session",
             lambda: nullcontext(session),
         ),
     ):
@@ -399,7 +399,7 @@ def test_scenario_10_cached_delivery_record(session, tmp_path):
     with (
         _sandbox_asset_roots(tmp_path),
         patch(
-            "app.assets.services.ingest.create_session",
+            "comfy.app.assets.services.ingest.create_session",
             lambda: nullcontext(session),
         ),
     ):
@@ -434,7 +434,7 @@ def test_scenario_12_temp_wipe_both_layers(session, tmp_path):
     doomed_id, doomed_content_id = doomed.id, doomed.content_id
     survivor_id, survivor_content_id = survivor.id, survivor.content_id
 
-    with patch("folder_paths.get_temp_directory", return_value=str(temp_root)):
+    with patch("comfy.cmd.folder_paths.get_temp_directory", return_value=str(temp_root)):
         deleted = wipe_temp_db_rows(session)
     session.commit()
 
@@ -681,12 +681,12 @@ def test_scenario_27_fail_closed_previews_fromhash(session, tmp_path):
 
     def serving() -> tuple[bool, object]:
         with patch(
-            "app.assets.services.asset_management.create_session",
+            "comfy.app.assets.services.asset_management.create_session",
             lambda: nullcontext(session),
         ):
             return asset_exists(digest), resolve_hash_to_path(digest)
 
-    with patch("folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")):
+    with patch("comfy.cmd.folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")):
         assert previews() == {record_id: str(path)}
         assert from_hash().id == content.id
         assert lookup_for_view(session, digest).id == content.id
@@ -707,7 +707,7 @@ def test_scenario_28_temp_exclusion(session, tmp_path):
     path = tmp_path / "temp.bin"
     path.write_bytes(b"bytes")
     record = _record(session, path, "temp", "digest")
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         assert lookup_for_view(session, "digest") is None
-    with patch("app.assets.services.lookup.is_temp_path", return_value=False):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=False):
         assert lookup_for_view(session, "digest").id == record.content_id

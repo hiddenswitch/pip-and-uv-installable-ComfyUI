@@ -2,7 +2,7 @@ import math
 from types import SimpleNamespace
 
 from comfy_api.latest import io
-from comfy_extras.nodes_loop import EndLoop, LoopIteration, LoopProgress, LoopResult, StartLoop
+from comfy_extras.nodes.nodes_loop import EndLoop, LoopIteration, LoopProgress, LoopResult, StartLoop
 
 
 def test_loop_schema_exposes_cache_policy_and_integrated_carry():
@@ -41,7 +41,7 @@ def test_iteration_cache_policy_is_stable_or_unique():
 def test_loop_progress_reports_on_start_node(monkeypatch):
     updates = []
     monkeypatch.setattr(
-        "comfy_extras.nodes_loop.PromptServer",
+        "comfy_extras.nodes.nodes_loop.PromptServer",
         SimpleNamespace(instance=SimpleNamespace(send_progress_text=lambda *args: updates.append(args))),
     )
 

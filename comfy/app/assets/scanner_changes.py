@@ -14,16 +14,16 @@ from typing import Literal
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import AssetContent
-from app.assets.database.queries.records import (
+from .database.models import AssetContent
+from .database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,
     unset_content_missing,
 )
-from app.assets.helpers import sql_path_under_prefix, to_stored_hash
-from app.assets.services.path_utils import compute_loader_path, get_name_and_tags_from_asset_path
-from app.assets.services.snapshot_hash import snapshot_hash
+from .helpers import sql_path_under_prefix, to_stored_hash
+from .services.path_utils import compute_loader_path, get_name_and_tags_from_asset_path
+from .services.snapshot_hash import snapshot_hash
 
 _pending_verification_ids: list[str] = []
 _pending_recovery_paths: list[str] = []

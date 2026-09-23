@@ -5,13 +5,13 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-import app.assets.mode as mode_module
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries import create_record as create_record_query
-from app.assets.scanner import SeedAssetSpec, seed_asset_specs
-from app.assets.services import ingest
-from app.assets.services.ingest import register_file_in_place, upload_from_temp_path
+from comfy.app.assets import mode as mode_module
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries import create_record as create_record_query
+from comfy.app.assets.scanner import SeedAssetSpec, seed_asset_specs
+from comfy.app.assets.services import ingest
+from comfy.app.assets.services.ingest import register_file_in_place, upload_from_temp_path
 
 
 @pytest.fixture
@@ -142,7 +142,7 @@ def test_seed_asset_specs_orphans_nothing_and_keeps_earlier_specs_on_record_fail
             raise RuntimeError("forced create_record failure")
         return create_record_query(session_arg, content_id, name, *args, **kwargs)
 
-    monkeypatch.setattr("app.assets.scanner.create_record", _create_record_or_raise)
+    monkeypatch.setattr("comfy.app.assets.scanner.create_record", _create_record_or_raise)
 
     with pytest.raises(RuntimeError, match="forced create_record failure"):
         seed_asset_specs(session, specs)

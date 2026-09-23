@@ -12,7 +12,7 @@ from .helpers import trigger_sync_seed_assets
 
 
 def _db_path(comfy_tmp_base_dir: Path, request: pytest.FixtureRequest) -> str:
-    url = request.config.getoption("--db-url")
+    url = request.config.getoption("--db-url", default=None)
     if url and url.startswith("sqlite:///"):
         return url[len("sqlite:///"):]
     return str(comfy_tmp_base_dir / "assets-test.sqlite3")

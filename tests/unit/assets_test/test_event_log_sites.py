@@ -4,14 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from app.assets.event_log import TAG
+from comfy.app.assets.event_log import TAG
 
 
-STARTUP_SCRIPT = (
-    "import runpy, comfy_kitchen; "
-    "comfy_kitchen.int8_attention_is_available=lambda: False; "
-    'runpy.run_path("main.py", run_name="__main__")'
-)
+
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +20,7 @@ def run_quick_startup(tmp_path: Path, *flags: str) -> str:
         [
             sys.executable,
             "-c",
-            STARTUP_SCRIPT,
+            "from comfy.cmd.cli import entrypoint; entrypoint()",
             "--cpu",
             "--quick-test-for-ci",
             "--disable-all-custom-nodes",
@@ -34,7 +30,7 @@ def run_quick_startup(tmp_path: Path, *flags: str) -> str:
             f"--database-url=sqlite:///{tmp_path / 'assets.sqlite3'}",
             *flags,
         ],
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=120,

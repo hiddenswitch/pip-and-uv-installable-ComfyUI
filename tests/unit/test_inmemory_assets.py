@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any, Callable, TypeAlias
 
 from aiohttp import web
 
-from app.assets.manager import AssetManager
-from app.assets.services.schemas import RegisteredAsset, UploadAssetView
+from comfy.app.assets.manager import AssetManager
+from comfy.app.assets.services.schemas import RegisteredAsset, UploadAssetView
 
 if TYPE_CHECKING:
-    from app.user_manager import UserManager
+    from comfy.app.user_manager import UserManager
 
 
 CallArgument: TypeAlias = str | bool | None

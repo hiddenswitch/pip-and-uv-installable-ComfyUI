@@ -7,9 +7,9 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from sqlalchemy.orm import Session
 
-from app.assets import mode
-from app.assets.api import routes
-from app.assets.database.queries.records import (
+from comfy.app.assets import mode
+from comfy.app.assets.api import routes
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,

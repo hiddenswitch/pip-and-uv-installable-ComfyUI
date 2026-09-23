@@ -9,16 +9,16 @@ from aiohttp import web
 from aiohttp.pytest_plugin import AiohttpClient
 from sqlalchemy.orm import Session
 
-import folder_paths
-from app.assets import lifecycle
-from app.assets.api import routes
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import create_content, create_record
-from app.assets import manager
-from app.assets.manager import AssetsEnabled, NoAssets
-from app.assets.mode import hashing_enabled
-from app.assets.seeder import asset_seeder
-from app.assets.services.hash_mode_state import read_stored_mode
+from comfy.cmd import folder_paths
+from comfy.app.assets import lifecycle
+from comfy.app.assets.api import routes
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets import manager
+from comfy.app.assets.manager import AssetsEnabled, NoAssets
+from comfy.app.assets.mode import hashing_enabled
+from comfy.app.assets.seeder import asset_seeder
+from comfy.app.assets.services.hash_mode_state import read_stored_mode
 
 
 class _Args:
@@ -118,7 +118,7 @@ def test_noassets_shutdown_runs_cleanup_after_unsuccessful_seeder_shutdown(
 
     with (
         patch.object(asset_seeder, "shutdown", side_effect=seeder_shutdown),
-        patch("app.assets.manager.run_shutdown", side_effect=cleanup) as cleanup_spy,
+        patch("comfy.app.assets.manager.run_shutdown", side_effect=cleanup) as cleanup_spy,
     ):
         _no_assets().shutdown()
 

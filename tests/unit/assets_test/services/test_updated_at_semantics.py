@@ -6,23 +6,23 @@ import pytest
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetTag, Tag
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.models import Asset, AssetTag, Tag
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     delete_record,
     mark_content_missing,
     unset_content_missing,
 )
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import enrich_asset
-from app.assets.scanner_changes import split_content
-from app.assets.services.asset_management import (
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import enrich_asset
+from comfy.app.assets.scanner_changes import split_content
+from comfy.app.assets.services.asset_management import (
     resolve_asset_for_download,
     resolve_hash_to_path,
     update_asset_metadata,
 )
-from app.assets.services.tagging import apply_tags, remove_tags
+from comfy.app.assets.services.tagging import apply_tags, remove_tags
 
 STALE = datetime(2020, 1, 1, 0, 0, 0)
 
@@ -238,7 +238,7 @@ def test_automatic_missing_tag_projection_does_not_move_updated_at(session, temp
 def test_content_split_does_not_move_updated_at_on_retired_record(
     session, temp_dir, monkeypatch
 ):
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     path = _write_file(temp_dir, "split.bin")
     record = _seed_record(session, path, name="split.bin")
     content = session.get(Asset, record.id).content

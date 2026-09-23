@@ -13,12 +13,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
-import comfy.model_management
-import comfy.model_patcher
-import comfy.storage
+from ... import ops
+from ... import model_management
+from ... import model_patcher
+from ... import storage
 
-from comfy.image_encoders.dino2 import Dinov2Model
+from ...image_encoders.dino2 import Dinov2Model
 
 from .geometry import depth_map_to_point_map, intrinsics_from_focal_center, recover_focal_shift
 from .modules import ConvStack, DINOv2Encoder, HeadV1, MLP, Sparse3DUNet, _view_plane_uv_grid
@@ -57,7 +57,7 @@ class MoGeModelV1(nn.Module):
 
     def __init__(self, backbone: Dict[str, Any], dim_upsample: List[int] = (256, 128, 128),
                  num_res_blocks: int = 1, dim_times_res_block_hidden: int = 1,
-                 dtype=None, device=None, operations=comfy.ops.manual_cast):
+                 dtype=None, device=None, operations=ops.manual_cast):
         super().__init__()
         self.backbone = Dinov2Model(backbone, dtype, device, operations)
         self.head = HeadV1(dim_in=backbone["hidden_size"], dim_upsample=list(dim_upsample),
@@ -71,7 +71,7 @@ class MoGeModelV1(nn.Module):
         resize = ((num_tokens * 14 ** 2) / (H * W)) ** 0.5
         rh, rw = int(H * resize), int(W * resize)
         x = F.interpolate(image, (rh, rw), mode="bicubic", align_corners=False, antialias=True)
-        x = (x - comfy.ops.cast_to_input(self.image_mean, x, copy=False)) / comfy.ops.cast_to_input(self.image_std, x, copy=False)
+        x = (x - ops.cast_to_input(self.image_mean, x, copy=False)) / ops.cast_to_input(self.image_std, x, copy=False)
         x14 = F.interpolate(x, (rh // 14 * 14, rw // 14 * 14), mode="bilinear", align_corners=False, antialias=True)
 
         n_layers = len(self.backbone.encoder.layer)
@@ -87,7 +87,7 @@ class MoGeModelV1(nn.Module):
         return {"points": points, "mask": mask}
 
     @classmethod
-    def from_state_dict(cls, sd, dtype=None, device=None, operations=comfy.ops.manual_cast):
+    def from_state_dict(cls, sd, dtype=None, device=None, operations=ops.manual_cast):
         """Detect the v1 head config from sd, build a model, and load weights."""
         n_up = 1 + max(int(k.split(".")[2]) for k in sd if k.startswith("head.upsample_blocks."))
         dim_upsample = [sd[f"head.upsample_blocks.{i}.0.0.weight"].shape[1] for i in range(n_up)]
@@ -115,7 +115,7 @@ class MoGeModelV2(nn.Module):
                  mask_head: Dict[str, Any],
                  scale_head: Dict[str, Any],
                  normal_head: Optional[Dict[str, Any]] = None,
-                 dtype=None, device=None, operations=comfy.ops.manual_cast):
+                 dtype=None, device=None, operations=ops.manual_cast):
         super().__init__()
         self.encoder = DINOv2Encoder(**encoder, dtype=dtype, device=device, operations=operations)
         self.neck = ConvStack(**neck, dtype=dtype, device=device, operations=operations)
@@ -163,7 +163,7 @@ class MoGeModelV2(nn.Module):
         return self._heads(feats, cls_token, self.points_head(feats)[-1], image.shape[-2:])
 
     @classmethod
-    def from_state_dict(cls, sd, dtype=None, device=None, operations=comfy.ops.manual_cast):
+    def from_state_dict(cls, sd, dtype=None, device=None, operations=ops.manual_cast):
         """Detect the config from sd, build a model, and load weights."""
         model = cls(**cls._detect_config(sd), dtype=dtype, device=device, operations=operations)
         model.load_state_dict(sd, strict=True)
@@ -227,7 +227,7 @@ class MoGeModelV3(MoGeModelV2):
     # than the depth detail the refiner is meant to recover.
     refiner_depth_resolution = 256
 
-    def __init__(self, refiner: Dict[str, Any], dtype=None, device=None, operations=comfy.ops.manual_cast, **v2_kwargs):
+    def __init__(self, refiner: Dict[str, Any], dtype=None, device=None, operations=ops.manual_cast, **v2_kwargs):
         super().__init__(**v2_kwargs, dtype=dtype, device=device, operations=operations)
         self.refiner = Sparse3DUNet(**refiner, dtype=dtype, device=device, operations=operations)
 
@@ -322,7 +322,7 @@ def _remap_state_dict(sd: dict) -> dict:
     return out
 
 
-def build_from_state_dict(sd: dict, dtype=None, device=None, operations=comfy.ops.manual_cast) -> nn.Module:
+def build_from_state_dict(sd: dict, dtype=None, device=None, operations=ops.manual_cast) -> nn.Module:
     """Dispatch to v1, v2 or v3 based on the DINOv2 backbone prefix and the presence of the v3 refiner."""
     sd = _remap_state_dict(sd)
     if not any(k.startswith("encoder.backbone.") for k in sd):
@@ -338,12 +338,12 @@ class MoGeModel:
     """Loaded MoGe model + ComfyUI memory management."""
 
     def __init__(self, state_dict: dict):
-        self.load_device = comfy.model_management.text_encoder_device()
-        offload_device = comfy.model_management.text_encoder_offload_device()
-        self.dtype = comfy.model_management.text_encoder_dtype(self.load_device)
+        self.load_device = model_management.text_encoder_device()
+        offload_device = model_management.text_encoder_offload_device()
+        self.dtype = model_management.text_encoder_dtype(self.load_device)
 
-        self.model = build_from_state_dict(state_dict, dtype=self.dtype, device=offload_device, operations=comfy.ops.manual_cast).eval()
-        self.patcher = comfy.model_patcher.CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device, fast_disk=comfy.storage.state_dict_fast_disk(state_dict))
+        self.model = build_from_state_dict(state_dict, dtype=self.dtype, device=offload_device, operations=ops.manual_cast).eval()
+        self.patcher = model_patcher.CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device, fast_disk=storage.state_dict_fast_disk(state_dict))
         if not hasattr(self.model, "encoder"):
             self.version = "v1"
         else:
@@ -358,7 +358,7 @@ class MoGeModel:
               apply_metric_scale: bool = True, refine_steps: int = 3
               ) -> Dict[str, torch.Tensor]:
         """Run a single MoGe forward + post-process pass. image is (B, 3, H, W) in [0, 1]."""
-        comfy.model_management.load_model_gpu(self.patcher)
+        model_management.load_model_gpu(self.patcher)
 
         # Compute is fp32 or fp16 only: bf16 would cost 4x the error at the same speed
         compute_dtype = self.dtype if self.dtype in (torch.float32, torch.float16) else torch.float16

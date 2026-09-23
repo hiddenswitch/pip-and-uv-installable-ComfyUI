@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
-import nodes
+from comfy.nodes_context import get_nodes
 from comfy_execution.validation import LoopValidationError, validate_loops
-from comfy_extras.nodes_loop import EndLoop, StartLoop
-from execution import validate_prompt
+from comfy_extras.nodes.nodes_loop import EndLoop, StartLoop
+from comfy.cmd.execution import validate_prompt
 
 
 def node(class_type, **inputs):
@@ -325,10 +325,10 @@ class Source:
 
 
 def test_prompt_validation_includes_end_after_terminated_output(monkeypatch):
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Body", Body)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Output", Output)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Body", Body)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Output", Output)
     prompt = {
         "start": node("StartLoop", cache_iterations=False),
         "body": node("Body", left=["start", 0], right=["start", 0]),
@@ -354,10 +354,10 @@ def test_prompt_validation_includes_end_after_terminated_output(monkeypatch):
 
 
 def test_prompt_validation_reports_every_ambiguous_boundary(monkeypatch):
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Body", Body)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Output", Output)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Body", Body)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Output", Output)
     prompt = {
         "left": node("StartLoop", cache_iterations=False),
         "right": node("StartLoop", cache_iterations=False),
@@ -382,10 +382,10 @@ def test_prompt_validation_reports_every_ambiguous_boundary(monkeypatch):
 
 
 def test_prompt_validation_stacks_loop_and_input_errors(monkeypatch):
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Body", Body)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "InvalidOutput", InvalidOutput)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Body", Body)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "InvalidOutput", InvalidOutput)
     prompt = {
         "left": node("StartLoop", cache_iterations=False),
         "right": node("StartLoop", cache_iterations=False),
@@ -406,10 +406,10 @@ def test_prompt_validation_stacks_loop_and_input_errors(monkeypatch):
 
 
 def test_prompt_validation_reports_loop_escape_as_recognized_node_error(monkeypatch):
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Body", Body)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Output", Output)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Body", Body)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Output", Output)
     prompt = {
         "start": node("StartLoop", cache_iterations=False),
         "body": node("Body", left=["start", 0], right=["start", 0]),
@@ -430,11 +430,11 @@ def test_prompt_validation_reports_loop_escape_as_recognized_node_error(monkeypa
 
 
 def test_loop_error_does_not_reject_independent_output(monkeypatch):
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Body", Body)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Output", Output)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Source", Source)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "StartLoop", StartLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "EndLoop", EndLoop)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Body", Body)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Output", Output)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "Source", Source)
     prompt = {
         "left": node("StartLoop", cache_iterations=False),
         "right": node("StartLoop", cache_iterations=False),

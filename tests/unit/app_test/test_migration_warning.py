@@ -1,3 +1,4 @@
+from importlib.resources import files
 import os
 
 import pytest
@@ -5,7 +6,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-import app.database.db as db_module
+from comfy.app.database import db as db_module
 
 _BASELINE_0006 = "0006_add_loader_path"
 _BASELINE_0002 = "0002_merge_to_asset_references"
@@ -22,9 +23,9 @@ _DISCARDED_CLASSES = (
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../..")
-    cfg = Config(os.path.abspath(os.path.join(root, "alembic.ini")))
-    cfg.set_main_option("script_location", os.path.abspath(os.path.join(root, "alembic_db")))
+    resources = files("comfy")
+    cfg = Config(str(resources.joinpath("alembic.ini")))
+    cfg.set_main_option("script_location", str(resources.joinpath("alembic_db")))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
 
@@ -32,7 +33,7 @@ def _make_config(db_path: str) -> Config:
 @pytest.fixture
 def captured_warnings(monkeypatch):
     warnings: list[str] = []
-    monkeypatch.setattr(db_module, "log_startup_warning", warnings.append)
+    monkeypatch.setattr(db_module.logger, "warning", warnings.append)
     return warnings
 
 
@@ -40,14 +41,15 @@ def captured_warnings(monkeypatch):
 def db_url_for(monkeypatch):
     def _set(db_path: str) -> str:
         url = f"sqlite:///{db_path}"
-        monkeypatch.setattr(db_module.args, "database_url", url)
         return url
 
     return _set
 
 
 def _migrate(db_path: str, db_url: str, db_exists: bool) -> None:
-    db_module._migrate_and_bind(db_url, db_path, db_exists)
+    config = _make_config(db_path)
+    script = ScriptDirectory.from_config(config)
+    db_module._migrate_and_bind(db_url, db_path, config, script, script.get_current_head(), None)
 
 
 def test_upgrade_across_the_destructive_revision_warns_and_names_the_backup(

@@ -2,15 +2,15 @@ import numbers
 
 import torch
 
-import comfy.text_encoders.qwen3vl
-from comfy import sd1_clip
+from . import qwen3vl
+from .. import sd1_clip
 
 VISION_BLOCK = "<|vision_start|><|image_pad|><|vision_end|>"
 SYSTEM_PROMPT = "<|im_start|>system\nComprehend and analyze the provided prompt.<|im_end|>\n"
 T2I_TEMPLATE = SYSTEM_PROMPT + "<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
 
 
-class QwenImage21Tokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
+class QwenImage21Tokenizer(qwen3vl.Qwen3VLTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, model_type="qwen3vl_8b")
         self.llama_template = T2I_TEMPLATE
@@ -27,9 +27,9 @@ class QwenImage21Tokenizer(comfy.text_encoders.qwen3vl.Qwen3VLTokenizer):
         return out
 
 
-class QwenImage21Qwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
-    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}):
-        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_8b")
+class QwenImage21Qwen3VLClipModel(qwen3vl.Qwen3VLClipModel):
+    def __init__(self, device="cpu", dtype=None, attention_mask=True, model_options={}, textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, attention_mask=attention_mask, model_options=model_options, model_type="qwen3vl_8b", textmodel_json_config=textmodel_json_config)
         # last layer without the final RMSNorm: transformers 4.57 hidden_states[-1], which Qwen's results are tuned to (5.x norms it)
         self.layer_norm_hidden_state = False
         self.image_spans = []
@@ -41,8 +41,8 @@ class QwenImage21Qwen3VLClipModel(comfy.text_encoders.qwen3vl.Qwen3VLClipModel):
 
 
 class QwenImage21TEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=QwenImage21Qwen3VLClipModel, model_options=model_options)
+    def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
+        super().__init__(device=device, dtype=dtype, name="qwen3vl_8b", clip_model=QwenImage21Qwen3VLClipModel, model_options=model_options, textmodel_json_config=textmodel_json_config)
 
     def encode_token_weights(self, token_weight_pairs):
         out, pooled, extra = super().encode_token_weights(token_weight_pairs)
@@ -79,11 +79,11 @@ class QwenImage21TEModel(sd1_clip.SD1ClipModel):
 
 def te(dtype_llama=None, llama_quantization_metadata=None):
     class QwenImage21TEModel_(QwenImage21TEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device="cpu", dtype=None, model_options={}, textmodel_json_config=None):
             if dtype_llama is not None:
                 dtype = dtype_llama
             if llama_quantization_metadata is not None:
                 model_options = model_options.copy()
                 model_options["quantization_metadata"] = llama_quantization_metadata
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=device, dtype=dtype, model_options=model_options, textmodel_json_config=textmodel_json_config)
     return QwenImage21TEModel_

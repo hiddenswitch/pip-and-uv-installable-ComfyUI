@@ -456,6 +456,8 @@ class KnownDownloadables(collections.UserList[Downloadable]):
 
 
 KNOWN_CHECKPOINTS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/YuE2", "checkpoints/yue2_3b_bf16.safetensors"),
+    HuggingFile("Comfy-Org/YuE2", "checkpoints/yue2_3b_int8_convrot.safetensors"),
     HuggingFile("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_base_1.0.safetensors", "SDXL/sd_xl_base_1.0_0.9vae.safetensors", "sdxl/sd_xl_base_1.0.safetensors", "xl/Colv49-Protov66-JugX-32-32-35.safetensors")),
     HuggingFile("stabilityai/stable-diffusion-xl-refiner-1.0", "sd_xl_refiner_1.0.safetensors", alternate_filenames=("SDXL/sd_xl_refiner_1.0.safetensors", "SDXL/sd_xl_refiner_1.0_0.9vae.safetensors", "sdxl/sd_xl_refiner_1.0.safetensors")),
     HuggingFile("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0_fp16.safetensors"),
@@ -577,7 +579,16 @@ KNOWN_CLIP_VISION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy", "open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors", show_in_ui=False),
 ], folder_name="clip_vision")
 
+KNOWN_EMBEDDINGS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/marigold-v2-0", "embeddings/marigold_v2_albedo_conditioning.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "embeddings/marigold_v2_depth_conditioning.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "embeddings/marigold_v2_normals_conditioning.safetensors"),
+], folder_name="embeddings")
+
 KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/marigold-v2-0", "loras/marigold_v2_albedo.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "loras/marigold_v2_depth_log_stage2.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "loras/marigold_v2_normals.safetensors"),
     CivitFile(model_id=211577, model_version_id=238349, filename="openxl_handsfix.safetensors"),
     CivitFile(model_id=324815, model_version_id=364137, filename="blur_control_xl_v1.safetensors"),
     CivitFile(model_id=47085, model_version_id=55199, filename="GoodHands-beta2.safetensors"),
@@ -678,7 +689,16 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("Kijai/WanVideo_comfy", "Lightx2v/lightx2v_14B_T2V_cfg_step_distill_lora_adaptive_rank_quantile_0.15_bf16.safetensors"),
 ], folder_name="loras")
 
+KNOWN_MODEL_PATCHES: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("alibaba-pai/MiniMax-H3-Fun-Controlnet-Union-2.0", "MiniMax-H3-Fun-Controlnet-Union-2.0.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-H3", "model_patches/minimax_h3_fun_controlnet_union_pruned_bf16.safetensors"),
+    HuggingFile("Comfy-Org/MiniMax-H3", "model_patches/minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors"),
+], folder_name="model_patches")
+
 KNOWN_CONTROLNETS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("beycanai/ControlNet-models-INT8-ConvRot", "Qwen-Image-2512-Fun-Controlnet-Union-2602_int8_convrot.safetensors"),
+    HuggingFile("beycanai/ControlNet-models-INT8-ConvRot", "Qwen-Image-InstantX-ControlNet-Union_int8_convrot.safetensors"),
+    HuggingFile("beycanai/ControlNet-models-INT8-ConvRot", "Z-Image-Turbo-Fun-Controlnet-Union-2.1_int8_convrot.safetensors"),
     HuggingFile("thibaud/controlnet-openpose-sdxl-1.0", "OpenPoseXL2.safetensors", convert_to_16_bit=True, size=2502139104),
     HuggingFile("thibaud/controlnet-openpose-sdxl-1.0", "control-lora-openposeXL2-rank256.safetensors"),
     HuggingFile("comfyanonymous/ControlNet-v1-1_fp16_safetensors", "control_lora_rank128_v11e_sd15_ip2p_fp16.safetensors"),
@@ -823,6 +843,10 @@ KNOWN_APPROX_VAES: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="vae_approx")
 
 KNOWN_VAES: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "vae/qwen_image_2.1_vae_bf16.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "vae/marigold_v2_albedo_vae.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "vae/marigold_v2_depth_log_stage2_vae.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "vae/marigold_v2_normals_vae.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "vae/minimax_music3_dav.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_video_vae_fp16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "vae/minimax_h3_audio_vae_fp32.safetensors"),
@@ -918,12 +942,16 @@ KNOWN_HUGGINGFACE_MODEL_REPOS: Final[Set[str]] = {
 }
 
 KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "diffusion_models/qwen_image_2.1_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "diffusion_models/qwen_image_2.1_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/marigold-v2-0", "diffusion_models/qwen_image_edit_2509_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_fp16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_fp32.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "diffusion_models/minimax_music3_dit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_turbo_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_edit_int8_convrot.safetensors"),
     HuggingFile("Comfy-Org/Mage-Flow", "diffusion_models/mage_flow_edit_turbo_int8_convrot.safetensors"),
     HuggingFile("ByteDance/Hyper-SD", "Hyper-SDXL-1step-Unet-Comfyui.fp16.safetensors"),
@@ -1244,6 +1272,11 @@ KNOWN_UNET_MODELS: Final[KnownDownloadables] = KnownDownloadables([
     HuggingFile("bertbobson/Sulphur-2-base-INT8-ConvRot", "sulphur_distil_INT8_ConvRot.safetensors"),
 ], folder_names=["diffusion_models", "unet"])
 KNOWN_CLIP_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "text_encoders/qwen3vl_8b_bf16.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
+    HuggingFile("Comfy-Org/Qwen-Image-2.1", "text_encoders/qwen3vl_8b_w4a8.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_bf16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_pruned_bf16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-Music-3", "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors"),
@@ -1336,6 +1369,7 @@ KNOWN_MMAUDIO_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 
 # WanVideoWrapper (Kijai) -- Audio encoder models (HuMo whisper)
 KNOWN_AUDIO_ENCODER_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/YuE2", "audio_encoders/sheetsage2_bf16.safetensors"),
     HuggingFile("Kijai/WanVideo_comfy", "HuMo/whisper_large_v3_encoder_fp16.safetensors", save_with_filename="whisper_large_v3_encoder_fp16.safetensors"),
     HuggingFile("Comfy-Org/HuMo_ComfyUI", "split_files/audio_encoders/whisper_large_v3_fp16.safetensors"),
     HuggingFile("Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors"),
@@ -1546,6 +1580,10 @@ KNOWN_POSE_DETECTION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
 
 # Depth Anything 3 -- geometry estimation models.
 KNOWN_GEOMETRY_ESTIMATION_MODELS: Final[KnownDownloadables] = KnownDownloadables([
+    HuggingFile("Comfy-Org/MoGe", "geometry_estimation/moge_1_vitl_fp16.safetensors"),
+    HuggingFile("Comfy-Org/MoGe", "geometry_estimation/moge_2_vitl_normal_fp16.safetensors"),
+    HuggingFile("Comfy-Org/MoGe", "geometry_estimation/moge_3_vitg_fp16.safetensors"),
+    HuggingFile("Comfy-Org/MoGe", "geometry_estimation/moge_3_vitl_fp16.safetensors"),
     HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_small.safetensors"),
     HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_base.safetensors", show_in_ui=False),
     HuggingFile("Comfy-Org/Depth-Anything-3", "geometry_estimation/depth_anything_3_mono_large.safetensors", show_in_ui=False),
@@ -1970,12 +2008,14 @@ _known_models_db: list[KnownDownloadables] = [
     KNOWN_CHECKPOINTS,
     KNOWN_VAES,
     KNOWN_LORAS,
+    KNOWN_EMBEDDINGS,
     KNOWN_UNET_MODELS,
     KNOWN_APPROX_VAES,
     KNOWN_DIFF_CONTROLNETS,
     KNOWN_CLIP_MODELS,
     KNOWN_CLIP_VISION_MODELS,
     KNOWN_CONTROLNETS,
+    KNOWN_MODEL_PATCHES,
     KNOWN_GLIGEN_MODELS,
     KNOWN_IMAGE_ONLY_CHECKPOINTS,
     KNOWN_UNCLIP_CHECKPOINTS,

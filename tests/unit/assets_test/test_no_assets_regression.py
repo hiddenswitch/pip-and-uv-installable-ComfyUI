@@ -23,7 +23,9 @@ def no_assets_server(tmp_path: Path):
     process = subprocess.Popen(
         [
             sys.executable,
-            "main.py",
+            "-c",
+            "from comfy.cmd.cli import entrypoint; entrypoint()",
+            "--disable-all-custom-nodes",
             f"--base-directory={tmp_path}",
             "--listen",
             "127.0.0.1",
@@ -31,7 +33,7 @@ def no_assets_server(tmp_path: Path):
             str(port),
             "--cpu",
         ],
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=tmp_path,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

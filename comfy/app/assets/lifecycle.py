@@ -12,16 +12,16 @@ import logging
 import os
 import shutil
 
-import folder_paths
+from ...cmd import folder_paths
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import delete_record
-from app.assets.helpers import sql_path_under_prefix
-from app.assets.services.hash_mode_state import enqueue_transition_work
-from app.assets.services.hash_mode_state import record_transition_intent
-from app.database.db import can_create_session, create_session
-from comfy.cli_args import args
+from .database.models import Asset, AssetContent
+from .database.queries.records import delete_record
+from .helpers import sql_path_under_prefix
+from .services.hash_mode_state import enqueue_transition_work
+from .services.hash_mode_state import record_transition_intent
+from ..database.db import can_create_session, create_session
+from ...cli_args import args
 
 _excluded_scan_roots: set[str] = set()
 _hash_mode_transition: str | None = None
@@ -94,7 +94,7 @@ def cleanup_temp_filesystem() -> bool:
 
 
 def start_asset_seeder() -> bool:
-    from app.assets.seeder import asset_seeder
+    from .seeder import asset_seeder
 
     started = asset_seeder.start(
         roots=("models", "input", "output"),

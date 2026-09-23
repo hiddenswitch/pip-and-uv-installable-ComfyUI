@@ -6,17 +6,17 @@ import pytest
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session
 
-import app.assets.mode as mode_module
-from app.assets.database.models import AssetContent
-from app.assets.database.queries.records import create_content
-from app.assets.services.lookup import (
+from comfy.app.assets import mode as mode_module
+from comfy.app.assets.database.models import AssetContent
+from comfy.app.assets.database.queries.records import create_content
+from comfy.app.assets.services.lookup import (
     claim_qualified_content,
     is_temp_path as _is_temp_path,
     lookup_for_from_hash,
     lookup_for_view,
     refresh_qualified_content,
 )
-from app.database.models import Base
+from comfy.app.database.models import Base
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def test_temp_only_match_from_hash_returns_none(session, tmp_path):
     f = _make_file(tmp_path, "f.png")
     create_content(session, path=f, hash="abc123")
     session.commit()
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         result = lookup_for_from_hash(session, "abc123")
     assert result is None
 
@@ -58,13 +58,13 @@ def test_temp_only_match_view_returns_none(session, tmp_path):
     f = _make_file(tmp_path, "f2.png")
     create_content(session, path=f, hash="abc123")
     session.commit()
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         result = lookup_for_view(session, "abc123")
     assert result is None
 
 
 def test_sibling_prefix_not_temp(tmp_path):
-    with patch("folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")):
+    with patch("comfy.cmd.folder_paths.get_temp_directory", return_value=str(tmp_path / "temp")):
         assert not _is_temp_path(str(tmp_path / "temp-other" / "f.png"))
         assert _is_temp_path(str(tmp_path / "temp" / "f.png"))
 

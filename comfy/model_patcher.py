@@ -2092,16 +2092,20 @@ class ModelPatcherDynamic(ModelPatcher):
 
                 empty_weights = EmptyHostBuffer()
                 empty_patches = EmptyHostBuffer()
+                empty_fast_weights = EmptyHostBuffer()
+                empty_fast_patches = EmptyHostBuffer()
             else:
                 empty_weights = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
                 empty_patches = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
+                empty_fast_weights = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
+                empty_fast_patches = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
             self.model.dynamic_pins[device] = {
                 "weights": (empty_weights, [], [-1], [0], [0], {}),
                 "patches": (empty_patches, [], [-1], [0], [0], {}),
                 "weights-loaded": (empty_weights, [], [-1], [0], [0], {}),
                 "patches-loaded": (empty_patches, [], [-1], [0], [0], {}),
-                "weights-fast": (comfy_aimdo.host_buffer.HostBuffer(0, 0, 0), [], [-1], [0], [0], {}),
-                "patches-fast": (comfy_aimdo.host_buffer.HostBuffer(0, 0, 0), [], [-1], [0], [0], {}),
+                "weights-fast": (empty_fast_weights, [], [-1], [0], [0], {}),
+                "patches-fast": (empty_fast_patches, [], [-1], [0], [0], {}),
                 "fast_disk": self.fast_disk,
                 "hostbufs_initialized": False,
                 "failed": False,

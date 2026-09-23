@@ -14,7 +14,7 @@ import math
 import os
 import torch
 from .._util import VideoContainer, VideoCodec, VideoComponents, normalize_crop_rect
-import comfy.utils
+from comfy import utils
 import logging
 
 
@@ -770,7 +770,7 @@ class VideoFromFile(VideoInput):
             except ValueError:
                 window_seconds = 0.0
         progress_total = max(1, int(round(window_seconds * float(rate))))
-        pbar = comfy.utils.ProgressBar(progress_total)
+        pbar = utils.ProgressBar(progress_total)
 
         streams = [video_stream] if audio_stream is None else [video_stream, audio_stream]
         pts_step = max(1, int(round((1 / rate) / video_stream.time_base)))
@@ -1489,9 +1489,9 @@ class VideoFromList(VideoInput):
                             video_end = max(video_end, Fraction(packet.pts + (packet.duration or 0)) * time_base)
                         packet.dts = int((Fraction(packet.dts) * time_base - origin + video_offset) / time_base)
                         packet.stream = output_video
-                        for packet in filter_hevc_packet(hevc_filter, packet) if hevc_filter else (packet,):
-                            packet.stream = output_video
-                            output.mux(packet)
+                        for filtered_packet in filter_hevc_packet(hevc_filter, packet) if hevc_filter else (packet,):
+                            filtered_packet.stream = output_video
+                            output.mux(filtered_packet)
                     video_offset = video_end
                     if audio_stream is not None:
                         container.seek(0)

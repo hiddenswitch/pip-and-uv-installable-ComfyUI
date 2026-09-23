@@ -12,10 +12,10 @@ import os
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from app.assets.manager import AssetManager
-    from app.assets.services.schemas import RegisteredAsset
+    from comfy.app.assets.manager import AssetManager
+    from comfy.app.assets.services.schemas import RegisteredAsset
     from comfy_execution.server_protocol import ExecutionServer
-    from execution import CacheEntry
+    from comfy.cmd.execution import CacheEntry
 
 
 def _resolve_output_path(entry: dict) -> str | None:
@@ -24,7 +24,7 @@ def _resolve_output_path(entry: dict) -> str | None:
     Returns ``None`` (skip, no registration) when the type is unknown, the
     resolved path escapes its base directory, or the file does not exist.
     """
-    import folder_paths
+    from comfy.cmd import folder_paths
 
     base = folder_paths.get_directory_by_type(entry["type"])
     if base is None:

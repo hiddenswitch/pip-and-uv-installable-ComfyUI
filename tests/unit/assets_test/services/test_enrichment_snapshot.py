@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import enrich_asset
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import enrich_asset
 
 
 def _create_unhashed_record(session, path: Path) -> tuple[AssetContent, Asset]:
@@ -28,7 +28,7 @@ def test_enrichment_uses_snapshot_hash_not_direct_blake3(session, temp_dir: Path
     content, record = _create_unhashed_record(session, path)
 
     with patch(
-        "app.assets.scanner.snapshot_hash", return_value=("snapshot-digest", path.stat())
+        "comfy.app.assets.scanner.snapshot_hash", return_value=("snapshot-digest", path.stat())
     ) as mocked_snapshot_hash:
         enriched = enrich_asset(
             session,
@@ -49,7 +49,7 @@ def test_enrichment_discards_unstable_hash(session, temp_dir: Path):
     path.write_bytes(b"unstable content")
     content, record = _create_unhashed_record(session, path)
 
-    with patch("app.assets.scanner.snapshot_hash", return_value=None):
+    with patch("comfy.app.assets.scanner.snapshot_hash", return_value=None):
         enriched = enrich_asset(
             session,
             file_path=str(path),
@@ -74,7 +74,7 @@ def test_enrichment_discards_metadata_read_from_a_different_file_than_the_hash(
         path.write_bytes(b"replacement bytes, a different length entirely")
         return "replacement-digest", path.stat()
 
-    with patch("app.assets.scanner.snapshot_hash", side_effect=_replace_file_then_hash):
+    with patch("comfy.app.assets.scanner.snapshot_hash", side_effect=_replace_file_then_hash):
         enriched = enrich_asset(
             session,
             file_path=str(path),
@@ -105,7 +105,7 @@ def test_enrichment_discards_result_when_only_the_hashed_mtime_disagrees(
         os.utime(path, ns=(later_mtime_ns, later_mtime_ns))
         return "rewritten-digest", path.stat()
 
-    with patch("app.assets.scanner.snapshot_hash", side_effect=_touch_file_then_hash):
+    with patch("comfy.app.assets.scanner.snapshot_hash", side_effect=_touch_file_then_hash):
         enriched = enrich_asset(
             session,
             file_path=str(path),
@@ -132,7 +132,7 @@ def test_enrichment_lands_metadata_and_hash_from_one_stable_observation(
     content, record = _create_unhashed_record(session, path)
 
     with patch(
-        "app.assets.scanner.snapshot_hash", return_value=("both-digest", path.stat())
+        "comfy.app.assets.scanner.snapshot_hash", return_value=("both-digest", path.stat())
     ):
         enriched = enrich_asset(
             session,
@@ -162,7 +162,7 @@ def test_enrichment_reports_no_progress_when_a_requested_hash_fails(
     path.write_bytes(b"metadata reads fine, hashing does not")
     content, record = _create_unhashed_record(session, path)
 
-    with patch("app.assets.scanner.snapshot_hash", side_effect=PermissionError("denied")):
+    with patch("comfy.app.assets.scanner.snapshot_hash", side_effect=PermissionError("denied")):
         enriched = enrich_asset(
             session,
             file_path=str(path),
@@ -188,7 +188,7 @@ def test_off_mode_enrichment_still_lands_metadata_without_a_hash(
     path.write_bytes(b"metadata only")
     content, record = _create_unhashed_record(session, path)
 
-    with patch("app.assets.scanner.snapshot_hash") as never_hashed:
+    with patch("comfy.app.assets.scanner.snapshot_hash") as never_hashed:
         enriched = enrich_asset(
             session,
             file_path=str(path),

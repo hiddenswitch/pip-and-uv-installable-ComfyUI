@@ -5,19 +5,19 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent, AssetTag
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import SeedAssetSpec, clear_pending_verifications, seed_asset_specs
-from app.assets.services import hash_mode_state
-from app.assets.services.hash_mode_state import (
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import SeedAssetSpec, clear_pending_verifications, seed_asset_specs
+from comfy.app.assets.services import hash_mode_state
+from comfy.app.assets.services.hash_mode_state import (
     clear_transition_queue,
     drain_transition_queue,
     enqueue_transition_work,
     record_transition_intent,
     write_stored_mode,
 )
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +55,7 @@ def test_deleted_null_hash_row_recovers_via_scanner_after_restore(
     session, temp_dir, monkeypatch
 ):
     path = temp_dir / "recoverable.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     original_bytes = b"the exact bytes that come back"
     path.write_bytes(original_bytes)
     stat = path.stat()
@@ -80,7 +80,7 @@ def test_deleted_null_hash_row_recovers_via_scanner_after_restore(
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert path.stat().st_mtime_ns == stat.st_mtime_ns, "setup: mtime must round-trip exactly"
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -98,7 +98,7 @@ def test_different_bytes_restored_at_same_path_does_not_recover_old_row(
     session, temp_dir, monkeypatch
 ):
     path = temp_dir / "replaced.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     path.write_bytes(b"original bytes")
     stat = path.stat()
     content = create_content(session, str(path), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns)
@@ -117,7 +117,7 @@ def test_different_bytes_restored_at_same_path_does_not_recover_old_row(
 
     path.write_bytes(b"a completely different, much longer payload than the original")
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -133,7 +133,7 @@ def test_same_size_different_mtime_restored_at_same_path_does_not_recover_old_ro
     session, temp_dir, monkeypatch
 ):
     path = temp_dir / "retimed.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     original_bytes = b"identical length, different moment in time"
     path.write_bytes(original_bytes)
     stat = path.stat()
@@ -157,7 +157,7 @@ def test_same_size_different_mtime_restored_at_same_path_does_not_recover_old_ro
     assert path.stat().st_mtime_ns != stat.st_mtime_ns, "setup: mtime must actually differ"
     assert path.stat().st_size == stat.st_size, "setup: size must match so only mtime disambiguates"
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -173,7 +173,7 @@ def test_two_missing_null_hash_candidates_at_same_path_do_not_recover(
     session, temp_dir, monkeypatch
 ):
     path = temp_dir / "ambiguous_null.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     path.write_bytes(b"bytes shared by two missing generations")
     stat = path.stat()
     first = AssetContent(
@@ -189,7 +189,7 @@ def test_two_missing_null_hash_candidates_at_same_path_do_not_recover(
     first_id, second_id = first.id, second.id
     session.commit()
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 

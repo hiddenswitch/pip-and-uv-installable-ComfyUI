@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from test_inmemory_assets import InMemoryAssets
+from .test_inmemory_assets import InMemoryAssets
 
 _BASE = os.path.join(tempfile.gettempdir(), "execute-reentry-test-base")
 
@@ -94,21 +94,21 @@ def execution_env(monkeypatch):
     try:
         from comfy.cli_args import args
         monkeypatch.setattr(args, "cpu", True, raising=False)
-        import execution
-        import folder_paths
-        import nodes
+        from comfy.cmd import execution as comfy_execution
+        from comfy.cmd import folder_paths
+        from comfy.nodes_context import get_nodes
     except Exception as exc:  # pragma: no cover - environment dependent
         pytest.skip(f"execution module could not be imported in CPU mode: {exc!r}")
 
     os.makedirs(_BASE, exist_ok=True)
     monkeypatch.setattr(folder_paths, "get_directory_by_type", lambda t: _BASE)
-    monkeypatch.setattr(execution, "get_progress_state", lambda: _NoProgress())
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "AsyncUINode", _AsyncUINode)
+    monkeypatch.setattr(comfy_execution, "get_progress_state", lambda: _NoProgress())
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "AsyncUINode", _AsyncUINode)
 
-    return execution, InMemoryAssets()
+    return comfy_execution, InMemoryAssets()
 
 
-async def _drive_async_reentry(execution, asset_manager):
+async def _drive_async_reentry(comfy_execution, asset_manager):
     from comfy_execution.graph import DynamicPrompt
 
     unique_id = "1"
@@ -126,7 +126,7 @@ async def _drive_async_reentry(execution, asset_manager):
 
     common = (server, dynprompt, caches, unique_id, {}, executed, "job-1", exec_list)
 
-    r1, _, _ = await execution.execute(
+    r1, _, _ = await comfy_execution.execute(
         *common, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager
     )
     ui_outputs_had_uid_after_entry1 = unique_id in ui_outputs
@@ -137,7 +137,7 @@ async def _drive_async_reentry(execution, asset_manager):
     for _ in range(3):
         await asyncio.sleep(0)
 
-    r2, _, _ = await execution.execute(
+    r2, _, _ = await comfy_execution.execute(
         *common, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager
     )
 
@@ -153,10 +153,10 @@ async def _drive_async_reentry(execution, asset_manager):
 
 
 def test_async_reentry_keeps_cache_id_free(execution_env):
-    execution, asset_manager = execution_env
-    from execution import ExecutionResult
+    comfy_execution, asset_manager = execution_env
+    from comfy.cmd.execution import ExecutionResult
 
-    obs = asyncio.run(_drive_async_reentry(execution, asset_manager))
+    obs = asyncio.run(_drive_async_reentry(comfy_execution, asset_manager))
 
     assert obs["r1"] == ExecutionResult.PENDING
     assert obs["r2"] == ExecutionResult.SUCCESS

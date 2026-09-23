@@ -145,7 +145,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
     executor_factory = request.param
     processes_to_close: List[subprocess.Popen] = []
 
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 

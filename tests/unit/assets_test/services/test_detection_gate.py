@@ -5,15 +5,15 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import (
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import (
     clear_pending_verifications,
     drain_pending_verifications,
     sync_prefixes_with_filesystem,
 )
-from app.assets.scanner_changes import queue_pending_verification
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.scanner_changes import queue_pending_verification
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture(autouse=True)
@@ -60,8 +60,8 @@ def test_off_mode_same_size_touch_does_not_split(session, temp_dir: Path):
     _bump_mtime(path)
 
     with (
-        patch("folder_paths.get_input_directory", return_value=str(input_root)),
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=False),
+        patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=False),
     ):
         sync_prefixes_with_filesystem(session, [str(input_root)])
     session.commit()
@@ -83,8 +83,8 @@ def test_off_mode_size_change_splits(session, temp_dir: Path):
     os.utime(path, ns=(target_ns, target_ns))
 
     with (
-        patch("folder_paths.get_input_directory", return_value=str(input_root)),
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=False),
+        patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=False),
     ):
         sync_prefixes_with_filesystem(session, [str(input_root)])
     session.commit()
@@ -104,8 +104,8 @@ def test_hash_mode_touch_refreshes_mtime(session, temp_dir: Path):
     _bump_mtime(path)
 
     with (
-        patch("folder_paths.get_input_directory", return_value=str(input_root)),
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=True),
+        patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True),
     ):
         sync_prefixes_with_filesystem(session, [str(input_root)])
         processed = drain_pending_verifications(session)
@@ -130,8 +130,8 @@ def test_hash_mode_real_edit_splits(session, temp_dir: Path):
     os.utime(path, ns=(target_ns, target_ns))
 
     with (
-        patch("folder_paths.get_input_directory", return_value=str(input_root)),
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=True),
+        patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True),
     ):
         sync_prefixes_with_filesystem(session, [str(input_root)])
         drain_pending_verifications(session)
@@ -155,8 +155,8 @@ def test_old_record_id_resolves_to_missing_content_after_split(session, temp_dir
     os.utime(path, ns=(target_ns, target_ns))
 
     with (
-        patch("folder_paths.get_input_directory", return_value=str(input_root)),
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=True),
+        patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True),
     ):
         sync_prefixes_with_filesystem(session, [str(input_root)])
         drain_pending_verifications(session)
@@ -173,7 +173,7 @@ def test_hash_mode_split_uses_stat_from_the_verified_snapshot(session, temp_dir:
     input_root = temp_dir / "input"
     input_root.mkdir()
     path = input_root / "changed.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(input_root))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(input_root))
     path.write_bytes(b"old")
     content, _ = _seed_content(session, path, _stored_hash(path))
     queue_pending_verification(content.id)
@@ -184,7 +184,7 @@ def test_hash_mode_split_uses_stat_from_the_verified_snapshot(session, temp_dir:
         path.write_bytes(new_payload)
         return real_snapshot_hash(candidate_path)
 
-    monkeypatch.setattr("app.assets.scanner_changes.snapshot_hash", mutate_then_hash)
+    monkeypatch.setattr("comfy.app.assets.scanner_changes.snapshot_hash", mutate_then_hash)
 
     processed = drain_pending_verifications(session)
 

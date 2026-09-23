@@ -7,16 +7,16 @@ from unittest.mock import patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetContent, AssetTag
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import (
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import (
     build_asset_specs,
     enrich_asset,
     mark_contents_missing_outside_prefixes,
     seed_asset_specs,
     sync_prefixes_with_filesystem,
 )
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,7 @@ def test_enrichment_retains_absent_system_metadata_keys(session: Session, temp_d
     content, record = _create_enrichment_target(session, path)
 
     with patch(
-        "app.assets.scanner.extract_file_metadata",
+        "comfy.app.assets.scanner.extract_file_metadata",
         side_effect=[
             _ExtractedMetadata(None, {"a": 1, "b": 2}),
             _ExtractedMetadata(None, {"b": 3}),
@@ -90,10 +90,10 @@ def test_enrichment_retains_dimensions_when_image_extraction_degrades(
 
     with (
         patch(
-            "app.assets.scanner.extract_file_metadata",
+            "comfy.app.assets.scanner.extract_file_metadata",
             return_value=_ExtractedMetadata("image/png", {"filename": "image.png"}),
         ),
-        patch("app.assets.scanner.extract_image_dimensions", return_value=None),
+        patch("comfy.app.assets.scanner.extract_image_dimensions", return_value=None),
     ):
         enrich_asset(session, str(path), content.id, record.id)
 
@@ -117,7 +117,7 @@ def test_enrichment_overrides_content_length_with_zero(
     )
 
     with patch(
-        "app.assets.scanner.extract_file_metadata",
+        "comfy.app.assets.scanner.extract_file_metadata",
         return_value=_ExtractedMetadata(None, {"content_length": 0}),
     ):
         enrich_asset(session, str(path), content.id, record.id)
@@ -131,7 +131,7 @@ def test_seed_creates_content_and_record(session, temp_dir: Path):
     (input_root / "first.png").write_bytes(b"first")
     (input_root / "second.png").write_bytes(b"second")
 
-    with patch("folder_paths.get_input_directory", return_value=str(input_root)):
+    with patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)):
         created = seed_asset_specs(session, _build_seed_specs(input_root))
     session.commit()
 
@@ -154,7 +154,7 @@ def test_prune_marks_missing_not_deletes(session, temp_dir: Path):
     file_path = input_root / "removed-from-registry.png"
     file_path.write_bytes(b"content")
 
-    with patch("folder_paths.get_input_directory", return_value=str(input_root)):
+    with patch("comfy.cmd.folder_paths.get_input_directory", return_value=str(input_root)):
         seed_asset_specs(session, _build_seed_specs(input_root))
     session.commit()
 

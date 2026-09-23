@@ -838,7 +838,6 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
     @classmethod
     def execute(cls, audio, low_gain_dB, low_freq, mid_gain_dB, mid_freq, mid_q, high_gain_dB, high_freq) -> IO.NodeOutput:
-        import torchaudio
 
         if audio is None:
             return IO.NodeOutput(None)

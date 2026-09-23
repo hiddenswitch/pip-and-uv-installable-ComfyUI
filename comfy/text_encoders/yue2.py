@@ -5,12 +5,12 @@ import logging
 import torch
 from tokenizers import Tokenizer
 
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.ops
-import comfy.utils
-from comfy.ldm.yue2.model import model_config
-from comfy.text_encoders.llama import FixedKV, Llama2_, rope_matrix
+from .. import model_management
+from .. import model_prefetch
+from .. import ops
+from .. import utils
+from ..ldm.yue2.model import model_config
+from .llama import FixedKV, Llama2_, rope_matrix
 
 
 EOD = 151643
@@ -103,10 +103,10 @@ class YuE2TEModel(torch.nn.Module):
     def __init__(self, device="cpu", dtype=None, model_options={}, config=None):
         super().__init__()
         self.config = model_config(**{"fixed_kv": True, **(config or {})})
-        operations = model_options.get("custom_operations", comfy.ops.manual_cast)
+        operations = model_options.get("custom_operations", ops.manual_cast)
         quant = model_options.get("quantization_metadata")
         if quant is not None and "custom_operations" not in model_options:
-            operations = comfy.ops.mixed_precision_ops(quant, dtype)
+            operations = ops.mixed_precision_ops(quant, dtype)
         self.model = Llama2_(self.config, device=device, dtype=dtype, ops=operations)
         self.model.prefetch_dynamic_vbars = True
         self.model.graph_dynamic_vbar_blocks = True
@@ -130,10 +130,10 @@ class YuE2TEModel(torch.nn.Module):
         abc_length = 0 if tokens["cot"] == "off" else len(tokens["abc_ids"])
         length = min(config.max_position_embeddings, len(tokens["prefix"]) + abc_length + tokens["max_tokens"] + 2)
         branches = 1 if tokens["cfg_scale"] == 1.0 else 2
-        dtype = torch.bfloat16 if comfy.model_management.should_use_bf16(device) else torch.float32
+        dtype = torch.bfloat16 if model_management.should_use_bf16(device) else torch.float32
         cache = branches * 2 * config.num_hidden_layers * config.num_key_value_heads * config.head_dim * length
         prefill = branches * (length * length + length * (config.intermediate_size * 3 + config.hidden_size * 8))
-        return (cache + prefill) * comfy.model_management.dtype_size(dtype)
+        return (cache + prefill) * model_management.dtype_size(dtype)
 
     def _prefill(self, prefixes, capacity, dtype):
         length = max(map(len, prefixes))
@@ -168,10 +168,10 @@ class YuE2TEModel(torch.nn.Module):
                               rope_matrix(self.model.compute_freqs_cis(positions, device)))
         history = []
         end = ABC_END if phase == "abc" else MUSIC_END
-        progress = comfy.utils.ProgressBar(max_tokens)
+        progress = utils.ProgressBar(max_tokens)
         try:
-            for step in comfy.utils.model_trange(max_tokens, desc="YuE2 ABC sampling" if phase == "abc" else "YuE2 music sampling", unit="token"):
-                comfy.model_management.throw_exception_if_processing_interrupted()
+            for step in utils.model_trange(max_tokens, desc="YuE2 ABC sampling" if phase == "abc" else "YuE2 music sampling", unit="token"):
+                model_management.throw_exception_if_processing_interrupted()
                 guided = logits if cfg_scale == 1.0 else logits[1:] + cfg_scale * (logits[:1] - logits[1:])
                 scores = distribution(guided, history, step, phase, legacy_off=legacy_off, **sampling)
                 if sampling["temperature"] == 0:
@@ -188,7 +188,7 @@ class YuE2TEModel(torch.nn.Module):
                 if step + 1 < max_tokens:
                     # Keep decode allocations stable; sampling has a changing history window.
                     if fixed_kv:
-                        comfy.model_prefetch.malloc_graph_begin(device)
+                        model_prefetch.malloc_graph_begin(device)
                     output = self.model(decode_tokens, past_key_values=cache, dtype=dtype, position_ids=positions,
                                         attention_mask=mask[:, :prefix_length + step + 1] if mask is not None and not fixed_kv else None,
                                         decode_buffers=decode_buffers)
@@ -196,11 +196,11 @@ class YuE2TEModel(torch.nn.Module):
                     cache = output[2]
                     del output
                     if fixed_kv:
-                        comfy.model_prefetch.malloc_graph_end()
+                        model_prefetch.malloc_graph_end()
                     positions.add_(1)
         finally:
             # Each phase has different KV buffers and may change the CFG batch size.
-            comfy.model_prefetch.cleanup_prefetch_queues()
+            model_prefetch.cleanup_prefetch_queues()
         logging.warning("YuE2 %s reached its token budget before the end token.", phase)
         return history, True
 
@@ -210,11 +210,11 @@ class YuE2TEModel(torch.nn.Module):
         total = sum(len(prefix) + end - start + 1 for start, end in ranges)
         # A normal [batch, tokens, features] conditioning tensor, with each layer's KV in features.
         output = torch.empty((1, total, config.num_hidden_layers, 2, config.num_key_value_heads, config.head_dim),
-                             device=comfy.model_management.intermediate_device(), dtype=dtype)
+                             device=model_management.intermediate_device(), dtype=dtype)
         chunks = []
         offset = 0
         for start, end in ranges:
-            comfy.model_management.throw_exception_if_processing_interrupted()
+            model_management.throw_exception_if_processing_interrupted()
             ids = prefix + tokens[start:end] + [MUSIC_END]
             _, cache, _ = self._prefill([ids], len(ids), dtype)
             for index, kv in enumerate(cache):
@@ -231,7 +231,7 @@ class YuE2TEModel(torch.nn.Module):
         return output.flatten(2), tuple(chunks)
 
     def generate(self, tokens, do_sample=True, max_length=256, temperature=1.0, top_k=50, top_p=0.95, repetition_penalty=1.0, seed=None, **kwargs):
-        dtype = torch.bfloat16 if comfy.model_management.should_use_bf16(self.execution_device) else torch.float32
+        dtype = torch.bfloat16 if model_management.should_use_bf16(self.execution_device) else torch.float32
         ids, _ = self._generate(
             tokens["prefix"], tokens["seed"] if seed is None else seed, max_length, "abc", dtype,
             temperature=temperature if do_sample else 0, top_p=top_p, top_k=top_k,
@@ -241,7 +241,7 @@ class YuE2TEModel(torch.nn.Module):
 
     def encode_token_weights(self, tokens):
         device = self.execution_device
-        dtype = torch.bfloat16 if comfy.model_management.should_use_bf16(device) else torch.float32
+        dtype = torch.bfloat16 if model_management.should_use_bf16(device) else torch.float32
         prefix = tokens["prefix"]
         abc_ids = tokens["abc_ids"]
         cot = tokens["cot"]
@@ -273,7 +273,7 @@ class YuE2TEModel(torch.nn.Module):
 def te(dtype_llama=None, llama_quantization_metadata=None):
     class YuE2TEModel_(YuE2TEModel):
         def __init__(self, device="cpu", dtype=None, model_options={}):
-            dtype = comfy.model_management.pick_weight_dtype(dtype_llama, dtype, device)
+            dtype = model_management.pick_weight_dtype(dtype_llama, dtype, device)
             if llama_quantization_metadata is not None:
                 model_options = {**model_options, "quantization_metadata": llama_quantization_metadata}
             super().__init__(device=device, dtype=dtype, model_options=model_options)

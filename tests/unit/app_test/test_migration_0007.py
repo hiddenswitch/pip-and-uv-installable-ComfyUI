@@ -1,3 +1,4 @@
+from importlib.resources import files
 import os
 import sqlite3
 
@@ -9,9 +10,9 @@ _BASELINE_0006 = "0006_add_loader_path"
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../..")
-    cfg = Config(os.path.abspath(os.path.join(root, "alembic.ini")))
-    cfg.set_main_option("script_location", os.path.abspath(os.path.join(root, "alembic_db")))
+    resources = files("comfy")
+    cfg = Config(str(resources.joinpath("alembic.ini")))
+    cfg.set_main_option("script_location", str(resources.joinpath("alembic_db")))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
 
@@ -95,8 +96,8 @@ def test_0007_invariants_on_migrated_db(db_at_0006):
 def test_0007_orm_parity(db_at_0006, tmp_path):
     from sqlalchemy import create_engine, inspect
 
-    import app.assets.database.models as asset_models
-    from app.database.models import Base
+    from comfy.app.assets.database import models as asset_models
+    from comfy.app.database.models import Base
 
     cfg, db_path = db_at_0006
     command.upgrade(cfg, "head")

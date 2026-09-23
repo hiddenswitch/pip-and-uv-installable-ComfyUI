@@ -11,7 +11,7 @@ import torch
 from comfy_api.input_impl.video_types import VideoFromComponents, VideoFromFile, VideoFromList
 from comfy_api.input.basic_types import AudioInput
 from comfy_api.util.video_types import VideoCodec, VideoComponents
-from comfy_extras.nodes_video import ConcatenateVideo, CreateVideo
+from comfy_extras.nodes.nodes_video import ConcatenateVideo, CreateVideo
 
 
 def test_tensor_video_encodes_to_list_owned_buffer():

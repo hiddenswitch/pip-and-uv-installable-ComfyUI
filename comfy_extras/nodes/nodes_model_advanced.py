@@ -1,12 +1,11 @@
 import logging
 
-from comfy.ldm.modules import attention
+from comfy.ldm.modules import attention as attention_module
 import torch
 
 from comfy import latent_formats
 from comfy import model_sampling as comfy_model_sampling
 from comfy import node_helpers
-from comfy import sd
 from comfy.nodes.common import MAX_RESOLUTION
 from comfy_api.latest import io
 
@@ -390,7 +389,7 @@ class ModelAttentionBackend(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         backends = ["pytorch attention"]
-        if attention.COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
+        if attention_module.COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
             backends.append("comfy kitchen attention")
         return io.Schema(
             node_id="ModelAttentionBackend",
@@ -418,10 +417,10 @@ class ModelAttentionBackend(io.ComfyNode):
             "comfy kitchen attention": "comfy_kitchen_int8",
             "pytorch attention": "pytorch",
         }.get(attention)
-        attention_function = attention.get_attention_function(attention_name, None)
+        attention_function = attention_module.get_attention_function(attention_name, None)
         if attention_function is None:
             logging.warning("Attention backend '%s' is unavailable; using PyTorch attention.", attention)
-            attention_function = attention.get_attention_function("pytorch")
+            attention_function = attention_module.get_attention_function("pytorch")
         m = model.clone()
         m.set_model_optimized_attention(attention_function)
         return io.NodeOutput(m)

@@ -1,9 +1,9 @@
 from comfy import node_helpers
-import comfy.utils
+from comfy import utils
 import math
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
-import comfy.model_management
+from comfy import model_management
 import torch
 from comfy.nodes import base_nodes as nodes
 
@@ -39,7 +39,7 @@ class TextEncodeQwenImageEdit(io.ComfyNode):
             width = round(samples.shape[3] * scale_by)
             height = round(samples.shape[2] * scale_by)
 
-            s = comfy.utils.common_upscale(samples, width, height, "area", "disabled")
+            s = utils.common_upscale(samples, width, height, "area", "disabled")
             image = s.movedim(1, -1)
             images = [image[:, :, :, :3]]
             if vae is not None:
@@ -89,7 +89,7 @@ class TextEncodeQwenImageEditPlus(io.ComfyNode):
                 width = round(samples.shape[3] * scale_by)
                 height = round(samples.shape[2] * scale_by)
 
-                s = comfy.utils.common_upscale(samples, width, height, "area", "disabled")
+                s = utils.common_upscale(samples, width, height, "area", "disabled")
                 images_vl.append(s.movedim(1, -1))
                 if vae is not None:
                     total = int(1024 * 1024)
@@ -97,7 +97,7 @@ class TextEncodeQwenImageEditPlus(io.ComfyNode):
                     width = round(samples.shape[3] * scale_by / 8.0) * 8
                     height = round(samples.shape[2] * scale_by / 8.0) * 8
 
-                    s = comfy.utils.common_upscale(samples, width, height, "area", "disabled")
+                    s = utils.common_upscale(samples, width, height, "area", "disabled")
                     ref_latents.append(vae.encode(s.movedim(1, -1)[:, :, :, :3]))
 
                 image_prompt += "Picture {}: <|vision_start|><|image_pad|><|vision_end|>".format(i + 1)
@@ -163,7 +163,7 @@ class TextEncodeQwenImage21(io.ComfyNode):
             if (width, height) == (samples.shape[3], samples.shape[2]):
                 s = image[:1]
             else:
-                s = comfy.utils.common_upscale(samples, width, height, "lanczos", "disabled").movedim(1, -1)
+                s = utils.common_upscale(samples, width, height, "lanczos", "disabled").movedim(1, -1)
             if not images_vl:
                 latent_w, latent_h = width, height
             rgb = s[:, :, :, :3]
@@ -179,7 +179,7 @@ class TextEncodeQwenImage21(io.ComfyNode):
         if len(ref_latents) > 0:
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": ref_latents}, append=True)
             negative = node_helpers.conditioning_set_values(negative, {"reference_latents": ref_latents}, append=True)
-        latent = torch.zeros([1, 64, latent_h // 16, latent_w // 16], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([1, 64, latent_h // 16, latent_w // 16], device=model_management.intermediate_device())
         return io.NodeOutput(positive, negative, {"samples": latent})
 
 
@@ -231,7 +231,7 @@ class EmptyQwenImageLayeredLatentImage(io.ComfyNode):
 
     @classmethod
     def execute(cls, width, height, layers, batch_size=1) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, layers + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 16, layers + 1, height // 8, width // 8], device=model_management.intermediate_device())
         return io.NodeOutput({"samples": latent})
 
 

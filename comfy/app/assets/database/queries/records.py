@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, noload
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.assets.database.models import Asset, AssetContent, AssetTag, Tag
-from app.assets.helpers import escape_sql_like_string, get_utc_now
+from ..models import Asset, AssetContent, AssetTag, Tag
+from ...helpers import escape_sql_like_string, get_utc_now
 
 RecordSortField: TypeAlias = Literal[
     "name", "created_at", "updated_at", "size", "last_access_time"
@@ -55,7 +55,7 @@ def _is_live_path_conflict(error: IntegrityError) -> bool:
     return postgres_names_the_index or sqlite_names_the_column
 
 
-def create_content_reporting_insert(session: Session, path: str, hash: str | None = None, size_bytes: int = 0, mtime_ns: int | None = None) -> tuple[AssetContent, bool]:
+def create_content_reporting_insert(session: Session, path: str, hash: str | None = None, size_bytes: int = 0, mtime_ns: int | None = None) -> tuple[AssetContent, bool]:  # noqa: A002 -- preserve keyword input contract
     # The sole writer of asset_contents.path, which is what makes the raw-column SQL prefix
     # predicates sound — lifecycle's temp wipe HARD-DELETES every row its predicate admits.
     path = os.path.abspath(path)
@@ -72,7 +72,7 @@ def create_content_reporting_insert(session: Session, path: str, hash: str | Non
         return winner, False
 
 
-def create_content(session: Session, path: str, hash: str | None = None, size_bytes: int = 0, mtime_ns: int | None = None) -> AssetContent:
+def create_content(session: Session, path: str, hash: str | None = None, size_bytes: int = 0, mtime_ns: int | None = None) -> AssetContent:  # noqa: A002 -- preserve keyword input contract
     content, _ = create_content_reporting_insert(session, path, hash, size_bytes, mtime_ns)
     return content
 

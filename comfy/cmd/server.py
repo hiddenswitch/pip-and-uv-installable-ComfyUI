@@ -66,8 +66,6 @@ from comfy_execution.jobs import validate_job_id
 
 from . import execution
 from . import folder_paths
-from ..app.assets.api.routes import register_assets_routes
-from ..app.assets.seeder import asset_seeder
 from ..app.node_replace_manager import NodeReplaceManager
 from ..app.assets.manager import AssetManager, default_asset_manager
 from ..client.client_types import FileOutput

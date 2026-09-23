@@ -16,10 +16,10 @@ from aiohttp.test_utils import make_mocked_request
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session
 
-from app.assets.api import routes
-from app.assets.database.models import Asset
-from app.assets.database.queries.records import create_content, create_record
-from app.database.models import Base
+from comfy.app.assets.api import routes
+from comfy.app.assets.database.models import Asset
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.database.models import Base
 
 
 class _AssetItemOptional(TypedDict, total=False):

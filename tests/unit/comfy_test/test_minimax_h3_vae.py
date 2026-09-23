@@ -5,7 +5,7 @@ from comfy.cli_args import args
 if not torch.cuda.is_available():
     args.cpu = True
 
-import comfy.quant_ops
+from comfy import quant_ops
 from comfy.ldm.minimax.vae import Attention
 
 
@@ -41,7 +41,7 @@ class _FakeCK:
 
 
 def test_attention_moves_offloaded_qk_norm_scale_to_input_device(monkeypatch):
-    monkeypatch.setattr(comfy.quant_ops, "ck", _FakeCK(), raising=False)
+    monkeypatch.setattr(quant_ops, "ck", _FakeCK(), raising=False)
 
     heads, dim_head = 2, 4
     attn = Attention(heads=heads, dim_head=dim_head)

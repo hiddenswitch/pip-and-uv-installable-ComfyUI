@@ -2,11 +2,11 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import folder_paths
+from comfy.cmd import folder_paths
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.manager import AssetsEnabled, NoAssets
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.manager import AssetsEnabled, NoAssets
 from comfy_execution.asset_enrichment import (
     register_cached_outputs,
     register_executed_outputs,
@@ -106,7 +106,7 @@ def test_executed_adapter_registration_failure_never_raises(mock_create_session)
         output_ui = _output_ui(path.name)
 
         with patch(
-            "app.assets.manager.ingest_register_executed_output",
+            "comfy.app.assets.manager.ingest_register_executed_output",
             side_effect=RuntimeError("boom"),
         ):
             enriched = register_executed_outputs(

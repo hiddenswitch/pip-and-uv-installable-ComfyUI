@@ -48,7 +48,7 @@ class GetItemFromList(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, list, index) -> io.NodeOutput:
+    def execute(cls, list, index) -> io.NodeOutput:  # noqa: A002 -- preserve keyword input contract
         return io.NodeOutput(list[index[0]])
 
 

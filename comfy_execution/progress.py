@@ -20,7 +20,6 @@ from comfy.progress_types import PreviewImageMetadata
 
 if TYPE_CHECKING:
     from comfy_execution.graph import DynamicPrompt
-    from comfy_execution.server_protocol import ExecutionServer
 from comfy.cmd.protocol import BinaryEventTypes
 from comfy_api import feature_flags
 

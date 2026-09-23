@@ -4,16 +4,16 @@ import tempfile
 from collections import namedtuple
 from unittest.mock import patch
 
-import folder_paths
+from comfy.cmd import folder_paths
 import pytest
 
-from app.assets.manager import NoAssets
+from comfy.app.assets.manager import NoAssets
 from comfy_execution.asset_enrichment import (
     emit_cached_output,
     register_cached_outputs,
     register_executed_outputs,
 )
-from test_inmemory_assets import AssetCall, InMemoryAssets
+from .test_inmemory_assets import AssetCall, InMemoryAssets
 
 _CacheEntry = namedtuple("_CacheEntry", ["ui", "outputs"])
 

@@ -4,7 +4,7 @@
 import torch
 import math
 
-import comfy.utils
+from comfy import utils
 from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, Types, io
 from typing_extensions import override
@@ -13,7 +13,7 @@ from comfy.ldm.colormap import turbo as _turbo
 from comfy.ldm.moge.model import MoGeModel
 from comfy.ldm.moge.geometry import triangulate_grid_mesh
 from comfy.ldm.moge.panorama import get_panorama_cameras, split_panorama_image, merge_panorama_depth, spherical_uv_to_directions, _uv_grid
-import comfy.model_management
+from comfy import model_management
 from tqdm.auto import tqdm
 
 MoGeModelType = io.Custom("MOGE_MODEL")
@@ -77,7 +77,7 @@ class LoadMoGeModel(io.ComfyNode):
     @classmethod
     def execute(cls, model_name) -> io.NodeOutput:
         path = folder_paths.get_full_path_or_raise("geometry_estimation", model_name)
-        sd = comfy.utils.load_torch_file(path, safe_load=True)
+        sd = utils.load_torch_file(path, safe_load=True)
         return io.NodeOutput(MoGeModel(sd))
 
 
@@ -125,7 +125,7 @@ class MoGePanoramaInference(io.ComfyNode):
 
         extrinsics, intrinsics = get_panorama_cameras()
 
-        comfy.model_management.load_model_gpu(moge_model.patcher)
+        model_management.load_model_gpu(moge_model.patcher)
         device = moge_model.load_device
         img_chw = image[0].movedim(-1, -3).to(device=device, dtype=moge_model.dtype)
         splits = split_panorama_image(img_chw, extrinsics, intrinsics, split_resolution)
@@ -146,7 +146,7 @@ class MoGePanoramaInference(io.ComfyNode):
         n_merge_view_units = n_views * len(merge_levels)
         n_merge_solve_units = sum(solve_weight.values())
 
-        pbar = comfy.utils.ProgressBar(n_views + n_merge_view_units + n_merge_solve_units)
+        pbar = utils.ProgressBar(n_views + n_merge_view_units + n_merge_solve_units)
         done = 0
 
         distance_maps: list = []
@@ -245,7 +245,7 @@ class MoGeInference(io.ComfyNode):
         B = bchw.shape[0]
         fov = None if fov_x_degrees <= 0 else float(fov_x_degrees)
 
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         chunks: list[dict] = []
         with tqdm(total=B, desc="MoGe inference") as tq:
             for i in range(0, B, batch_size):
@@ -312,7 +312,7 @@ class MoGeRender(io.ComfyNode):
             raise ValueError(f"Unknown output mode: {output}")
 
         B = src.shape[0]
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         out: list[torch.Tensor] = []
         with tqdm(total=B, desc=f"MoGe render: {output}") as tq:
             for i in range(B):
@@ -331,7 +331,7 @@ class MoGeRender(io.ComfyNode):
                     out.append(slc.unsqueeze(-1).expand(*slc.shape, 3).contiguous())
                 pbar.update_absolute(i + 1)
                 tq.update(1)
-        result = torch.cat(out, dim=0).to(device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype())
+        result = torch.cat(out, dim=0).to(device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype())
         return io.NodeOutput(result)
 
 

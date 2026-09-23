@@ -8,10 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries import create_content, create_record, delete_record
-from app.assets.scanner import SeedAssetSpec, seed_asset_specs
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries import create_content, create_record, delete_record
+from comfy.app.assets.scanner import SeedAssetSpec, seed_asset_specs
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 def _spec(path: Path) -> SeedAssetSpec:
@@ -64,9 +64,9 @@ def test_seed_persists_remaining_specs_when_path_vanishes_during_recovery_hash(
             raise OSError("file vanished during recovery")
         return snapshot_hash(path)
 
-    monkeypatch.setattr("app.assets.scanner_changes.snapshot_hash", _hash_or_raise)
+    monkeypatch.setattr("comfy.app.assets.scanner_changes.snapshot_hash", _hash_or_raise)
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, specs)
     session.commit()
 
@@ -85,7 +85,7 @@ def _delete_during_recovery(monkeypatch: pytest.MonkeyPatch, path: Path) -> None
             raise OSError("file vanished during recovery")
         return snapshot_hash(candidate_path)
 
-    monkeypatch.setattr("app.assets.scanner_changes.snapshot_hash", _hash_or_raise)
+    monkeypatch.setattr("comfy.app.assets.scanner_changes.snapshot_hash", _hash_or_raise)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +103,7 @@ def test_seed_logs_once_for_each_vanished_path(
     specs, vanished_path = _specs_with_vanished_path(temp_dir)
     delete_path(monkeypatch, vanished_path)
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         _ = seed_asset_specs(session, specs)
     session.commit()
 
@@ -142,7 +142,7 @@ def test_seed_isolates_a_poisoned_spec_and_persists_the_specs_around_it(
             tags,
         )
 
-    monkeypatch.setattr("app.assets.scanner.create_record", _create_record_or_raise)
+    monkeypatch.setattr("comfy.app.assets.scanner.create_record", _create_record_or_raise)
 
     created = seed_asset_specs(session, specs)
     session.commit()
@@ -205,7 +205,7 @@ def test_seed_record_failure_preserves_retained_live_content(
     def _raise_record_creation(*_args, **_kwargs):
         raise RuntimeError("forced record creation failure")
 
-    monkeypatch.setattr("app.assets.scanner.create_record", _raise_record_creation)
+    monkeypatch.setattr("comfy.app.assets.scanner.create_record", _raise_record_creation)
 
     with pytest.raises(RuntimeError, match="forced record creation failure"):
         seed_asset_specs(session, [spec])

@@ -5,7 +5,7 @@ import platform
 import re
 
 import comfy_aimdo.storage
-from comfy.cli_args import args
+from .cli_args import args
 
 
 _NVME_NAMESPACE = re.compile(r"^(nvme\d+)n\d+$")

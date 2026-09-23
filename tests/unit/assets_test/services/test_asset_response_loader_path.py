@@ -90,8 +90,8 @@ def test_display_name_is_serialized_and_file_path_is_not(tmp_path: Path):
     f = ckpt / "flux.safetensors"
     f.touch()
 
-    with patch("app.assets.services.path_utils.folder_paths") as mock_fp, patch(
-        "app.assets.services.path_utils.get_comfy_models_folders",
+    with patch("comfy.app.assets.services.path_utils.folder_paths") as mock_fp, patch(
+        "comfy.app.assets.services.path_utils.get_comfy_models_folders",
         return_value=[("checkpoints", [str(ckpt)], {".safetensors"})],
     ):
         mock_fp.get_input_directory.return_value = str(tmp_path / "in")

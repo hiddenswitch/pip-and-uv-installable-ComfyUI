@@ -1,9 +1,9 @@
 from comfy.cmd import folder_paths
 from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
 from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
-import comfy.utils
-import comfy.sd
-import comfy.model_management
+from comfy import utils
+from comfy import sd as comfy_sd
+from comfy import model_management
 import torch
 
 from comfy_api.latest import ComfyExtension, io
@@ -35,9 +35,9 @@ class LTXVAudioVAELoader1(io.ComfyNode):
     @classmethod
     def execute(cls, ckpt_name: str) -> io.NodeOutput:
         ckpt_path = get_full_path_or_raise("checkpoints", ckpt_name)
-        sd, metadata = comfy.utils.load_torch_file(ckpt_path, return_metadata=True)
-        sd = comfy.utils.state_dict_prefix_replace(sd, {"audio_vae.": "autoencoder.", "vocoder.": "vocoder."}, filter_keys=True)
-        vae = comfy.sd.VAE(sd=sd, metadata=metadata)
+        sd, metadata = utils.load_torch_file(ckpt_path, return_metadata=True)
+        sd = utils.state_dict_prefix_replace(sd, {"audio_vae.": "autoencoder.", "vocoder.": "vocoder."}, filter_keys=True)
+        vae = comfy_sd.VAE(sd=sd, metadata=metadata)
         vae.throw_exception_if_invalid()
 
         return io.NodeOutput(vae)
@@ -165,7 +165,7 @@ class LTXVEmptyLatentAudio(io.ComfyNode):
 
         audio_latents = torch.zeros(
             (batch_size, z_channels, num_audio_latents, audio_freq),
-            device=comfy.model_management.intermediate_device(),
+            device=model_management.intermediate_device(),
         )
 
         return io.NodeOutput(
@@ -205,7 +205,7 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, text_encoder, ckpt_name, device="default"):
-        clip_type = comfy.sd.CLIPType.LTXV
+        clip_type = comfy_sd.CLIPType.LTXV
 
         clip_path1 = get_full_path_or_raise("text_encoders", text_encoder)
         clip_path2 = get_full_path_or_raise("checkpoints", ckpt_name)
@@ -214,7 +214,7 @@ class LTXAVTextEncoderLoader(io.ComfyNode):
         if device == "cpu":
             model_options["load_device"] = model_options["offload_device"] = torch.device("cpu")
 
-        clip = comfy.sd.load_clip(ckpt_paths=[clip_path1, clip_path2], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
+        clip = comfy_sd.load_clip(ckpt_paths=[clip_path1, clip_path2], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
         return io.NodeOutput(clip)
 
 

@@ -2,17 +2,17 @@ import os
 
 from sqlalchemy import update
 
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import (
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     delete_record,
     get_record_by_id,
     mark_content_missing,
 )
-from app.assets.services.asset_management import delete_asset_reference
-from app.assets.services.ingest import register_executed_output
+from comfy.app.assets.services.asset_management import delete_asset_reference
+from comfy.app.assets.services.ingest import register_executed_output
 
 
 def test_hard_delete_record_content_and_file_remain(mock_create_session, session, temp_dir):

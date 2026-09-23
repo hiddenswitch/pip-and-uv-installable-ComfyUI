@@ -3,10 +3,10 @@ import os
 import pytest
 from sqlalchemy import select
 
-import app.assets.mode as mode_module
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.services.ingest import register_executed_output
+from comfy.app.assets import mode as mode_module
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.services.ingest import register_executed_output
 
 
 @pytest.fixture(autouse=True)

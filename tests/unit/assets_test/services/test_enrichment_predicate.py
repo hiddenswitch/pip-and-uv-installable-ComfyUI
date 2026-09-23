@@ -9,9 +9,9 @@ from unittest.mock import patch
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.assets.database.queries import create_content, create_record, mark_content_missing
-from app.assets.scanner import get_unenriched_assets_for_roots
-from app.assets.scanner_changes import (
+from comfy.app.assets.database.queries import create_content, create_record, mark_content_missing
+from comfy.app.assets.scanner import get_unenriched_assets_for_roots
+from comfy.app.assets.scanner_changes import (
     is_path_under_prefixes,
     live_contents_under_prefixes,
 )
@@ -52,9 +52,9 @@ def test_off_mode_returns_metadata_less_seeded_asset(
     record_id = record.id
 
     with (
-        patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+        patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
         patch(
-            "app.assets.scanner.get_scan_prefixes_for_root",
+            "comfy.app.assets.scanner.get_scan_prefixes_for_root",
             return_value=[str(temp_dir)],
         ),
     ):
@@ -78,9 +78,9 @@ def test_off_mode_excludes_asset_with_system_metadata(
     record_id = record.id
 
     with (
-        patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+        patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
         patch(
-            "app.assets.scanner.get_scan_prefixes_for_root",
+            "comfy.app.assets.scanner.get_scan_prefixes_for_root",
             return_value=[str(temp_dir)],
         ),
     ):
@@ -105,9 +105,9 @@ def test_query_pushes_limit_into_sql(session: Session, temp_dir: Path) -> None:
     sa.event.listen(engine, "before_cursor_execute", _capture)
     try:
         with (
-            patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+            patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
             patch(
-                "app.assets.scanner.get_scan_prefixes_for_root",
+                "comfy.app.assets.scanner.get_scan_prefixes_for_root",
                 return_value=[str(temp_dir)],
             ),
         ):
@@ -143,9 +143,9 @@ def test_prefix_filter_matches_is_path_under_prefixes(
     session.commit()
 
     with (
-        patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+        patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
         patch(
-            "app.assets.scanner.get_scan_prefixes_for_root",
+            "comfy.app.assets.scanner.get_scan_prefixes_for_root",
             return_value=[prefix],
         ),
     ):
@@ -172,9 +172,9 @@ def _seed_paths(session: Session, paths: list[str]) -> dict[str, str]:
 
 def _candidate_paths(session: Session, prefix: str) -> set[str]:
     with (
-        patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+        patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
         patch(
-            "app.assets.scanner.get_scan_prefixes_for_root",
+            "comfy.app.assets.scanner.get_scan_prefixes_for_root",
             return_value=[prefix],
         ),
     ):

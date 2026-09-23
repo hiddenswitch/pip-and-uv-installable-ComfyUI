@@ -1,5 +1,5 @@
-import comfy.audio_encoders.audio_encoders
-import comfy.utils
+from comfy.audio_encoders import audio_encoders
+from comfy import utils
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
@@ -24,8 +24,8 @@ class AudioEncoderLoader(io.ComfyNode):
     @classmethod
     def execute(cls, audio_encoder_name) -> io.NodeOutput:
         audio_encoder_name = get_full_path_or_raise("audio_encoders", audio_encoder_name)
-        sd = comfy.utils.load_torch_file(audio_encoder_name, safe_load=True)
-        audio_encoder = comfy.audio_encoders.audio_encoders.load_audio_encoder_from_sd(sd)
+        sd = utils.load_torch_file(audio_encoder_name, safe_load=True)
+        audio_encoder = audio_encoders.load_audio_encoder_from_sd(sd)
         if audio_encoder is None:
             raise RuntimeError("ERROR: audio encoder file is invalid and does not contain a valid model.")
         return io.NodeOutput(audio_encoder)

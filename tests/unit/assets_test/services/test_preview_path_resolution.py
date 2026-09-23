@@ -1,11 +1,11 @@
 from sqlalchemy import event
 
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,
 )
-from app.assets.services.asset_management import get_preview_file_paths
+from comfy.app.assets.services.asset_management import get_preview_file_paths
 
 
 def test_preview_paths_resolve_preview_record_content(session, mock_create_session) -> None:

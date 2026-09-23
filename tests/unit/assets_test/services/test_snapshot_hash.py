@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from blake3 import blake3
 
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 class _MutatingReader:

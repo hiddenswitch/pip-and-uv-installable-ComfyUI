@@ -72,7 +72,6 @@ class AudioPreprocessor:
     def resample(self, waveform: torch.Tensor, source_rate: int) -> torch.Tensor:
         if source_rate == self.target_sample_rate:
             return waveform
-        import torchaudio
         return comfy_audio.resample(waveform, source_rate, self.target_sample_rate)
 
     def waveform_to_mel(
@@ -80,7 +79,6 @@ class AudioPreprocessor:
     ) -> torch.Tensor:
         waveform = self.resample(waveform, waveform_sample_rate)
 
-        import torchaudio
         mel_transform = comfy_audio.MelSpectrogram(
             sample_rate=self.target_sample_rate,
             n_fft=self.n_fft,

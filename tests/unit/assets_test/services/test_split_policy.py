@@ -13,27 +13,27 @@ from sqlalchemy.orm import Session
 
 import pytest
 
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries import create_content, create_record
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries import create_content, create_record
+from comfy.app.assets.database.queries.records import (
     RecordPageSpec,
     fetch_record_tags,
     list_records_page,
 )
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import get_unenriched_assets_for_roots
-from app.assets.scanner_changes import (
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import get_unenriched_assets_for_roots
+from comfy.app.assets.scanner_changes import (
     clear_pending_verifications,
     detect_content_change,
     drain_pending_verifications,
 )
-from app.assets.services.hash_mode_state import (
+from comfy.app.assets.services.hash_mode_state import (
     clear_transition_queue,
     drain_transition_queue,
     enqueue_transition_work,
 )
-from app.assets.services.lookup import lookup_for_view
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.lookup import lookup_for_view
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,9 +57,9 @@ def _raw_system_metadata(session: Session, record_id: str) -> object:
 
 def _candidates_under(session: Session, temp_dir: Path, *, compute_hashes: bool) -> set[str]:
     with (
-        patch("app.assets.scanner.create_session", lambda: _reuse_session(session)),
+        patch("comfy.app.assets.scanner.create_session", lambda: _reuse_session(session)),
         patch(
-            "app.assets.scanner.get_scan_prefixes_for_root",
+            "comfy.app.assets.scanner.get_scan_prefixes_for_root",
             return_value=[str(temp_dir)],
         ),
     ):
@@ -76,7 +76,7 @@ def _transition_queue_isolation() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def _input_base_is_temp_dir(temp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
 
 
 @pytest.fixture(autouse=True)

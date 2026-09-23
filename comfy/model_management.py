@@ -15,8 +15,8 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-from .cmd.main_pre import tracer
 from __future__ import annotations
+from .cmd.main_pre import tracer
 
 from contextlib import contextmanager
 from contextlib import nullcontext

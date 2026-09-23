@@ -7,17 +7,17 @@ from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SASession
 
-import app.assets.database.queries.records as records_module
-import app.assets.services.asset_management as asset_management_module
-import app.assets.services.tagging as tagging_module
-from app.assets.database.models import Asset, AssetTag, Base, Tag
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.queries import records as records_module
+from comfy.app.assets.services import asset_management as asset_management_module
+from comfy.app.assets.services import tagging as tagging_module
+from comfy.app.assets.database.models import Asset, AssetTag, Base, Tag
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,
 )
-from app.assets.services.asset_management import update_asset_metadata
-from app.assets.services.tagging import apply_tags
+from comfy.app.assets.services.asset_management import update_asset_metadata
+from comfy.app.assets.services.tagging import apply_tags
 
 STALE = datetime(2020, 1, 1, 0, 0, 0)
 RACED = "raced"
@@ -83,7 +83,7 @@ def test_apply_tags_loses_a_tag_race_without_raising_and_reports_it_honestly(tmp
             session_b.add = add_racing_the_winner
             yield session_b
 
-    with patch("app.assets.services.tagging.create_session", racing_session_factory):
+    with patch("comfy.app.assets.services.tagging.create_session", racing_session_factory):
         result = apply_tags(record_id, [RACED])
 
     assert fired, "the interleave never fired; the test proves nothing"

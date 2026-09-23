@@ -3,9 +3,9 @@ from pathlib import Path
 
 from sqlalchemy import event, select
 
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.manager import AssetsEnabled
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.manager import AssetsEnabled
 from comfy_execution.asset_enrichment import (
     register_cached_outputs,
     register_executed_outputs,

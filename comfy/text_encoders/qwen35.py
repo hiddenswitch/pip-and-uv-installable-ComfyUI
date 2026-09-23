@@ -12,7 +12,7 @@ from . import qwen_vl
 from .. import model_management
 from .. import utils
 from .. import model_prefetch
-from .. import ops
+from .. import ops as comfy_ops
 from .. import sd1_clip
 from ..ldm.modules.attention import optimized_attention_for_device
 from ..model_management import cast_to_device
@@ -246,11 +246,11 @@ class GatedDeltaNet(nn.Module):
             # decode: kitchen conv step, then gates + delta rule + gated norm in one kernel
             if seq_len > 1:
                 past_key_value.last_seq = seq_len
-            with ops.CastBiasWeightContext(self.conv1d, proj, offloadable=True) as (conv_weight, conv_bias):
+            with comfy_ops.CastBiasWeightContext(self.conv1d, proj, offloadable=True) as (conv_weight, conv_bias):
                 conv_out = comfy_kitchen.deltanet_conv_step(proj, past_key_value.conv_state, conv_weight, conv_bias,
                                                             past_key_value.conv_snap_backing[:seq_len - 1] if seq_len > 1 else None)
-            with ops.CastBiasWeightContext(self.in_proj_a, x, offloadable=True) as (w_a, _), \
-                 ops.CastBiasWeightContext(self.in_proj_b, x, offloadable=True) as (w_b, _):
+            with comfy_ops.CastBiasWeightContext(self.in_proj_a, x, offloadable=True) as (w_a, _), \
+                 comfy_ops.CastBiasWeightContext(self.in_proj_b, x, offloadable=True) as (w_b, _):
                 if isinstance(w_a, QuantizedTensor):
                     w_a = w_a.dequantize()
                 if isinstance(w_b, QuantizedTensor):
@@ -274,7 +274,7 @@ class GatedDeltaNet(nn.Module):
                 for s in range(seq_len - 1):
                     past_key_value.snapshots[s][1].copy_(combined[:, :, 1 + s:1 + s + self.conv_kernel_size - 1])
             past_key_value.conv_state.copy_(combined[:, :, seq_len:])
-            with ops.CastBiasWeightContext(self.conv1d, combined, offloadable=True) as (conv_weight, conv_bias):
+            with comfy_ops.CastBiasWeightContext(self.conv1d, combined, offloadable=True) as (conv_weight, conv_bias):
                 mixed_qkv = F.silu(F.conv1d(combined, conv_weight, conv_bias, groups=self.conv1d.groups))
         else:
             if past_key_value is not None:
@@ -791,7 +791,7 @@ class Qwen35(BaseLlama, BaseGenerate, torch.nn.Module):
         def verify_logits(x):
             if not head.comfy_cast_weights:
                 return F.linear(x, head.weight.to(x), None)
-            with ops.CastBiasWeightContext(head, x, offloadable=True) as (w, _bias):
+            with comfy_ops.CastBiasWeightContext(head, x, offloadable=True) as (w, _bias):
                 return F.linear(x, w)
 
         # the draft graph bakes these weights' addresses: keep them resident for the generate

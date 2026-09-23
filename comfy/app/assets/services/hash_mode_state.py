@@ -17,12 +17,12 @@ from typing import Final
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.assets import mode as _mode
-from app.assets.database.models import AssetContent, AssetSystemState
-from app.assets.database.queries.records import create_content, create_record, mark_content_missing
-from app.assets.helpers import to_stored_hash
-from app.assets.services.path_utils import compute_loader_path, get_name_and_tags_from_asset_path
-from app.assets.services.snapshot_hash import snapshot_hash
+from .. import mode as _mode
+from ..database.models import AssetContent, AssetSystemState
+from ..database.queries.records import create_content, create_record, mark_content_missing
+from ..helpers import to_stored_hash
+from .path_utils import compute_loader_path, get_name_and_tags_from_asset_path
+from .snapshot_hash import snapshot_hash
 
 _KEY = "hash_mode"
 _MAX_VERIFY_ATTEMPTS: Final = 3

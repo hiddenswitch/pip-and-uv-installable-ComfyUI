@@ -3,20 +3,20 @@ from typing import Any, Callable, Protocol
 
 from aiohttp import web
 
-from app.assets import mode
-from app.assets.api.routes import register_assets_routes
-from app.assets.lifecycle import record_hash_mode_transition_intent, run_shutdown, run_startup
-from app.assets.seeder import ScanPhase, asset_seeder
-from app.assets.services.ingest import (
+from . import mode
+from .api.routes import register_assets_routes
+from .lifecycle import record_hash_mode_transition_intent, run_shutdown, run_startup
+from .seeder import ScanPhase, asset_seeder
+from .services.ingest import (
     register_cached_output as ingest_register_cached_output,
     register_executed_output as ingest_register_executed_output,
     register_file_in_place,
 )
-from app.assets.services.path_utils import get_known_subfolder_tags
-from app.assets.services.schemas import RegisteredAsset, UploadAssetView
-from app.database.db import dependencies_available
-from app.user_manager import UserManager
-from comfy.cli_args import args
+from .services.path_utils import get_known_subfolder_tags
+from .services.schemas import RegisteredAsset, UploadAssetView
+from ..database.db import dependencies_available
+from ..user_manager import UserManager
+from ...cli_args import args
 
 
 class AssetManager(Protocol):

@@ -35,7 +35,7 @@ __all__ = [
 
 def __getattr__(name: str):
     for module_name in ("tags",):
-        module = import_module(f"app.assets.database.queries.{module_name}")
+        module = import_module(f".{module_name}", __name__)
         candidate = getattr(module, name, None)
         if candidate is not None:
             return candidate

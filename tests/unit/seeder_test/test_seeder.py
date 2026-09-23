@@ -198,8 +198,9 @@ def test_starting_a_scan_installs_fresh_per_scan_failure_state(
     started = instance.start(roots=("models",), phase=ScanPhase.FAST)
 
     assert started is True
-    assert instance._thread is not None
-    instance._thread.join(timeout=5)
+    assert instance._future is not None
+    instance._future.result(timeout=5)
+    instance.shutdown()
     assert instance._scan_state == _ScanState()
 
 

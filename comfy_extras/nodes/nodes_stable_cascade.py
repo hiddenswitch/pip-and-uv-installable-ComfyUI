@@ -17,8 +17,8 @@
 """
 
 import torch
-import comfy.nodes.common
-import comfy.utils
+from comfy.nodes import common
+from comfy import utils
 from typing_extensions import override
 
 from comfy_api.latest import ComfyExtension, io
@@ -32,8 +32,8 @@ class StableCascade_EmptyLatentImage(io.ComfyNode):
             display_name="Empty Stable Cascade Latent Image",
             category="model/latent/stable cascade",
             inputs=[
-                io.Int.Input("width", default=1024, min=256, max=comfy.nodes.common.MAX_RESOLUTION, step=8),
-                io.Int.Input("height", default=1024, min=256, max=comfy.nodes.common.MAX_RESOLUTION, step=8),
+                io.Int.Input("width", default=1024, min=256, max=common.MAX_RESOLUTION, step=8),
+                io.Int.Input("height", default=1024, min=256, max=common.MAX_RESOLUTION, step=8),
                 io.Int.Input("compression", default=42, min=4, max=128, step=1, advanced=True),
                 io.Int.Input("batch_size", default=1, min=1, max=4096),
             ],
@@ -79,7 +79,7 @@ class StableCascade_StageC_VAEEncode(io.ComfyNode):
         out_width = (width // compression) * vae.downscale_ratio
         out_height = (height // compression) * vae.downscale_ratio
 
-        s = comfy.utils.common_upscale(image.movedim(-1, 1), out_width, out_height, "bicubic", "center").movedim(1, -1)
+        s = utils.common_upscale(image.movedim(-1, 1), out_width, out_height, "bicubic", "center").movedim(1, -1)
 
         c_latent = vae.encode(s[:, :, :, :3])
         b_latent = torch.zeros([c_latent.shape[0], 4, (height // 8) * 2, (width // 8) * 2])

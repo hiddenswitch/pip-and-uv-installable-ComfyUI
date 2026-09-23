@@ -1,28 +1,23 @@
-import logging
+from importlib.resources import files
+from unittest.mock import Mock
 import os
 import sqlite3
 
 import pytest
-import torch
 from alembic import command
 from alembic.config import Config
 from filelock import FileLock, Timeout
 
-from app.database import db as db_module
-from comfy.cli_args import args as cli_args
-
-if not torch.cuda.is_available():
-    cli_args.cpu = True
-
-import main  # noqa: E402
+from comfy.app.database import db as db_module
+from comfy.cmd import main
 
 _PRE_HEAD = "0006_add_loader_path"
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../..")
-    cfg = Config(os.path.abspath(os.path.join(root, "alembic.ini")))
-    cfg.set_main_option("script_location", os.path.abspath(os.path.join(root, "alembic_db")))
+    resources = files("comfy")
+    cfg = Config(str(resources.joinpath("alembic.ini")))
+    cfg.set_main_option("script_location", str(resources.joinpath("alembic_db")))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
 
@@ -39,7 +34,6 @@ def stale_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "comfyui.db")
     command.upgrade(_make_config(db_path), _PRE_HEAD)
 
-    monkeypatch.setattr(db_module.args, "database_url", f"sqlite:///{db_path}")
     monkeypatch.setattr(db_module, "Session", None)
     monkeypatch.setattr(db_module, "_db_lock", None)
     yield db_path
@@ -48,14 +42,14 @@ def stale_db(tmp_path, monkeypatch):
 
 
 def test_init_file_db_migrates_when_lock_is_free(stale_db):
-    db_module._init_file_db(db_module.args.database_url)
+    db_module._init_file_db(f"sqlite:///{stale_db}", use_chain_hash=False)
 
     assert _current_revision(stale_db) != _PRE_HEAD
     assert os.path.exists(stale_db + ".bkp")
 
 
 def test_successful_init_keeps_holding_the_lock(stale_db):
-    db_module._init_file_db(db_module.args.database_url)
+    db_module._init_file_db(f"sqlite:///{stale_db}", use_chain_hash=False)
 
     contender = FileLock(stale_db + ".lock")
     with pytest.raises(Timeout):
@@ -63,13 +57,13 @@ def test_successful_init_keeps_holding_the_lock(stale_db):
 
 
 def test_failed_init_releases_the_lock(stale_db, monkeypatch):
-    def _explode():
+    def _explode(*_args):
         raise RuntimeError("alembic config exploded")
 
-    monkeypatch.setattr(db_module, "get_alembic_config", _explode)
+    monkeypatch.setattr(db_module, "_migrate_and_bind", _explode)
 
     with pytest.raises(RuntimeError, match="alembic config exploded"):
-        db_module._init_file_db(db_module.args.database_url)
+        db_module._init_file_db(f"sqlite:///{stale_db}", use_chain_hash=False)
 
     contender = FileLock(stale_db + ".lock")
     try:
@@ -87,69 +81,30 @@ def test_held_lock_blocks_before_any_migration_work(stale_db):
     holder = FileLock(stale_db + ".lock")
     holder.acquire(timeout=0)
     try:
-        with pytest.raises(RuntimeError, match="Another ComfyUI process may already be using it"):
-            db_module._init_file_db(db_module.args.database_url)
+        db_module._init_file_db(f"sqlite:///{stale_db}", use_chain_hash=False)
 
         assert not os.path.exists(stale_db + ".bkp")
         assert _current_revision(stale_db) == _PRE_HEAD
-        assert db_module.Session is None
+        assert db_module.Session is not None
+        assert db_module.Session.kw["bind"].url.database == ":memory:"
     finally:
         holder.release()
 
 
-def test_setup_database_routes_file_lock_to_lock_guidance(monkeypatch, caplog):
-    monkeypatch.setattr(main, "dependencies_available", lambda: True)
-
-    def _raise_file_lock():
-        raise RuntimeError(
-            "Could not acquire lock on database 'x.db'. "
-            "Another ComfyUI process may already be using it. "
-            "Use --database-url to specify a separate database file."
-        )
-
-    monkeypatch.setattr(main, "init_db", _raise_file_lock)
-    monkeypatch.setattr(main.args, "enable_assets", False)
-
-    with caplog.at_level(logging.ERROR):
-        result = main.setup_database(None)
-
-    assert result is None
-    assert "Database is locked. Another ComfyUI process is already using this database." in caplog.text
-    assert "Failed to initialize database." not in caplog.text
+def test_setup_database_starts_assets_after_database_init(monkeypatch):
+    events = []
+    monkeypatch.setattr(db_module, "dependencies_available", lambda: True)
+    monkeypatch.setattr(db_module, "init_db", lambda: events.append("database"))
+    manager = Mock()
+    manager.startup.side_effect = lambda: events.append("assets")
+    main.setup_database(manager)
+    assert events == ["database", "assets"]
 
 
-def test_setup_database_exits_for_file_lock_when_assets_are_enabled(monkeypatch, caplog):
-    monkeypatch.setattr(main, "dependencies_available", lambda: True)
-
-    def _raise_file_lock():
-        raise RuntimeError(
-            "Could not acquire lock on database 'x.db'. "
-            "Another ComfyUI process may already be using it. "
-            "Use --database-url to specify a separate database file."
-        )
-
-    monkeypatch.setattr(main, "init_db", _raise_file_lock)
-    monkeypatch.setattr(main.args, "enable_assets", True)
-
-    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as error:
-        main.setup_database(None)
-
-    assert error.value.code == 1
-    assert "Database is locked. Another ComfyUI process is already using this database." in caplog.text
-    assert "The --enable-assets flag requires a working database connection." not in caplog.text
-
-
-def test_setup_database_exits_for_driver_lock_when_assets_are_disabled(monkeypatch, caplog):
-    monkeypatch.setattr(main, "dependencies_available", lambda: True)
-
-    def _raise_driver_lock():
-        raise Exception("sqlite3.OperationalError: database is locked")
-
-    monkeypatch.setattr(main, "init_db", _raise_driver_lock)
-    monkeypatch.setattr(main.args, "enable_assets", False)
-
-    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as error:
-        main.setup_database(None)
-
-    assert error.value.code == 1
-    assert "Database is locked. Another ComfyUI process is already using this database." in caplog.text
+def test_setup_database_does_not_start_assets_after_database_failure(monkeypatch):
+    monkeypatch.setattr(db_module, "dependencies_available", lambda: True)
+    monkeypatch.setattr(db_module, "init_db", Mock(side_effect=RuntimeError("migration failed")))
+    manager = Mock()
+    with pytest.raises(RuntimeError, match="migration failed"):
+        main.setup_database(manager)
+    manager.startup.assert_not_called()

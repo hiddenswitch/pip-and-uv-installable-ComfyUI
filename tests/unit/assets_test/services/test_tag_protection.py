@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.assets.api import routes
+from comfy.app.assets.api import routes
 
 _RECORD_ID = "00000000-0000-0000-0000-000000000001"
 _SYSTEM_TAG_ENVELOPE = {

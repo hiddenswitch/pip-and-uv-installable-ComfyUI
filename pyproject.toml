@@ -165,7 +165,7 @@ dev = [
     "pytest-timeout",
     "websocket-client>=1.6.1",
     "PyInstaller",
-    "testcontainers",
+    "testcontainers[rabbitmq]",
     "mypy>=1.6.0",
     "freezegun",
     "coverage",
@@ -197,7 +197,7 @@ Repository = "https://github.com/comfyanonymous/ComfyUI"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-W ignore --no-header -q -p no:logging --tb=long"
+addopts = "-W ignore --no-header -q --tb=long"
 asyncio_mode = "auto"
 timeout = 300
 timeout_method = "thread"

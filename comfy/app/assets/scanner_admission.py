@@ -16,7 +16,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
-from app.assets.services.path_utils import compute_loader_path, get_name_and_tags_from_asset_path
+from .services.path_utils import compute_loader_path, get_name_and_tags_from_asset_path
 
 PARTIAL_DOWNLOAD_EXTENSIONS = frozenset({
     ".part", ".partial", ".crdownload", ".download", ".tmp", ".aria2", ".!qb", ".opdownload",
@@ -67,7 +67,7 @@ def _two_stat_admit(paths_with_stats: list[tuple[str, os.stat_result]]) -> tuple
 
 
 def tick_watch_list(session: Session) -> None:
-    from app.assets.scanner import seed_asset_specs, SeedAssetSpec
+    from .scanner import seed_asset_specs, SeedAssetSpec
 
     remaining: list[_WatchEntry] = []
     for entry in _WATCH_LIST:

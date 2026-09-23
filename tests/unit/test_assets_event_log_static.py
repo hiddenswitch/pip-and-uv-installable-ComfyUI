@@ -19,11 +19,12 @@ import ast
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
+from importlib.resources import files
 from typing import NamedTuple
 
-from app.assets.event_log import ALLOWED_EVENTS, ALLOWED_FIELDS, TAG
+from comfy.app.assets.event_log import ALLOWED_EVENTS, ALLOWED_FIELDS, TAG
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(str(files("comfy")))
 MODULE_SCOPE = "<module>"
 EVENT_LOG_NAME = "event_log"
 LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
@@ -43,7 +44,7 @@ class CallSite(NamedTuple):
 EXPECTED_CALL_SITES: frozenset[CallSite] = frozenset(
     {
         # todo 10 - seeder lifecycle + the single assets.enabled site
-        CallSite("server.py", "__init__", "assets.enabled"),
+        CallSite("cmd/server.py", "__init__", "assets.enabled"),
         CallSite("app/assets/seeder.py", "_run_scan", "seeder.scan_started"),
         CallSite("app/assets/seeder.py", "_run_scan", "seeder.scan_completed"),
         CallSite("app/assets/seeder.py", "_run_scan", "seeder.scan_failed"),
@@ -88,7 +89,7 @@ class Scan(NamedTuple):
 def _scanned_files(root: Path) -> tuple[str, ...]:
     """Every assets module, plus server.py for its single assets.enabled emit."""
     assets = sorted(p.relative_to(root).as_posix() for p in root.glob("app/assets/**/*.py"))
-    return (*assets, "server.py")
+    return (*assets, "cmd/server.py")
 
 
 def _scoped_nodes(tree: ast.Module) -> Iterator[tuple[ast.AST, str]]:
@@ -229,7 +230,7 @@ def test_the_walk_actually_covers_the_assets_tree() -> None:
     """Guards every other check: a broken glob would make them all vacuous."""
     assert "app/assets/event_log.py" in SCAN.files
     assert "app/assets/seeder.py" in SCAN.files
-    assert "server.py" in SCAN.files
+    assert "cmd/server.py" in SCAN.files
     assert len(SCAN.files) > 20
 
 

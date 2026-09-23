@@ -5,8 +5,8 @@ from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, AssetContent, AssetTag
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag
+from comfy.app.assets.database.queries.records import (
     RecordPageSpec,
     create_content,
     create_record,
@@ -15,7 +15,7 @@ from app.assets.database.queries.records import (
     list_records_page,
     mark_content_missing,
 )
-from app.database.models import Base
+from comfy.app.database.models import Base
 
 
 @pytest.fixture

@@ -69,6 +69,7 @@ def assets_server_config(comfy_tmp_base_dir: Path, request: pytest.FixtureReques
     config.base_directory = str(comfy_tmp_base_dir)
     config.base_paths = [str(comfy_tmp_base_dir)]
     config.database_url = db_url
+    config._database_url_explicit = True
     config.enable_assets = True
     config.disable_assets_autoscan = True
     config.listen = "127.0.0.1"

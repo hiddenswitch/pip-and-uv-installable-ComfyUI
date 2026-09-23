@@ -10,10 +10,10 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session as SASession
 
-from app.assets import lifecycle
-from app.assets.database.models import Asset, AssetContent, Base
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.lifecycle import (
+from comfy.app.assets import lifecycle
+from comfy.app.assets.database.models import Asset, AssetContent, Base
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.lifecycle import (
     cleanup_temp_filesystem,
     get_excluded_scan_roots,
     run_asset_shutdown_cleanup,
@@ -21,11 +21,11 @@ from app.assets.lifecycle import (
     run_startup,
     wipe_temp_db_rows,
 )
-from app.assets.scanner import get_temp_prefixes, sync_temp_references_safely
-from app.assets.scanner_changes import is_path_under_prefixes
-from app.assets.seeder import asset_seeder
-from app.assets.services import hash_mode_state
-from app.assets.services.hash_mode_state import clear_transition_queue, write_stored_mode
+from comfy.app.assets.scanner import get_temp_prefixes, sync_temp_references_safely
+from comfy.app.assets.scanner_changes import is_path_under_prefixes
+from comfy.app.assets.seeder import asset_seeder
+from comfy.app.assets.services import hash_mode_state
+from comfy.app.assets.services.hash_mode_state import clear_transition_queue, write_stored_mode
 
 from .path_prefix_cases import expected_prefix_case_paths, prefix_case_paths
 
@@ -63,8 +63,8 @@ def mock_create_session(session):
         with SASession(engine) as sess:
             yield sess
 
-    with patch("app.assets.lifecycle.create_session", _create_session), \
-         patch("app.database.db.create_session", _create_session):
+    with patch("comfy.app.assets.lifecycle.create_session", _create_session), \
+         patch("comfy.app.database.db.create_session", _create_session):
         yield _create_session
 
 
@@ -73,7 +73,7 @@ def comfy_dirs():
     with tempfile.TemporaryDirectory() as base:
         temp_dir = Path(base) / "temp"
         temp_dir.mkdir()
-        with patch("folder_paths.get_temp_directory", return_value=str(temp_dir)):
+        with patch("comfy.cmd.folder_paths.get_temp_directory", return_value=str(temp_dir)):
             yield temp_dir
 
 
@@ -94,10 +94,10 @@ def test_startup_order_wipe_before_rmtree_before_seeder(mock_create_session):
         return 0, 0
 
     with (
-        patch("app.assets.lifecycle.wipe_temp_db_rows", side_effect=_wipe),
-        patch("app.assets.lifecycle.cleanup_temp_filesystem", side_effect=lambda: calls.append("rmtree") or True),
-        patch("app.assets.lifecycle.enqueue_mode_transition_work", side_effect=lambda: calls.append("enqueue")),
-        patch("app.assets.lifecycle.start_asset_seeder", side_effect=lambda: calls.append("seeder") or True),
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows", side_effect=_wipe),
+        patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem", side_effect=lambda: calls.append("rmtree") or True),
+        patch("comfy.app.assets.lifecycle.enqueue_mode_transition_work", side_effect=lambda: calls.append("enqueue")),
+        patch("comfy.app.assets.lifecycle.start_asset_seeder", side_effect=lambda: calls.append("seeder") or True),
     ):
         run_asset_startup()
 
@@ -119,9 +119,9 @@ def test_startup_defers_transition_drain_to_the_seeder(
     wipe_side_effect = RuntimeError("db wipe failed") if wipe_fails else (lambda _session: (0, 0))
 
     with (
-        patch("app.assets.lifecycle.wipe_temp_db_rows", side_effect=wipe_side_effect),
-        patch("app.assets.lifecycle.cleanup_temp_filesystem", return_value=True),
-        patch("app.assets.lifecycle.start_asset_seeder", return_value=True),
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows", side_effect=wipe_side_effect),
+        patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem", return_value=True),
+        patch("comfy.app.assets.lifecycle.start_asset_seeder", return_value=True),
         patch.object(hash_mode_state, "drain_transition_queue") as drain_spy,
     ):
         lifecycle.record_hash_mode_transition_intent()
@@ -134,9 +134,9 @@ def test_startup_defers_transition_drain_to_the_seeder(
 
 def test_db_wipe_failure_skips_rmtree_and_continues(mock_create_session):
     with (
-        patch("app.assets.lifecycle.wipe_temp_db_rows", side_effect=RuntimeError("db wipe failed")),
-        patch("app.assets.lifecycle.cleanup_temp_filesystem") as cleanup_mock,
-        patch("app.assets.lifecycle.start_asset_seeder", return_value=True) as seeder_mock,
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows", side_effect=RuntimeError("db wipe failed")),
+        patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem") as cleanup_mock,
+        patch("comfy.app.assets.lifecycle.start_asset_seeder", return_value=True) as seeder_mock,
     ):
         run_asset_startup()
 
@@ -150,9 +150,9 @@ def test_run_startup_disabled_sweeps_temp_filesystem_without_db_work(comfy_dirs)
     assert stale.exists()
 
     with (
-        patch("app.assets.lifecycle.run_asset_startup") as asset_startup_mock,
-        patch("app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock,
-        patch("app.assets.lifecycle.start_asset_seeder") as seeder_mock,
+        patch("comfy.app.assets.lifecycle.run_asset_startup") as asset_startup_mock,
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock,
+        patch("comfy.app.assets.lifecycle.start_asset_seeder") as seeder_mock,
     ):
         run_startup(enable_assets=False)
 
@@ -164,8 +164,8 @@ def test_run_startup_disabled_sweeps_temp_filesystem_without_db_work(comfy_dirs)
 
 def test_run_startup_enabled_delegates_to_asset_startup_not_bare_sweep():
     with (
-        patch("app.assets.lifecycle.run_asset_startup") as asset_startup_mock,
-        patch("app.assets.lifecycle.cleanup_temp_filesystem") as cleanup_mock,
+        patch("comfy.app.assets.lifecycle.run_asset_startup") as asset_startup_mock,
+        patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem") as cleanup_mock,
     ):
         run_startup(enable_assets=True)
 
@@ -174,7 +174,7 @@ def test_run_startup_enabled_delegates_to_asset_startup_not_bare_sweep():
 
 
 def test_run_startup_logs_and_absorbs_disabled_filesystem_failure(caplog):
-    with patch("app.assets.lifecycle.cleanup_temp_filesystem", side_effect=RuntimeError("filesystem failure")):
+    with patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem", side_effect=RuntimeError("filesystem failure")):
         run_startup(enable_assets=False)
 
     assert "Asset startup maintenance failed" in caplog.text
@@ -187,7 +187,7 @@ def test_rmtree_failure_excludes_temp_from_scan(session, comfy_dirs, mock_create
     session.commit()
     assert session.get(Asset, record_id) is None
 
-    with patch("app.assets.lifecycle.shutil.rmtree", side_effect=OSError("busy")):
+    with patch("comfy.app.assets.lifecycle.shutil.rmtree", side_effect=OSError("busy")):
         assert cleanup_temp_filesystem() is False
 
     assert str(comfy_dirs) in get_excluded_scan_roots()
@@ -196,7 +196,7 @@ def test_rmtree_failure_excludes_temp_from_scan(session, comfy_dirs, mock_create
     residual = comfy_dirs / "leftover.png"
     residual.write_bytes(b"\x00" * 10)
 
-    with patch("app.assets.scanner.create_session", mock_create_session):
+    with patch("comfy.app.assets.scanner.create_session", mock_create_session):
         sync_temp_references_safely()
 
     assert session.scalars(select(Asset)).all() == []
@@ -205,7 +205,7 @@ def test_rmtree_failure_excludes_temp_from_scan(session, comfy_dirs, mock_create
 def test_shutdown_skips_cleanup_when_seeder_join_times_out(session, comfy_dirs, mock_create_session, caplog):
     record_id, _ = _seed_temp_rows(session, comfy_dirs)
 
-    with patch("app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock:
+    with patch("comfy.app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock:
         with patch.object(asset_seeder, "shutdown", return_value=False):
             joined = asset_seeder.shutdown()
             if joined:
@@ -234,8 +234,8 @@ def test_shutdown_cleanup_wipes_rows_then_rmtree(session, comfy_dirs, mock_creat
         return real_wipe(sess)
 
     with (
-        patch("app.assets.lifecycle.wipe_temp_db_rows", side_effect=tracking_wipe),
-        patch("app.assets.lifecycle.cleanup_temp_filesystem", side_effect=lambda: calls.append("rmtree") or True),
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows", side_effect=tracking_wipe),
+        patch("comfy.app.assets.lifecycle.cleanup_temp_filesystem", side_effect=lambda: calls.append("rmtree") or True),
     ):
         run_asset_shutdown_cleanup()
 
@@ -249,8 +249,8 @@ def test_run_shutdown_without_session_sweeps_temp_filesystem(comfy_dirs):
     stale.write_bytes(b"\x00" * 10)
 
     with (
-        patch("app.assets.lifecycle.can_create_session", return_value=False),
-        patch("app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock,
+        patch("comfy.app.assets.lifecycle.can_create_session", return_value=False),
+        patch("comfy.app.assets.lifecycle.wipe_temp_db_rows") as wipe_mock,
     ):
         lifecycle.run_shutdown()
 
@@ -325,7 +325,7 @@ def test_wipe_with_metacharacter_temp_root_matches_only_literal_children(session
         decoy = os.path.join(base, "aXbYcZdWeQf", "keep.safetensors")
         _seed_paths(session, [inside, decoy])
 
-        with patch("folder_paths.get_temp_directory", return_value=temp_root):
+        with patch("comfy.cmd.folder_paths.get_temp_directory", return_value=temp_root):
             wipe_temp_db_rows(session)
         session.commit()
 

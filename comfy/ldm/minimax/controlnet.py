@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-import comfy.ldm.common_dit
+from .. import common_dit
 from .model import DiTBlock, patchify_video
 
 
@@ -52,7 +52,7 @@ class MiniMaxH3FunControl(torch.nn.Module):
                 "convert the controlnet to match the base model.".format(adaln_in, t_emb.shape[-1]))
 
         patch_dim = self.control_in_dim * self.patch_size[0] * self.patch_size[1] * self.patch_size[2]
-        control_latent = comfy.ldm.common_dit.pad_to_patch_size(control_latent.to(torch.float32), self.patch_size)
+        control_latent = common_dit.pad_to_patch_size(control_latent.to(torch.float32), self.patch_size)
         target_rows = patchify_video(control_latent, self.patch_size)
         if target_rows.shape[1] < patch_dim:
             target_rows = torch.nn.functional.pad(target_rows, (0, patch_dim - target_rows.shape[1]))

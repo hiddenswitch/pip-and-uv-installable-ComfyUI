@@ -2,13 +2,13 @@ import copy
 
 import pytest
 
-import nodes
+from comfy.nodes_context import get_nodes
 
-import comfy_extras.nodes_loop as nodes_loop
+from comfy_extras.nodes import nodes_loop
 from comfy_api.latest import io
 from comfy_execution.graph_utils import GraphBuilder
 from comfy_execution.validation import validate_loops
-from execution import PromptExecutor
+from comfy.cmd.execution import PromptExecutor
 
 
 class Constant:
@@ -313,7 +313,7 @@ def register_internal_loop_nodes(monkeypatch):
         "TestCaptureLoopState": CaptureLoopState,
     }
     for name, node in classes.items():
-        monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, name, node)
+        monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, name, node)
     monkeypatch.setattr(
         nodes_loop,
         "PromptServer",
@@ -726,7 +726,7 @@ def test_single_loop_concatenates_list_outputs():
 def test_loop_final_output_preserves_output_list(monkeypatch):
     Capture.values = []
     CaptureLoopResult.output_keys.clear()
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "LoopResult", CaptureLoopResult)
+    monkeypatch.setitem(get_nodes().NODE_CLASS_MAPPINGS, "LoopResult", CaptureLoopResult)
     prompt = {
         "loop": {"class_type": "StartLoop", "inputs": {"mode": "simple", "mode.num_iterations": 2}},
         "pair": {"class_type": "TestPair", "inputs": {"value": ["loop", 0]}},

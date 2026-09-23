@@ -1,7 +1,7 @@
 from typing import Optional, Tuple
 import torch
 
-import comfy.model_management
+from ... import model_management
 
 
 def compute_kernel_offsets(Kw, Kh, Kd, Dw, Dh, Dd, device):
@@ -82,7 +82,7 @@ def get_recommended_chunk_mem(
     max_gb: float = 0.5,
 ):
     """Pick a chunk-memory budget (in GB) for sparse conv batching."""
-    free_gb = comfy.model_management.get_free_memory(device) / (1024 ** 3)
+    free_gb = model_management.get_free_memory(device) / (1024 ** 3)
     return max(min_gb, min(free_gb * safety_fraction, max_gb))
 
 def sparse_submanifold_conv3d(

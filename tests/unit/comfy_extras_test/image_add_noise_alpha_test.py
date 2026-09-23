@@ -5,7 +5,7 @@ from comfy.cli_args import args as cli_args
 if not torch.cuda.is_available():
     cli_args.cpu = True
 
-from comfy_extras.nodes_images import ImageAddNoise  # noqa: E402
+from comfy_extras.nodes.nodes_images import ImageAddNoise  # noqa: E402
 
 
 def image(channels, value=0.5, alpha=0.5, size=8):

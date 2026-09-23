@@ -4,9 +4,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-import comfy.ops
-import comfy.quant_ops
-from comfy.ldm.modules.attention import optimized_attention_for_device
+from .. import ops
+from .. import quant_ops
+from ..ldm.modules.attention import optimized_attention_for_device
 
 
 class MelFrontend(nn.Module):
@@ -20,13 +20,13 @@ class MelFrontend(nn.Module):
         self.mel_scale.register_buffer("fb", torch.empty(1025, 128, device=device, dtype=torch.float32))
 
     def forward(self, waveform):
-        window = comfy.ops.cast_to_input(self.spectrogram.window, waveform)
+        window = ops.cast_to_input(self.spectrogram.window, waveform)
         spectrum = torch.stft(waveform, n_fft=2048, hop_length=240, win_length=2048,
                               window=window, return_complex=True).abs().square()
-        mel = spectrum.transpose(-1, -2) @ comfy.ops.cast_to_input(self.mel_scale.fb, waveform)
+        mel = spectrum.transpose(-1, -2) @ ops.cast_to_input(self.mel_scale.fb, waveform)
         mel = 10.0 * mel.clamp_min(1e-10).log10()
-        mean = comfy.ops.cast_to_input(self.mel_mean, waveform)
-        std = comfy.ops.cast_to_input(self.mel_std, waveform)
+        mean = ops.cast_to_input(self.mel_mean, waveform)
+        std = ops.cast_to_input(self.mel_std, waveform)
         return (mel[:, :-1] - mean) / std.clamp_min(1e-5)
 
 
@@ -44,8 +44,8 @@ class GlobalResponseNorm(nn.Module):
     def forward(self, x):
         magnitude = torch.linalg.vector_norm(x, dim=1, keepdim=True)
         normalized = magnitude / (magnitude.mean(dim=-1, keepdim=True) + 1e-6)
-        weight = comfy.ops.cast_to_input(self.weight, x)
-        bias = comfy.ops.cast_to_input(self.bias, x)
+        weight = ops.cast_to_input(self.weight, x)
+        bias = ops.cast_to_input(self.bias, x)
         return weight * (x * normalized) + bias + x
 
 
@@ -97,7 +97,7 @@ class Attention(nn.Module):
         q = self.query_proj(x).reshape(shape).transpose(1, 2)
         k = self.key_proj(x).reshape(shape).transpose(1, 2)
         v = self.value_proj(x).reshape(shape).transpose(1, 2)
-        q, k = comfy.quant_ops.ck.apply_rope_split_half(q, k, positions)
+        q, k = quant_ops.ck.apply_rope_split_half(q, k, positions)
         return self.out_proj(attention(q, k, v, self.heads, skip_reshape=True))
 
 
@@ -170,7 +170,7 @@ class MERT2(nn.Module):
 
     def forward(self, mel, layer_weight, output_hidden_states=False):
         x = self.subsampling_module(mel)
-        weights = comfy.ops.cast_to_input(layer_weight, x).softmax(dim=0)
+        weights = ops.cast_to_input(layer_weight, x).softmax(dim=0)
         mixed = x * weights[0]
         states = [x] if output_hidden_states else None
         positions = self.position_embeddings(x)

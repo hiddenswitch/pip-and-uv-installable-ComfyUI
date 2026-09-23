@@ -1,7 +1,7 @@
 import torch
 from typing_extensions import override
 
-import comfy.model_management
+from comfy import model_management
 from comfy.text_encoders.yue2 import FRAMES_PER_SECOND
 from comfy_api.latest import ComfyExtension, io
 
@@ -93,7 +93,7 @@ class EmptyYuE2LatentAudio(io.ComfyNode):
     @classmethod
     def execute(cls, seconds, batch_size):
         latent = torch.zeros((batch_size, 64, max(1, round(seconds * FRAMES_PER_SECOND))),
-                             device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype())
+                             device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype())
         return io.NodeOutput({"samples": latent, "type": "audio", "downscale_ratio_temporal": 1920})
 
 

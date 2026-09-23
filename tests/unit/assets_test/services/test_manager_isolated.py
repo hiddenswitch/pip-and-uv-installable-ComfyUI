@@ -6,21 +6,21 @@ from pathlib import Path
 from typing import Protocol
 from unittest.mock import MagicMock, Mock, call
 
-import folder_paths
+from comfy.cmd import folder_paths
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, Session as SASession
 from sqlalchemy.pool import StaticPool
 
-from app.assets import lifecycle
-from app.assets import manager as manager_module
-from app.assets import scanner, seeder as seeder_module
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.manager import AssetsEnabled
-from app.assets.seeder import ScanStatus, asset_seeder
-from app.database.models import Base
-from app.assets.services.schemas import RegisteredAsset, UploadAssetView
+from comfy.app.assets import lifecycle
+from comfy.app.assets import manager as manager_module
+from comfy.app.assets import scanner, seeder as seeder_module
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.manager import AssetsEnabled
+from comfy.app.assets.seeder import ScanStatus, asset_seeder
+from comfy.app.database.models import Base
+from comfy.app.assets.services.schemas import RegisteredAsset, UploadAssetView
 
 
 class _ArgsStub:
@@ -75,7 +75,7 @@ def threaded_create_session(
 
     monkeypatch.setattr(seeder_module, "create_session", _create_session)
     monkeypatch.setattr(scanner, "create_session", _create_session)
-    monkeypatch.setattr("app.assets.services.ingest.create_session", _create_session)
+    monkeypatch.setattr("comfy.app.assets.services.ingest.create_session", _create_session)
     yield _create_session
     engine.dispose()
 

@@ -7,10 +7,10 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from sqlalchemy import select, update
 
-from app.assets.api import routes
-from app.assets.api.routes import _build_asset_response
-from app.assets.database.models import Asset
-from app.assets.database.queries.records import (
+from comfy.app.assets.api import routes
+from comfy.app.assets.api.routes import _build_asset_response
+from comfy.app.assets.database.models import Asset
+from comfy.app.assets.database.queries.records import (
     RecordPageSpec,
     create_content,
     create_record,
@@ -18,16 +18,16 @@ from app.assets.database.queries.records import (
     list_records_page,
     mark_content_missing,
 )
-from app.assets.helpers import to_stored_hash
-from app.assets.services.asset_management import (
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.services.asset_management import (
     asset_exists,
     delete_asset_reference,
     get_asset_detail,
     resolve_asset_for_download,
     resolve_hash_to_path,
 )
-from app.assets.services.lookup import lookup_for_view
-from app.assets.services.schemas import AssetData, AssetDetailResult, ReferenceData
+from comfy.app.assets.services.lookup import lookup_for_view
+from comfy.app.assets.services.schemas import AssetData, AssetDetailResult, ReferenceData
 
 _TS = datetime(2024, 1, 1, 0, 0, 0)
 
@@ -124,7 +124,7 @@ def test_resolve_hash_to_path_refuses_temp_content(mock_create_session, session,
     create_content(session, path=str(f), hash=to_stored_hash(digest))
     session.commit()
 
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         result = resolve_hash_to_path(f"blake3:{digest}")
 
     assert result is None
@@ -258,7 +258,7 @@ def test_lookup_for_view_returns_none_for_temp_content(session, temp_dir):
     create_content(session, path=str(f), hash=to_stored_hash(digest))
     session.commit()
 
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         assert lookup_for_view(session, to_stored_hash(digest)) is None
 
 
@@ -269,7 +269,7 @@ def test_asset_exists_false_for_temp_content(mock_create_session, session, temp_
     create_content(session, path=str(f), hash=to_stored_hash(digest))
     session.commit()
 
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         assert asset_exists(f"blake3:{digest}") is False
 
 
@@ -284,7 +284,7 @@ async def test_head_hash_route_404_for_temp_content(
     session.commit()
 
     monkeypatch.setattr(routes, "_ASSETS_ENABLED", True)
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         response = await routes.head_asset_by_hash(
             make_mocked_request(
                 "HEAD",
@@ -313,7 +313,7 @@ def test_resolve_hash_to_path_temp_does_not_bump_last_access_time(
     )
     session.commit()
 
-    with patch("app.assets.services.lookup.is_temp_path", return_value=True):
+    with patch("comfy.app.assets.services.lookup.is_temp_path", return_value=True):
         result = resolve_hash_to_path(f"blake3:{digest}")
 
     assert result is None
@@ -325,7 +325,7 @@ def test_resolve_hash_to_path_temp_does_not_bump_last_access_time(
 
 @pytest.fixture
 def sandboxed_comfy_roots(tmp_path):
-    with patch("app.assets.services.path_utils.folder_paths") as fp:
+    with patch("comfy.app.assets.services.path_utils.folder_paths") as fp:
         fp.get_input_directory.return_value = str(tmp_path / "input")
         fp.get_output_directory.return_value = str(tmp_path / "output")
         fp.get_temp_directory.return_value = str(tmp_path / "temp")

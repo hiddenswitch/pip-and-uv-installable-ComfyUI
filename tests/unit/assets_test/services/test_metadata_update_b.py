@@ -1,13 +1,13 @@
 import pytest
 
-from app.assets.database.models import Asset, AssetTag, Tag
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.models import Asset, AssetTag, Tag
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     fetch_record_tags,
 )
-from app.assets.services.asset_management import update_asset_metadata
-from app.assets.services.tagging import apply_tags, remove_tags
+from comfy.app.assets.services.asset_management import update_asset_metadata
+from comfy.app.assets.services.tagging import apply_tags, remove_tags
 
 
 def _create_record(session, path: str, tags: list[str] | None = None) -> Asset:

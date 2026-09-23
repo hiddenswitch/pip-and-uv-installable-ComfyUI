@@ -8,30 +8,30 @@ from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session as SASession
 
-import app.assets.mode as mode_module
-import app.assets.services.ingest as ingest_module
-import folder_paths
-from app.assets.database.models import Asset, AssetContent, AssetTag
-from app.assets.database.queries.records import (
+from comfy.app.assets import mode as mode_module
+from comfy.app.assets.services import ingest as ingest_module
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,
 )
-from app.assets.helpers import to_stored_hash
-from app.assets.services.asset_management import delete_asset_reference
-from app.assets.services.file_utils import get_size_and_mtime_ns
-from app.assets.services.ingest import (
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.services.asset_management import delete_asset_reference
+from comfy.app.assets.services.file_utils import get_size_and_mtime_ns
+from comfy.app.assets.services.ingest import (
     UploadUnstableError,
     register_file_in_place,
     upload_from_temp_path,
 )
-from app.assets.services.lookup import (
+from comfy.app.assets.services.lookup import (
     claim_qualified_content as _real_claim_qualified_content,
     is_temp_path,
     lookup_for_view,
 )
-from app.assets.services.snapshot_hash import snapshot_hash
-from app.database.models import Base
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.database.models import Base
 
 
 def _bump_mtime(path: str) -> int:
@@ -838,7 +838,7 @@ def test_upload_unstable_raises_after_three_attempts_no_rows(
     temp = _write_temp(b"unstable")
     try:
         with patch(
-            "app.assets.services.ingest.snapshot_hash", return_value=None
+            "comfy.app.assets.services.ingest.snapshot_hash", return_value=None
         ) as mock_hash:
             with pytest.raises(UploadUnstableError):
                 upload_from_temp_path(
@@ -971,7 +971,7 @@ def test_content_retired_after_lookup_falls_back_to_a_new_content_row(
             return _real_claim_qualified_content(session, content_id, hash)
 
         with patch(
-            "app.assets.services.ingest.claim_qualified_content",
+            "comfy.app.assets.services.ingest.claim_qualified_content",
             retire_then_claim,
         ):
             second = upload_from_temp_path(
@@ -1046,11 +1046,11 @@ def test_two_connections_hash_changed_between_lookup_and_claim_falls_back(
     try:
         with (
             patch(
-                "app.assets.services.ingest.create_session",
+                "comfy.app.assets.services.ingest.create_session",
                 lambda: _session_factory(engine),
             ),
             patch(
-                "app.assets.services.ingest.claim_qualified_content",
+                "comfy.app.assets.services.ingest.claim_qualified_content",
                 claim_after_a_rehashes,
             ),
         ):
@@ -1120,11 +1120,11 @@ def test_two_connections_competing_retirement_is_blocked_until_commit(
     try:
         with (
             patch(
-                "app.assets.services.ingest.create_session",
+                "comfy.app.assets.services.ingest.create_session",
                 lambda: _session_factory(engine),
             ),
             patch(
-                "app.assets.services.ingest._create_upload_record",
+                "comfy.app.assets.services.ingest._create_upload_record",
                 create_record_after_a_retires,
             ),
         ):
@@ -1161,7 +1161,7 @@ def test_off_mode_upload_calls_content_lookup(mock_create_session, hashing_off):
     temp = _write_temp(b"off-mode")
     try:
         with patch(
-            "app.assets.services.ingest.lookup_for_view"
+            "comfy.app.assets.services.ingest.lookup_for_view"
         ) as mock_dedup:
             mock_dedup.return_value = None
             upload_from_temp_path(

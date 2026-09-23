@@ -2,10 +2,10 @@ import os
 
 from sqlalchemy import event, select
 
-import folder_paths
-from app.assets.database.models import Asset, AssetContent
-from app.assets.database.queries.records import mark_content_missing
-from app.assets.services.ingest import register_cached_output, register_executed_output
+from comfy.cmd import folder_paths
+from comfy.app.assets.database.models import Asset, AssetContent
+from comfy.app.assets.database.queries.records import mark_content_missing
+from comfy.app.assets.services.ingest import register_cached_output, register_executed_output
 
 
 def test_cached_save_creates_delivery_record(mock_create_session, db_engine):

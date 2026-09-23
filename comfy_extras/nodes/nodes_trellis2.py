@@ -4,9 +4,9 @@ from comfy.ldm.trellis2.vae import SparseTensor
 from comfy.ldm.trellis2.model import build_proj_transform_matrix, compute_stage_proj_feats
 
 from .nodes_mesh_postprocess import pack_variable_mesh_batch
-import comfy.latent_formats
-import comfy.model_management
-import comfy.utils
+from comfy import latent_formats
+from comfy import model_management
+from comfy import utils
 import logging
 import math
 import torch
@@ -14,8 +14,8 @@ import torch
 ShapeSubdivides = io.Custom("SHAPE_SUBDIVIDES")
 
 
-shape_slat_format = comfy.latent_formats.Trellis2ShapeSLAT()
-tex_slat_format = comfy.latent_formats.Trellis2TexSLAT()
+shape_slat_format = latent_formats.Trellis2ShapeSLAT()
+tex_slat_format = latent_formats.Trellis2TexSLAT()
 
 def shape_norm(shape_latent, coords):
     feats = shape_slat_format.process_out(shape_latent)
@@ -34,7 +34,7 @@ def _move_sparse_tensor_uncached(tensor, device):
 def _sparse_vae_decode_memory(point_count, dtype):
     # Last 128-channel stage: feature intermediates plus 27 int32 neighbor indices,
     # plus sparse-convolution workspace.
-    bytes_per_point = 896 * comfy.model_management.dtype_size(dtype) + 27 * 4
+    bytes_per_point = 896 * model_management.dtype_size(dtype) + 27 * 4
     return 2 * 1024 ** 3 + int(point_count) * bytes_per_point
 
 
@@ -143,7 +143,7 @@ class VaeDecodeShapeTrellis(IO.ComfyNode):
             resolution = int(vae.first_stage_model.resolution.item())
         model_frame = samples.get("model_frame", "y_up")
         sample_tensor = samples["samples"]
-        device = comfy.model_management.get_torch_device()
+        device = model_management.get_torch_device()
         coords = samples["coords"]
         surface_point_estimate = resolution * resolution * 5 // 4
         vae.prepare_decode(
@@ -188,7 +188,7 @@ class VaeDecodeShapeTrellis(IO.ComfyNode):
             mesh = Types.MESH(vertices=torch.stack(vert_list), faces=torch.stack(face_list))
         else:
             mesh = pack_variable_mesh_batch(vert_list, face_list)
-        output_device = comfy.model_management.intermediate_device()
+        output_device = model_management.intermediate_device()
         subs = [_move_sparse_tensor_uncached(sub, output_device) for sub in subs]
         return IO.NodeOutput(mesh, subs)
 
@@ -216,7 +216,7 @@ class VaeDecodeTextureTrellis(IO.ComfyNode):
     @classmethod
     def execute(cls, samples, vae, shape_subdivides):
         sample_tensor = samples["samples"]
-        device = comfy.model_management.get_torch_device()
+        device = model_management.get_torch_device()
         coords = samples["coords"]
         vae.prepare_decode(
             sample_tensor.shape,
@@ -268,7 +268,7 @@ class VaeDecodeTextureTrellis(IO.ComfyNode):
                     dim=-1,
                 )
 
-        output_device = comfy.model_management.intermediate_device()
+        output_device = model_management.intermediate_device()
         voxel_coords = voxel_coords.to(output_device)
         color_feats = color_feats.to(output_device)
         voxel = Types.VOXEL(voxel_coords, color_feats, tex_resolution)
@@ -298,7 +298,7 @@ class VaeDecodeStructureTrellis2(IO.ComfyNode):
         sample_tensor = sample_tensor[:, :8]
         batch_number = vae.prepare_decode(sample_tensor.shape)
         shape_vae = vae.first_stage_model
-        load_device = comfy.model_management.get_torch_device()
+        load_device = model_management.get_torch_device()
         decoded_batches = []
         for start in range(0, sample_tensor.shape[0], batch_number):
             sample_chunk = sample_tensor[start:start + batch_number].to(load_device)
@@ -354,7 +354,7 @@ class Trellis2UpsampleStage(IO.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, shape_latent, vae, target_resolution):
-        device = comfy.model_management.get_torch_device()
+        device = model_management.get_torch_device()
         vae.prepare_decode(shape_latent["samples"].shape)
 
         coord_counts = shape_latent.get("coord_counts")
@@ -425,8 +425,8 @@ def _dinov3_encode(model, image_bchw, image_size, want_patches=False):
     tokens split out + a 2D patch grid (Pixal3D path) when `want_patches=True`.
     """
     model_internal = model.model
-    device = comfy.model_management.get_torch_device()
-    img_t = comfy.utils.common_upscale(image_bchw, image_size, image_size, "lanczos", "disabled").to(device)
+    device = model_management.get_torch_device()
+    img_t = utils.common_upscale(image_bchw, image_size, image_size, "lanczos", "disabled").to(device)
     mean = torch.tensor(model.image_mean or [0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
     std = torch.tensor(model.image_std or [0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
     img_t = (img_t - mean) / std
@@ -457,7 +457,7 @@ class Trellis2Conditioning(IO.ComfyNode):
 
     @classmethod
     def execute(cls, clip_vision_model, image) -> IO.NodeOutput:
-        out_device = comfy.model_management.intermediate_device()
+        out_device = model_management.intermediate_device()
         cond = _dino_encode_batch(clip_vision_model, image, out_device)
         cond_512_batched, cond_1024_batched = cond["global_512"], cond["global_1024"]
         neg_cond_batched = torch.zeros_like(cond_512_batched)
@@ -668,7 +668,7 @@ def _dino_encode_batch(clip_vision_model, image, out_device, *, want_patches=Fal
     the 2D patch grids and the per-item BCHW composites that the Pixal3D NAF path needs."""
     image = image[..., :3]
     batch_size = image.shape[0]
-    comfy.model_management.load_model_gpu(clip_vision_model.patcher)
+    model_management.load_model_gpu(clip_vision_model.patcher)
 
     cond_512_list, cond_1024_list = [], []
     patches_512_list, patches_1024_list = [], []
@@ -702,12 +702,12 @@ def _naf_upsample(naf_model, lr_feat, composites, image_size, naf_target, out_de
     """NAF-upsample each item's DINO patch grid to naf_target, guided by its composite."""
     if naf_model is None:
         return None
-    comfy.model_management.load_model_gpu(naf_model)
+    model_management.load_model_gpu(naf_model)
     inner = naf_model.model
     model_dtype = next(inner.parameters()).dtype
     out = torch.empty((len(composites), lr_feat.shape[1], *naf_target), device=out_device, dtype=model_dtype)
     for i, c in enumerate(composites):
-        img_i = comfy.utils.common_upscale(c, image_size, image_size, "lanczos", "disabled").to(compute_device, model_dtype)
+        img_i = utils.common_upscale(c, image_size, image_size, "lanczos", "disabled").to(compute_device, model_dtype)
         lr_i = lr_feat[i:i + 1].to(compute_device, model_dtype)
         inner(img_i, lr_i, naf_target, output=out[i:i + 1])
     return out
@@ -716,8 +716,8 @@ def _naf_upsample(naf_model, lr_feat, composites, image_size, naf_target, out_de
 def _build_pixal3d_conditioning(clip_vision_model, image, transform_matrix, camera_angle_x, mesh_scale, num_views=1):
     """Per-item inputs hold B*num_views entries with each object's views consecutive; mesh_scale holds B."""
     naf_model = clip_vision_model.naf
-    out_device = comfy.model_management.intermediate_device()
-    compute_device = comfy.model_management.get_torch_device()
+    out_device = model_management.intermediate_device()
+    compute_device = model_management.get_torch_device()
 
     cond = _dino_encode_batch(clip_vision_model, image, out_device, want_patches=True)
     batch_size = cond["batch_size"] // num_views
@@ -863,7 +863,7 @@ class Pixal3DMultiViewConditioning(IO.ComfyNode):
                 if view.shape[-1] == 4:
                     view = view[..., :3] * view[..., 3:4]
                 if view.shape[1:3] != (1024, 1024):
-                    view = comfy.utils.common_upscale(view.movedim(-1, 1), 1024, 1024, "lanczos", "disabled").movedim(1, -1)
+                    view = utils.common_upscale(view.movedim(-1, 1), 1024, 1024, "lanczos", "disabled").movedim(1, -1)
                 items.append(view)
         fov = math.radians(fov)
         c2w = _orbit_camera_to_world(azimuths, [0.0] * num_views, _VIEW_PAD * 0.5 / math.tan(fov / 2.0))

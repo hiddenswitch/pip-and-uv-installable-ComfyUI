@@ -17,10 +17,10 @@ from PIL import Image, ImageColor, ImageDraw
 from tqdm.auto import tqdm
 from typing_extensions import override
 
-import comfy.model_management
-import comfy.model_patcher
-import comfy.storage
-import comfy.utils
+from comfy import model_management
+from comfy import model_patcher
+from comfy import storage
+from comfy import utils
 from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
@@ -44,8 +44,8 @@ class FaceLandmarkerModel:
     """
 
     def __init__(self, state_dict: dict):
-        self.load_device = comfy.model_management.text_encoder_device()
-        offload_device = comfy.model_management.text_encoder_offload_device()
+        self.load_device = model_management.text_encoder_device()
+        offload_device = model_management.text_encoder_offload_device()
         self.dtype = torch.float32
 
         # FACEMESH_* connection sets, embedded as int32 (N, 2) under topology.*.
@@ -61,7 +61,7 @@ class FaceLandmarkerModel:
         shared = {k: v for k, v in state_dict.items() if k.startswith(("mesh.", "blendshapes."))}
 
         self.models: dict[str, FaceLandmarker] = {}
-        self.patchers: dict[str, comfy.model_patcher.ModelPatcher] = {}
+        self.patchers: dict[str, model_patcher.ModelPatcher] = {}
         for variant in ("short", "full"):
             prefix = f"detector_{variant}."
             sub = dict(shared)
@@ -70,14 +70,14 @@ class FaceLandmarkerModel:
             fl.load_state_dict(sub, strict=False)
 
             self.models[variant] = fl
-            self.patchers[variant] = comfy.model_patcher.CoreModelPatcher(
+            self.patchers[variant] = model_patcher.CoreModelPatcher(
                 fl, load_device=self.load_device, offload_device=offload_device,
-                size=comfy.model_management.module_size(fl),
-                fast_disk=comfy.storage.state_dict_fast_disk(sub),
+                size=model_management.module_size(fl),
+                fast_disk=storage.state_dict_fast_disk(sub),
             )
 
     def detect_batch(self, images, num_faces: int, score_thresh: float, variant: str):
-        comfy.model_management.load_model_gpu(self.patchers[variant])
+        model_management.load_model_gpu(self.patchers[variant])
         return self.models[variant].detect_batch(images, num_faces=num_faces, score_thresh=score_thresh)
 
 
@@ -217,7 +217,7 @@ class LoadMediaPipeFaceLandmarker(io.ComfyNode):
 
     @classmethod
     def execute(cls, model_name) -> io.NodeOutput:
-        sd = comfy.utils.load_torch_file(folder_paths.get_full_path_or_raise("detection", model_name), safe_load=True)
+        sd = utils.load_torch_file(folder_paths.get_full_path_or_raise("detection", model_name), safe_load=True)
         wrapper = FaceLandmarkerModel(sd)
         return io.NodeOutput(wrapper)
 
@@ -273,7 +273,7 @@ class MediaPipeFaceLandmarker(io.ComfyNode):
         chunk = 16
         is_both = detector_variant == "both"
         total_work = 2 * B if is_both else B
-        pbar = comfy.utils.ProgressBar(total_work)
+        pbar = utils.ProgressBar(total_work)
 
         def _run(variant: str) -> list[list[dict]]:
             res: list[list[dict]] = []
@@ -387,15 +387,15 @@ class MediaPipeFaceMeshVisualize(io.ComfyNode):
             img_np = _image_to_uint8(image)
         B = img_np.shape[0]
         n_frames = len(frames)
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         out = np.empty_like(img_np)
         for bi in range(B):
             faces = frames[bi] if bi < n_frames else []
             out[bi] = _draw_mesh(img_np[bi], faces, edges, rgb, thick, psize, fill_rings)
             pbar.update_absolute(bi + 1)
         return io.NodeOutput(torch.from_numpy(out).to(
-            device=comfy.model_management.intermediate_device(),
-            dtype=comfy.model_management.intermediate_dtype(),
+            device=model_management.intermediate_device(),
+            dtype=model_management.intermediate_dtype(),
         ).div_(255.0))
 
 
@@ -483,7 +483,7 @@ class MediaPipeFaceMask(io.ComfyNode):
         frames = face_landmarks["frames"]
         H, W = face_landmarks["image_size"]
         masks = np.zeros((len(frames), H, W), dtype=np.uint8)
-        pbar = comfy.utils.ProgressBar(len(frames))
+        pbar = utils.ProgressBar(len(frames))
         for bi, per_frame in enumerate(frames):
             if per_frame:
                 pil = Image.new("L", (W, H), 0)
@@ -495,8 +495,8 @@ class MediaPipeFaceMask(io.ComfyNode):
                 masks[bi] = np.asarray(pil)
             pbar.update_absolute(bi + 1)
         return io.NodeOutput(torch.from_numpy(masks).to(
-            device=comfy.model_management.intermediate_device(),
-            dtype=comfy.model_management.intermediate_dtype(),
+            device=model_management.intermediate_device(),
+            dtype=model_management.intermediate_dtype(),
         ).div_(255.0))
 
 

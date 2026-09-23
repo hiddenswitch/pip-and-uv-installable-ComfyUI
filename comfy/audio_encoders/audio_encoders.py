@@ -52,8 +52,6 @@ class AudioEncoderModel:
         return self.model.state_dict()
 
     def encode_audio(self, audio, sample_rate):
-        # this one we will allow to just bubble up the exception
-        import torchaudio
         load_models_gpu([self.patcher])
         audio = comfy_audio.resample(audio, sample_rate, self.model_sample_rate)
         out, all_layers = self.model(audio.to(self.load_device))

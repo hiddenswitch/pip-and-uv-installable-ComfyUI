@@ -20,7 +20,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from ..assets.database import models as _asset_models
+from ..assets.database import models as _asset_models  # noqa: F401 -- register asset tables
 from .models import Base
 
 import blake3  # noqa: F401

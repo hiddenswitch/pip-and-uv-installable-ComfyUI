@@ -7,10 +7,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.assets import scanner
-from app.assets.event_log import TAG
-from app.assets.scanner import UnenrichedContent
-from app.assets.seeder import _ScanState
+from comfy.app.assets import scanner
+from comfy.app.assets.event_log import TAG
+from comfy.app.assets.scanner import UnenrichedContent
+from comfy.app.assets.seeder import _ScanState
 
 
 EVENT_LINE_PATTERN = re.compile(

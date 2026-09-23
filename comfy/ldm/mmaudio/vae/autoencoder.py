@@ -142,13 +142,11 @@ class AudioAutoencoder(nn.Module):
         mel_decoded = self.vae.decode(z)
         audio = self.vocoder(mel_decoded)
 
-        import torchaudio
         audio = comfy_audio.resample(audio, 16000, 44100)
         return audio
 
     @torch.no_grad()
     def encode(self, audio):
-        import torchaudio
         audio = audio.mean(dim=1)
         audio = comfy_audio.resample(audio, 44100, 16000)
         dist = self.encode_audio(audio)

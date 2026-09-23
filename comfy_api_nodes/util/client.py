@@ -27,7 +27,7 @@ import aiohttp
 
 from comfy import utils
 from comfy.cmd.server import PromptServer
-from comfy.model_management import InterruptProcessingException
+from comfy.interruption import InterruptProcessingException
 from comfy.model_management import interrupt_current_processing
 from comfy.model_management import throw_exception_if_processing_interrupted
 from comfy_api.latest import IO

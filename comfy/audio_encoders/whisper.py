@@ -21,12 +21,6 @@ class WhisperFeatureExtractor(nn.Module):
         self.chunk_length = 30
         self.n_samples = 480000
 
-        try:
-            import torchaudio
-        except (ImportError, ModuleNotFoundError) as exc_info:
-            logger.warning("could not load whisper because torchaudio not found")
-            raise exc_info
-
         self.mel_spectrogram = comfy_audio.MelSpectrogram(
             sample_rate=self.sample_rate,
             n_fft=self.n_fft,

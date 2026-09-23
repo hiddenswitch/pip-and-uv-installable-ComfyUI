@@ -11,12 +11,12 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-import folder_paths
+from ....cmd import folder_paths
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.assets import mode
-from app.assets.database.models import AssetContent
+from .. import mode
+from ..database.models import AssetContent
 
 
 def is_temp_path(path: str) -> bool:
@@ -49,7 +49,7 @@ def _qualifies(content: AssetContent) -> bool:
     )
 
 
-def qualified_content_iterator(session: Session, hash: str) -> Iterator[AssetContent]:
+def qualified_content_iterator(session: Session, hash: str) -> Iterator[AssetContent]:  # noqa: A002 -- preserve keyword input contract
     rows = session.scalars(
         select(AssetContent)
         .where(AssetContent.hash == hash, AssetContent.is_missing.is_(False))
@@ -60,7 +60,7 @@ def qualified_content_iterator(session: Session, hash: str) -> Iterator[AssetCon
             yield row
 
 
-def claim_qualified_content(session: Session, content_id: str, hash: str) -> bool:
+def claim_qualified_content(session: Session, content_id: str, hash: str) -> bool:  # noqa: A002 -- preserve keyword input contract
     """Claim a live matching content row before attaching a record.
 
     The conditional update takes this session's SQLite write lock through commit.
@@ -86,11 +86,11 @@ def refresh_qualified_content(session: Session, content_id: str) -> AssetContent
     return content
 
 
-def lookup_for_from_hash(session: Session, hash: str) -> AssetContent | None:
+def lookup_for_from_hash(session: Session, hash: str) -> AssetContent | None:  # noqa: A002 -- preserve keyword input contract
     if not mode.hashing_enabled():
         return None
     return next(qualified_content_iterator(session, hash), None)
 
 
-def lookup_for_view(session: Session, hash: str) -> AssetContent | None:
+def lookup_for_view(session: Session, hash: str) -> AssetContent | None:  # noqa: A002 -- preserve keyword input contract
     return next(qualified_content_iterator(session, hash), None)

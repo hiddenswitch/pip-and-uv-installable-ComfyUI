@@ -6,13 +6,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.model_management
-import comfy.ops
-import comfy.quant_ops
-import comfy.rmsnorm
-from comfy.ldm.modules.attention import COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE, optimized_attention
+from ... import model_management
+from ... import ops as comfy_ops
+from ... import quant_ops
+from ... import rmsnorm
+from ..modules.attention import COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE, optimized_attention
 
-ops = comfy.ops.disable_weight_init
+ops = comfy_ops.disable_weight_init
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -41,7 +41,7 @@ LATENTS_STD = [
 def _kitchen_ndhwc(x):
     # NDHWC when the kitchen pad kernel can feed it and the conv consumes it natively:
     # cuDNN does, MIOpen converts back and loses more than the fused pad saves
-    ck = getattr(comfy.quant_ops, "ck", None)
+    ck = getattr(quant_ops, "ck", None)
     return (ck is not None and hasattr(ck, "group_norm_silu_pad3d") and torch.version.hip is None
             and x.is_cuda and x.dtype in (torch.float16, torch.bfloat16))
 
@@ -50,21 +50,21 @@ def _fused_norm_pad(x, norm, spatial_pad, front):
     # per-frame GroupNorm + SiLU + padding in one kitchen pass, NDHWC out
     if not _kitchen_ndhwc(x) or x.shape[1] % 8:
         return None
-    ck = comfy.quant_ops.ck
+    ck = quant_ops.ck
     if norm is None:
         return ck.group_norm_silu_pad3d(x, None, None, 1, 0.0, (*spatial_pad, front), silu=False)
     # cast_bias_weight: works for offloaded (dynamic VRAM) layers
-    weight, bias, offload_stream = comfy.ops.cast_bias_weight(norm, x, offloadable=True)
+    weight, bias, offload_stream = comfy_ops.cast_bias_weight(norm, x, offloadable=True)
     try:
         return ck.group_norm_silu_pad3d(x, weight, bias, norm.num_groups, norm.eps, (*spatial_pad, front), silu=True)
     finally:
-        comfy.ops.uncast_bias_weight(norm, weight, bias, offload_stream)
+        comfy_ops.uncast_bias_weight(norm, weight, bias, offload_stream)
 
 
 def _fp16_accum_conv(conv, x, weight, bias, residual):
     # kitchen fp16-accumulate conv, same opt-in as the fp16 GEMMs
-    ck = comfy.quant_ops.ck
-    if not hasattr(ck, "fp16_conv3d") or not comfy.ops._fp16_linear_wanted(x):
+    ck = quant_ops.ck
+    if not hasattr(ck, "fp16_conv3d") or not comfy_ops._fp16_linear_wanted(x):
         return None
     return ck.fp16_conv3d(x, weight, bias, residual, conv.stride)
 
@@ -103,7 +103,7 @@ class CausalConv3d(ops.Conv3d):
             out = super().forward(x, autopad="causal_zero")
         elif ndhwc:
             # cast_bias_weight handles offloaded layers; channels_last keeps cuDNN's output NDHWC
-            weight, bias, offload_stream = comfy.ops.cast_bias_weight(self, x, offloadable=True)
+            weight, bias, offload_stream = comfy_ops.cast_bias_weight(self, x, offloadable=True)
             try:
                 weight_cl = weight.contiguous(memory_format=torch.channels_last_3d)
                 out = _fp16_accum_conv(self, x, weight_cl, bias, residual)
@@ -111,7 +111,7 @@ class CausalConv3d(ops.Conv3d):
                     return out
                 out = F.conv3d(x, weight_cl, bias, self.stride)
             finally:
-                comfy.ops.uncast_bias_weight(self, weight, bias, offload_stream)
+                comfy_ops.uncast_bias_weight(self, weight, bias, offload_stream)
         else:
             out = super().forward(x)
         if residual is not None:
@@ -269,8 +269,8 @@ class FeedForward(nn.Module):
 
     def forward(self, x, pre_norm, residual, residual_scale):
         # norm, gated silu and residual addcmul fold into the INT8 kernels
-        h = comfy.ops.linear_input_act(self.w1, x, "rms_norm", pre_norm.weight, pre_norm.eps)
-        return comfy.ops.linear_input_act(
+        h = comfy_ops.linear_input_act(self.w1, x, "rms_norm", pre_norm.weight, pre_norm.eps)
+        return comfy_ops.linear_input_act(
             self.w2, h, "swiglu", residual=residual, residual_scale=residual_scale)
 
 
@@ -290,31 +290,31 @@ class Attention(nn.Module):
     def forward(self, x, rotary_pos_emb, pre_norm, residual, residual_scale):
         batch_size, seq_len, _ = x.shape
 
-        qkv = comfy.ops.linear_input_act(self.to_qkv, x, "rms_norm", pre_norm.weight, pre_norm.eps)
+        qkv = comfy_ops.linear_input_act(self.to_qkv, x, "rms_norm", pre_norm.weight, pre_norm.eps)
         qkv = qkv.view(batch_size, seq_len, -1, 3 * self.dim_head)
         query, key, value = torch.chunk(qkv, 3, dim=-1)
 
         if rotary_pos_emb is not None:
             # fused per-head RMSNorm + partial split-half rope, in place when autograd is off
-            rms_rope = (comfy.quant_ops.ck.rms_rope_split_half if torch.is_grad_enabled()
-                        else comfy.quant_ops.ck.rms_rope_split_half_)
+            rms_rope = (quant_ops.ck.rms_rope_split_half if torch.is_grad_enabled()
+                        else quant_ops.ck.rms_rope_split_half_)
             # the eager fallback does no device alignment, so a CPU-resident (offloaded)
             # buffer must be moved to the input's device before the fused call
             query, key = rms_rope(
                 query, key, rotary_pos_emb, self.qk_norm_scale.to(query.device),
                 epsilon=self.norm_q.eps, rot_dim=rotary_pos_emb.shape[-3] * 2)
         else:
-            query = comfy.rmsnorm.rms_norm(query, self.norm_q.weight, self.norm_q.eps)
-            key = comfy.rmsnorm.rms_norm(key, self.norm_k.weight, self.norm_k.eps)
+            query = rmsnorm.rms_norm(query, self.norm_q.weight, self.norm_q.eps)
+            key = rmsnorm.rms_norm(key, self.norm_k.weight, self.norm_k.eps)
 
         query, key, value = (t.transpose(1, 2) for t in (query, key, value))
         # an int8 decoder already accepts int8 numerics; fp16 keeps exact flash
-        if isinstance(self.to_qkv.weight, comfy.ops.QuantizedTensor) and COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
-            out = comfy.quant_ops.ck.int8_attention(query, key, value)
+        if isinstance(self.to_qkv.weight, comfy_ops.QuantizedTensor) and COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
+            out = quant_ops.ck.int8_attention(query, key, value)
             out = out.transpose(1, 2).reshape(batch_size, seq_len, -1)
         else:
             out = optimized_attention(query, key, value, self.heads, skip_reshape=True)
-        return comfy.ops.linear_input_act(
+        return comfy_ops.linear_input_act(
             self.to_out, torch.nan_to_num(out), None,
             residual=residual, residual_scale=residual_scale)
 
@@ -334,7 +334,7 @@ class TransformerBlock(nn.Module):
         # cast_to_input always copies, defeating the kernels' identity-keyed caches
         if scale.dtype == x.dtype and scale.device == x.device:
             return scale
-        return comfy.ops.cast_to_input(scale, x)
+        return comfy_ops.cast_to_input(scale, x)
 
     def forward(self, x, rotary_pos_emb=None):
         x = self.attn(x, rotary_pos_emb, pre_norm=self.norm1,
@@ -375,7 +375,7 @@ class ViT3DDecoder(nn.Module):
         num_patches = h.shape[1]
         num_suffix = 1 + self.num_register_tokens
 
-        h = torch.cat([h, comfy.ops.cast_to_input(self.register_tokens, h).expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
+        h = torch.cat([h, comfy_ops.cast_to_input(self.register_tokens, h).expand(B, -1, -1), torch.zeros_like(h[:, 0:1, :])], dim=1)
 
         img_ids = create_token_ids((latent_T, latent_H, latent_W), x.device, x.dtype).expand(B, -1, -1)
         suffix_ids = torch.zeros((B, num_suffix, 3), device=x.device, dtype=img_ids.dtype)
@@ -589,7 +589,7 @@ class MiniMaxH3VideoVAE(nn.Module):
 
     def _decode_tile_row(self, z_row, x_idx, x_len):
         # a few tiles per decoder call (~7%); each extra tile holds ~100 MB of activations
-        free = comfy.model_management.get_free_memory(z_row.device)
+        free = model_management.get_free_memory(z_row.device)
         batch = int(max(1, min(4, free // (128 * 2**20 * z_row.shape[0]))))
         slices = [z_row[..., j_pos // self.vae_ratio:(j_pos + j_len) // self.vae_ratio] for j_pos, j_len in zip(x_idx, x_len)]
         for k in range(0, len(slices), batch):
@@ -711,7 +711,7 @@ class MiniMaxH3VideoVAE(nn.Module):
         if output_buffer is None:
             # finalized chunks stream out of VRAM so the full video never sits on the GPU
             output_buffer = torch.empty(self.decode_output_shape(z.shape), dtype=torch.float32,
-                                        device=comfy.model_management.intermediate_device())
+                                        device=model_management.intermediate_device())
 
         pad_tokens, num_chunks = self._decode_temporal_chunks(z.shape[2])
         if pad_tokens > 0:

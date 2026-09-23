@@ -17,17 +17,17 @@ from aiohttp import web
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session as SASession
 
-import app.assets.mode as mode_module
-import folder_paths
-from app.assets.api import routes, schemas_in
-from app.assets.database.models import AssetContent, Base
-from app.assets.services.ingest import register_executed_output
+from comfy.app.assets import mode as mode_module
+from comfy.cmd import folder_paths
+from comfy.app.assets.api import routes, schemas_in
+from comfy.app.assets.database.models import AssetContent, Base
+from comfy.app.assets.services.ingest import register_executed_output
 
 from .helpers import trigger_sync_seed_assets
 
 
 def _db_path(comfy_tmp_base_dir: Path, request: pytest.FixtureRequest) -> str:
-    url = request.config.getoption("--db-url")
+    url = request.config.getoption("--db-url", default=None)
     if url and url.startswith("sqlite:///"):
         return url[len("sqlite:///"):]
     return str(comfy_tmp_base_dir / "assets-test.sqlite3")
@@ -133,7 +133,7 @@ async def test_hash_only_multipart_upload_off_mode_returns_400(monkeypatch):
 def server_hashing_enabled(request: pytest.FixtureRequest) -> bool:
     markexpr = request.config.getoption("markexpr") or ""
     return bool(
-        request.config.getoption("--enable-asset-hashing")
+        request.config.getoption("--enable-asset-hashing", default=False)
         or "hashing_on" in markexpr
         or any(item.get_closest_marker("hashing_on") for item in request.session.items)
     )
@@ -223,7 +223,7 @@ def test_output_not_hashed_in_on_mode(monkeypatch):
 
     monkeypatch.setattr(mode_module, "hashing_enabled", lambda: False)
     monkeypatch.setattr(
-        "app.assets.services.ingest.create_session", _fake_create_session
+        "comfy.app.assets.services.ingest.create_session", _fake_create_session
     )
 
     output_dir = folder_paths.get_output_directory()

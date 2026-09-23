@@ -5,15 +5,15 @@ from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
-from app.assets.database.models import Asset, Tag
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.models import Asset, Tag
+from comfy.app.assets.database.queries.records import (
     RecordPageSpec,
     create_content,
     create_record,
     list_records_page,
     mark_content_missing,
 )
-from app.assets.database.queries.tags import (
+from comfy.app.assets.database.queries.tags import (
     list_tag_counts_for_filtered_assets,
     list_tags_with_usage,
 )

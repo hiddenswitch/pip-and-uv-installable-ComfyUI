@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from app.assets import event_log
-from app.assets.event_log import ALLOWED_FIELDS, TAG, EventLogError, emit, error_type
+from comfy.app.assets import event_log
+from comfy.app.assets.event_log import ALLOWED_FIELDS, TAG, EventLogError, emit, error_type
 
 # The line grammar below is the CONTRACT shared with the desktop launcher's log
 # tap: Comfy-Org/Comfy-Desktop `src/main/lib/assetsTap.ts` holds the equivalent

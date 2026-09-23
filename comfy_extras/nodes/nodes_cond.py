@@ -5,8 +5,8 @@ import safetensors.torch
 import torch
 from typing_extensions import override
 
-import comfy.utils
-import folder_paths
+from comfy import utils
+from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
 
@@ -80,7 +80,7 @@ class ConditioningLoader(io.ComfyNode):
 
     @classmethod
     def execute(cls, conditioning_name) -> io.NodeOutput:
-        sd, metadata = comfy.utils.load_torch_file(folder_paths.get_full_path_or_raise("embeddings", conditioning_name), safe_load=True, return_metadata=True)
+        sd, metadata = utils.load_torch_file(folder_paths.get_full_path_or_raise("embeddings", conditioning_name), safe_load=True, return_metadata=True)
         cond = sd.pop("conditioning")
         options = json.loads((metadata or {}).get("conditioning_options", "{}"))
         lists = {}

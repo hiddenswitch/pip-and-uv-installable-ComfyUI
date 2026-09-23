@@ -1,5 +1,5 @@
-from .main_pre import tracer
 from __future__ import annotations
+from .main_pre import tracer
 
 from contextlib import nullcontext
 from enum import Enum
@@ -7,7 +7,6 @@ from os import PathLike
 from typing import List
 from typing import Literal
 from typing import Optional
-from typing import TYPE_CHECKING
 import asyncio
 import copy
 import heapq
@@ -119,10 +118,6 @@ from comfy_execution.validation import validate_node_input
 
 _module_properties = create_module_properties()
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from comfy_execution.server_protocol import ExecutionServer
-
 
 @_module_properties.getter
 def _nodes():
@@ -557,7 +552,7 @@ def _is_intermediate_output(dynprompt, node_id):
     return getattr(class_def, 'HAS_INTERMEDIATE_OUTPUT', False)
 
 
-async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, caches, node_id: str, extra_data: dict, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager: AssetManager) -> RecursiveExecutionTuple:
+async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, caches, node_id: str, extra_data: dict, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager: AssetManager | None = None) -> RecursiveExecutionTuple:
     """
     Executes a prompt
     :param server:
@@ -571,6 +566,8 @@ async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, ca
     :param pending_subgraph_results:
     :return:
     """
+    if asset_manager is None:
+        asset_manager = default_asset_manager()
     with (
         context_execute_node(node_id),
         suppress_error_stack_trace(),

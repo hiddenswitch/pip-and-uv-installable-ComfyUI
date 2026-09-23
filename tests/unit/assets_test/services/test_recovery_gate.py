@@ -4,16 +4,16 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent, AssetTag, Tag
-from app.assets.helpers import to_stored_hash
-from app.assets.scanner import (
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag, Tag
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.scanner import (
     SeedAssetSpec,
     clear_pending_verifications,
     pending_recovery_count,
     seed_asset_specs,
 )
-from app.assets.scanner_changes import recover_missing_content
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.scanner_changes import recover_missing_content
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +64,7 @@ def test_single_hash_match_recovers(session, temp_dir: Path):
     path.write_bytes(b"restored bytes")
     content, record = _missing_content(session, path, _stored_hash(path))
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -80,7 +80,7 @@ def test_ambiguous_hash_match_recovers_nothing(session, temp_dir: Path):
     first, _ = _missing_content(session, path, digest)
     second, _ = _missing_content(session, path, digest)
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -95,7 +95,7 @@ def test_no_hash_match_creates_fresh_rows(session, temp_dir: Path):
     path.write_bytes(b"current bytes")
     missing, _ = _missing_content(session, path, "old")
 
-    with patch("app.assets.scanner.mode.hashing_enabled", return_value=True):
+    with patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
 
@@ -110,8 +110,8 @@ def test_off_mode_no_recovery(session, temp_dir: Path):
     missing, _ = _missing_content(session, path, _stored_hash(path))
 
     with (
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=False),
-        patch("app.assets.scanner_changes.snapshot_hash") as hash_mock,
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=False),
+        patch("comfy.app.assets.scanner_changes.snapshot_hash") as hash_mock,
     ):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()
@@ -127,8 +127,8 @@ def test_unstable_hash_requeues(session, temp_dir: Path):
     missing, _ = _missing_content(session, path, "old")
 
     with (
-        patch("app.assets.scanner.mode.hashing_enabled", return_value=True),
-        patch("app.assets.scanner_changes.snapshot_hash", return_value=None),
+        patch("comfy.app.assets.scanner.mode.hashing_enabled", return_value=True),
+        patch("comfy.app.assets.scanner_changes.snapshot_hash", return_value=None),
     ):
         created = seed_asset_specs(session, [_spec(path)])
     session.commit()

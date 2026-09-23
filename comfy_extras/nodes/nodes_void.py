@@ -2,12 +2,11 @@ import logging
 
 import torch
 
-import comfy
-import comfy.model_management
-import comfy.model_patcher
-import comfy.storage
-import comfy.samplers
-import comfy.utils
+from comfy import model_management
+from comfy import model_patcher
+from comfy import storage
+from comfy import samplers
+from comfy import utils
 from comfy import node_helpers
 from comfy.cmd import folder_paths
 from comfy.nodes import base_nodes as nodes
@@ -80,7 +79,7 @@ class OpticalFlowLoader(io.ComfyNode):
     def execute(cls, model_name) -> io.NodeOutput:
 
         model_path = folder_paths.get_full_path_or_raise("optical_flow", model_name)
-        sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+        sd = utils.load_torch_file(model_path, safe_load=True)
 
         has_raft_keys = (
             any(k.startswith("feature_encoder.") for k in sd)
@@ -98,11 +97,11 @@ class OpticalFlowLoader(io.ComfyNode):
         model.load_state_dict(sd)
         model.eval().to(torch.float32)
 
-        patcher = comfy.model_patcher.ModelPatcher(
+        patcher = model_patcher.ModelPatcher(
             model,
-            load_device=comfy.model_management.get_torch_device(),
-            offload_device=comfy.model_management.unet_offload_device(),
-            fast_disk=comfy.storage.state_dict_fast_disk(sd),
+            load_device=model_management.get_torch_device(),
+            offload_device=model_management.unet_offload_device(),
+            fast_disk=storage.state_dict_fast_disk(sd),
         )
         return io.NodeOutput(patcher)
 
@@ -218,14 +217,14 @@ class VOIDInpaintConditioning(io.ComfyNode):
         latent_w = width // 8
 
         vid = video[:length]
-        vid = comfy.utils.common_upscale(
+        vid = utils.common_upscale(
             vid.movedim(-1, 1), width, height, "bilinear", "center"
         ).movedim(1, -1)
 
         qm = quadmask[:length]
         if qm.ndim == 3:
             qm = qm.unsqueeze(-1)
-        qm = comfy.utils.common_upscale(
+        qm = utils.common_upscale(
             qm.movedim(-1, 1), width, height, "bilinear", "center"
         ).movedim(1, -1)
         if qm.ndim == 4 and qm.shape[-1] == 1:
@@ -272,7 +271,7 @@ class VOIDInpaintConditioning(io.ComfyNode):
 
         noise_latent = torch.zeros(
             [batch_size, 16, latent_t, latent_h, latent_w],
-            device=comfy.model_management.intermediate_device()
+            device=model_management.intermediate_device()
         )
 
         return io.NodeOutput(positive, negative, {"samples": noise_latent})
@@ -329,13 +328,13 @@ class VOIDWarpedNoise(io.ComfyNode):
         # we want the actual torch device (CUDA/MPS).  The final latent is
         # moved back to intermediate_device() before returning to match the
         # rest of the ComfyUI pipeline.
-        device = comfy.model_management.get_torch_device()
+        device = model_management.get_torch_device()
 
-        comfy.model_management.load_model_gpu(optical_flow)
+        model_management.load_model_gpu(optical_flow)
         raft = RaftOpticalFlow(optical_flow.model, device=device)
 
         vid = video[:length].to(device)
-        vid = comfy.utils.common_upscale(
+        vid = utils.common_upscale(
             vid.movedim(-1, 1), width, height, "bilinear", "center"
         ).movedim(1, -1)
         vid_uint8 = (vid.clamp(0, 1) * 255).to(torch.uint8)
@@ -373,7 +372,7 @@ class VOIDWarpedNoise(io.ComfyNode):
         if batch_size > 1:
             warped_tensor = warped_tensor.repeat(batch_size, 1, 1, 1, 1)
 
-        warped_tensor = warped_tensor.to(comfy.model_management.intermediate_device())
+        warped_tensor = warped_tensor.to(model_management.intermediate_device())
         return io.NodeOutput({"samples": warped_tensor})
 
 
@@ -408,7 +407,7 @@ class VOIDWarpedNoiseSource(io.ComfyNode):
         return io.NodeOutput(Noise_FromLatent(warped_noise))
 
 
-class VOID_DDIM(comfy.samplers.Sampler):
+class VOID_DDIM(samplers.Sampler):
     """DDIM sampler for VOID inpainting models.
 
     VOID was trained with the diffusers CogVideoXDDIMScheduler which operates in

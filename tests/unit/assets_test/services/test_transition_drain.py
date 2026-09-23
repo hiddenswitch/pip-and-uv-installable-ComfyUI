@@ -1,16 +1,16 @@
 import logging
 from pathlib import Path
 
-import folder_paths
+from comfy.cmd import folder_paths
 import pytest
 from blake3 import blake3
 from sqlalchemy import select
 
-from app.assets.database.models import Asset, AssetContent, AssetTag
-from app.assets.database.queries.records import create_content, create_record
-from app.assets.helpers import to_stored_hash
-from app.assets.services import hash_mode_state
-from app.assets.services.hash_mode_state import (
+from comfy.app.assets.database.models import Asset, AssetContent, AssetTag
+from comfy.app.assets.database.queries.records import create_content, create_record
+from comfy.app.assets.helpers import to_stored_hash
+from comfy.app.assets.services import hash_mode_state
+from comfy.app.assets.services.hash_mode_state import (
     clear_transition_queue,
     drain_transition_queue,
     enqueue_transition_work,
@@ -18,9 +18,9 @@ from app.assets.services.hash_mode_state import (
     record_transition_intent,
     write_stored_mode,
 )
-from app.assets.services.lookup import lookup_for_view
-from app.assets.services.path_utils import get_name_and_tags_from_asset_path
-from app.assets.services.snapshot_hash import snapshot_hash
+from comfy.app.assets.services.lookup import lookup_for_view
+from comfy.app.assets.services.path_utils import get_name_and_tags_from_asset_path
+from comfy.app.assets.services.snapshot_hash import snapshot_hash
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +58,7 @@ def test_off_to_on_transition_hashes_null_rows_and_persists_mode(session, temp_d
 
 def test_transition_drain_splits_changed_content(session, temp_dir, monkeypatch):
     path = temp_dir / "changed.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     path.write_bytes(b"old bytes")
     old_snapshot = snapshot_hash(str(path))
     assert old_snapshot is not None
@@ -159,7 +159,7 @@ def test_transition_drain_marks_deleted_path_missing_and_completes_transition(
     session, temp_dir, monkeypatch
 ):
     path = temp_dir / "vanished.bin"
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     path.write_bytes(b"bytes that die during the outage")
     stat = path.stat()
     content = create_content(session, str(path), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns)
@@ -246,7 +246,7 @@ def test_transition_drain_requeues_unstable_present_file_without_marking_it_miss
 
 
 def test_transition_drain_mixes_a_deleted_path_with_a_healthy_one(session, temp_dir, monkeypatch):
-    monkeypatch.setattr("folder_paths.get_input_directory", lambda: str(temp_dir))
+    monkeypatch.setattr("comfy.cmd.folder_paths.get_input_directory", lambda: str(temp_dir))
     deleted_path = temp_dir / "deleted.bin"
     healthy_path = temp_dir / "survivor.bin"
     deleted_path.write_bytes(b"deleted during the outage")

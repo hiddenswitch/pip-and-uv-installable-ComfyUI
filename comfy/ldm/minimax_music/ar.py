@@ -1,4 +1,3 @@
-from ... import model_prefetch
 import dataclasses
 import hashlib
 

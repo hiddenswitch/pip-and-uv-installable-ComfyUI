@@ -1,3 +1,4 @@
+from importlib.resources import files
 
 import os
 import sqlite3
@@ -8,9 +9,9 @@ from alembic.config import Config
 
 
 def _make_config(db_path: str) -> Config:
-    root = os.path.join(os.path.dirname(__file__), "../..")
-    cfg = Config(os.path.abspath(os.path.join(root, "alembic.ini")))
-    cfg.set_main_option("script_location", os.path.abspath(os.path.join(root, "alembic_db")))
+    resources = files("comfy")
+    cfg = Config(str(resources.joinpath("alembic.ini")))
+    cfg.set_main_option("script_location", str(resources.joinpath("alembic_db")))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
 

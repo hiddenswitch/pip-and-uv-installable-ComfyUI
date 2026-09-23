@@ -3,17 +3,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.ops
-import comfy.patcher_extension
-import comfy.quant_ops
-import comfy.rmsnorm
-from comfy.ldm.flux.layers import EmbedND, timestep_embedding
-from comfy.ldm.flux.math import apply_rope1
-from comfy.ldm.lightricks.model import TimestepEmbedding
-from comfy.ldm.modules.attention import ComfyAttention, optimized_attention
-from comfy.ldm.wan.model_animate2 import PoseBranchCache
+from ... import model_management
+from ... import model_prefetch
+from ... import ops
+from ... import patcher_extension
+from ... import quant_ops
+from ... import rmsnorm
+from ..flux.layers import EmbedND, timestep_embedding
+from ..flux.math import apply_rope1
+from ..lightricks.model import TimestepEmbedding
+from ..modules.attention import ComfyAttention, optimized_attention
+from ..wan.model_animate2 import PoseBranchCache
 
 
 class ZeroCenteredRMSNorm(nn.Module):
@@ -24,8 +24,8 @@ class ZeroCenteredRMSNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        w = comfy.model_management.cast_to(self.weight, dtype=torch.float32, device=x.device) + 1.0
-        return comfy.rmsnorm.rms_norm(x.float(), w, self.eps).to(x.dtype)
+        w = model_management.cast_to(self.weight, dtype=torch.float32, device=x.device) + 1.0
+        return rmsnorm.rms_norm(x.float(), w, self.eps).to(x.dtype)
 
 
 class TextProjection(nn.Module):
@@ -62,7 +62,7 @@ class SwiGLUFeedForward(nn.Module):
 
     def forward(self, x):
         if self.fused:
-            return comfy.ops.linear_input_act(self.out, self.gate_up(x), "swiglu")
+            return ops.linear_input_act(self.out, self.gate_up(x), "swiglu")
         return self.out(F.silu(self.gate_layer(x)) * self.proj(x))
 
 
@@ -86,7 +86,7 @@ class Attention(nn.Module):
         k = self.to_k(x).view(B, N, self.heads, -1)
         v = self.to_v(x).view(B, N, self.heads, -1)
         patches = transformer_options.get("patches", {}).get("attn1_patch", [])
-        if comfy.model_management.in_training or patches:
+        if model_management.in_training or patches:
             q, k = self.norm_q(q), self.norm_k(k)
             if patches:
                 # patches see the Qwen-Image convention: (B, H, N, D) before rope, rope table (1, 1, N, ...), target image rows in img_slice
@@ -99,11 +99,11 @@ class Attention(nn.Module):
             q = apply_rope1(q, pe)
             k = apply_rope1(k, pe)
         else:
-            q_scale, _, q_stream = comfy.ops.cast_bias_weight(self.norm_q, q, offloadable=True)
-            k_scale, _, k_stream = comfy.ops.cast_bias_weight(self.norm_k, k, offloadable=True)
-            q, k = comfy.quant_ops.ck.rms_rope(q, k, pe, q_scale, k_scale, self.norm_q.eps)
-            comfy.ops.uncast_bias_weight(self.norm_q, q_scale, None, q_stream)
-            comfy.ops.uncast_bias_weight(self.norm_k, k_scale, None, k_stream)
+            q_scale, _, q_stream = ops.cast_bias_weight(self.norm_q, q, offloadable=True)
+            k_scale, _, k_stream = ops.cast_bias_weight(self.norm_k, k, offloadable=True)
+            q, k = quant_ops.ck.rms_rope(q, k, pe, q_scale, k_scale, self.norm_q.eps)
+            ops.uncast_bias_weight(self.norm_q, q_scale, None, q_stream)
+            ops.uncast_bias_weight(self.norm_k, k_scale, None, k_stream)
         return self.to_out[0](attn_fn(q, k, v, self.heads, preferred_attention=self.comfy_attention))
 
 
@@ -115,12 +115,12 @@ def _split_rows(p):
 def _modulated_norm(norm, x, scale, prefix_len, zero):
     # LayerNorm * (1 + scale), fused over every row with the target scale; the prefix rows are then redone with the t = 0 scale
     s_prefix, s_target = scale
-    if comfy.model_management.in_training:
+    if model_management.in_training:
         out = norm(x)
         return torch.cat([out[:, :prefix_len] * (1 + s_prefix), out[:, prefix_len:] * (1 + s_target)], dim=1)
-    out = comfy.quant_ops.ck.adaln(x, s_target, zero, norm.eps)
+    out = quant_ops.ck.adaln(x, s_target, zero, norm.eps)
     if prefix_len:
-        out[:, :prefix_len] = comfy.quant_ops.ck.adaln(x[:, :prefix_len], s_prefix, zero, norm.eps)
+        out[:, :prefix_len] = quant_ops.ck.adaln(x[:, :prefix_len], s_prefix, zero, norm.eps)
     return out
 
 
@@ -158,9 +158,9 @@ class LastLayer(nn.Module):
 
     def forward(self, x, temb):
         scale = self.linear(F.silu(temb)).unsqueeze(1)
-        if comfy.model_management.in_training:
+        if model_management.in_training:
             return self.norm(x) * (1 + scale)
-        return comfy.quant_ops.ck.adaln(x, scale, torch.zeros_like(scale[:1]), self.norm.eps)
+        return quant_ops.ck.adaln(x, scale, torch.zeros_like(scale[:1]), self.norm.eps)
 
 
 def block_causal_attention(segments, transformer_options={}, cache=None, block_index=0, prefix_len=0):
@@ -254,14 +254,14 @@ class QwenImage21Transformer2DModel(nn.Module):
                 # spare VRAM first, then reclaim inactive model RAM for a host cache
                 if self.current_patcher.get_free_memory(device) > 4 * cache_bytes:
                     store = device
-                elif comfy.model_management.ensure_pin_budget(cache_bytes, evict_active=False):
+                elif model_management.ensure_pin_budget(cache_bytes, evict_active=False):
                     store = torch.device("cpu")
                 else:
                     return None, False
             else:
                 store = device if store == "gpu" else torch.device("cpu")
             cache = self.prefix_cache = PoseBranchCache(store_device=store, dtype=dtype)
-        if not (self.current_patcher.get_free_memory(device) > 2 * cache_bytes if cache.store_device == device else comfy.model_management.ensure_pin_budget(cache_bytes, evict_active=False)):
+        if not (self.current_patcher.get_free_memory(device) > 2 * cache_bytes if cache.store_device == device else model_management.ensure_pin_budget(cache_bytes, evict_active=False)):
             # no room for this slot: recompute rather than evict the other cond's slot every step
             return None, False
         cache.select(key)
@@ -298,10 +298,10 @@ class QwenImage21Transformer2DModel(nn.Module):
         return torch.cat(parts, dim=1), pe, segments
 
     def forward(self, x, timestep, context, ref_latents=None, image_slots=None, transformer_options={}, **kwargs):
-        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        return patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
-            comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
+            patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(x, timestep, context, ref_latents, image_slots, transformer_options, **kwargs)
 
     def _forward(self, x, timesteps, context, ref_latents=None, image_slots=None, transformer_options={}, **kwargs):
@@ -340,14 +340,14 @@ class QwenImage21Transformer2DModel(nn.Module):
 
         transformer_options["total_blocks"] = len(self.transformer_blocks)
         transformer_options["block_type"] = "single"
-        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(list(self.transformer_blocks), x.device, transformer_options)
-        comfy.model_prefetch.malloc_graph_begin(x.device)
+        prefetch_queue = model_prefetch.make_prefetch_queue(list(self.transformer_blocks), x.device, transformer_options)
+        model_prefetch.malloc_graph_begin(x.device)
         for i, block in enumerate(self.transformer_blocks):
-            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, block, dtype, malloc_scope="block")
+            model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, block, dtype, malloc_scope="block")
             transformer_options["block_index"] = i
             if cache is not None:
                 if not cached:
-                    with comfy.model_prefetch.pause_malloc_graph():
+                    with model_prefetch.pause_malloc_graph():
                         prefix_attn = block_causal_attention(segments[:-1], transformer_options, cache, i, prefix_states.shape[1])
                         prefix_states = block(prefix_states, mod, prefix_pe, prefix_attn, prefix_states.shape[1], transformer_options)
                 prefix_k, prefix_v = cache.take(i, x.device, dtype, B).unbind(1)
@@ -365,8 +365,8 @@ class QwenImage21Transformer2DModel(nn.Module):
             for p in patches.get("single_block", []):
                 hidden_states = p({"img": hidden_states, "x": x, "block_index": i, "transformer_options": transformer_options})["img"]
 
-        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, None, malloc_scope="block")
-        comfy.model_prefetch.malloc_graph_end()
+        model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, None, malloc_scope="block")
+        model_prefetch.malloc_graph_end()
         hidden_states = self.norm_out(hidden_states[:, prefix_len:], temb[:-1])
         hidden_states = self.proj_out(hidden_states)
         return hidden_states.transpose(1, 2).reshape(B, self.out_channels, H, W)
