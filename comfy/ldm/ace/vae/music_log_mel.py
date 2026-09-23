@@ -1,16 +1,9 @@
 # Original from: https://github.com/ace-step/ACE-Step/blob/main/music_dcae/music_log_mel.py
-import logging
 
+from torch import Tensor
+from ....audio import MelScale
 import torch
 import torch.nn as nn
-from torch import Tensor
-
-logger = logging.getLogger(__name__)
-
-try:
-    from torchaudio.transforms import MelScale
-except:
-    logger.debug("torchaudio missing, ACE model will be broken")
 
 from .... import model_management
 
@@ -97,8 +90,6 @@ class LogMelSpectrogram(nn.Module):
             self.f_min,
             self.f_max,
             self.n_fft // 2 + 1,
-            "slaney",
-            "slaney",
         )
 
     def compress(self, x: Tensor) -> Tensor:

@@ -1,17 +1,17 @@
 import logging
 
-import comfy.ldm.modules.attention
+from comfy.ldm.modules import attention
 import torch
 
-import comfy.latent_formats
-import comfy.model_sampling
-import comfy.sd
+from comfy import latent_formats
+from comfy import model_sampling as comfy_model_sampling
 from comfy import node_helpers
+from comfy import sd
 from comfy.nodes.common import MAX_RESOLUTION
 from comfy_api.latest import io
 
 
-class LCM(comfy.model_sampling.EPS):
+class LCM(comfy_model_sampling.EPS):
     def timestep(self, *args, **kwargs) -> torch.Tensor:
         pass
 
@@ -28,7 +28,7 @@ class LCM(comfy.model_sampling.EPS):
 
         return c_out * x0 + c_skip * model_input
 
-class ModelSamplingDiscreteDistilled(comfy.model_sampling.ModelSamplingDiscrete):
+class ModelSamplingDiscreteDistilled(comfy_model_sampling.ModelSamplingDiscrete):
     original_timesteps = 50
 
     def __init__(self, model_config=None, zsnr=None):
@@ -73,20 +73,20 @@ class ModelSamplingDiscrete:
         m = model.clone()
 
         sampling_type = "eps"
-        sampling_base = comfy.model_sampling.ModelSamplingDiscrete
+        sampling_base = comfy_model_sampling.ModelSamplingDiscrete
         if sampling == "eps":
-            sampling_type = comfy.model_sampling.EPS
+            sampling_type = comfy_model_sampling.EPS
         elif sampling == "v_prediction":
-            sampling_type = comfy.model_sampling.V_PREDICTION
+            sampling_type = comfy_model_sampling.V_PREDICTION
         elif sampling == "lcm":
             sampling_type = LCM
             sampling_base = ModelSamplingDiscreteDistilled
         elif sampling == "x0":
-            sampling_type = comfy.model_sampling.X0
+            sampling_type = comfy_model_sampling.X0
         elif sampling == "img_to_img":
-            sampling_type = comfy.model_sampling.IMG_TO_IMG
+            sampling_type = comfy_model_sampling.IMG_TO_IMG
         elif sampling == "img_to_img_flow":
-            sampling_type = comfy.model_sampling.IMG_TO_IMG_FLOW
+            sampling_type = comfy_model_sampling.IMG_TO_IMG_FLOW
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -112,8 +112,8 @@ class ModelSamplingStableCascade:
     def patch(self, model, shift):
         m = model.clone()
 
-        sampling_base = comfy.model_sampling.StableCascadeSampling
-        sampling_type = comfy.model_sampling.EPS
+        sampling_base = comfy_model_sampling.StableCascadeSampling
+        sampling_type = comfy_model_sampling.EPS
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -136,11 +136,13 @@ class ModelSamplingSD3:
 
     CATEGORY = "model/patch/stable diffusion"
 
-    def patch(self, model, shift, multiplier=1000):
+    def patch(self, model, shift, multiplier=1000, sampling="flow"):
         m = model.clone()
 
-        sampling_base = comfy.model_sampling.ModelSamplingDiscreteFlow
-        sampling_type = comfy.model_sampling.CONST
+        sampling_base = comfy_model_sampling.ModelSamplingDiscreteFlow
+        sampling_type = comfy_model_sampling.CONST
+        if sampling == "img_to_img_velocity":
+            sampling_type = comfy_model_sampling.IMG_TO_IMG_VELOCITY
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -159,13 +161,15 @@ class ModelSamplingAuraFlow(ModelSamplingSD3):
     def INPUT_TYPES(s):
         return {"required": {"model": ("MODEL",),
                              "shift": ("FLOAT", {"default": 1.73, "min": 0.0, "max": 100.0, "step": 0.01}),
-                             }}
+                             },
+                "optional": { "sampling": (["flow", "img_to_img_velocity"], {"default": "flow", "advanced": True}),
+                              }}
 
     FUNCTION = "patch_aura"
     CATEGORY = "model/patch"
 
-    def patch_aura(self, model, shift):
-        return self.patch(model, shift, multiplier=1.0)
+    def patch_aura(self, model, shift, sampling="flow"):
+        return self.patch(model, shift, multiplier=1.0, sampling=sampling)
 
 
 class ModelSamplingFlux:
@@ -192,8 +196,8 @@ class ModelSamplingFlux:
         b = base_shift - mm * x1
         shift = (width * height / (8 * 8 * 2 * 2)) * mm + b
 
-        sampling_base = comfy.model_sampling.ModelSamplingFlux
-        sampling_type = comfy.model_sampling.CONST
+        sampling_base = comfy_model_sampling.ModelSamplingFlux
+        sampling_type = comfy_model_sampling.CONST
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -221,24 +225,24 @@ class ModelSamplingContinuousEDM:
     def patch(self, model, sampling, sigma_max, sigma_min):
         m = model.clone()
 
-        sampling_base = comfy.model_sampling.ModelSamplingContinuousEDM
+        sampling_base = comfy_model_sampling.ModelSamplingContinuousEDM
         latent_format = None
         sigma_data = 1.0
-        sampling_type = comfy.model_sampling.EPS
+        sampling_type = comfy_model_sampling.EPS
         if sampling == "eps":
-            sampling_type = comfy.model_sampling.EPS
+            sampling_type = comfy_model_sampling.EPS
         elif sampling == "edm":
-            sampling_type = comfy.model_sampling.EDM
+            sampling_type = comfy_model_sampling.EDM
             sigma_data = 0.5
         elif sampling == "v_prediction":
-            sampling_type = comfy.model_sampling.V_PREDICTION
+            sampling_type = comfy_model_sampling.V_PREDICTION
         elif sampling == "edm_playground_v2.5":
-            sampling_type = comfy.model_sampling.EDM
+            sampling_type = comfy_model_sampling.EDM
             sigma_data = 0.5
-            latent_format = comfy.latent_formats.SDXL_Playground_2_5()
+            latent_format = latent_formats.SDXL_Playground_2_5()
         elif sampling == "cosmos_rflow":
-            sampling_type = comfy.model_sampling.COSMOS_RFLOW
-            sampling_base = comfy.model_sampling.ModelSamplingCosmosRFlow
+            sampling_type = comfy_model_sampling.COSMOS_RFLOW
+            sampling_base = comfy_model_sampling.ModelSamplingCosmosRFlow
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -269,11 +273,11 @@ class ModelSamplingContinuousV:
         m = model.clone()
 
         sigma_data = 1.0
-        sampling_type = comfy.model_sampling.EPS
+        sampling_type = comfy_model_sampling.EPS
         if sampling == "v_prediction":
-            sampling_type = comfy.model_sampling.V_PREDICTION
+            sampling_type = comfy_model_sampling.V_PREDICTION
 
-        class ModelSamplingAdvanced(comfy.model_sampling.ModelSamplingContinuousV, sampling_type):
+        class ModelSamplingAdvanced(comfy_model_sampling.ModelSamplingContinuousV, sampling_type):
             pass
 
         model_sampling = ModelSamplingAdvanced(model.model.model_config)
@@ -296,7 +300,7 @@ class RescaleCFG:
 
     def patch(self, model, multiplier):
         model_sampling = model.get_model_object("model_sampling")
-        is_flow = isinstance(model_sampling, comfy.model_sampling.CONST)
+        is_flow = isinstance(model_sampling, comfy_model_sampling.CONST)
 
         def rescale_cfg(args):
             x_orig = args["input"]
@@ -386,7 +390,7 @@ class ModelAttentionBackend(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         backends = ["pytorch attention"]
-        if comfy.ldm.modules.attention.COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
+        if attention.COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE:
             backends.append("comfy kitchen attention")
         return io.Schema(
             node_id="ModelAttentionBackend",
@@ -414,10 +418,10 @@ class ModelAttentionBackend(io.ComfyNode):
             "comfy kitchen attention": "comfy_kitchen_int8",
             "pytorch attention": "pytorch",
         }.get(attention)
-        attention_function = comfy.ldm.modules.attention.get_attention_function(attention_name, None)
+        attention_function = attention.get_attention_function(attention_name, None)
         if attention_function is None:
             logging.warning("Attention backend '%s' is unavailable; using PyTorch attention.", attention)
-            attention_function = comfy.ldm.modules.attention.get_attention_function("pytorch")
+            attention_function = attention.get_attention_function("pytorch")
         m = model.clone()
         m.set_model_optimized_attention(attention_function)
         return io.NodeOutput(m)

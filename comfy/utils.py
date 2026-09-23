@@ -17,8 +17,17 @@
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from pathlib import Path
+from pickle import PickleError
+from pickle import UnpicklingError
+from typing import Any
+from typing import Generator
+from typing import Literal
+from typing import Optional
 import contextlib
 import contextvars
+from . import storage
 import ctypes
 import itertools
 import json
@@ -32,29 +41,29 @@ import sys
 import threading
 import time
 import warnings
-from contextlib import contextmanager
-from pathlib import Path
-from pickle import UnpicklingError, PickleError
-from typing import Optional, Any, Generator, Literal
 
-import numpy as np
-import safetensors.torch
-import torch
 from PIL import Image
 from einops import rearrange
 from torch.nn.functional import interpolate
 from tqdm import tqdm
 from tqdm.auto import trange
-from typing_extensions import TypedDict, NotRequired
+from typing_extensions import NotRequired
+from typing_extensions import TypedDict
+import numpy as np
+import safetensors.torch
+import torch
 
-from comfy_execution.progress import get_progress_state
-from . import interruption, checkpoint_pickle, memory_management
+from . import checkpoint_pickle
+from . import interruption
+from . import memory_management
 from .cli_args import args
 from .component_model import files
 from .component_model.deprecation import _deprecate_method
-from .component_model.executor_types import ExecutorToClientProgress, ProgressMessage
+from .component_model.executor_types import ExecutorToClientProgress
+from .component_model.executor_types import ProgressMessage
 from .component_model.tqdm_watcher import TqdmWatcher
 from .execution_context import current_execution_context
+from comfy_execution.progress import get_progress_state
 
 MMAP_TORCH_FILES = args.mmap_torch_files
 DISABLE_MMAP = args.disable_mmap
@@ -311,6 +320,7 @@ def load_torch_file(ckpt: str, safe_load=False, device=None, return_metadata=Fal
                     logger.error(msg, exc_info=exc_info)
             if sd is None:
                 raise exc_info
+    storage.annotate_state_dict(sd, ckpt)
     return (sd, metadata) if return_metadata else sd
 
 

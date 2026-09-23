@@ -9,15 +9,16 @@ import math
 import os
 import random
 
-import numpy as np
-import safetensors.torch
-import torch
-from PIL import Image, ImageOps, ImageSequence
+from PIL import Image
+from PIL import ImageOps
+from PIL import ImageSequence
 from PIL.PngImagePlugin import PngInfo
 from huggingface_hub import snapshot_download
 from natsort import natsorted
+import numpy as np
+import safetensors.torch
+import torch
 
-from comfy_api.latest import io, InputImpl
 from .. import clip_vision as clip_vision_module
 from .. import controlnet
 from .. import diffusers_load
@@ -28,21 +29,41 @@ from .. import samplers
 from .. import sd
 from .. import utils
 from ..cli_args import args
-from ..cmd import folder_paths, latent_preview
-from ..comfy_types import IO, ComfyNodeABC, InputTypeDict, FileLocator
+from ..cmd import folder_paths
+from ..cmd import latent_preview
+from ..comfy_types import ComfyNodeABC
+from ..comfy_types import FileLocator
+from ..comfy_types import IO
+from ..comfy_types import InputTypeDict
 from ..component_model.deprecation import _deprecate_method
 from ..component_model.images_types import ImageMaskTuple
-from ..component_model.tensor_types import RGBImage, RGBImageBatch, MaskBatch, RGBAImageBatch, Latent
+from ..component_model.tensor_types import Latent
+from ..component_model.tensor_types import MaskBatch
+from ..component_model.tensor_types import RGBAImageBatch
+from ..component_model.tensor_types import RGBImage
+from ..component_model.tensor_types import RGBImageBatch
 from ..execution_context import current_execution_context
 from ..images import open_image
 from ..interruption import interrupt_current_processing
 from ..ldm.flux.weight_dtypes import FLUX_WEIGHT_DTYPES
-from ..model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise, KNOWN_CHECKPOINTS, \
-    KNOWN_CLIP_VISION_MODELS, KNOWN_GLIGEN_MODELS, KNOWN_UNCLIP_CHECKPOINTS, KNOWN_LORAS, KNOWN_CONTROLNETS, \
-    KNOWN_DIFF_CONTROLNETS, KNOWN_VAES, KNOWN_APPROX_VAES, get_huggingface_repo_list, KNOWN_CLIP_MODELS, \
-    _get_known_models_for_folder_name
-from ..nodes.common import MAX_RESOLUTION
+from ..model_downloader import KNOWN_APPROX_VAES
+from ..model_downloader import KNOWN_CHECKPOINTS
+from ..model_downloader import KNOWN_CLIP_MODELS
+from ..model_downloader import KNOWN_CLIP_VISION_MODELS
+from ..model_downloader import KNOWN_CONTROLNETS
+from ..model_downloader import KNOWN_DIFF_CONTROLNETS
+from ..model_downloader import KNOWN_GLIGEN_MODELS
+from ..model_downloader import KNOWN_LORAS
+from ..model_downloader import KNOWN_UNCLIP_CHECKPOINTS
+from ..model_downloader import KNOWN_VAES
+from ..model_downloader import _get_known_models_for_folder_name
+from ..model_downloader import get_filename_list_with_downloadable
+from ..model_downloader import get_full_path_or_raise
+from ..model_downloader import get_huggingface_repo_list
 from ..open_exr import load_exr
+from .common import MAX_RESOLUTION
+from comfy_api.latest import InputImpl
+from comfy_api.latest import io
 
 KNOWN_DIFFUSION_MODEL_LOADS = _get_known_models_for_folder_name("diffusion_models")
 from ..sd import VAE
@@ -1099,7 +1120,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"clip_name": (get_filename_list_with_downloadable("text_encoders", KNOWN_CLIP_MODELS),),
-                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4", "boogu", "krea2", "joyimage", "mage", "minimax"],),
+                             "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4", "boogu", "krea2", "joyimage", "mage", "minimax", "yue2"],),
                              },
                 "optional": {
                     "device": (["default", "cpu"], {"advanced": True}),
@@ -1356,8 +1377,8 @@ class EmptyLatentImage:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "width": ("INT", {"default": 512, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The width of the latent images in pixels."}),
-                "height": ("INT", {"default": 512, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The height of the latent images in pixels."}),
+                "width": ("INT", {"default": 1024, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The width of the latent images in pixels."}),
+                "height": ("INT", {"default": 1024, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The height of the latent images in pixels."}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "tooltip": "The number of latent images in the batch."})
             }
         }

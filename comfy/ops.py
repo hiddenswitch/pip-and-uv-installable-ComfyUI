@@ -16,15 +16,15 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import logging
+from typing import Optional
 import contextlib
 import json
+import logging
 import os
 import typing
-from typing import Optional
 
-import torch
 from torch import Tensor
+import torch
 
 import comfy_aimdo.model_vbar
 import comfy_aimdo.torch
@@ -34,10 +34,11 @@ from . import memory_management
 from . import model_management
 from . import pinned_memory
 from . import rmsnorm
+from . import utils
 from . import weight_cast
 from . import weight_cast_ops
-from . import utils
-from .cli_args import args, PerformanceFeature
+from .cli_args import PerformanceFeature
+from .cli_args import args
 from .execution_context import current_execution_context
 from .interruption import throw_exception_if_processing_interrupted
 
@@ -185,7 +186,8 @@ def _check_cudnn_nvrtc_compatibility():
 
 try:
     if torch.cuda.is_available():
-        from torch.nn.attention import SDPBackend, sdpa_kernel
+        from torch.nn.attention import SDPBackend
+        from torch.nn.attention import sdpa_kernel
         import inspect
         if "set_priority" in inspect.signature(sdpa_kernel).parameters:
             nvidia_cuda = model_management.is_nvidia()
@@ -538,9 +540,14 @@ def cast_modules_with_vbar(
         has_patch_functions = len(getattr(s, "weight_function", [])) > 0 or len(getattr(s, "bias_function", [])) > 0
 
         xfer_source = [ s.weight, s.bias ]
-
-        use_pin = not direct_materialize
-        pin = pinned_memory.get_pin(s) if use_pin else None
+        fast_disk = s._pin_state["fast_disk"]
+        subset = "weights-fast" if fast_disk else "weights"
+        pin = pinned_memory.get_pin(s, subset=subset) if not direct_materialize else None
+        if pin is None and not fast_disk and not direct_materialize:
+            loaded_pin = pinned_memory.get_pin(s, subset="weights-loaded")
+            if loaded_pin is not None or signature is not None:
+                subset = "weights-loaded"
+                pin = loaded_pin
         if pin is not None:
             xfer_source = [ pin ]
 
@@ -612,7 +619,7 @@ def cast_modules_with_vbar(
             if pin is not None:
                 cast_maybe_lowvram_patch([pin], dest, offload_stream)
                 return
-            if signature is None or args.high_ram:
+            if signature is None or not fast_disk or args.high_ram:
                 pinned_memory.pin_memory(m, subset=subset, size=size)
                 pin = pinned_memory.get_pin(m, subset=subset)
             cast_maybe_lowvram_patch(source, pin, offload_stream, xfer_dest2=dest)
@@ -630,7 +637,7 @@ def cast_modules_with_vbar(
                 target_geometries=cast_geometry,
             )
         else:
-            handle_pin(s, pin, xfer_source, xfer_dest, size=dest_size)
+            handle_pin(s, pin, xfer_source, xfer_dest, subset=subset, size=dest_size)
 
         for param_key in ("weight", "bias"):
             lowvram_source = getattr(s, param_key + "_lowvram_function", None)
@@ -640,8 +647,16 @@ def cast_modules_with_vbar(
                 lowvram_dest = get_cast_buffer(lowvram_size)
                 lowvram_source.prepare(lowvram_dest, None, copy=False, commit=True)
 
-                pin = pinned_memory.get_pin(lowvram_source, subset="patches")
-                handle_pin(lowvram_source, pin, lowvram_source, lowvram_dest, subset="patches", size=lowvram_size)
+                subset = "patches-fast" if fast_disk else "patches"
+                pin = pinned_memory.get_pin(lowvram_source, subset=subset)
+                if pin is None and not fast_disk:
+                    loaded_pin = pinned_memory.get_pin(lowvram_source, subset="patches-loaded")
+                    if loaded_pin is not None:
+                        subset = "patches-loaded"
+                        pin = loaded_pin
+                    elif signature is not None:
+                        subset = "patches-loaded"
+                handle_pin(lowvram_source, pin, lowvram_source, lowvram_dest, subset=subset, size=lowvram_size)
 
 
         prefetch["xfer_dest"] = xfer_dest
@@ -1486,7 +1501,8 @@ class scaled_fp8_op_base(manual_cast):
 
 CUBLAS_IS_AVAILABLE = False
 try:
-    from cublas_ops import CublasLinear, cublas_half_matmul
+    from cublas_ops import CublasLinear
+    from cublas_ops import cublas_half_matmul
     CUBLAS_IS_AVAILABLE = True
 except ImportError:
     pass
@@ -1518,14 +1534,14 @@ Operations = typing.Type[typing.Union[manual_cast, fp8_ops, disable_weight_init,
 # ==============================================================================
 # Mixed Precision Operations
 # ==============================================================================
-from .quant_ops import (
-    QuantizedTensor,
-    QUANT_ALGOS,
-    TensorCoreFP8Layout,
-    get_layout_class,
-    int8_quantization_available,
-    mixed_precision_quantization_available,
-)
+from . import quant_ops
+from .quant_ops import TensorWiseINT8Layout
+from .quant_ops import QUANT_ALGOS
+from .quant_ops import QuantizedTensor
+from .quant_ops import TensorCoreFP8Layout
+from .quant_ops import get_layout_class
+from .quant_ops import int8_quantization_available
+from .quant_ops import mixed_precision_quantization_available
 
 
 def _swiglu_eager(value):
@@ -1539,13 +1555,85 @@ INPUT_ACT_EAGER = {
 }
 
 
-def linear_input_act(linear, value, input_act):
-    """Apply an activation before a linear operation.
+def _eager_input_act(x, input_act, act_weight=None, act_eps=0.0):
+    if input_act is None:
+        return x
+    if input_act == "rms_norm":
+        return rmsnorm.rms_norm(x, act_weight, act_eps)
+    return INPUT_ACT_EAGER[input_act](x)
 
-    Quantized linear implementations retain their normal dispatch path; Comfy
-    Kitchen may fuse this operation when the selected layout supports it.
+
+def _fp16_linear_wanted(x):
+    """kitchen's fp16-accumulate GEMM replaces a plain linear when the user opted into
+        fp16 accumulation and the activation is fp16 on CUDA; weights come through cast_bias_weight."""
+    return (getattr(torch.backends.cuda.matmul, "allow_fp16_accumulation", False)
+            and x.dtype == torch.float16 and x.is_cuda)
+
+
+def linear_input_act(linear, x, input_act, act_weight=None, act_eps=0.0,
+                     residual=None, residual_scale=None):
+    """``linear(act(x))``, with ``act`` folded into an INT8 activation quantizer.
+
+    An INT8 linear quantizes its input anyway, so an elementwise activation can
+    ride along inside that kernel instead of writing a full-size intermediate to
+    HBM and reading it straight back. Worth it for an MLP's down-projection,
+    where the intermediate is several times the hidden size, and for a pre-norm
+    block's ``linear(rms_norm(x))`` ("rms_norm", which reads the norm's weight
+    and eps from act_weight/act_eps).
+
+    With ``residual``/``residual_scale`` the result is the pre-norm block's
+    addcmul, ``residual + residual_scale * linear(act(x))``, fused into the
+    INT8 GEMM epilogue where supported.
+
     """
-    return linear(INPUT_ACT_EAGER[input_act](value))
+    def _residual_out(out):
+        if residual is None:
+            return out
+        return torch.addcmul(residual, out, residual_scale)
+
+    weight = linear.weight
+    full_precision_mm = getattr(linear, "_full_precision_mm", False)
+    if (model_management.in_training
+            or not isinstance(weight, QuantizedTensor)
+            or weight._layout_cls != "TensorWiseINT8Layout"
+            or getattr(weight._params, "transposed", False)
+            or full_precision_mm):
+        if (not model_management.in_training
+                and not isinstance(weight, QuantizedTensor)
+                and not full_precision_mm
+                and _fp16_linear_wanted(x)):
+            weight, bias, offload_stream = cast_bias_weight(linear, x, offloadable=True)
+            try:
+                return quant_ops.ck.fp16_linear(
+                    _eager_input_act(x, input_act, act_weight, act_eps),
+                    weight, bias, residual=residual, residual_scale=residual_scale)
+            finally:
+                uncast_bias_weight(linear, weight, bias, offload_stream)
+        return _residual_out(linear(_eager_input_act(x, input_act, act_weight, act_eps)))
+
+    # want_requant keeps a vbar-streamed layer on the INT8 path when a LoRA is
+    # patched in on the fly; without it the cast hands back a dequantized weight.
+    weight, bias, offload_stream = cast_bias_weight(
+        linear, x, offloadable=True, compute_dtype=x.dtype, want_requant=True)
+    try:
+        if not isinstance(weight, QuantizedTensor):
+            # A LoRA weight_function, or activations whose dtype differs from the
+            # weight's, make the cast hand back a dequantized tensor.
+            return _residual_out(torch.nn.functional.linear(
+                _eager_input_act(x, input_act, act_weight, act_eps), weight, bias))
+        qdata, scale = TensorWiseINT8Layout.get_plain_tensors(weight)
+        return quant_ops.ck.int8_linear(
+            x, qdata, scale, bias, x.dtype,
+            convrot=getattr(weight._params, "convrot", False),
+            convrot_groupsize=getattr(weight._params, "convrot_groupsize", 256),
+            input_act=input_act,
+            input_act_weight=act_weight,
+            input_act_eps=act_eps,
+            residual=residual,
+            residual_scale=residual_scale,
+        )
+    finally:
+        uncast_bias_weight(linear, weight, bias, offload_stream)
 
 
 def _quantized_layout_supports_fast_matmul(layout_type):

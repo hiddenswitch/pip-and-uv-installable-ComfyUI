@@ -27,8 +27,7 @@ from ..distributed.server_stub import ServerStub
 from ..execution_context import current_execution_context
 from ..nodes.package import import_all_nodes_in_workspace
 from ..nodes_context import get_nodes
-from ..app.assets.seeder import asset_seeder
-from ..app.assets.services import register_output_files
+from ..app.assets.manager import AssetManager, default_asset_manager
 
 logger = logging.getLogger(__name__)
 _shutdown_event = threading.Event()
@@ -120,7 +119,7 @@ def _collect_output_absolute_paths(history_result: dict) -> list[str]:
     return paths
 
 
-async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
+async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer, asset_manager: AssetManager | None = None):
     from . import execution
     from ..component_model import queue_types
     from .. import model_management
@@ -138,7 +137,8 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
     if cache_ram < 0:
         cache_ram = min(32.0, max(4.0, model_management.total_ram * 0.25 / 1024.0))
 
-    e = execution.PromptExecutor(server_instance, cache_type=cache_type, cache_args={"lru": args.cache_lru, "ram": cache_ram})
+    asset_manager = asset_manager if asset_manager is not None else default_asset_manager()
+    e = execution.PromptExecutor(server_instance, cache_type=cache_type, cache_args={"lru": args.cache_lru, "ram": cache_ram}, asset_manager=asset_manager)
     last_gc_collect = 0
     need_gc = False
     gc_collect_interval = 10.0
@@ -163,6 +163,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
             # todo: ??? what jank
             remove_sensitive = lambda prompt: prompt[:5] + prompt[6:]
 
+            asset_manager.pause_background_scan()
             await e.execute_async(item[2], prompt_id, item[3], item[4])
             need_gc = True
 
@@ -198,9 +199,6 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
             else:
                 logger.info("Prompt executed in {:.2f} seconds".format(execution_time))
 
-            if not asset_seeder.is_disabled() and e.history_result is not None:
-                paths = _collect_output_absolute_paths(e.history_result)
-                register_output_files(paths, job_id=prompt_id)
 
         flags = q.get_flags()
         free_memory = flags.get("free_memory", False)
@@ -224,13 +222,12 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
                 need_gc = False
                 hook_breaker_ac10a0.restore_functions()
 
-                if not asset_seeder.is_disabled():
-                    asset_seeder.enqueue_enrich(roots=("output",), compute_hashes=True)
-                    asset_seeder.resume()
+                asset_manager.queue_output_scan()
+                asset_manager.resume_background_scan()
 
 
-def prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer):
-    asyncio.run(_prompt_worker(q, server_instance))
+def prompt_worker(q: AbstractPromptQueue, server_instance: server_module.PromptServer, asset_manager: AssetManager | None = None):
+    asyncio.run(_prompt_worker(q, server_instance, asset_manager))
 
 
 async def run(server_instance, address='', port=8188, call_on_start=None):
@@ -256,10 +253,11 @@ def start_comfyui(asyncio_loop: asyncio.AbstractEventLoop = None):
     asyncio_loop.run_until_complete(_start_comfyui())
 
 
-def setup_database():
+def setup_database(asset_manager: AssetManager | None = None):
     from ..app.database.db import dependencies_available, init_db
     if dependencies_available():
         init_db()
+        (asset_manager if asset_manager is not None else default_asset_manager()).startup()
 
 
 async def _start_comfyui(from_script_dir: Optional[Path] = None, configuration: Optional[Configuration] = None):
@@ -374,7 +372,7 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
     server.add_routes()
     cuda_malloc_warning()
     vram_performance_warnings()
-    setup_database()
+    setup_database(server.asset_manager)
 
     # in a distributed setting, the default prompt worker will not be able to send execution events via the websocket
     _prompt_worker_executor = None
@@ -385,7 +383,7 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
                 f"Distributed workers started in the default thread loop cannot notify clients of progress updates. Instead of comfyui or main.py, use comfyui-worker.")
         from ..distributed.executors import ContextVarExecutor
         _prompt_worker_executor = ContextVarExecutor(max_workers=1, thread_name_prefix="PromptWorker")
-        _prompt_worker_executor.submit(prompt_worker, q, worker_thread_server)
+        _prompt_worker_executor.submit(prompt_worker, q, worker_thread_server, server.asset_manager)
 
     # server has been imported and things should be looking good
     initialize_event_tracking(loop)
@@ -442,6 +440,7 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         _shutdown_event.set()
         if _prompt_worker_executor is not None:
             _prompt_worker_executor.shutdown(wait=True, cancel_futures=True)
+        server.asset_manager.shutdown()
         if distributed:
             await q.close()
 

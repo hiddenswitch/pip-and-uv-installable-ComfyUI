@@ -16,10 +16,14 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+from enum import Enum
+from typing import Any
+from typing import Optional
+from typing import Protocol
+from typing import Type
+from typing import TypeVar
 import logging
 import math
-from enum import Enum
-from typing import TypeVar, Type, Protocol, Any, Optional
 
 import torch
 
@@ -30,7 +34,8 @@ from . import model_prefetch
 from . import nested_tensor
 from . import ops
 from . import utils
-from .conds import CONDRegular, CONDConstant
+from .conds import CONDConstant
+from .conds import CONDRegular
 from .context_windows import slice_cond
 from .ldm.ace import ace_step15
 from .ldm.ace.ace_step15 import AceStepConditionGenerationModel
@@ -44,63 +49,88 @@ from .ldm.cascade.stage_b import StageB
 from .ldm.cascade.stage_c import StageC
 from .ldm.chroma import model as chroma_model
 from .ldm.chroma_radiance import model as chroma_radiance
+from .ldm.cogvideo.model import CogVideoXTransformer3DModel
 from .ldm.cosmos.model import GeneralDIT
 from .ldm.cosmos.predict2 import MiniTrainDIT
+from .ldm.depth_anything_3.model import DepthAnything3Net
 from .ldm.ernie.model import ErnieImageModel
 from .ldm.flux import model as flux_model
 from .ldm.genmo.joint_model.asymm_models_joint import AsymmDiTJoint
+from .ldm.hidream.model import HiDreamImageTransformer2DModel
 from .ldm.hidream_o1.conditioning import build_extra_conds
 from .ldm.hidream_o1.model import HiDreamO1Transformer
-from .ldm.sensenova import conditioning as sensenova_conditioning
-from .ldm.sensenova import model as sensenova_model
-from .ldm.sensenova.sampling import SenseNovaModelSampling, time_snr_shift
-from .ldm.hidream.model import HiDreamImageTransformer2DModel
 from .ldm.hunyuan3d.model import Hunyuan3Dv2 as Hunyuan3Dv2Model
 from .ldm.hunyuan3dv2_1.hunyuandit import HunYuanDiTPlain
 from .ldm.hunyuan_video.model import HunyuanVideo as HunyuanVideoModel
 from .ldm.hydit.models import HunYuanDiT
+from .ldm.ideogram4.model import Ideogram4Transformer2DModel
+from .ldm.joyimage.model import JoyImageTransformer3DModel
 from .ldm.kandinsky5 import model as kadinsky5_model
 from .ldm.krea2.model import SingleStreamDiT
 from .ldm.lens.model import LensTransformer2DModel
+from .ldm.lightricks import symmetric_patchifier
 from .ldm.lightricks.av_model import LTXAVModel
 from .ldm.lightricks.model import LTXVModel
-from .ldm.lightricks import symmetric_patchifier
 from .ldm.lumina.model import NextDiT
 from .ldm.lumina.model import NextDiTPixelSpace
-from .ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
-from .ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
-from .ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
-from .ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
-from .ldm.omnigen.omnigen2 import OmniGen2Transformer2DModel
-from .ldm.pixeldit.model import PixDiT_T2I
-from .ldm.pixeldit.pid import PidNet
-from .ldm.pixart.pixartms import PixArtMS
-from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.mage_flow.model import MageFlowTransformer2DModel
 from .ldm.minimax import model as minimax_model
 from .ldm.minimax_music.dit import MiniMaxMusic3DiT
-from .ldm.joyimage.model import JoyImageTransformer3DModel
-from .ldm.ideogram4.model import Ideogram4Transformer2DModel
+from .ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
+from .ldm.modules.diffusionmodules.openaimodel import Timestep
+from .ldm.modules.diffusionmodules.openaimodel import UNetModel
+from .ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
+from .ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
+from .ldm.omnigen.omnigen2 import OmniGen2Transformer2DModel
+from .ldm.pixart.pixartms import PixArtMS
+from .ldm.pixeldit.model import PixDiT_T2I
+from .ldm.pixeldit.pid import PidNet
+from .ldm.qwen_image.model import QwenImageTransformer2DModel
 from .ldm.rt_detr.rtdetr_v4 import RTv4
-from .ldm.triposplat.model import LatentSeqMMFlowModel
-from .ldm.trellis2.model import Trellis2 as Trellis2Model
 from .ldm.sam3.detector import SAM3Model
 from .ldm.seedvr.model import NaDiT
-from .ldm.wan.model import WanModel, VaceWanModel, CameraWanModel, WanModel_S2V, HumoWanModel, SCAILWanModel, SCAIL2WanModel
+from .ldm.qwen_image21 import model as qwen_image21_model
+from .ldm.sensenova import conditioning as sensenova_conditioning
+from .ldm.sensenova import model as sensenova_model
+from .ldm.sensenova.sampling import SenseNovaModelSampling
+from .ldm.sensenova.sampling import time_snr_shift
+from .ldm.trellis2.model import Trellis2 as Trellis2Model
+from .ldm.triposplat.model import LatentSeqMMFlowModel
 from .ldm.wan.ar_model import CausalWanModel
+from .ldm.wan.model import CameraWanModel
+from .ldm.wan.model import HumoWanModel
+from .ldm.wan.model import SCAIL2WanModel
+from .ldm.wan.model import SCAILWanModel
+from .ldm.wan.model import VaceWanModel
+from .ldm.wan.model import WanModel
+from .ldm.wan.model import WanModel_S2V
 from .ldm.wan.model_animate import AnimateWanModel
 from .ldm.wan.model_animate2 import WanAnimate2Model
 from .ldm.wan.model_wandancer import WanDancerModel
-from .ldm.cogvideo.model import CogVideoXTransformer3DModel
-from .ldm.depth_anything_3.model import DepthAnything3Net
 from .model_management_types import ModelManageable
-from .model_sampling import CONST, ModelSamplingAV, ModelSamplingDiscreteFlow, ModelSamplingFlux, IMG_TO_IMG, IMG_TO_IMG_FLOW, V_PREDICTION_DDPM
-from .model_sampling import StableCascadeSampling, COSMOS_RFLOW, ModelSamplingCosmosRFlow, V_PREDICTION, \
-    ModelSamplingContinuousEDM, ModelSamplingDiscrete, EPS, EDM, ModelSamplingContinuousV
+from .model_sampling import CONST
+from .model_sampling import COSMOS_RFLOW
+from .model_sampling import EDM
+from .model_sampling import EPS
+from .model_sampling import IMG_TO_IMG
+from .model_sampling import IMG_TO_IMG_FLOW
+from .model_sampling import ModelSamplingAV
+from .model_sampling import ModelSamplingContinuousEDM
+from .model_sampling import ModelSamplingContinuousV
+from .model_sampling import ModelSamplingCosmosRFlow
+from .model_sampling import ModelSamplingDiscrete
+from .model_sampling import ModelSamplingDiscreteFlow
+from .model_sampling import ModelSamplingFlux
+from .model_sampling import StableCascadeSampling
+from .model_sampling import V_PREDICTION
+from .model_sampling import V_PREDICTION_DDPM
 from .ops import Operations
-from .patcher_extension import WrapperExecutor, WrappersMP, get_all_wrappers
+from .patcher_extension import WrapperExecutor
+from .patcher_extension import WrappersMP
+from .patcher_extension import get_all_wrappers
 
 logger = logging.getLogger(__name__)
+from .ldm.yue2 import model as yue2_model
 
 
 class ModelType(Enum):
@@ -2755,6 +2785,25 @@ class ACEStep15(BaseModel):
         out['refer_audio'] = conds.CONDRegular(refer_audio)
         return out
 
+class YuE2(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=yue2_model.YuE2)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        context = kwargs["cross_attn"].to(device=kwargs["device"], dtype=self.get_dtype_inference())
+        out["c_crossattn"] = CONDRegular(context)
+        out["yue2_chunks"] = CONDConstant(kwargs["yue2_chunks"])
+        return out
+
+    def extra_conds_shapes(self, **kwargs):
+        return {"c_crossattn": kwargs["cross_attn"].shape}
+
+    def memory_required(self, input_shape, cond_shapes={}):
+        context_size = sum(math.prod(shape) for shape in cond_shapes.get("c_crossattn", []))
+        return super().memory_required(input_shape, cond_shapes) + context_size * model_management.dtype_size(self.get_dtype_inference())
+
+
 class MiniMaxMusic3(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=MiniMaxMusic3DiT)
@@ -2827,6 +2876,13 @@ class QwenImage(BaseModel):
                 out['ref_latents_method'] = conds.CONDConstant(ref_latents_method)
         return out
 
+    def extra_conds_shapes(self, **kwargs):
+        out = {}
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            c = self.latent_format.latent_channels
+            out['ref_latents'] = list([1, c, sum(map(lambda a: math.prod(a.size()), ref_latents)) // c])
+        return out
 
 class MageFlow(QwenImage):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -2837,11 +2893,31 @@ class MageFlow(QwenImage):
         # behavior on devices whose model compute dtype falls back to fp32.
         return timestep.to(torch.bfloat16)
 
-    def extra_conds_shapes(self, **kwargs):
-        out = {}
-        ref_latents = kwargs.get("reference_latents", None)
-        if ref_latents is not None:
-            out['ref_latents'] = list([1, 128, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 128])
+class QwenImage21(QwenImage):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=qwen_image21_model.QwenImage21Transformer2DModel)
+
+    def get_dynamic_vram__units(self):
+        return list(self.diffusion_model.transformer_blocks), []
+
+    @property
+    def current_patcher(self):
+        return self._current_patcher
+
+    @current_patcher.setter
+    def current_patcher(self, patcher):
+        # set by pre_run / cleanup: the prefix K/V cache lives for one sampling run, off when hooks can repatch weights mid-run
+        self._current_patcher = patcher
+        diffusion_model = getattr(self, "diffusion_model", None)
+        if diffusion_model is not None:
+            diffusion_model.current_patcher = patcher
+            diffusion_model.reset_prefix_cache(patcher is not None and len(patcher.hook_patches) == 0)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        image_slots = kwargs.get("image_slots", None)
+        if image_slots is not None:
+            out['image_slots'] = CONDConstant(image_slots)
         return out
 
 

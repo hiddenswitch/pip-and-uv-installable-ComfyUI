@@ -1,22 +1,25 @@
 import json
 
-import torch
 from torch import nn
+import torch
 
-import comfy.latent_formats
-import comfy.ldm.common_dit
-import comfy.ldm.anima.lllite
-import comfy.ldm.lumina.controlnet
-import comfy.ldm.minimax.controlnet
-import comfy.ldm.lightricks.duration_head
-import comfy.ldm.supir.supir_modules
-import comfy.ldm.wan.uni3c
-import comfy.model_management
-import comfy.ops
-import comfy.utils
+from comfy import latent_formats
+from comfy import model_management
+from comfy import ops
+from comfy import storage
+from comfy import utils
+from comfy.ldm import common_dit
+from comfy.ldm.anima import lllite
+from comfy.ldm.lightricks import duration_head
+from comfy.ldm.lumina import controlnet
+from comfy.ldm.minimax import controlnet as minimax_controlnet
+from comfy.ldm.supir import supir_modules
 from comfy.ldm.supir.supir_patch import SUPIRPatch
-from comfy.ldm.wan.model_multitalk import WanMultiTalkAttentionBlock, MultiTalkAudioProjModel
-from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
+from comfy.ldm.wan import uni3c
+from comfy.ldm.wan.model_multitalk import MultiTalkAudioProjModel
+from comfy.ldm.wan.model_multitalk import WanMultiTalkAttentionBlock
+from comfy.model_downloader import get_filename_list_with_downloadable
+from comfy.model_downloader import get_full_path_or_raise
 from comfy.model_patcher import get_model_patcher_class
 from comfy_api.latest import io
 
@@ -59,9 +62,9 @@ class QwenImageBlockWiseControlNet(torch.nn.Module):
         )
 
     def process_input_latent_image(self, latent_image):
-        latent_image[:, :16] = comfy.latent_formats.Wan21().process_in(latent_image[:, :16])
+        latent_image[:, :16] = latent_formats.Wan21().process_in(latent_image[:, :16])
         patch_size = 2
-        hidden_states = comfy.ldm.common_dit.pad_to_patch_size(latent_image, (1, patch_size, patch_size))
+        hidden_states = common_dit.pad_to_patch_size(latent_image, (1, patch_size, patch_size))
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.view(orig_shape[0], orig_shape[1], orig_shape[-2] // 2, 2, orig_shape[-1] // 2, 2)
         hidden_states = hidden_states.permute(0, 2, 4, 1, 3, 5)
@@ -247,18 +250,18 @@ class ModelPatchLoader:
 
     def load_model_patch(self, name):
         model_patch_path = get_full_path_or_raise("model_patches", name)
-        sd, metadata = comfy.utils.load_torch_file(model_patch_path, safe_load=True, return_metadata=True)
-        dtype = comfy.utils.weight_dtype(sd)
+        sd, metadata = utils.load_torch_file(model_patch_path, safe_load=True, return_metadata=True)
+        dtype = utils.weight_dtype(sd)
 
         model = None
         if 'lllite_conditioning1.conv1.weight' in sd:
-            model = comfy.ldm.anima.lllite.AnimaLLLite(sd, metadata, device=comfy.model_management.unet_offload_device(), dtype=dtype, operations=comfy.ops.manual_cast)
+            model = lllite.AnimaLLLite(sd, metadata, device=model_management.unet_offload_device(), dtype=dtype, operations=ops.manual_cast)
         elif 'controlnet_blocks.0.y_rms.weight' in sd:
             additional_in_dim = sd["img_in.weight"].shape[1] - 64
-            model = QwenImageBlockWiseControlNet(additional_in_dim=additional_in_dim, device=comfy.model_management.unet_offload_device(), dtype=dtype, operations=comfy.ops.manual_cast)
+            model = QwenImageBlockWiseControlNet(additional_in_dim=additional_in_dim, device=model_management.unet_offload_device(), dtype=dtype, operations=ops.manual_cast)
         elif 'feature_embedder.mid_layer_norm.bias' in sd:
-            sd = comfy.utils.state_dict_prefix_replace(sd, {"feature_embedder.": ""}, filter_keys=True)
-            model = SigLIPMultiFeatProjModel(device=comfy.model_management.unet_offload_device(), dtype=dtype, operations=comfy.ops.manual_cast)
+            sd = utils.state_dict_prefix_replace(sd, {"feature_embedder.": ""}, filter_keys=True)
+            model = SigLIPMultiFeatProjModel(device=model_management.unet_offload_device(), dtype=dtype, operations=ops.manual_cast)
         elif 'control_all_x_embedder.2-1.weight' in sd:  # alipai z image fun controlnet
             sd = z_image_convert(sd)
             config = {}
@@ -274,27 +277,28 @@ class ModelPatchLoader:
                 if ref_weight is not None:
                     if torch.count_nonzero(ref_weight) == 0:
                         config['broken'] = True
-            model = comfy.ldm.lumina.controlnet.ZImage_Control(device=comfy.model_management.unet_offload_device(), dtype=dtype, operations=comfy.ops.manual_cast, **config)
-        elif comfy.ldm.minimax.controlnet.is_minimax_h3_fun_state_dict(sd):
-            load_device = comfy.model_management.get_torch_device()
-            quant = comfy.utils.detect_layer_quantization(sd, "")
+            model = controlnet.ZImage_Control(device=model_management.unet_offload_device(), dtype=dtype, operations=ops.manual_cast, **config)
+        elif minimax_controlnet.is_minimax_h3_fun_state_dict(sd):
+            load_device = model_management.get_torch_device()
+            quant = utils.detect_layer_quantization(sd, "")
             if quant is not None:
                 dtype = torch.bfloat16
-                operations = comfy.ops.mixed_precision_ops(quant, dtype)
+                operations = ops.mixed_precision_ops(quant, dtype)
             else:
-                dtype = comfy.model_management.unet_dtype(
+                dtype = model_management.unet_dtype(
                     model_params=-1,
                     supported_dtypes=[torch.bfloat16, torch.float32],
-                    weight_dtype=comfy.utils.weight_dtype(sd),
+                    weight_dtype=utils.weight_dtype(sd),
                 )
-                manual_cast_dtype = comfy.model_management.unet_manual_cast(
+                manual_cast_dtype = model_management.unet_manual_cast(
                     dtype, load_device, supported_dtypes=[torch.bfloat16, torch.float32])
-                operations = comfy.ops.pick_operations(dtype, manual_cast_dtype, load_device=load_device)
+                operations = ops.pick_operations(dtype, manual_cast_dtype, load_device=load_device)
 
             num_blocks = 0
             while "control_blocks.{}.after_proj.weight".format(num_blocks) in sd:
                 num_blocks += 1
-            injection_layers = tuple(range(0, num_blocks * 10, 10))
+            # spread evenly over the 50 base blocks: v1 has 5 (every 10), v2 has 10 (every 5)
+            injection_layers = tuple(range(0, 50, 50 // num_blocks))
             if metadata is not None and "control_blocks_places" in metadata:
                 injection_layers = tuple(json.loads(metadata["control_blocks_places"]))
                 if len(injection_layers) != num_blocks:
@@ -303,9 +307,10 @@ class ModelPatchLoader:
             head_dim = sd["control_blocks.0.attn.q_norm.weight"].shape[0]
             use_adaln_curves = metadata is not None and metadata.get("minimax_h3_fun_controlnet") == "adaln_basis"
             time_embed_dim = 8 if use_adaln_curves else 2688
-            model = comfy.ldm.minimax.controlnet.MiniMaxH3FunControl(
+            model = minimax_controlnet.MiniMaxH3FunControl(
                 control_in_dim=49,
                 injection_layers=injection_layers,
+                inpaint_post_norm=metadata is not None and metadata.get("inpaint_masked_pixel_mode") == "post_norm",
                 hidden_size=sd["control_proj_in.weight"].shape[0],
                 num_attention_heads=qkv.shape[0] // (3 * head_dim),
                 attention_head_dim=head_dim,
@@ -313,7 +318,7 @@ class ModelPatchLoader:
                 time_embed_dim=time_embed_dim,
                 use_adaln_curves=use_adaln_curves,
                 operations=operations,
-                device=comfy.model_management.unet_offload_device(),
+                device=model_management.unet_offload_device(),
                 dtype=dtype,
             )
             model.requires_grad_(False)
@@ -335,7 +340,7 @@ class ModelPatchLoader:
                 dim = sd["proj_in.weight"].shape[0]
             else:
                 dim = conv_out_dim
-            model = comfy.ldm.wan.uni3c.WanUni3CControlnet(
+            model = uni3c.WanUni3CControlnet(
                     in_channels=sd["controlnet_patch_embedding.weight"].shape[1],
                     conv_out_dim=conv_out_dim,
                     dim=dim,
@@ -345,21 +350,21 @@ class ModelPatchLoader:
                     out_proj_dim=sd["proj_out.0.weight"].shape[0],
                     add_channels=sd["controlnet_mask_embedding.mask_proj.0.weight"].shape[1],
                     mid_channels=sd["controlnet_mask_embedding.mask_proj.0.weight"].shape[0],
-                    device=comfy.model_management.unet_offload_device(),
+                    device=model_management.unet_offload_device(),
                     dtype=dtype,
-                    operations=comfy.ops.manual_cast)
+                    operations=ops.manual_cast)
         elif any(k.endswith("duration_head.attention_pooler.query_tokens") for k in sd) or "attention_pooler.query_tokens" in sd:
-            sd = comfy.ldm.lightricks.duration_head.normalize_state_dict(sd)
+            sd = duration_head.normalize_state_dict(sd)
             sd = {k: v.float() for k, v in sd.items()}  # tiny head, keep fp32
-            model = comfy.ldm.lightricks.duration_head.DurationHead()
+            model = duration_head.DurationHead()
         elif "audio_proj.proj1.weight" in sd:
             model = MultiTalkModelPatch(
                 audio_window=5, context_tokens=32, vae_scale=4,
                 in_dim=sd["blocks.0.audio_cross_attn.proj.weight"].shape[0],
                 intermediate_dim=sd["audio_proj.proj1.weight"].shape[0],
                 out_dim=sd["audio_proj.norm.weight"].shape[0],
-                device=comfy.model_management.unet_offload_device(),
-                operations=comfy.ops.manual_cast)
+                device=model_management.unet_offload_device(),
+                operations=ops.manual_cast)
         elif 'model.control_model.input_hint_block.0.weight' in sd or 'control_model.input_hint_block.0.weight' in sd:
             prefix_replace = {}
             if 'model.control_model.input_hint_block.0.weight' in sd:
@@ -376,13 +381,13 @@ class ModelPatchLoader:
                 if k.startswith(de_prefix):
                     denoise_encoder_sd[k[len(de_prefix):]] = sd.pop(k)
 
-            sd = comfy.utils.state_dict_prefix_replace(sd, prefix_replace, filter_keys=True)
+            sd = utils.state_dict_prefix_replace(sd, prefix_replace, filter_keys=True)
             sd.pop("control_model.mask_LQ", None)
-            model = comfy.ldm.supir.supir_modules.SUPIR(device=comfy.model_management.unet_offload_device(), dtype=dtype, operations=comfy.ops.manual_cast)
+            model = supir_modules.SUPIR(device=model_management.unet_offload_device(), dtype=dtype, operations=ops.manual_cast)
             if denoise_encoder_sd:
                 model.denoise_encoder_sd = denoise_encoder_sd
 
-        model_patcher = get_model_patcher_class()(model, load_device=comfy.model_management.get_torch_device(), offload_device=comfy.model_management.unet_offload_device())
+        model_patcher = get_model_patcher_class()(model, load_device=model_management.get_torch_device(), offload_device=model_management.unet_offload_device(), fast_disk=storage.state_dict_fast_disk(sd))
         model.load_state_dict(sd, assign=model_patcher.is_dynamic())
         return (model_patcher,)
 
@@ -417,18 +422,18 @@ class AnimaLLLiteApply:
         model_sampling = model.get_model_object("model_sampling")
         sigma_start = float(model_sampling.percent_to_sigma(start_percent))
         sigma_end = float(model_sampling.percent_to_sigma(end_percent))
-        patch = comfy.ldm.anima.lllite.AnimaLLLitePatch(model_patch, image, mask, strength, sigma_start, sigma_end)
+        patch = lllite.AnimaLLLitePatch(model_patch, image, mask, strength, sigma_start, sigma_end)
         model_patched = model.clone()
         model_patched.set_model_post_input_patch(patch)
-        model_patched.set_model_attn1_patch(comfy.ldm.anima.lllite.AnimaLLLiteAttentionPatch(
+        model_patched.set_model_attn1_patch(lllite.AnimaLLLiteAttentionPatch(
             patch,
             {"q": "self_attn_q_proj", "k": "self_attn_k_proj", "v": "self_attn_v_proj"},
         ))
-        model_patched.set_model_attn2_patch(comfy.ldm.anima.lllite.AnimaLLLiteAttentionPatch(
+        model_patched.set_model_attn2_patch(lllite.AnimaLLLiteAttentionPatch(
             patch,
             {"q": "cross_attn_q_proj"},
         ))
-        model_patched.set_model_patch(comfy.ldm.anima.lllite.AnimaLLLiteMLPPatch(patch), "mlp_patch")
+        model_patched.set_model_patch(lllite.AnimaLLLiteMLPPatch(patch), "mlp_patch")
         return (model_patched,)
 
 
@@ -448,7 +453,7 @@ class DiffSynthCnetPatch:
             if self.mask is None:
                 mask_ = torch.ones_like(latent_image)[:, :self.model_patch.model.additional_in_dim // 4]
             else:
-                mask_ = comfy.utils.common_upscale(self.mask.mean(dim=1, keepdim=True), latent_image.shape[-1], latent_image.shape[-2], "bilinear", "none")
+                mask_ = utils.common_upscale(self.mask.mean(dim=1, keepdim=True), latent_image.shape[-1], latent_image.shape[-2], "bilinear", "none")
 
             return torch.cat([latent_image, mask_], dim=1)
         else:
@@ -460,11 +465,11 @@ class DiffSynthCnetPatch:
         block_index = kwargs.get("block_index")
         spacial_compression = self.vae.spacial_compression_encode()
         if self.encoded_image is None or self.encoded_image_size != (x.shape[-2] * spacial_compression, x.shape[-1] * spacial_compression):
-            image_scaled = comfy.utils.common_upscale(self.image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center")
-            loaded_models = comfy.model_management.loaded_models(only_currently_used=True)
+            image_scaled = utils.common_upscale(self.image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center")
+            loaded_models = model_management.loaded_models(only_currently_used=True)
             self.encoded_image = self.model_patch.model.process_input_latent_image(self.encode_latent_cond(image_scaled.movedim(1, -1)))
             self.encoded_image_size = (image_scaled.shape[-2], image_scaled.shape[-1])
-            comfy.model_management.load_models_gpu(loaded_models)
+            model_management.load_models_gpu(loaded_models)
 
         img[:, :self.encoded_image.shape[1]] += (self.model_patch.model.control_block(img[:, :self.encoded_image.shape[1]], self.encoded_image.to(img.dtype), block_index) * self.strength)
         kwargs['img'] = img
@@ -507,25 +512,25 @@ class ZImageControlPatch:
     def encode_latent_cond(self, control_image=None, inpaint_image=None):
         latent_image = None
         if control_image is not None:
-            latent_image = comfy.latent_formats.Flux().process_in(self.vae.encode(control_image))
+            latent_image = latent_formats.Flux().process_in(self.vae.encode(control_image))
 
         if self.is_inpaint:
             if inpaint_image is None:
                 inpaint_image = torch.ones_like(control_image) * 0.5
 
             if self.mask is not None:
-                mask_inpaint = comfy.utils.common_upscale(self.mask.view(self.mask.shape[0], -1, self.mask.shape[-2], self.mask.shape[-1]).mean(dim=1, keepdim=True), inpaint_image.shape[-2], inpaint_image.shape[-3], "bilinear", "center")
+                mask_inpaint = utils.common_upscale(self.mask.view(self.mask.shape[0], -1, self.mask.shape[-2], self.mask.shape[-1]).mean(dim=1, keepdim=True), inpaint_image.shape[-2], inpaint_image.shape[-3], "bilinear", "center")
                 inpaint_image = ((inpaint_image - 0.5) * mask_inpaint.movedim(1, -1).round()) + 0.5
 
-            inpaint_image_latent = comfy.latent_formats.Flux().process_in(self.vae.encode(inpaint_image))
+            inpaint_image_latent = latent_formats.Flux().process_in(self.vae.encode(inpaint_image))
 
             if self.mask is None:
                 mask_ = torch.zeros_like(inpaint_image_latent)[:, :1]
             else:
-                mask_ = comfy.utils.common_upscale(self.mask.view(self.mask.shape[0], -1, self.mask.shape[-2], self.mask.shape[-1]).mean(dim=1, keepdim=True).to(device=inpaint_image_latent.device), inpaint_image_latent.shape[-1], inpaint_image_latent.shape[-2], "nearest", "center")
+                mask_ = utils.common_upscale(self.mask.view(self.mask.shape[0], -1, self.mask.shape[-2], self.mask.shape[-1]).mean(dim=1, keepdim=True).to(device=inpaint_image_latent.device), inpaint_image_latent.shape[-1], inpaint_image_latent.shape[-2], "nearest", "center")
 
             if latent_image is None:
-                latent_image = comfy.latent_formats.Flux().process_in(self.vae.encode(torch.ones_like(inpaint_image) * 0.5))
+                latent_image = latent_formats.Flux().process_in(self.vae.encode(torch.ones_like(inpaint_image) * 0.5))
 
             return torch.cat([latent_image, mask_, inpaint_image_latent], dim=1)
         else:
@@ -544,17 +549,17 @@ class ZImageControlPatch:
         if self.encoded_image is None or self.encoded_image_size != (x.shape[-2] * spacial_compression, x.shape[-1] * spacial_compression):
             image_scaled = None
             if self.image is not None:
-                image_scaled = comfy.utils.common_upscale(self.image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center").movedim(1, -1)
+                image_scaled = utils.common_upscale(self.image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center").movedim(1, -1)
                 self.encoded_image_size = (image_scaled.shape[-3], image_scaled.shape[-2])
 
             inpaint_scaled = None
             if self.inpaint_image is not None:
-                inpaint_scaled = comfy.utils.common_upscale(self.inpaint_image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center").movedim(1, -1)
+                inpaint_scaled = utils.common_upscale(self.inpaint_image.movedim(-1, 1), x.shape[-1] * spacial_compression, x.shape[-2] * spacial_compression, "area", "center").movedim(1, -1)
                 self.encoded_image_size = (inpaint_scaled.shape[-3], inpaint_scaled.shape[-2])
 
-            loaded_models = comfy.model_management.loaded_models(only_currently_used=True)
+            loaded_models = model_management.loaded_models(only_currently_used=True)
             self.encoded_image = self.encode_latent_cond(image_scaled, inpaint_scaled)
-            comfy.model_management.load_models_gpu(loaded_models)
+            model_management.load_models_gpu(loaded_models)
 
         cnet_blocks = self.model_patch.model.n_control_layers
         div = round(30 / cnet_blocks)
@@ -633,7 +638,7 @@ class QwenImageDiffsynthControlnet:
                 mask = mask.unsqueeze(2)
             mask = 1.0 - mask
 
-        if isinstance(model_patch.model, comfy.ldm.lumina.controlnet.ZImage_Control):
+        if isinstance(model_patch.model, controlnet.ZImage_Control):
             patch = ZImageControlPatch(model_patch, vae, image, strength, inpaint_image=inpaint_image, mask=mask)
             model_patched.set_model_noise_refiner_patch(patch)
             model_patched.set_model_double_block_patch(patch)
@@ -682,11 +687,11 @@ class WanUni3CCnetPatch:
             frames = torch.cat([frames, last_frame], dim=0)
 
         if frames.shape[1] != target_height or frames.shape[2] != target_width:
-            frames = comfy.utils.common_upscale(frames.movedim(-1, 1), target_width, target_height, "bilinear", "center").movedim(1, -1)
+            frames = utils.common_upscale(frames.movedim(-1, 1), target_width, target_height, "bilinear", "center").movedim(1, -1)
 
-        loaded_models = comfy.model_management.loaded_models(only_currently_used=True)
+        loaded_models = model_management.loaded_models(only_currently_used=True)
         render_latent = self.vae.encode(frames)
-        comfy.model_management.load_models_gpu(loaded_models)
+        model_management.load_models_gpu(loaded_models)
         return self.latent_format.process_in(render_latent)
 
     def build_controlnet_input(self, x, dtype, samples_per_cond):
@@ -779,7 +784,7 @@ class WanUni3CControlnetApply:
     CATEGORY = "model/patch/wan"
 
     def apply_patch(self, model, model_patch, vae, render_video, strength, start_percent, end_percent):
-        if not isinstance(model_patch.model, comfy.ldm.wan.uni3c.WanUni3CControlnet):
+        if not isinstance(model_patch.model, uni3c.WanUni3CControlnet):
             raise ValueError("The connected model patch is not a Uni3C ControlNet.")
         cnet_dim = model_patch.model.controlnet_blocks[0].norm1.linear.in_features
         model_dim = getattr(model.get_model_object("diffusion_model"), "dim", None)

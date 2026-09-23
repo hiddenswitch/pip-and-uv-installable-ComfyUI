@@ -1,18 +1,12 @@
 # Original from: https://github.com/ace-step/ACE-Step/blob/main/music_dcae/music_dcae_pipeline.py
-import logging
 
+from .... import audio as comfy_audio
 import torch
-
 from .autoencoder_dc import AutoencoderDC
 
-logger = logging.getLogger(__name__)
-try:
-    import torchaudio
-except:
-    logger.debug("torchaudio missing, ACE model will be broken")
 
-import torchvision.transforms as transforms
 from .music_vocoder import ADaMoSHiFiGANV1
+import torchvision.transforms as transforms
 
 
 class MusicDCAE(torch.nn.Module):
@@ -57,7 +51,7 @@ class MusicDCAE(torch.nn.Module):
             sr = self.source_sample_rate
 
         if sr != 44100:
-            audios = torchaudio.functional.resample(audios, sr, 44100)
+            audios = comfy_audio.resample(audios, sr, 44100)
 
         max_audio_len = audios.shape[-1]
         if max_audio_len % (8 * 512) != 0:
@@ -87,7 +81,7 @@ class MusicDCAE(torch.nn.Module):
             wav = self.vocoder.decode(mels[0]).squeeze(1)
 
             if sr is not None:
-                wav = torchaudio.functional.resample(wav, 44100, sr)
+                wav = comfy_audio.resample(wav, 44100, sr)
             else:
                 sr = 44100
             pred_wavs.append(wav)

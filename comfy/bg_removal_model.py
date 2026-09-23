@@ -1,10 +1,13 @@
 from .utils import load_torch_file
-import os
 import json
-import torch
 import logging
+import os
+import torch
 
-from . import clip_model, model_management, ops
+from . import clip_model
+from . import model_management
+from . import ops
+from . import storage
 from .background_removal import birefnet
 from .model_patcher import CoreModelPatcher
 
@@ -13,7 +16,7 @@ BG_REMOVAL_MODELS = {
 }
 
 class BackgroundRemovalModel():
-    def __init__(self, json_config):
+    def __init__(self, json_config, fast_disk=False):
         with open(json_config) as f:
             config = json.load(f)
 
@@ -30,7 +33,7 @@ class BackgroundRemovalModel():
         self.model = model_class(config, self.dtype, offload_device, ops.manual_cast)
         self.model.eval()
 
-        self.patcher = CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = CoreModelPatcher(self.model, load_device=self.load_device, offload_device=offload_device, fast_disk=fast_disk)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False, assign=self.patcher.is_dynamic())
@@ -62,7 +65,7 @@ def load_background_removal_model(sd):
     else:
         return None
 
-    bg_model = BackgroundRemovalModel(json_config)
+    bg_model = BackgroundRemovalModel(json_config, fast_disk=storage.state_dict_fast_disk(sd))
     m, u = bg_model.load_sd(sd)
     if len(m) > 0:
         logging.warning("missing background removal: {}".format(m))

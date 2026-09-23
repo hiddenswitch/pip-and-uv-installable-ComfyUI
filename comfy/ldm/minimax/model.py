@@ -19,22 +19,28 @@ import math
 import torch
 import torch.nn as nn
 
-import comfy.ldm.common_dit
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.ops
-import comfy.patcher_extension
-import comfy.quant_ops
-from comfy.ldm.modules.attention import AttentionTensorContainer, optimized_attention
-from comfy.pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
-from comfy.pipeline_parallel.types import pack_pipeline_value, prepare_model_parallel_value, unpack_pipeline_value
-from comfy.tensor_parallel.operations import column_parallel_linear, local_size, row_parallel_linear
-from comfy.xdit import (
-    gather_sequence,
-    install_sequence_parallel_attention_override,
-    localize_segments,
-    split_sequence,
-)
+from .. import common_dit
+from ... import model_management
+from ... import model_prefetch
+from ... import ops
+from ... import patcher_extension
+from ... import quant_ops
+from ...pipeline_parallel import PipelineIntermediateTensors
+from ...pipeline_parallel import PipelineMissingLayer
+from ...pipeline_parallel import PipelineStageConfig
+from ...pipeline_parallel.types import pack_pipeline_value
+from ...pipeline_parallel.types import prepare_model_parallel_value
+from ...pipeline_parallel.types import unpack_pipeline_value
+from ...tensor_parallel.operations import column_parallel_linear
+from ...tensor_parallel.operations import local_size
+from ...tensor_parallel.operations import row_parallel_linear
+from ...xdit import gather_sequence
+from ...xdit import install_sequence_parallel_attention_override
+from ...xdit import localize_segments
+from ...xdit import split_sequence
+from ..modules.attention import AttentionTensorContainer
+from ..modules.attention import ComfyAttention
+from ..modules.attention import optimized_attention
 
 FRAME_PER_TOKEN = (1, 4, 4, 4, 4)
 FRAME_RESCALE = 5.0 / 3.0
@@ -221,6 +227,7 @@ def rope_rotation_table(angles, dtype):
 class Attention(nn.Module):
     def __init__(self, hidden, heads, head_dim, eps, gate_compress=False, dtype=None, device=None, operations=None):
         super().__init__()
+        self.comfy_attention = ComfyAttention()
         self.heads = local_size(operations, heads, "MiniMax H3 attention heads")
         self.head_dim = head_dim
         inner = heads * head_dim
@@ -246,14 +253,14 @@ class Attention(nn.Module):
             # fused per-head RMSNorm + partial split-half rope, in place on the qkv buffer
             q = q.view(1, s, self.heads, self.head_dim)
             k = k.view(1, s, self.heads, self.head_dim)
-            qw = comfy.model_management.cast_to(self.q_norm.weight, device=x.device)
-            kw = comfy.model_management.cast_to(self.k_norm.weight, device=x.device)
+            qw = model_management.cast_to(self.q_norm.weight, device=x.device)
+            kw = model_management.cast_to(self.k_norm.weight, device=x.device)
             rot = rope_freqs.shape[-3] * 2
-            if comfy.model_management.in_training:
-                q, k = comfy.quant_ops.ck.rms_rope_split_half(
+            if model_management.in_training:
+                q, k = quant_ops.ck.rms_rope_split_half(
                     q, k, rope_freqs, qw, kw, epsilon=self.q_norm.eps, rot_dim=rot)
             else:
-                comfy.quant_ops.ck.rms_rope_split_half_(
+                quant_ops.ck.rms_rope_split_half_(
                     q, k, rope_freqs, qw, kw, epsilon=self.q_norm.eps, rot_dim=rot)
             q = q[0]
             k = k[0]
@@ -264,7 +271,7 @@ class Attention(nn.Module):
         q = AttentionTensorContainer(q.transpose(0, 1).unsqueeze(0))
         k = AttentionTensorContainer(k.transpose(0, 1).unsqueeze(0))
         v = AttentionTensorContainer(v.transpose(0, 1).unsqueeze(0))
-        out = optimized_attention(q, k, v, self.heads, mask=None, skip_reshape=True, transformer_options=transformer_options)
+        out = optimized_attention(q, k, v, self.heads, preferred_attention=self.comfy_attention, mask=None, skip_reshape=True, transformer_options=transformer_options)
         return self.out_proj(out.squeeze(0))
 
 
@@ -281,7 +288,7 @@ class MLP(nn.Module):
         )
 
     def forward(self, x):
-        return comfy.ops.linear_input_act(self.fc2, self.fc1(x), "swiglu")
+        return ops.linear_input_act(self.fc2, self.fc1(x), "swiglu")
 
 
 class AdalnProj(nn.Module):
@@ -413,7 +420,7 @@ def _pdd_head(head, h, n, start, stop, flow_shift):
     grid = torch.linspace(1.0, 0.0, n + 1, dtype=torch.float64)
     dt = (1.0 - flow_shift * grid / (1.0 + (flow_shift - 1.0) * grid)).diff()[start:stop]
     w = (dt / dt.sum()).to(h)
-    with comfy.ops.CastBiasWeightContext(head, h, offloadable=True) as (weight, bias):
+    with ops.CastBiasWeightContext(head, h, offloadable=True) as (weight, bias):
         rows = weight.reshape(n, -1, weight.shape[1])
         brows = bias.reshape(n, -1)
         first = max(start, 1)
@@ -650,7 +657,7 @@ class MiniMaxH3Model(nn.Module):
     def rope_freqs(self, position_ids, device):
         # [S, 3] float64 -> [S, 96] fp32
         pos = position_ids.to(torch.float32).to(device)
-        inv = comfy.model_management.cast_to(self.rope.inv_freq, device=device)
+        inv = model_management.cast_to(self.rope.inv_freq, device=device)
         per_axis = pos.unsqueeze(-1) * inv.view(1, 1, -1)      # [S, 3, 16]
         t_f, h_f, w_f = per_axis.unbind(dim=1)
         half = torch.cat((t_f, h_f, w_f), dim=-1)              # [S, 48]
@@ -688,7 +695,7 @@ class MiniMaxH3Model(nn.Module):
                 denoise_mask=None, audio_denoise_mask=None, **kwargs):
         if self.pipeline_stage is not None and not self.pipeline_stage.is_first:
             raise RuntimeError("Only the first MiniMax H3 pipeline stage accepts model inputs")
-        if self.pipeline_stage is not None and comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options):
+        if self.pipeline_stage is not None and patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options):
             raise ValueError("MiniMax H3 pipeline parallelism does not support diffusion-model wrappers")
         carry_state = None
         if self.pipeline_stage is None:
@@ -702,14 +709,14 @@ class MiniMaxH3Model(nn.Module):
             )
         # Allocation compilation records a single-process forward; pipeline stages
         # run their layers through forward_pipeline_stage instead.
-        compile_allocations = self.pipeline_stage is None and comfy.model_prefetch.malloc_graph_enabled(x[0].device)
+        compile_allocations = self.pipeline_stage is None and model_prefetch.malloc_graph_enabled(x[0].device)
         if compile_allocations:
             out = [torch.empty_like(x[0]), torch.empty_like(x[1])]
-            comfy.model_prefetch.malloc_graph_begin(x[0].device)
-        graph_out = comfy.patcher_extension.WrapperExecutor.new_class_executor(
+            model_prefetch.malloc_graph_begin(x[0].device)
+        graph_out = patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
-            comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
+            patcher_extension.get_all_wrappers(patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(
             x, timestep, context, transformer_options,
             minimax_payload=minimax_payload,
@@ -721,7 +728,7 @@ class MiniMaxH3Model(nn.Module):
             out[0].copy_(graph_out[0])
             out[1].copy_(graph_out[1])
             del graph_out
-            comfy.model_prefetch.malloc_graph_end()
+            model_prefetch.malloc_graph_end()
         else:
             out = graph_out
         if self.pipeline_stage is None:
@@ -735,7 +742,7 @@ class MiniMaxH3Model(nn.Module):
             raise ValueError("MiniMax H3 pipeline parallelism does not support transformer block patches")
         video_x, audio_x = x[0], x[1]
         orig_t, orig_h, orig_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
-        video_x = comfy.ldm.common_dit.pad_to_patch_size(video_x, self.patch_size)
+        video_x = common_dit.pad_to_patch_size(video_x, self.patch_size)
         if video_x.shape[0] != 1:
             raise ValueError("MiniMax H3 supports batch size 1")
         payload = minimax_payload or {}
@@ -872,7 +879,7 @@ class MiniMaxH3Model(nn.Module):
         t_vals = t_vals.to(dtype=torch.float32, device=device)
         if self.use_adaln_curves:
             # adaln projections consume interpolated coordinates of the time-embedding curve
-            table = comfy.model_management.cast_to(self.adaln_t_table, device=device)
+            table = model_management.cast_to(self.adaln_t_table, device=device)
             pos = t_vals.clamp(0.0, 1.0) * (table.shape[0] - 1)     # t in [0,1] -> fractional grid index, out-of-range t clamps to the curve ends
             i0 = pos.floor().long().clamp(max=table.shape[0] - 2)   # lower grid row, max-clamp keeps t=1.0 on the last interval instead of reading past the table
             t_emb = torch.lerp(table[i0], table[i0 + 1], (pos - i0).unsqueeze(1))  # blend the two rows by the fractional part
@@ -959,10 +966,10 @@ class MiniMaxH3Model(nn.Module):
         layout = transformer_options.get("minimax_h3_layout")
         device = h.device
         blocks = [self.blocks[index] for index in range(start_layer, end_layer)]
-        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(blocks, device, transformer_options)
+        prefetch_queue = model_prefetch.make_prefetch_queue(blocks, device, transformer_options)
         for i in range(start_layer, end_layer):
             block = self.blocks[i]
-            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, block, malloc_scope="block")
+            model_prefetch.prefetch_queue_pop(prefetch_queue, device, block, malloc_scope="block")
             transformer_options["block_index"] = i
             if ("double_block", i) in blocks_replace:
                 def block_wrap(args):
@@ -974,7 +981,7 @@ class MiniMaxH3Model(nn.Module):
                     {"original_block": block_wrap})["img"]
             else:
                 h = block(h, t_emb, mod_segments, rope_freqs, transformer_options=transformer_options)
-        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, None, malloc_scope="block")
+        model_prefetch.prefetch_queue_pop(prefetch_queue, device, None, malloc_scope="block")
         return h
 
     def forward_pipeline_stage(self, intermediate: PipelineIntermediateTensors):

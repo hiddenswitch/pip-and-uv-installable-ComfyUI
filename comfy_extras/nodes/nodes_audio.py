@@ -1,22 +1,22 @@
-import av
-import torch
-import comfy.model_management
-from comfy.cmd import folder_paths
-import os
-import hashlib
+from comfy import audio as comfy_audio
+from comfy import model_management
 from comfy import node_helpers
+from comfy.cmd import folder_paths
+import av
+import hashlib
 import logging
+import os
+import torch
 
-from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
 from .nodes_audio_vae import AudioVAEModelManageable
+from comfy.ldm.lightricks.vae.audio_vae import AudioVAE
 
 logger = logging.getLogger(__name__)
+from comfy_api.latest import ComfyExtension
+from comfy_api.latest import IO
+from comfy_api.latest import UI
 from typing_extensions import override
-from comfy_api.latest import ComfyExtension, IO, UI
 
-
-class TorchAudioNotFoundError(ModuleNotFoundError):
-    pass
 
 
 class EmptyLatentAudio(IO.ComfyNode):
@@ -39,7 +39,7 @@ class EmptyLatentAudio(IO.ComfyNode):
     @classmethod
     def execute(cls, seconds=47.6, batch_size=1) -> IO.NodeOutput:
         length = round((seconds * 44100 / 2048) / 2) * 2
-        latent = torch.zeros([batch_size, 64, length], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 64, length], device=model_management.intermediate_device())
         return IO.NodeOutput({"samples": latent, "type": "audio", "downscale_ratio_temporal": 2048})
 
     generate = execute  # TODO: remove
@@ -92,13 +92,9 @@ class VAEEncodeAudio(IO.ComfyNode):
         if audio is None:
             raise ValueError("VAEEncodeAudio: input audio is None (source video may have no audio track).")
         sample_rate = audio["sample_rate"]
-        try:
-            import torchaudio
-        except ImportError:
-            raise TorchAudioNotFoundError()
         vae_sample_rate = getattr(vae, "audio_sample_rate", 44100)
         if vae_sample_rate != sample_rate:
-            waveform = torchaudio.functional.resample(audio["waveform"], sample_rate, vae_sample_rate)
+            waveform = comfy_audio.resample(audio["waveform"], sample_rate, vae_sample_rate)
         else:
             waveform = audio["waveform"]
 
@@ -591,17 +587,13 @@ class JoinAudioChannels(IO.ComfyNode):
 
 
 def match_audio_sample_rates(waveform_1, sample_rate_1, waveform_2, sample_rate_2):
-    try:
-        import torchaudio
-    except ImportError:
-        raise TorchAudioNotFoundError()
     if sample_rate_1 != sample_rate_2:
         if sample_rate_1 > sample_rate_2:
-            waveform_2 = torchaudio.functional.resample(waveform_2, sample_rate_2, sample_rate_1)
+            waveform_2 = comfy_audio.resample(waveform_2, sample_rate_2, sample_rate_1)
             output_sample_rate = sample_rate_1
             logger.info(f"Resampling audio2 from {sample_rate_2}Hz to {sample_rate_1}Hz for merging.")
         else:
-            waveform_1 = torchaudio.functional.resample(waveform_1, sample_rate_1, sample_rate_2)
+            waveform_1 = comfy_audio.resample(waveform_1, sample_rate_1, sample_rate_2)
             output_sample_rate = sample_rate_2
             logger.info(f"Resampling audio1 from {sample_rate_1}Hz to {sample_rate_2}Hz for merging.")
     else:
@@ -860,7 +852,7 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
         # 1. Apply Low Shelf (Bass)
         if low_gain_dB != 0:
-            eq_waveform = torchaudio.functional.bass_biquad(
+            eq_waveform = comfy_audio.bass_biquad(
                 eq_waveform,
                 sample_rate,
                 gain=low_gain_dB,
@@ -870,7 +862,7 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
         # 2. Apply Peaking EQ (Mids)
         if mid_gain_dB != 0:
-            eq_waveform = torchaudio.functional.equalizer_biquad(
+            eq_waveform = comfy_audio.equalizer_biquad(
                 eq_waveform,
                 sample_rate,
                 center_freq=float(mid_freq),
@@ -880,7 +872,7 @@ class AudioEqualizer3Band(IO.ComfyNode):
 
         # 3. Apply High Shelf (Treble)
         if high_gain_dB != 0:
-            eq_waveform = torchaudio.functional.treble_biquad(
+            eq_waveform = comfy_audio.treble_biquad(
                 eq_waveform,
                 sample_rate,
                 gain=high_gain_dB,

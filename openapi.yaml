@@ -2121,71 +2121,188 @@ paths:
       description: Returns a paginated list of assets, optionally filtered by tags, name, or other query parameters.
       x-feature-gate: enable-assets
       parameters:
-      - name: limit
+      - deprecated: true
+        description: 'Deprecated alias for `tags_all`, kept permanently for existing
+
+          callers. Filter assets that have ALL of these tags. Combining it
+
+          with `tags_all`, or exceeding 100 tags (counted after removing
+
+          empty values and duplicates), returns 400 `INVALID_TAG_FILTER`.
+
+          '
+        explode: false
         in: query
+        name: include_tags
         schema:
-          type: integer
-          default: 50
-      - name: offset
+          items:
+            type: string
+          type: array
+        style: form
+      - deprecated: true
+        description: 'Deprecated alias for `tags_none`, kept permanently for existing
+
+          callers. Exclude assets that have ANY of these tags. Combining it
+
+          with `tags_none`, or exceeding 100 tags (counted after removing
+
+          empty values and duplicates), returns 400 `INVALID_TAG_FILTER`.
+
+          '
+        explode: false
         in: query
+        name: exclude_tags
         schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: 'Filter assets that have ALL of these tags. Tag values are opaque
+
+          byte-strings compared exactly and case-sensitively; unknown tags
+
+          are not an error — they simply match nothing. Replaces the
+
+          deprecated `include_tags`. Sending both spellings, listing the
+
+          same tag here and in `tags_none`, or exceeding 100 tags per list
+
+          (counted after removing empty values and duplicates) returns 400
+
+          `INVALID_TAG_FILTER`.
+
+          '
+        explode: false
+        in: query
+        name: tags_all
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: 'Filter assets that have AT LEAST ONE of these tags. Combines with
+
+          `tags_all`/`tags_none` by intersection (`tags_none` always wins;
+
+          overlap with `tags_none` is allowed and leaves a dead term).
+
+          Supplying a positive tag filter (`tags_any`, `tags_all`, or
+
+          `include_tags`) replaces the default category filter that is
+
+          otherwise applied. Lists over 100 tags (counted after removing
+
+          empty values and duplicates) return 400 `INVALID_TAG_FILTER`.
+
+          '
+        explode: false
+        in: query
+        name: tags_any
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: 'Exclude assets that have ANY of these tags. Replaces the
+
+          deprecated `exclude_tags`. Sending both spellings, or exceeding
+
+          100 tags per list (counted after removing empty values and
+
+          duplicates), returns 400 `INVALID_TAG_FILTER`.
+
+          '
+        explode: false
+        in: query
+        name: tags_none
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: Filter assets where name contains this substring (case-insensitive)
+        in: query
+        name: name_contains
+        schema:
+          type: string
+      - description: Maximum number of assets to return (1-500)
+        in: query
+        name: limit
+        schema:
+          default: 20
+          maximum: 500
+          minimum: 1
           type: integer
+      - description: Number of assets to skip for pagination
+        in: query
+        name: offset
+        schema:
           default: 0
-      - name: include_tags
+          minimum: 0
+          type: integer
+      - description: Field to sort by
         in: query
+        name: sort
         schema:
-          type: array
-          items:
-            type: string
-        style: form
-        explode: true
-        description: Tags that assets must have (AND logic)
-      - name: exclude_tags
-        in: query
-        schema:
-          type: array
-          items:
-            type: string
-        style: form
-        explode: true
-        description: Tags that assets must not have
-      - name: name_contains
-        in: query
-        schema:
+          default: created_at
+          enum:
+          - name
+          - created_at
+          - updated_at
+          - size
+          - last_access_time
           type: string
-        description: Filter assets whose name contains this substring
-      - name: metadata_filter
+      - description: Sort order
         in: query
+        name: order
         schema:
-          type: string
-        description: JSON-encoded metadata key/value filter
-      - name: sort
-        in: query
-        schema:
-          type: string
-        description: Field to sort by
-      - name: order
-        in: query
-        schema:
-          type: string
+          default: desc
           enum:
           - asc
           - desc
-        description: Sort direction
-      - name: include_public
+          type: string
+      - description: Whether to include public/shared assets in results
         in: query
+        name: include_public
         schema:
+          default: true
           type: boolean
-        x-runtime:
-        - cloud
-        description: '[cloud-only] Include workspace-public assets in addition to the caller''s own.'
-      - name: asset_hash
+      - description: 'Filter assets by content hash, in the canonical `blake3:<hex>`
+
+          form. Matches regardless of which of this asset store''s two
+
+          internal hash storage formats the matching row was written
+
+          under (the canonical form used by from-hash-created references,
+
+          or the raw `<hex>.<ext>`/bare `<hex>` storage key used by direct
+
+          uploads) — both represent the same content hash.
+
+          '
         in: query
+        name: hash
         schema:
           type: string
-        x-runtime:
-        - cloud
-        description: '[cloud-only] Filter by exact content hash.'
+      - description: 'Opaque cursor for keyset pagination. Pass the `next_cursor` value
+
+          from the previous response to fetch the next page. When provided,
+
+          `offset` is ignored. Cursor pagination is only supported with
+
+          `sort` values `created_at`, `updated_at`, `name`, or `size`;
+
+          requests combining `after` with other sort fields return 400.
+
+          The cursor must have been minted under the same `sort` value used
+
+          in the follow-up request.
+
+          '
+        in: query
+        name: after
+        schema:
+          type: string
       responses:
         '200':
           description: Asset list
@@ -2854,55 +2971,108 @@ paths:
         assets each tag would select.
       x-feature-gate: enable-assets
       parameters:
-      - name: include_tags
+      - deprecated: true
+        description: 'Deprecated alias for `tags_all`, kept permanently for existing
+
+          callers. Filter assets that have ALL of these tags. The same
+
+          combination and list-size rules as on `/api/assets` apply
+
+          (400 `INVALID_TAG_FILTER`).
+
+          '
+        explode: false
         in: query
+        name: include_tags
         schema:
-          type: array
           items:
             type: string
-        style: form
-        explode: true
-        description: Tags that assets must have (AND logic)
-      - name: exclude_tags
-        in: query
-        schema:
           type: array
+        style: form
+      - deprecated: true
+        description: 'Deprecated alias for `tags_none`, kept permanently for existing
+
+          callers. Exclude assets that have ANY of these tags. The same
+
+          combination and list-size rules as on `/api/assets` apply
+
+          (400 `INVALID_TAG_FILTER`).
+
+          '
+        explode: false
+        in: query
+        name: exclude_tags
+        schema:
           items:
             type: string
+          type: array
         style: form
-        explode: true
-        description: Tags that assets must not have
-      - name: name_contains
+      - description: 'Filter assets that have ALL of these tags. Replaces the deprecated
+
+          `include_tags`. The same combination and list-size rules as on
+
+          `/api/assets` apply (400 `INVALID_TAG_FILTER`).
+
+          '
+        explode: false
         in: query
+        name: tags_all
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: 'Filter assets that have AT LEAST ONE of these tags. Combines with
+
+          `tags_all`/`tags_none` by intersection (`tags_none` always wins).
+
+          The same combination and list-size rules as on `/api/assets` apply
+
+          (400 `INVALID_TAG_FILTER`).
+
+          '
+        explode: false
+        in: query
+        name: tags_any
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: 'Exclude assets that have ANY of these tags. Replaces the deprecated
+
+          `exclude_tags`. The same combination and list-size rules as on
+
+          `/api/assets` apply (400 `INVALID_TAG_FILTER`).
+
+          '
+        explode: false
+        in: query
+        name: tags_none
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      - description: Filter assets where name contains this substring (case-insensitive)
+        in: query
+        name: name_contains
         schema:
           type: string
-        description: Filter assets whose name contains this substring
-      - name: metadata_filter
+      - description: Maximum number of tags to return (1-1000, default 100)
         in: query
+        name: limit
         schema:
-          type: string
-        description: JSON-encoded metadata key/value filter
-      - name: limit
-        in: query
-        schema:
+          default: 100
+          maximum: 1000
+          minimum: 1
           type: integer
-      - name: offset
+      - description: Whether to include public/shared assets in results
         in: query
+        name: include_public
         schema:
-          type: integer
-      - name: sort
-        in: query
-        schema:
-          type: string
-        description: Field to sort by
-      - name: order
-        in: query
-        schema:
-          type: string
-          enum:
-          - asc
-          - desc
-        description: Sort direction
+          default: true
+          type: boolean
       responses:
         '200':
           description: Tag histogram

@@ -2,19 +2,25 @@ from __future__ import annotations
 
 from abc import ABC
 from enum import Enum
+from typing import Dict
+from typing import Optional
 from typing import TYPE_CHECKING
-from typing import TypedDict, Dict, Optional, Tuple
+from typing import Tuple
+from typing import TypedDict
 
 from PIL import Image
 from typing_extensions import override
 
-from comfy.component_model.executor_types import ExecutorToClientProgress, PreviewImageWithMetadataMessage
+from comfy.component_model.executor_types import ExecutorToClientProgress
+from comfy.component_model.executor_types import PreviewImageWithMetadataMessage
 from comfy.component_model.module_property import create_module_properties
 from comfy.execution_context import current_execution_context
-from comfy.progress_types import AbstractProgressRegistry, PreviewImageMetadata
+from comfy.progress_types import AbstractProgressRegistry
+from comfy.progress_types import PreviewImageMetadata
 
 if TYPE_CHECKING:
     from comfy_execution.graph import DynamicPrompt
+    from comfy_execution.server_protocol import ExecutionServer
 from comfy.cmd.protocol import BinaryEventTypes
 from comfy_api import feature_flags
 

@@ -1,18 +1,21 @@
+from typing import Optional
 import json
 import logging
-from typing import Optional
 
 
 from . import clip_model
 from . import model_management
 from . import model_patcher
 from . import ops
+from .component_model import files
+from . import storage
 from .image_encoders import dino2
 from .image_encoders import dino3
 from .image_encoders.naf import NAF
-from .component_model import files
 from .model_management import load_models_gpu
-from .utils import load_torch_file, transformers_convert, state_dict_prefix_replace
+from .utils import load_torch_file
+from .utils import state_dict_prefix_replace
+from .utils import transformers_convert
 
 logger = logging.getLogger(__name__)
 clip_preprocess = clip_model.clip_preprocess  # Prevent some stuff from breaking, TODO: remove eventually
@@ -35,7 +38,7 @@ IMAGE_ENCODERS = {
 
 
 class ClipVisionModel():
-    def __init__(self, json_config: dict | str):
+    def __init__(self, json_config: dict | str, fast_disk=False):
         if isinstance(json_config, dict):
             config = json_config
         elif json_config is not None and isinstance(json_config, str):
@@ -64,7 +67,7 @@ class ClipVisionModel():
         self.model = model_class(config, self.dtype, offload_device, ops.manual_cast)
         self.model.eval()
 
-        self.patcher = model_patcher.get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = model_patcher.get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device, fast_disk=fast_disk)
         self.naf = None
 
     def load_sd(self, sd):
@@ -161,7 +164,7 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
     else:
         return None
 
-    clip = ClipVisionModel(json_config)
+    clip = ClipVisionModel(json_config, fast_disk=storage.state_dict_fast_disk(sd))
     m, u = clip.load_sd(sd)
     if len(m) > 0:
         logger.warning("missing clip vision: {}".format(m))
@@ -179,6 +182,7 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False) -> Optional[ClipV
         naf.to(model_management.text_encoder_dtype(clip.load_device))
         clip.naf = model_patcher.get_model_patcher_class()(
             naf,
+            fast_disk=storage.state_dict_fast_disk(naf_sd),
             load_device=clip.load_device,
             offload_device=model_management.text_encoder_offload_device(),
         )

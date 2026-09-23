@@ -1,7 +1,18 @@
 from __future__ import annotations
 
-import errno
+from asyncio import AbstractEventLoop
+from asyncio import Future
+from asyncio import Task
+from enum import Enum
+from io import BytesIO
+from posixpath import join as urljoin
+from typing import List
+from typing import Optional
+from typing import Union
+from urllib.parse import quote
+from urllib.parse import urlencode
 import asyncio
+import errno
 import glob
 import io
 import ipaddress
@@ -15,61 +26,71 @@ import sys
 import traceback
 import typing
 import uuid
-from asyncio import Future, AbstractEventLoop, Task
-from enum import Enum
-from io import BytesIO
-from posixpath import join as urljoin
-from typing import List, Optional, Union
-from urllib.parse import quote, urlencode
 
-import aiofiles
-import aiohttp
-from PIL import Image, ImageOps
+from PIL import Image
+from PIL import ImageOps
 from PIL.PngImagePlugin import PngInfo
 from aiohttp import web
-from can_ada import URL, parse as urlparse
+from can_ada import URL
+from can_ada import parse as urlparse
 from packaging import version
 from typing_extensions import NamedTuple
+import aiofiles
+import aiohttp
 
-from comfy_api import feature_flags
-from ..comfy_api_env import get_environment_overrides
-from comfy_execution.jobs import (
-    CANCEL_PENDING,
-    CANCEL_RUNNING,
-    JobStatus,
-    cancel_job,
-    get_all_jobs,
-    get_job,
-    validate_job_id,
-)
-from .latent_preview_image_encoding import encode_preview_image
 from .. import __version__
-from ..deploy_environment import get_deploy_environment
-from .. import interruption, model_management
+from .. import interruption
+from .. import model_management
 from .. import node_helpers
 from .. import utils
-from ..app.lsp import LspManager
 from ..api_server.routes.internal.internal_routes import InternalRoutes
+from ..app.assets.event_log import emit
 from ..app.assets.services.asset_management import resolve_hash_to_path
-from ..app.assets.services.ingest import register_file_in_place
-from ..app.assets.services.path_utils import get_known_subfolder_tags
 from ..app.custom_node_manager import CustomNodeManager
 from ..app.frontend_management import FrontendManager
+from ..app.lsp import LspManager
 from ..app.model_manager import ModelFileManager
 from ..app.subgraph_manager import SubgraphManager
 from ..app.user_manager import UserManager
+from ..comfy_api_env import get_environment_overrides
+from ..deploy_environment import get_deploy_environment
+from .latent_preview_image_encoding import encode_preview_image
+from comfy_api import feature_flags
+from comfy_execution.jobs import CANCEL_PENDING
+from comfy_execution.jobs import CANCEL_RUNNING
+from comfy_execution.jobs import JobStatus
+from comfy_execution.jobs import cancel_job
+from comfy_execution.jobs import get_all_jobs
+from comfy_execution.jobs import get_job
+from comfy_execution.jobs import validate_job_id
 
+from . import execution
+from . import folder_paths
+from ..app.assets.api.routes import register_assets_routes
+from ..app.assets.seeder import asset_seeder
+from ..app.node_replace_manager import NodeReplaceManager
+from ..app.assets.manager import AssetManager, default_asset_manager
 from ..client.client_types import FileOutput
-from ..cmd import execution
-from ..cmd import folder_paths
-from ..component_model.abstract_prompt_queue import AbstractPromptQueue, AsyncAbstractPromptQueue
+from ..component_model.abstract_prompt_queue import AbstractPromptQueue
+from ..component_model.abstract_prompt_queue import AsyncAbstractPromptQueue
 from ..component_model.encode_text_for_progress import encode_text_for_progress
-from ..component_model.executor_types import ExecutorToClientProgress, StatusMessage, QueueInfo, ExecInfo, \
-    UnencodedPreviewImageMessage, PreviewImageWithMetadataMessage
+from ..component_model.executor_types import ExecInfo
+from ..component_model.executor_types import ExecutorToClientProgress
+from ..component_model.executor_types import PreviewImageWithMetadataMessage
+from ..component_model.executor_types import QueueInfo
+from ..component_model.executor_types import StatusMessage
+from ..component_model.executor_types import UnencodedPreviewImageMessage
 from ..component_model.file_output_path import file_output_path
-from ..component_model.queue_types import QueueItem, HistoryEntry, BinaryEventTypes, TaskInvocation, ExecutionError, \
-    ExecutionStatus, QueueTuple, ExtraData
-from ..component_model.workflow_convert import is_ui_workflow, convert_ui_to_api
+from ..component_model.queue_types import BinaryEventTypes
+from ..component_model.queue_types import ExecutionError
+from ..component_model.queue_types import ExecutionStatus
+from ..component_model.queue_types import ExtraData
+from ..component_model.queue_types import HistoryEntry
+from ..component_model.queue_types import QueueItem
+from ..component_model.queue_types import QueueTuple
+from ..component_model.queue_types import TaskInvocation
+from ..component_model.workflow_convert import convert_ui_to_api
+from ..component_model.workflow_convert import is_ui_workflow
 from ..digest import digest
 from ..execution_context import current_execution_context
 from ..images import open_image
@@ -77,9 +98,6 @@ from ..middleware.cache_middleware import cache_control
 from ..model_management import torch_version
 from ..nodes.package_typing import ExportedNodes
 from ..progress_types import PreviewImageMetadata
-from ..app.assets.api.routes import register_assets_routes
-from ..app.node_replace_manager import NodeReplaceManager
-from ..app.assets.seeder import asset_seeder
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +175,8 @@ async def compress_body(request: web.Request, handler):
 @web.middleware
 async def opentelemetry_middleware(request: web.Request, handler):
     """Middleware to extract and propagate OpenTelemetry context from request headers"""
-    from opentelemetry import propagate, context
+    from opentelemetry import propagate
+    from opentelemetry import context
 
     # Extract OpenTelemetry context from headers
     carrier = dict(request.headers)
@@ -272,11 +291,12 @@ def create_block_external_middleware():
 class PromptServer(ExecutorToClientProgress):
     instance: Optional['PromptServer'] = None
 
-    def __init__(self, loop):
+    def __init__(self, loop, asset_manager: "AssetManager | None" = None):
         server_args = current_execution_context().configuration
         # todo: this really needs to be set up differently, because sometimes the prompt server will not be initialized
         PromptServer.instance = self
 
+        self.asset_manager = asset_manager if asset_manager is not None else default_asset_manager()
         self.user_manager = UserManager()
         self.model_file_manager = ModelFileManager()
         self.custom_node_manager = CustomNodeManager()
@@ -323,13 +343,13 @@ class PromptServer(ExecutorToClientProgress):
             if server_args.front_end_root is None
             else server_args.front_end_root
         )
+        logger.info(f"[Prompt Server] web root: {self.web_root}")
+        self.asset_manager.register_routes(self.app, self.user_manager)
+        self.asset_manager.set_event_sink(self.send_sync)
+        if self.asset_manager.enabled:
+            emit("assets.enabled", hashing_enabled=server_args.enable_asset_hashing)
         routes = web.RouteTableDef()
-        if server_args.enable_assets:
-            register_assets_routes(self.app, self.user_manager)
-        else:
-            register_assets_routes(self.app)
-            asset_seeder.disable()
-        self.routes: web.RouteTableDef = routes
+        self.routes = routes
         self.last_node_id = None
         self.last_prompt_id = None
         self.client_id = None
@@ -502,23 +522,26 @@ class PromptServer(ExecutorToClientProgress):
                     if image_save_function is not None:
                         await image_save_function(image, post, filepath)
                     else:
-                        async with aiofiles.open(filepath, mode='wb') as file:
+                        async with aiofiles.open(filepath, mode="wb") as file:
                             await file.write(image.file.read())
 
-                resp = {"name": filename, "subfolder": subfolder, "type": image_upload_type}
+                resp = {"name" : filename, "subfolder": subfolder, "type": image_upload_type}
 
-                if server_args.enable_assets:
-                    tag = image_upload_type if image_upload_type in ("input", "output") else "input"
-                    tags = [tag]
-                    tags.extend(get_known_subfolder_tags(subfolder))
-                    result = register_file_in_place(abs_path=filepath, name=filename, tags=tags)
+                view = self.asset_manager.register_upload(
+                    abs_path=filepath,
+                    name=filename,
+                    upload_type=image_upload_type,
+                    subfolder=subfolder,
+                    content_written=not image_is_duplicate,
+                )
+                if view is not None:
                     resp["asset"] = {
-                        "id": result.ref.id,
-                        "name": result.ref.name,
-                        "asset_hash": result.asset.hash,
-                        "size": result.asset.size_bytes,
-                        "mime_type": result.asset.mime_type,
-                        "tags": result.tags,
+                        "id": view.asset.id,
+                        "name": view.asset.name,
+                        "asset_hash": view.asset_hash,
+                        "size": view.size,
+                        "mime_type": view.mime_type,
+                        "tags": view.tags,
                     }
 
                 return web.json_response(resp)
@@ -596,8 +619,11 @@ class PromptServer(ExecutorToClientProgress):
                 # node preview, it constructs /view?filename=<asset_hash>, so this
                 # endpoint must resolve blake3 hashes to their on-disk file paths.
                 if filename.startswith("blake3:"):
-                    owner_id = self.user_manager.get_request_user_id(request)
-                    result = resolve_hash_to_path(filename, owner_id=owner_id)
+                    # Side-effect call: get_request_user_id raises KeyError for an unknown or
+                    # system user in multi-user mode, which is what gates hash resolution.
+                    # The returned id is deliberately unused (resolution is not owner-scoped).
+                    self.user_manager.get_request_user_id(request)
+                    result = resolve_hash_to_path(filename)
                     if result is None:
                         return web.Response(status=404)
                     file, filename, resolved_content_type = result.abs_path, result.download_name, result.content_type
@@ -795,7 +821,7 @@ class PromptServer(ExecutorToClientProgress):
         async def get_object_info(request):
             # todo: what does this doozy do...
             if not server_args.disable_assets_autoscan:
-                asset_seeder.start(roots=("models", "input", "output"), compute_hashes=server_args.enable_asset_hashing)
+                self.asset_manager.ensure_scan_started()
             out = {}
             for x in self.nodes.NODE_CLASS_MAPPINGS:
                 try:
