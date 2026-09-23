@@ -690,7 +690,6 @@ KNOWN_LORAS: Final[KnownDownloadables] = KnownDownloadables([
 ], folder_name="loras")
 
 KNOWN_MODEL_PATCHES: Final[KnownDownloadables] = KnownDownloadables([
-    HuggingFile("alibaba-pai/MiniMax-H3-Fun-Controlnet-Union-2.0", "MiniMax-H3-Fun-Controlnet-Union-2.0.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "model_patches/minimax_h3_fun_controlnet_union_pruned_bf16.safetensors"),
     HuggingFile("Comfy-Org/MiniMax-H3", "model_patches/minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors"),
 ], folder_name="model_patches")
