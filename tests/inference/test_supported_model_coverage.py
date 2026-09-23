@@ -44,7 +44,7 @@ SUPPORTED_MODEL_WORKFLOW_COVERAGE = {
     "GenmoMochi": ("mochi-text-to-video-0.json",),
     "LTXV": ("ltxv-0.json", "ltxv-1.json"),
     "LTXAV": ("ltx-2-0.json",),
-    "MiniMaxH3": ("minimax-h3-fl2va-0.json", "minimax-h3-ref2va-0.json"),
+    "MiniMaxH3": ("minimax-h3-fl2va-0.json", "minimax-h3-ref2va-0.json", "minimax-h3-union-controlnet-int8-convrot-0.json"),
     "MiniMaxMusic3": ("minimax-music3-0.json",),
     "HunyuanVideo15_SR_Distilled": ("hunyuan-video-0.json",),
     "HunyuanVideo15": ("hunyuan-video-0.json",),
