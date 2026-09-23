@@ -13,17 +13,18 @@ import math
 
 import torch
 import torch.nn.functional as F
-import torchaudio
+from comfy import audio as comfy_audio
 
-import comfy.model_management
-import comfy.model_prefetch
-import comfy.model_sampling
-import comfy.nested_tensor
-import comfy.patcher_extension
-import comfy.utils
+from comfy import model_management
+from comfy import model_prefetch
+from comfy import model_sampling as comfy_model_sampling
+from comfy import nested_tensor
+from comfy import patcher_extension
+from comfy import utils
 from comfy import node_helpers
 from comfy.nodes.common import MAX_RESOLUTION
 from comfy.ldm.minimax.model import FRAME_PER_TOKEN, FRAME_RESCALE
+from comfy.ldm.minimax.vae import IMAGENET_MEAN
 from comfy_api.latest import ComfyExtension, io
 
 CANVAS_MULTIPLE = 32
@@ -67,7 +68,7 @@ def adapt_canvas(width, height):
 def _resize(image, width, height, crop):
     # image [B, H, W, C] -> [B, height, width, 3]
     samples = image[..., :3].movedim(-1, 1)
-    samples = comfy.utils.common_upscale(samples, width, height, "lanczos", crop)
+    samples = utils.common_upscale(samples, width, height, "lanczos", crop)
     return samples.movedim(1, -1)
 
 
@@ -76,7 +77,7 @@ def _encode_ref_audio(audio_vae, audio):
     sr = audio["sample_rate"]
     vae_sr = getattr(audio_vae, "audio_sample_rate", 32000)
     if sr != vae_sr:
-        waveform = torchaudio.functional.resample(waveform, sr, vae_sr)
+        waveform = comfy_audio.resample(waveform, sr, vae_sr)
     z = audio_vae.encode(waveform[:1].movedim(1, -1))  # [1, 32, 2, T]
     return z, z.shape[-1]
 
@@ -84,10 +85,10 @@ def _encode_ref_audio(audio_vae, audio):
 def _empty_av_latent(width, height, length, batch_size=1):
     frame_count, latent_t, audio_t = temporal_shape(length)
     video = torch.zeros([batch_size, 24, latent_t, height // 16, width // 16],
-                        device=comfy.model_management.intermediate_device())
+                        device=model_management.intermediate_device())
     audio = torch.zeros([batch_size, 32, 2, audio_t],
-                        device=comfy.model_management.intermediate_device())
-    return {"samples": comfy.nested_tensor.NestedTensor((video, audio))}, frame_count
+                        device=model_management.intermediate_device())
+    return {"samples": nested_tensor.NestedTensor((video, audio))}, frame_count
 
 
 class EmptyMiniMaxH3LatentAV(io.ComfyNode):
@@ -391,7 +392,7 @@ class MiniMaxH3SigmaShift(io.ComfyNode):
     def execute(cls, model, shift_video, shift_audio) -> io.NodeOutput:
         m = model.clone()
 
-        class ModelSamplingAdvanced(comfy.model_sampling.ModelSamplingAV, comfy.model_sampling.CONST):
+        class ModelSamplingAdvanced(comfy_model_sampling.ModelSamplingAV, comfy_model_sampling.CONST):
             pass
 
         original = m.get_model_object("model_sampling")
@@ -425,7 +426,7 @@ class MiniMaxH3FunControlPatch:
 
     def _fit_frames(self, frames, frame_count, width, height):
         indices = torch.arange(frame_count, device=frames.device).clamp(max=frames.shape[0] - 1)
-        return comfy.utils.common_upscale(frames[indices], width, height, "bilinear", "center")
+        return utils.common_upscale(frames[indices], width, height, "bilinear", "center")
 
     def _encode(self, frames, target_shape):
         latent = self.vae.encode(frames.movedim(1, -1)).to(torch.float32)
@@ -443,7 +444,7 @@ class MiniMaxH3FunControlPatch:
         spatial_compression = self.vae.spacial_compression_encode()
         width = latent_width * spatial_compression
         height = latent_height * spatial_compression
-        loaded_models = comfy.model_management.loaded_models(only_currently_used=True)
+        loaded_models = model_management.loaded_models(only_currently_used=True)
 
         try:
             hint = None
@@ -454,13 +455,18 @@ class MiniMaxH3FunControlPatch:
             if self.mask is not None:
                 mask = (self.mask.reshape(-1, 1, self.mask.shape[-2], self.mask.shape[-1]) > 0.5).to(torch.float32)
                 indices = torch.arange(frame_count, device=mask.device).clamp(max=mask.shape[0] - 1)
-                mask = comfy.utils.common_upscale(mask[indices], width, height, "bilinear", "center")
+                mask = utils.common_upscale(mask[indices], width, height, "bilinear", "center")
                 visibility = 1.0 - (mask > 0.5).to(torch.float32)
                 if self.source_video is None:
                     source = torch.zeros(frame_count, 3, height, width, dtype=visibility.dtype, device=visibility.device)
                 else:
                     source = self._fit_frames(self.source_video, frame_count, width, height)
-                masked_latent = self._encode(source * visibility.to(source.device), target_shape)
+                visibility = visibility.to(source.device)
+                masked = source * visibility
+                if self.model_patch.model.inpaint_post_norm:
+                    # the pixel the VAE normalizes to zero, i.e. holes at mid-gray instead of black
+                    masked += (1.0 - visibility) * torch.tensor(IMAGENET_MEAN, dtype=source.dtype, device=source.device).view(1, 3, 1, 1)
+                masked_latent = self._encode(masked, target_shape)
                 if hint is None:
                     hint = torch.zeros_like(masked_latent)
                 visibility_latent = F.interpolate(
@@ -468,7 +474,7 @@ class MiniMaxH3FunControlPatch:
                     mode="trilinear", align_corners=False)
                 hint = torch.cat([hint, visibility_latent.to(hint.device), masked_latent.to(hint.device)], dim=1)
         finally:
-            comfy.model_management.load_models_gpu(loaded_models)
+            model_management.load_models_gpu(loaded_models)
 
         self.control_latent = hint
         self.control_latent_shape = target_shape
@@ -479,7 +485,7 @@ class MiniMaxH3FunControlPatch:
         self.active = self.sigma_end <= sigma <= self.sigma_start
         self.control_stream = None
         if self.active:
-            with comfy.model_prefetch.pause_malloc_graph():
+            with model_prefetch.pause_malloc_graph():
                 self.prepare_control_latent(x[0].shape)
         try:
             return executor(x, timestep, context, transformer_options, **kwargs)
@@ -527,7 +533,7 @@ class MiniMaxH3FunControlPatch:
         return [self.model_patch]
 
     def register(self, model):
-        model.add_wrapper(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, self.diffusion_model_wrapper)
+        model.add_wrapper(patcher_extension.WrappersMP.DIFFUSION_MODEL, self.diffusion_model_wrapper)
         for block_index in self.model_patch.model.injection_layers:
             blocks_replace = model.model_options.get("transformer_options", {}).get("patches_replace", {}).get("dit", {})
             previous = blocks_replace.get(("double_block", block_index))
@@ -543,13 +549,13 @@ class MiniMaxH3FunControlBlockPatch:
 
     def __call__(self, args, extra_args):
         # Control state must stay outside the base block's allocation scope.
-        with comfy.model_prefetch.pause_malloc_graph():
+        with model_prefetch.pause_malloc_graph():
             self.control_patch.before_block(self.block_index, args)
         if self.previous is None:
             out = extra_args["original_block"](args)
         else:
             out = self.previous(args, extra_args)
-        with comfy.model_prefetch.pause_malloc_graph():
+        with model_prefetch.pause_malloc_graph():
             return self.control_patch.after_block(self.block_index, args, out)
 
     def to(self, device_or_dtype):

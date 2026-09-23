@@ -164,7 +164,8 @@ class Configuration(dict):
         disable_cuda_graphs (bool): Disable CUDA graph capture and replay.
         disable_comfy_compiler (bool): Disable the Comfy model compiler, including its CUDA graph subfeature.
         assert_graph_breaks (bool): Fail on Comfy model compiler graph breaks.
-        fast_disk (bool): Prefer disk-backed dynamic loading and offload over unpinned RAM.
+        fast_disk (bool): Force disk-backed dynamic loading and offload over unpinned RAM.
+        disable_fast_disk (bool): Disable disk-backed loading, overriding fast_disk.
         disable_smart_memory (bool): Disable smart memory management.
         deterministic (bool): Use deterministic algorithms where possible.
         quick_test_for_ci (bool): Enable quick testing mode for CI.
@@ -341,6 +342,7 @@ class Configuration(dict):
         self.disable_dynamic_vram: bool = False
         self.enable_dynamic_vram: bool = False
         self.fast_disk: bool = False
+        self.disable_fast_disk: bool = False
         self.disable_cuda_graphs: bool = False
         self.disable_comfy_compiler: bool = False
         self.assert_graph_breaks: bool = False

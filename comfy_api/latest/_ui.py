@@ -1,26 +1,26 @@
 from __future__ import annotations
 
+from io import BytesIO
 import json
 import logging
 import os
 import random
 import uuid
-from io import BytesIO
 
+from PIL import Image as PILImage
+from PIL.PngImagePlugin import PngInfo
+from comfy import audio as comfy_audio
 import av
 import numpy as np
 import torch
-try:
-    TORCH_AUDIO_AVAILABLE = True
-except:
-    TORCH_AUDIO_AVAILABLE = False
-from PIL import Image as PILImage
-from PIL.PngImagePlugin import PngInfo
 
 # used for image preview
 from comfy.cli_args import args
 from comfy.cmd import folder_paths
-from ._io import ComfyNode, FolderType, Image, _UIOutput
+from comfy_api.latest._io import ComfyNode
+from comfy_api.latest._io import FolderType
+from comfy_api.latest._io import Image
+from comfy_api.latest._io import _UIOutput
 
 logger = logging.getLogger(__name__)
 
@@ -313,11 +313,7 @@ class AudioSaveHelper:
 
                 # Resample if necessary
                 if sample_rate != audio["sample_rate"]:
-                    try:
-                        import torchaudio
-                        waveform = torchaudio.functional.resample(waveform, audio["sample_rate"], sample_rate)
-                    except (ImportError, ModuleNotFoundError):
-                        logger.warning("could not resample because torchaudio not found")
+                    waveform = comfy_audio.resample(waveform, audio["sample_rate"], sample_rate)
 
             # Create output with specified format
             output_buffer = BytesIO()

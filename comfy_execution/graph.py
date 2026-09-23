@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from typing import Literal
+from typing import NamedTuple
+from typing import Optional
+from typing import Type
+from typing import Union
 import asyncio
 import inspect
-from typing import Optional, Type, Literal, Union, NamedTuple
 
-from comfy.nodes.package_typing import CustomNode, InputTypes
-from comfy_execution.graph_utils import ExecutionBlocker
-from comfy.comfy_types.node_typing import ComfyNodeABC, InputTypeDict, InputTypeOptions
-from comfy.component_model.executor_types import DependencyCycleError, NodeInputError, NodeNotFoundError, \
-    DependencyExecutionErrorMessage, ComboOptions
+from comfy.comfy_types.node_typing import ComfyNodeABC
+from comfy.comfy_types.node_typing import InputTypeDict
+from comfy.comfy_types.node_typing import InputTypeOptions
+from comfy.component_model.executor_types import ComboOptions
+from comfy.component_model.executor_types import DependencyCycleError
+from comfy.component_model.executor_types import DependencyExecutionErrorMessage
+from comfy.component_model.executor_types import NodeInputError
+from comfy.component_model.executor_types import NodeNotFoundError
+from comfy.nodes.package_typing import CustomNode
+from comfy.nodes.package_typing import InputTypes
 from comfy.nodes_context import get_nodes
-from .graph_utils import is_link
+from comfy_execution.graph_utils import ExecutionBlocker
+from comfy_execution.graph_utils import is_link
 
 # NOTE: ExecutionBlocker code got moved to graph_utils.py to prevent torch being imported too soon during unit tests
 ExecutionBlocker = ExecutionBlocker
@@ -20,17 +30,26 @@ class DynamicPrompt:
     def __init__(self, original_prompt):
         # The original prompt provided by the user
         self.original_prompt = original_prompt
+        # Runtime replacements for original base_nodes, without mutating the submitted prompt.
+        self.node_overrides = {}
         # Any extra pieces of the graph created during execution
         self.ephemeral_prompt = {}
         self.ephemeral_parents = {}
         self.ephemeral_display = {}
 
     def get_node(self, node_id):
+        if node_id in self.node_overrides:
+            return self.node_overrides[node_id]
         if node_id in self.ephemeral_prompt:
             return self.ephemeral_prompt[node_id]
         if node_id in self.original_prompt:
             return self.original_prompt[node_id]
         raise NodeNotFoundError(f"Node {node_id} not found")
+
+    def override_node(self, node_id, node_info):
+        if not self.has_node(node_id):
+            raise NodeNotFoundError(f"Node {node_id} not found")
+        self.node_overrides[node_id] = node_info
 
     def has_node(self, node_id):
         return node_id in self.original_prompt or node_id in self.ephemeral_prompt
@@ -119,6 +138,7 @@ class TopologicalSort:
         self.blockCount = {}  # Number of nodes this node is directly blocked by
         self.blocking = {}  # Which nodes are blocked by this node
         self.externalBlocks = 0
+        self.externalBlockResults = {}
         self.unblockedEvent = asyncio.Event()
 
     def get_input_info(self, unique_id, input_name):
@@ -179,12 +199,20 @@ class TopologicalSort:
         self.externalBlocks += 1
         self.blockCount[node_id] += 1
 
-        def unblock():
-            self.externalBlocks -= 1
-            self.blockCount[node_id] -= 1
-            self.unblockedEvent.set()
+        def unblock(value=None):
+            self.release_external_block(node_id, value)
 
         return unblock
+
+    def release_external_block(self, node_id, value=None):
+        self.externalBlocks -= 1
+        self.blockCount[node_id] -= 1
+        if value is not None:
+            self.externalBlockResults[node_id] = value
+        self.unblockedEvent.set()
+
+    def get_external_block_result(self, node_id):
+        return self.externalBlockResults.get(node_id)
 
     def is_cached(self, node_id):
         return False
@@ -197,6 +225,7 @@ class TopologicalSort:
         for blocked_node_id in self.blocking[unique_id]:
             self.blockCount[blocked_node_id] -= 1
         del self.blocking[unique_id]
+        self.externalBlockResults.pop(unique_id, None)
 
     def is_empty(self):
         return len(self.pendingNodes) == 0
@@ -251,6 +280,28 @@ class ExecutionList(TopologicalSort):
     def add_strong_link(self, from_node_id, from_socket, to_node_id):
         super().add_strong_link(from_node_id, from_socket, to_node_id)
         self.cache_link(from_node_id, to_node_id, from_socket)
+
+    def inhibit_nodes(self, node_ids):
+        """Remove pending base_nodes selected by the currently executing control node."""
+        assert self.staged_node_id is not None, "Nodes may only be inhibited while a control node is staged"
+        node_ids = set(node_ids).intersection(self.pendingNodes)
+        assert self.staged_node_id not in node_ids, "A control node cannot inhibit itself"
+
+        for from_node_id, blocked_nodes in self.blocking.items():
+            if from_node_id not in node_ids:
+                for node_id in node_ids:
+                    blocked_nodes.pop(node_id, None)
+        for node_id in node_ids:
+            for blocked_node_id in self.blocking[node_id]:
+                if blocked_node_id not in node_ids:
+                    self.blockCount[blocked_node_id] -= 1
+            del self.pendingNodes[node_id]
+            del self.blockCount[node_id]
+            del self.blocking[node_id]
+            self.execution_cache.pop(node_id, None)
+            self.execution_cache_listeners.pop(node_id, None)
+        for listeners in self.execution_cache_listeners.values():
+            listeners.difference_update({listener for listener in listeners if listener[0] in node_ids})
 
     async def stage_node_execution(self) -> tuple[Optional[str], Optional[DependencyExecutionErrorMessage], Optional[DependencyCycleError]]:
         assert self.staged_node_id is None
@@ -327,6 +378,10 @@ class ExecutionList(TopologicalSort):
     def unstage_node_execution(self):
         assert self.staged_node_id is not None
         self.staged_node_id = None
+
+    def is_staged_node_blocked(self):
+        assert self.staged_node_id is not None
+        return self.blockCount[self.staged_node_id] > 0
 
     def complete_node_execution(self):
         node_id = self.staged_node_id

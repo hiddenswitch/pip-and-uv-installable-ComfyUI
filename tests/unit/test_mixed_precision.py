@@ -1,7 +1,8 @@
-import json
-import unittest
 from types import SimpleNamespace
 from unittest import mock
+import json
+import unittest
+import unittest.mock
 
 import torch
 
@@ -15,11 +16,12 @@ from comfy.cli_args import args
 if not has_gpu():
     args.cpu = True
 
-from comfy import ops
 from comfy import model_management
+from comfy import ops
+from comfy import utils
 from comfy.model_base import _format_quantized_storage_summary
-from comfy.quant_ops import QUANT_ALGOS, QuantizedTensor
-import comfy.utils
+from comfy.quant_ops import QUANT_ALGOS
+from comfy.quant_ops import QuantizedTensor
 
 
 class SimpleModel(torch.nn.Module):
@@ -105,7 +107,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.weight_scale": torch.tensor(1.5, dtype=torch.float32),
         }
 
-        state_dict, _ = comfy.utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
+        state_dict, _ = utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
         # Create model and load state dict (strict=False because custom loading pops keys)
         model = SimpleModel(operations=ops.mixed_precision_ops({}))
         model.load_state_dict(state_dict, strict=False)
@@ -239,7 +241,8 @@ class TestMixedPrecisionOps(unittest.TestCase):
     @unittest.skipUnless(ops.mixed_precision_quantization_available(), "requires comfy_kitchen-backed quantized tensors")
     def test_quantized_lora_patch_bakes_back_into_weight(self):
         """LoRA-style patches on quantized layers should bake and requantize, not become runtime adapters."""
-        from comfy.model_patcher import ModelPatcher, should_bake_lowvram_patch
+        from comfy.model_patcher import ModelPatcher
+        from comfy.model_patcher import should_bake_lowvram_patch
 
         class TinyModel(torch.nn.Module):
             def __init__(self):
@@ -291,7 +294,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
                     "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
                     "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
                 }
-                state_dict, _ = comfy.utils.convert_old_quants(
+                state_dict, _ = utils.convert_old_quants(
                     state_dict,
                     metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
                 )
@@ -328,7 +331,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
             "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
         }
-        state_dict, _ = comfy.utils.convert_old_quants(
+        state_dict, _ = utils.convert_old_quants(
             state_dict,
             metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
         )
@@ -368,7 +371,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.weight": torch.randn(40, 30, dtype=torch.bfloat16),
             "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
         }
-        state_dict, _ = comfy.utils.convert_old_quants(
+        state_dict, _ = utils.convert_old_quants(
             state_dict,
             metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
         )
@@ -487,7 +490,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
         }
 
-        state_dict1, _ = comfy.utils.convert_old_quants(state_dict1, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
+        state_dict1, _ = utils.convert_old_quants(state_dict1, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
         model = SimpleModel(operations=ops.mixed_precision_ops({}))
         model.load_state_dict(state_dict1, strict=False)
 
@@ -526,7 +529,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
         }
 
-        state_dict, _ = comfy.utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
+        state_dict, _ = utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
         model = SimpleModel(operations=ops.mixed_precision_ops({}))
         model.load_state_dict(state_dict, strict=False)
 
@@ -565,7 +568,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer3.bias": torch.randn(40, dtype=torch.bfloat16),
         }
 
-        state_dict, _ = comfy.utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
+        state_dict, _ = utils.convert_old_quants(state_dict, metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})})
 
         # Load should raise KeyError for unknown format in QUANT_FORMAT_MIXINS
         model = SimpleModel(operations=ops.mixed_precision_ops({}))
@@ -597,7 +600,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer.weight_scale": q_weight._params.scale,
         }
 
-        state_dict, _ = comfy.utils.convert_old_quants(
+        state_dict, _ = utils.convert_old_quants(
             state_dict,
             metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
         )
@@ -655,7 +658,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "layer.weight_scale": q_weight._params.scale,
         }
 
-        state_dict, _ = comfy.utils.convert_old_quants(
+        state_dict, _ = utils.convert_old_quants(
             state_dict,
             metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
         )
@@ -696,7 +699,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
             "convrot.comfy_quant": marker({"format": "int8_convrot", "convrot_groupsize": 256}),
         }
 
-        out, _ = comfy.utils.convert_old_quants(base, metadata={})
+        out, _ = utils.convert_old_quants(base, metadata={})
 
         plain_conf = json.loads(out["plain.comfy_quant"].numpy().tobytes())
         convrot_conf = json.loads(out["convrot.comfy_quant"].numpy().tobytes())
@@ -730,7 +733,7 @@ class TestMixedPrecisionOps(unittest.TestCase):
                 "layer.weight_scale": q_weight._params.scale,
             }
             layer_quant_config = {"layer": {"format": "int8_tensorwise"}}
-            state_dict, _ = comfy.utils.convert_old_quants(
+            state_dict, _ = utils.convert_old_quants(
                 state_dict,
                 metadata={"_quantization_metadata": json.dumps({"layers": layer_quant_config})},
             )
@@ -762,6 +765,42 @@ class TestMixedPrecisionOps(unittest.TestCase):
             self.assertEqual(seen_weight_types, [torch.Tensor])
         finally:
             mm.supports_int8_compute = orig_supports_int8
+
+    def test_linear_input_act_respects_full_precision_mm_fallback(self):
+        """linear_input_act folds an activation into the INT8 GEMM's input quantizer,
+        bypassing Linear.forward entirely. On a device where the fast int8 kernel is
+        disabled (e.g. MPS, which lacks aten::_int_mm), it must honor _full_precision_mm
+        and dequantize instead, exactly like Linear.forward_comfy_cast_weights does
+        (see Comfy-Org/ComfyUI#16284)."""
+        operations = ops.mixed_precision_ops({}, compute_dtype=torch.bfloat16)
+
+        torch.manual_seed(456)
+        weight = torch.randn(32, 64, dtype=torch.bfloat16)
+        bias = torch.randn(32, dtype=torch.bfloat16)
+
+        layer = operations.Linear(64, 32, bias=True, device="cpu", dtype=torch.bfloat16)
+        layer.weight = torch.nn.Parameter(
+            QuantizedTensor.from_float(weight, "TensorWiseINT8Layout"), requires_grad=False
+        )
+        layer.bias = torch.nn.Parameter(bias, requires_grad=False)
+        layer.quant_format = "int8_tensorwise"
+        layer._full_precision_mm = True
+
+        x = torch.randn(4, 128, dtype=torch.bfloat16)
+
+        orig_int8_linear = ops.quant_ops.ck.int8_linear
+        ops.quant_ops.ck.int8_linear = unittest.mock.Mock(
+            side_effect=NotImplementedError("aten::_int_mm not implemented")
+        )
+        try:
+            output = ops.linear_input_act(layer, x, "swiglu")
+        finally:
+            ops.quant_ops.ck.int8_linear = orig_int8_linear
+
+        expected = torch.nn.functional.linear(
+            ops.INPUT_ACT_EAGER["swiglu"](x), layer.weight.dequantize(), bias
+        )
+        torch.testing.assert_close(output, expected)
 
     def test_supports_int8_compute_treats_mps_mode_as_unsupported_when_device_is_none(self):
         """Call sites (like pick_operations' default) may omit load_device. On an

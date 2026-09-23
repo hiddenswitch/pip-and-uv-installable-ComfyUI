@@ -1,9 +1,9 @@
 import torch
 from typing_extensions import override
 
-import comfy.latent_formats
-import comfy.model_management
-import comfy.utils
+from comfy import latent_formats
+from comfy import model_management
+from comfy import utils
 from comfy.nodes.common import MAX_RESOLUTION
 from comfy_api.latest import ComfyExtension, io
 
@@ -13,6 +13,7 @@ class EmptyCosmosLatentVideo(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="EmptyCosmosLatentVideo",
+            display_name="Empty Cosmos Latent Video",
             category="model/latent/cosmos",
             inputs=[
                 io.Int.Input("width", default=1280, min=16, max=MAX_RESOLUTION, step=16),
@@ -25,12 +26,12 @@ class EmptyCosmosLatentVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, width, height, length, batch_size=1) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 8) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 16, ((length - 1) // 8) + 1, height // 8, width // 8], device=model_management.intermediate_device())
         return io.NodeOutput({"samples": latent})
 
 
 def vae_encode_with_padding(vae, image, width, height, length, padding=0):
-    pixels = comfy.utils.common_upscale(image[..., :3].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+    pixels = utils.common_upscale(image[..., :3].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
     pixel_len = min(pixels.shape[0], length)
     padded_length = min(length, (((pixel_len - 1) // 8) + 1 + padding) * 8 - 7)
     padded_pixels = torch.ones((padded_length, height, width, 3)) * 0.5
@@ -60,13 +61,13 @@ class CosmosImageToVideoLatent(io.ComfyNode):
 
     @classmethod
     def execute(cls, vae, width, height, length, batch_size, start_image=None, end_image=None) -> io.NodeOutput:
-        latent = torch.zeros([1, 16, ((length - 1) // 8) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([1, 16, ((length - 1) // 8) + 1, height // 8, width // 8], device=model_management.intermediate_device())
         if start_image is None and end_image is None:
             out_latent = {}
             out_latent["samples"] = latent
             return io.NodeOutput(out_latent)
 
-        mask = torch.ones([latent.shape[0], 1, ((length - 1) // 8) + 1, latent.shape[-2], latent.shape[-1]], device=comfy.model_management.intermediate_device())
+        mask = torch.ones([latent.shape[0], 1, ((length - 1) // 8) + 1, latent.shape[-2], latent.shape[-1]], device=model_management.intermediate_device())
 
         if start_image is not None:
             latent_temp = vae_encode_with_padding(vae, start_image, width, height, length, padding=1)
@@ -104,13 +105,13 @@ class CosmosPredict2ImageToVideoLatent(io.ComfyNode):
 
     @classmethod
     def execute(cls, vae, width, height, length, batch_size, start_image=None, end_image=None) -> io.NodeOutput:
-        latent = torch.zeros([1, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([1, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=model_management.intermediate_device())
         if start_image is None and end_image is None:
             out_latent = {}
             out_latent["samples"] = latent
             return io.NodeOutput(out_latent)
 
-        mask = torch.ones([latent.shape[0], 1, ((length - 1) // 4) + 1, latent.shape[-2], latent.shape[-1]], device=comfy.model_management.intermediate_device())
+        mask = torch.ones([latent.shape[0], 1, ((length - 1) // 4) + 1, latent.shape[-2], latent.shape[-1]], device=model_management.intermediate_device())
 
         if start_image is not None:
             latent_temp = vae_encode_with_padding(vae, start_image, width, height, length, padding=1)
@@ -123,7 +124,7 @@ class CosmosPredict2ImageToVideoLatent(io.ComfyNode):
             mask[:, :, -latent_temp.shape[-3]:] *= 0.0
 
         out_latent = {}
-        latent_format = comfy.latent_formats.Wan21()
+        latent_format = latent_formats.Wan21()
         latent = latent_format.process_out(latent) * mask + latent * (1.0 - mask)
         out_latent["samples"] = latent.repeat((batch_size,) + (1,) * (latent.ndim - 1))
         out_latent["noise_mask"] = mask.repeat((batch_size,) + (1,) * (mask.ndim - 1))

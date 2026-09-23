@@ -12,6 +12,7 @@ from comfy.distributed.config import DistributedConfiguration
 from comfy.ldm.qwen_image.model import QwenImageTransformer2DModel
 from comfy.ldm.minimax.model import MiniMaxH3Model
 from comfy.ldm.flux.model import Flux
+from comfy.ldm.modules.attention import AttentionTensorContainer
 from comfy.model_management_types import LoadingListItem
 from comfy.model_patcher import ModelPatcher
 from comfy.pipeline_parallel import (
@@ -975,6 +976,8 @@ def test_flux2_two_stage_forward_matches_unpartitioned(monkeypatch):
 
 def _test_flux_attention(query, key, value, pe=None, mask=None, **kwargs):
     del pe, kwargs
+    if isinstance(query, AttentionTensorContainer):
+        query, key, value = query.take(), key.take(), value.take()
     return _test_attention(query, key, value, query.shape[1], mask=mask)
 
 

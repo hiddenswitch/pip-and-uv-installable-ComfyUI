@@ -4,14 +4,18 @@ Fixtures for assets API tests.
 Uses comfy_background_server_from_config from the top-level conftest.py
 with a Configuration object instead of raw CLI args.
 """
+from pathlib import Path
+from typing import Any
+from typing import Callable
+from typing import Generator
+from typing import Iterator
+from typing import Optional
 import contextlib
 import json
 import socket
 import subprocess
 import tempfile
 import uuid
-from pathlib import Path
-from typing import Any, Callable, Generator, Iterator, Optional
 
 import pytest
 import requests
@@ -19,6 +23,10 @@ import requests
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import Configuration
 from tests.conftest import comfy_background_server_from_config
+from tests.unit.assets_test.helpers import assert_hash_fields_consistent
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "hashing_on: exercise asset hashing")
 
 
 def _find_free_port() -> int:
@@ -50,8 +58,9 @@ def comfy_tmp_base_dir() -> Generator[Path, Any, None]:
 
 
 @pytest.fixture(scope="package")
-def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
+def assets_server_config(comfy_tmp_base_dir: Path, request: pytest.FixtureRequest) -> Configuration:
     config = default_configuration()
+    config.enable_asset_hashing = any(item.get_closest_marker("hashing_on") for item in request.session.items)
 
     db_path = comfy_tmp_base_dir / "assets-test.sqlite3"
     db_url = f"sqlite:///{db_path}"
@@ -60,6 +69,7 @@ def assets_server_config(comfy_tmp_base_dir: Path) -> Configuration:
     config.base_directory = str(comfy_tmp_base_dir)
     config.base_paths = [str(comfy_tmp_base_dir)]
     config.database_url = db_url
+    config._database_url_explicit = True
     config.enable_assets = True
     config.disable_assets_autoscan = True
     config.listen = "127.0.0.1"
@@ -121,8 +131,9 @@ def _post_multipart_asset(
 @pytest.fixture
 def make_asset_bytes() -> Callable[[str, int], bytes]:
     # Salt content per test so it never collides with assets left over from
-    # earlier tests. Delete is now always a soft delete (content is preserved),
-    # so the suite can no longer rely on hard-deleting content for isolation.
+    # earlier tests. Delete hard-deletes the record but preserves content
+    # (content rows and files are untouched), so the suite cannot rely on delete
+    # removing content for isolation.
     # Deterministic within a test: the same (name, size) yields the same bytes.
     salt = uuid.uuid4().bytes
 
@@ -168,9 +179,6 @@ def seeded_asset(request: pytest.FixtureRequest, http: requests.Session, api_bas
     if tags is None:
         tags = ["models", "model_type:checkpoints", "unit-tests", "alpha"]
     meta = {"purpose": "test", "epoch": 1, "flags": ["x", "y"], "nullable": None}
-    # Unique content per test so the seed always creates a fresh asset (201).
-    # Delete is now always a soft delete, so content from a prior test survives
-    # and would otherwise dedup this upload into an existing asset (200).
     content = uuid.uuid4().bytes + b"A" * (4096 - 16)
     files = {"file": (name, content, "application/octet-stream")}
     form_data = {
@@ -181,7 +189,6 @@ def seeded_asset(request: pytest.FixtureRequest, http: requests.Session, api_bas
     r = http.post(api_base + "/api/assets", files=files, data=form_data, timeout=120)
     body = r.json()
     assert r.status_code == 201, body
-    from helpers import assert_hash_fields_consistent
     assert_hash_fields_consistent(body)
     return body
 

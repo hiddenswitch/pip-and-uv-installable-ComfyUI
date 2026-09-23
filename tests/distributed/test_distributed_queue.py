@@ -48,7 +48,7 @@ _executor_factories: tuple[Executor] = (ContextVarExecutor, ProcessPoolExecutor)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("executor_factory", _executor_factories)
 async def test_basic_queue_worker(executor_factory: Callable[..., Executor]) -> None:
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         async with DistributedPromptWorker(connection_uri=f"amqp://guest:guest@127.0.0.1:{params.port}", executor=executor_factory(max_workers=1)):
             # this unfortunately does a bunch of initialization on the test thread
@@ -67,7 +67,7 @@ async def test_basic_queue_worker(executor_factory: Callable[..., Executor]) -> 
 
 @pytest.mark.asyncio
 async def test_distributed_prompt_queues_same_process():
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 
@@ -136,7 +136,7 @@ async def check_health(url: str, max_retries: int = 5, retry_delay: float = 1.0)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("executor_factory", _executor_factories)
 async def test_basic_queue_worker_with_health_check(executor_factory):
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
         health_check_port = 9090
@@ -174,7 +174,7 @@ class Worker(DistributedPromptWorker):
 
 @pytest.mark.asyncio
 async def test_two_workers_distinct_requests():
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 

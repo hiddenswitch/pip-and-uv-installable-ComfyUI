@@ -14,7 +14,7 @@ common=(
   --extra-index-url https://nodes.appmana.com/simple
   --index-strategy unsafe-best-match
   --prerelease if-necessary-or-explicit
-  --upgrade
+  "$@"
   --no-config
   --no-emit-package comfyui
   --no-emit-package opencv-python
@@ -73,7 +73,7 @@ uv pip compile \
   --constraints tests/opencv_constraints.txt \
   --constraints ci/torch-constraints.txt \
   --prerelease if-necessary-or-explicit \
-  --upgrade \
+  "$@" \
   --no-config \
   --no-emit-package comfyui \
   --no-emit-package opencv-python \

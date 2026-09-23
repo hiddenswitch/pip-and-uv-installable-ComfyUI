@@ -1,10 +1,14 @@
+from ...model_management import load_models_gpu
+from ...model_management import vae_device
+from ...model_management import vae_dtype
+from ...model_management import vae_offload_device
+from ...model_patcher import get_model_patcher_class
+from ..modules.diffusionmodules.model import ResnetBlock
+from ..modules.diffusionmodules.model import VideoConv3d
+from .vae_refiner import RMS_norm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..modules.diffusionmodules.model import ResnetBlock, VideoConv3d
-from .vae_refiner import RMS_norm
-from ...model_management import vae_device, vae_offload_device, load_models_gpu, vae_dtype
-from ...model_patcher import get_model_patcher_class
 
 
 class SRResidualCausalBlock3D(nn.Module):
@@ -106,14 +110,14 @@ UPSAMPLERS = {
 
 
 class HunyuanVideo15SRModel():
-    def __init__(self, model_type, config):
+    def __init__(self, model_type, config, fast_disk=False):
         self.load_device = vae_device()
         offload_device = vae_offload_device()
         self.dtype = vae_dtype(self.load_device)
         self.model_class = UPSAMPLERS.get(model_type)
         self.model = self.model_class(**config).eval()
 
-        self.patcher = get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device)
+        self.patcher = get_model_patcher_class()(self.model, load_device=self.load_device, offload_device=offload_device, fast_disk=fast_disk)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=True, assign=self.patcher.is_dynamic())

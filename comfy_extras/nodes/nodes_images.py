@@ -20,7 +20,7 @@ from PIL.Image import Exif
 from comfy.cli_args import args
 from typing_extensions import override
 
-import comfy.utils
+from comfy import utils
 from comfy import model_management
 from comfy.cmd import folder_paths
 from comfy_api.latest import IO, UI, ComfyExtension
@@ -134,8 +134,8 @@ def _crop_image_with_mask(
     if max(height, width) > max_image_size:
         scale = max_image_size / max(height, width)
         new_width, new_height = int(width * scale), int(height * scale)
-        img = comfy.utils.common_upscale(img, new_width, new_height, "lanczos", "disabled")
-        mask = comfy.utils.common_upscale(mask, new_width, new_height, "lanczos", "disabled")
+        img = utils.common_upscale(img, new_width, new_height, "lanczos", "disabled")
+        mask = utils.common_upscale(mask, new_width, new_height, "lanczos", "disabled")
         # common_upscale's Lanczos path drops the singleton channel dimension for masks.
         if mask.ndim == 3:
             mask = mask.unsqueeze(1)
@@ -251,7 +251,7 @@ class ImageCropToMask(IO.ComfyNode):
         elif masks.shape[0] != batch_size:
             raise ValueError(f"Mask batch {masks.shape[0]} does not match image batch {batch_size}")
         if masks.shape[-2:] != images.shape[1:3]:
-            masks = comfy.utils.common_upscale(
+            masks = utils.common_upscale(
                 masks.unsqueeze(1).float(),
                 images.shape[2],
                 images.shape[1],
@@ -270,7 +270,7 @@ class ImageCropToMask(IO.ComfyNode):
                 bg_rgb=bg_rgb,
                 aspect_ratio=width / height,
             )
-            composite = comfy.utils.common_upscale(composite, width, height, "lanczos", "disabled")
+            composite = utils.common_upscale(composite, width, height, "lanczos", "disabled")
             output_images.append(composite.movedim(-3, -1))
 
         result = torch.cat(output_images, dim=0).to(
@@ -380,6 +380,8 @@ class ImageAddNoise(IO.ComfyNode):
     def execute(cls, image, seed, strength) -> IO.NodeOutput:
         generator = torch.manual_seed(seed)
         s = torch.clip((image + strength * torch.randn(image.size(), generator=generator, device="cpu").to(image)), min=0.0, max=1.0)
+        if image.shape[-1] == 4:  # alpha stores transparency, not color
+            s[..., 3] = image[..., 3]
         return IO.NodeOutput(s)
 
     repeat = execute  # TODO: remove
@@ -516,7 +518,7 @@ class ImageStitch(IO.ComfyNode):
             else:  # up, down
                 target_w, target_h = w1, int(w1 / aspect_ratio)
 
-            image2 = comfy.utils.common_upscale(
+            image2 = utils.common_upscale(
                 image2.movedim(-1, 1), target_w, target_h, "lanczos", "disabled"
             ).movedim(1, -1)
 
@@ -664,7 +666,7 @@ class ResizeAndPadImage(IO.ComfyNode):
 
         image_permuted = image.permute(0, 3, 1, 2)
 
-        resized = comfy.utils.common_upscale(image_permuted, new_width, new_height, interpolation, "disabled")
+        resized = utils.common_upscale(image_permuted, new_width, new_height, interpolation, "disabled")
 
         pad_value = 0.0 if padding_color == "black" else 1.0
         padded = torch.full(
@@ -886,7 +888,7 @@ class ImageScaleToMaxDimension(IO.ComfyNode):
             width = largest_size
 
         samples = image.movedim(-1, 1)
-        s = comfy.utils.common_upscale(samples, width, height, upscale_method, "disabled")
+        s = utils.common_upscale(samples, width, height, upscale_method, "disabled")
         s = s.movedim(1, -1)
         return IO.NodeOutput(s)
 
@@ -1170,7 +1172,7 @@ class ImageColorSpace(IO.ComfyNode):
     @classmethod
     def execute(cls, image, source, destination) -> IO.NodeOutput:
         if source == destination:
-            return IO.NodeOutput(image.to(device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype()))
+            return IO.NodeOutput(image.to(device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype()))
 
         # PQ's exponents and near-cancelling constants need more precision than float16/bfloat16.
         rgb = image[..., :3].float()
@@ -1218,7 +1220,7 @@ class ImageColorSpace(IO.ComfyNode):
 
         if image.shape[-1] == 4:
             rgb = torch.cat((rgb, image[..., 3:]), dim=-1)
-        return IO.NodeOutput(rgb.to(device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype()))
+        return IO.NodeOutput(rgb.to(device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype()))
 
 
 # ---------------------------------------------------------------------------

@@ -145,7 +145,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
     executor_factory = request.param
     processes_to_close: List[subprocess.Popen] = []
 
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 
@@ -166,6 +166,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
             "--listen=0.0.0.0",
             "--port=19001",
             "--cpu",
+            "--disable-all-custom-nodes",
             "--distributed-queue-frontend",
             f"--cwd={str(tmp_path)}",
             f"--distributed-queue-connection-uri={connection_uri}",
@@ -177,6 +178,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
         for i in range(num_workers):
             backend_command = [
                 "comfyui-worker",
+                "--disable-all-custom-nodes",
                 f"--port={19002 + i}",
                 f"--cwd={str(tmp_path)}",
                 f"--distributed-queue-connection-uri={connection_uri}",
@@ -188,7 +190,7 @@ def frontend_backend_worker_with_rabbitmq(request, tmp_path_factory, num_workers
             server_address = f"http://127.0.0.1:19001"
             start_time = time.time()
             connected = False
-            while time.time() - start_time < 60:
+            while time.time() - start_time < server_startup_timeout_seconds():
                 try:
                     response = requests.get(server_address)
                     if response.status_code == 200:

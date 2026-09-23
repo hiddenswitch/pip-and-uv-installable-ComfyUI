@@ -4,7 +4,7 @@
 import torch
 import math
 
-import comfy.utils
+from comfy import utils
 from comfy.cmd import folder_paths
 from comfy_api.latest import ComfyExtension, Types, io
 from typing_extensions import override
@@ -13,7 +13,7 @@ from comfy.ldm.colormap import turbo as _turbo
 from comfy.ldm.moge.model import MoGeModel
 from comfy.ldm.moge.geometry import triangulate_grid_mesh
 from comfy.ldm.moge.panorama import get_panorama_cameras, split_panorama_image, merge_panorama_depth, spherical_uv_to_directions, _uv_grid
-import comfy.model_management
+from comfy import model_management
 from tqdm.auto import tqdm
 
 MoGeModelType = io.Custom("MOGE_MODEL")
@@ -77,7 +77,7 @@ class LoadMoGeModel(io.ComfyNode):
     @classmethod
     def execute(cls, model_name) -> io.NodeOutput:
         path = folder_paths.get_full_path_or_raise("geometry_estimation", model_name)
-        sd = comfy.utils.load_torch_file(path, safe_load=True)
+        sd = utils.load_torch_file(path, safe_load=True)
         return io.NodeOutput(MoGeModel(sd))
 
 
@@ -106,12 +106,14 @@ class MoGePanoramaInference(io.ComfyNode):
                              tooltip="Long-side resolution of the merged equirect distance map."),
                 io.Int.Input("batch_size", default=4, min=1, max=12,
                              tooltip="Views per inference batch (12 splits total)."),
+                io.Int.Input("refine_steps", default=3, min=0, max=8, advanced=True,
+                             tooltip="MoGe-3 only: sparse volumetric refinement passes over the predicted depth. More passes sharpen fine detail and edges at a roughly linear cost. 0 disables refinement. Ignored by MoGe-1 / MoGe-2."),
             ],
             outputs=[MoGeGeometry.Output(display_name="moge_geometry")],
         )
 
     @classmethod
-    def execute(cls, moge_model, image, resolution_level, split_resolution, merge_resolution, batch_size) -> io.NodeOutput:
+    def execute(cls, moge_model, image, resolution_level, split_resolution, merge_resolution, batch_size, refine_steps) -> io.NodeOutput:
 
         if image.shape[0] != 1:
             raise ValueError(f"MoGePanoramaInference takes a single image (got batch of {image.shape[0]})")
@@ -123,7 +125,7 @@ class MoGePanoramaInference(io.ComfyNode):
 
         extrinsics, intrinsics = get_panorama_cameras()
 
-        comfy.model_management.load_model_gpu(moge_model.patcher)
+        model_management.load_model_gpu(moge_model.patcher)
         device = moge_model.load_device
         img_chw = image[0].movedim(-1, -3).to(device=device, dtype=moge_model.dtype)
         splits = split_panorama_image(img_chw, extrinsics, intrinsics, split_resolution)
@@ -144,7 +146,7 @@ class MoGePanoramaInference(io.ComfyNode):
         n_merge_view_units = n_views * len(merge_levels)
         n_merge_solve_units = sum(solve_weight.values())
 
-        pbar = comfy.utils.ProgressBar(n_views + n_merge_view_units + n_merge_solve_units)
+        pbar = utils.ProgressBar(n_views + n_merge_view_units + n_merge_solve_units)
         done = 0
 
         distance_maps: list = []
@@ -155,7 +157,8 @@ class MoGePanoramaInference(io.ComfyNode):
                 # apply_metric_scale=False: per-view scales would not align across overlap seams.
                 result = moge_model.infer(batch, resolution_level=resolution_level,
                                           fov_x=90.0, force_projection=True,
-                                          apply_mask=False, apply_metric_scale=False)
+                                          apply_mask=False, apply_metric_scale=False,
+                                          refine_steps=refine_steps)
                 distance_maps.extend(list(result["points"].float().norm(dim=-1).cpu().numpy()))
                 masks.extend(list(result["mask"].cpu().numpy()))
                 n = batch.shape[0]
@@ -228,25 +231,28 @@ class MoGeInference(io.ComfyNode):
                 io.Boolean.Input("force_projection", default=True, advanced=True),
                 io.Boolean.Input("apply_mask", default=True, advanced=True,
                                  tooltip="Set masked-out (sky / invalid) pixels to inf in points and depth so meshing culls them. Disable to keep the raw predicted geometry everywhere; the mask is still returned separately."),
+                io.Int.Input("refine_steps", default=3, min=0, max=8, advanced=True,
+                             tooltip="MoGe-3 only: sparse volumetric refinement passes over the predicted depth. More passes sharpen fine detail and edges at a roughly linear cost. 0 disables refinement. Ignored by MoGe-1 / MoGe-2."),
             ],
             outputs=[MoGeGeometry.Output(display_name="moge_geometry")],
         )
 
     @classmethod
-    def execute(cls, moge_model, image, resolution_level, fov_x_degrees, batch_size, force_projection, apply_mask) -> io.NodeOutput:
+    def execute(cls, moge_model, image, resolution_level, fov_x_degrees, batch_size, force_projection, apply_mask, refine_steps) -> io.NodeOutput:
 
         image = image[..., :3]
         bchw = image.movedim(-1, -3).contiguous()
         B = bchw.shape[0]
         fov = None if fov_x_degrees <= 0 else float(fov_x_degrees)
 
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         chunks: list[dict] = []
         with tqdm(total=B, desc="MoGe inference") as tq:
             for i in range(0, B, batch_size):
                 chunk = bchw[i:i + batch_size]
                 chunks.append(moge_model.infer(chunk, resolution_level=resolution_level, fov_x=fov,
-                                               force_projection=force_projection, apply_mask=apply_mask))
+                                               force_projection=force_projection, apply_mask=apply_mask,
+                                               refine_steps=refine_steps))
                 pbar.update_absolute(min(i + batch_size, B))
                 tq.update(chunk.shape[0])
 
@@ -306,7 +312,7 @@ class MoGeRender(io.ComfyNode):
             raise ValueError(f"Unknown output mode: {output}")
 
         B = src.shape[0]
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         out: list[torch.Tensor] = []
         with tqdm(total=B, desc=f"MoGe render: {output}") as tq:
             for i in range(B):
@@ -325,7 +331,7 @@ class MoGeRender(io.ComfyNode):
                     out.append(slc.unsqueeze(-1).expand(*slc.shape, 3).contiguous())
                 pbar.update_absolute(i + 1)
                 tq.update(1)
-        result = torch.cat(out, dim=0).to(device=comfy.model_management.intermediate_device(), dtype=comfy.model_management.intermediate_dtype())
+        result = torch.cat(out, dim=0).to(device=model_management.intermediate_device(), dtype=model_management.intermediate_dtype())
         return io.NodeOutput(result)
 
 

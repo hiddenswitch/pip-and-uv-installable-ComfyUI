@@ -18,6 +18,15 @@
 from __future__ import annotations
 from .cmd.main_pre import tracer
 
+from contextlib import contextmanager
+from contextlib import nullcontext
+from enum import Enum
+from functools import lru_cache
+from threading import RLock
+from typing import Final
+from typing import List
+from typing import Optional
+from typing import Sequence
 import gc
 import logging
 import os
@@ -25,23 +34,19 @@ import platform
 import sys
 import warnings
 import weakref
-from functools import lru_cache
-from contextlib import contextmanager, nullcontext
-from enum import Enum
-from threading import RLock
-from typing import List, Sequence, Final, Optional
 
-import psutil
-import torch
+from opentelemetry.trace import get_current_span
 import comfy_aimdo.host_buffer
 import comfy_aimdo.vram_buffer
-from opentelemetry.trace import get_current_span
+import psutil
+import torch
 
-from . import memory_management
-from . import system_memory
 from . import interruption
+from . import memory_management
 from . import quant_ops
-from .cli_args import args, PerformanceFeature
+from . import system_memory
+from .cli_args import PerformanceFeature
+from .cli_args import args
 from .component_model.deprecation import _deprecate_method
 from .internal_logging import detail
 from .model_management_types import ModelManageable
@@ -578,7 +583,8 @@ try:
                 params = torch.backends.cuda.SDPAParams(q, q, q, None, 0.0, False, False)
                 if not torch.backends.cuda.can_use_flash_attention(params, False):
                     return False
-                from torch.nn.attention import SDPBackend, sdpa_kernel
+                from torch.nn.attention import SDPBackend
+                from torch.nn.attention import sdpa_kernel
                 with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
                     torch.nn.functional.scaled_dot_product_attention(q, q, q)
                 torch.cuda.synchronize()
@@ -784,6 +790,7 @@ def mark_mmap_dirty(storage):
 
 PIN_SUBSETS = [ "weights", "patches" ]
 LOADED_PIN_SUBSETS = [ "weights-loaded", "patches-loaded" ]
+FAST_PIN_SUBSETS = [ "weights-fast", "patches-fast" ]
 
 def models_for_pin_eviction(active, current_prompt=None):
     for loaded_model in current_loaded_models:
@@ -804,32 +811,48 @@ def free_model_pins(size, subsets, current_prompt, active, registrations=False):
             freed = model.unregister_inactive_pins(size, subsets=subsets)
         else:
             freed = model.partially_unload_ram(size, subsets=subsets)
+        if freed > 0:
+            detail(
+                "Pin eviction: model=%s subsets=%s workflow=%s active=%s action=%s freed_mb=%.1f",
+                model.model.__class__.__name__, subsets, current_prompt, active,
+                "unregister" if registrations else "destroy", freed / (1024 ** 2),
+            )
         freed_total += freed
         size -= freed
     return freed_total
 
 def pin_eviction_tiers(loaded, evict_active):
     tiers = [
+        (FAST_PIN_SUBSETS, False, False),
         (PIN_SUBSETS, False, None),
         (LOADED_PIN_SUBSETS, False, None),
+        (FAST_PIN_SUBSETS, True, False),
         (LOADED_PIN_SUBSETS, True, None),
     ]
     if not loaded:
         tiers.append((PIN_SUBSETS, True, False))
         if evict_active:
-            tiers.append((PIN_SUBSETS, True, True))
+            tiers.extend([
+                (FAST_PIN_SUBSETS, False, True),
+                (FAST_PIN_SUBSETS, True, True),
+                (PIN_SUBSETS, True, True),
+            ])
     return tiers
 
 def registration_eviction_tiers(evict_active):
     subsets = PIN_SUBSETS + LOADED_PIN_SUBSETS
     tiers = [
-        (subsets, False, False),
-        (subsets, True, False),
+        (FAST_PIN_SUBSETS, False, False, False),
+        (subsets, False, False, True),
+        (FAST_PIN_SUBSETS, True, False, False),
+        (subsets, True, False, True),
     ]
     if evict_active:
         tiers.extend([
-            (subsets, False, True),
-            (subsets, True, True),
+            (FAST_PIN_SUBSETS, False, True, False),
+            (subsets, False, True, True),
+            (FAST_PIN_SUBSETS, True, True, False),
+            (subsets, True, True, True),
         ])
     return tiers
 
@@ -855,10 +878,7 @@ def should_free_pins_for_ram_pressure(shortfall):
 def ensure_pin_budget(size, evict_active=False, loaded=False):
     if args.high_ram:
         return True
-    if args.fast_disk:
-        shortfall = TOTAL_PINNED_MEMORY + size - MAX_PINNED_MEMORY
-    else:
-        shortfall = size + max(memory_management.RAM_CACHE_HEADROOM / 2, 2048 * 1024 ** 2) - system_memory.virtual_memory_available()
+    shortfall = size + max(memory_management.RAM_CACHE_HEADROOM / 2, 2048 * 1024 ** 2) - system_memory.virtual_memory_available()
     if shortfall <= 0:
         return True
 
@@ -872,8 +892,8 @@ def free_registrations(shortfall, evict_active=True):
         return True
 
     shortfall += REGISTERABLE_PIN_HYSTERESIS
-    for subsets, current_prompt, active in registration_eviction_tiers(evict_active):
-        shortfall -= free_model_pins(shortfall, subsets, current_prompt, active, registrations=True)
+    for subsets, current_prompt, active, registrations in registration_eviction_tiers(evict_active):
+        shortfall -= free_model_pins(shortfall, subsets, current_prompt, active, registrations=registrations)
     return shortfall <= REGISTERABLE_PIN_HYSTERESIS
 
 def ensure_pin_registerable(size, evict_active=True):
@@ -1564,7 +1584,9 @@ def text_encoder_offload_device():
 def text_encoder_device():
     if args.gpu_only:
         return get_torch_device()
-    elif vram_state in (VRAMState.HIGH_VRAM, VRAMState.NORMAL_VRAM) or memory_management.aimdo_enabled:
+    if memory_management.aimdo_enabled:
+        return get_torch_device()
+    elif vram_state in (VRAMState.HIGH_VRAM, VRAMState.NORMAL_VRAM):
         if should_use_fp16(prioritize_performance=False):
             return get_torch_device()
         else:
@@ -2094,7 +2116,7 @@ def discard_cuda_async_error():
         pass
 
 
-def pin_memory(tensor):
+def pin_memory(tensor, evict_active=True):
     global TOTAL_PINNED_MEMORY
     if MAX_PINNED_MEMORY <= 0:
         return False
@@ -2116,7 +2138,8 @@ def pin_memory(tensor):
 
     size = tensor.nbytes
     memory_management.extra_ram_release(memory_management.RAM_CACHE_HEADROOM)
-    ensure_pin_registerable(size)
+    if not ensure_pin_registerable(size, evict_active=evict_active):
+        return False
 
     ptr = tensor.data_ptr()
     if ptr == 0:
@@ -2255,6 +2278,12 @@ def force_upcast_attention_dtype():
         return None
 
 
+#Developers and agents: You almost never want to call this function from Model code as it does
+#not account for ComfyUIs smart memory feature combining with Dynamic VRAM, where inactive models
+#are preserved in VRAM right up until there is higher priority demand (I.E whatever you want to do
+#that makes you meansure VRAM from model code). Instead call get_free_memory() on the ModelPatcher
+#for your BaseModel object (.current_patcher) instead to count this VRAM as free and then Dynamic
+#VRAM will evict that extra VRAM for you when you use it.
 def get_free_memory(dev=None, torch_free_too=False):
     global directml_device
     if dev is None:

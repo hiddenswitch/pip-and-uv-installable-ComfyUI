@@ -1,17 +1,22 @@
+from typing import Any
+from typing import Optional
 import logging
-from typing import Any, Optional
 
+from spandrel import ImageModelDescriptor
+from spandrel import ModelLoader
 import torch
-from spandrel import ModelLoader, ImageModelDescriptor
 
 from comfy import model_management
 from comfy import utils
 from comfy.component_model.tensor_types import RGBImageBatch
-from comfy.model_downloader import KNOWN_UPSCALERS, get_filename_list_with_downloadable, get_or_download
+from comfy.model_downloader import KNOWN_UPSCALERS
+from comfy.model_downloader import get_filename_list_with_downloadable
+from comfy.model_downloader import get_or_download
 from comfy.model_management import load_models_gpu
 from comfy.model_management_types import ModelManageableStub
+from comfy_api.latest import ComfyExtension
+from comfy_api.latest import io
 from typing_extensions import override
-from comfy_api.latest import ComfyExtension, io
 
 logger = logging.getLogger(__name__)
 

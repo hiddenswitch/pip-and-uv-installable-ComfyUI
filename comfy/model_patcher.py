@@ -17,6 +17,9 @@
 """
 from __future__ import annotations
 
+from math import isclose
+from typing import Callable
+from typing import Optional
 import collections
 import copy
 import dataclasses
@@ -26,31 +29,52 @@ import time
 import typing
 import uuid
 import weakref
-from math import isclose
-from typing import Callable, Optional
 
-import torch
-import torch.nn
 from humanize import naturalsize
 from natsort import natsorted
+import torch
+import torch.nn
 import tqdm
 
-from . import model_management, lora, weight_cast
+from . import lora
+from . import model_management
+from . import ops
 from . import patcher_extension
 from . import utils
+from . import weight_cast
 from .comfy_types import UnetWrapperFunction
 from .component_model.deprecation import _deprecate_method
 from .float import stochastic_rounding
-from .gguf import move_patch_to_device, is_torch_compatible, is_quantized, GGMLOps
-from .hooks import Hook, EnumHookMode, _HookRef, HookGroup, EnumHookType, WeightHook, create_transformer_options_from_hooks
-from .lora_types import PatchDict, PatchDictKey, PatchTuple, PatchWeightTuple, ModelPatchesDictValue, PatchSupport
+from .gguf import GGMLOps
+from .gguf import is_quantized
+from .gguf import is_torch_compatible
+from .gguf import move_patch_to_device
+from .hooks import EnumHookMode
+from .hooks import EnumHookType
+from .hooks import Hook
+from .hooks import HookGroup
+from .hooks import WeightHook
+from .hooks import _HookRef
+from .hooks import create_transformer_options_from_hooks
+from .internal_logging import detail
+from .lora_types import ModelPatchesDictValue
+from .lora_types import PatchDict
+from .lora_types import PatchDictKey
+from .lora_types import PatchSupport
+from .lora_types import PatchTuple
+from .lora_types import PatchWeightTuple
 from .model_base import BaseModel
 from .model_management import lora_compute_dtype
-from .internal_logging import detail
-from .model_management_types import ModelManageable, MemoryMeasurements, ModelOptions, LatentFormatT, LoadingListItem, sort_loading_list_in_place
-from .patcher_extension import CallbacksMP, WrappersMP, PatcherInjection
+from .model_management_types import LatentFormatT
+from .model_management_types import LoadingListItem
+from .model_management_types import MemoryMeasurements
+from .model_management_types import ModelManageable
+from .model_management_types import ModelOptions
+from .model_management_types import sort_loading_list_in_place
+from .patcher_extension import CallbacksMP
+from .patcher_extension import PatcherInjection
+from .patcher_extension import WrappersMP
 from .quant_ops import QuantizedTensor
-from . import ops
 import comfy_aimdo.host_buffer
 
 logger = logging.getLogger(__name__)
@@ -440,8 +464,9 @@ class _ModelPatcherFactoryMeta(type(ModelManageable)):
 
 
 class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactoryMeta):
-    def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
+    def __init__(self, model: BaseModel | torch.nn.Module, load_device: torch.device, offload_device: torch.device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None, fast_disk=False):
         self.size = size
+        self.fast_disk = fast_disk
         self.model: BaseModel | torch.nn.Module = model
         self.patches: dict[PatchDictKey, ModelPatchesDictValue] = {}
         self.backup = {}
@@ -586,7 +611,7 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
 
         if class_ is ModelPatcher:
             force_core = True
-        kwargs = {"weight_inplace_update": self.weight_inplace_update}
+        kwargs = {"weight_inplace_update": self.weight_inplace_update, "fast_disk": self.fast_disk}
         if force_core:
             kwargs["_force_core"] = True
         n = class_(model_override[0], self.load_device, self.offload_device, self.model_size(), **kwargs)
@@ -1048,6 +1073,8 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
             bk: torch.nn.Module | None = self.backup.get(k, None)
             hbk = self.hook_backup.get(k, None)
             weight, set_func, convert_func = get_key_weight(self.model, k)
+            if not isinstance(weight, torch.Tensor):
+                continue
             if bk is not None:
                 weight = bk.weight
             if hbk is not None:
@@ -2030,14 +2057,14 @@ class ModelPatcher(ModelManageable, PatchSupport, metaclass=_ModelPatcherFactory
 
 class ModelPatcherDynamic(ModelPatcher):
 
-    def __new__(cls, model=None, load_device=None, offload_device=None, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
+    def __new__(cls, model=None, load_device=None, offload_device=None, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None, fast_disk=False):
         if load_device is not None and model_management.is_device_cpu(load_device):
             # reroute to default MP for CPUs
-            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name, _force_core=True)
+            return ModelPatcher(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name, _force_core=True, fast_disk=fast_disk)
         return super().__new__(cls)
 
-    def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None):
-        super().__init__(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name)
+    def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False, ckpt_name: Optional[str] = None, fast_disk=False):
+        super().__init__(model, load_device, offload_device, size, weight_inplace_update, ckpt_name=ckpt_name, fast_disk=fast_disk)
         if not hasattr(self.model, "dynamic_vbars"):
             self.model.dynamic_vbars = {}
         if not hasattr(self.model, "dynamic_pins"):
@@ -2065,14 +2092,21 @@ class ModelPatcherDynamic(ModelPatcher):
 
                 empty_weights = EmptyHostBuffer()
                 empty_patches = EmptyHostBuffer()
+                empty_fast_weights = EmptyHostBuffer()
+                empty_fast_patches = EmptyHostBuffer()
             else:
                 empty_weights = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
                 empty_patches = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
+                empty_fast_weights = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
+                empty_fast_patches = comfy_aimdo.host_buffer.HostBuffer(0, 0, 0)
             self.model.dynamic_pins[device] = {
                 "weights": (empty_weights, [], [-1], [0], [0], {}),
                 "patches": (empty_patches, [], [-1], [0], [0], {}),
                 "weights-loaded": (empty_weights, [], [-1], [0], [0], {}),
                 "patches-loaded": (empty_patches, [], [-1], [0], [0], {}),
+                "weights-fast": (empty_fast_weights, [], [-1], [0], [0], {}),
+                "patches-fast": (empty_fast_patches, [], [-1], [0], [0], {}),
+                "fast_disk": self.fast_disk,
                 "hostbufs_initialized": False,
                 "failed": False,
                 "active": False,
@@ -2173,6 +2207,8 @@ class ModelPatcherDynamic(ModelPatcher):
                 pin_state["patches"] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
                 pin_state["weights-loaded"] = (comfy_aimdo.host_buffer.HostBuffer(0, 64 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
                 pin_state["patches-loaded"] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
+                pin_state["weights-fast"] = (comfy_aimdo.host_buffer.HostBuffer(0, 64 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
+                pin_state["patches-fast"] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, hostbuf_size), [], [-1], [0], [0], {})
                 pin_state["hostbufs_initialized"] = True
             pin_state["failed"] = False
             pin_state["active"] = True
@@ -2399,11 +2435,11 @@ class ModelPatcherDynamic(ModelPatcher):
 
     def loaded_ram_size(self):
         pin_state = self.model.dynamic_pins[self.load_device]
-        return pin_state["weights"][0].size + pin_state["weights-loaded"][0].size
+        return pin_state["weights"][0].size + pin_state["weights-loaded"][0].size + pin_state["weights-fast"][0].size
 
     def pinned_memory_size(self):
         pin_state = self.model.dynamic_pins[self.load_device]
-        return pin_state["weights"][3][0] + pin_state["weights-loaded"][3][0]
+        return pin_state["weights"][3][0] + pin_state["weights-loaded"][3][0] + pin_state["weights-fast"][3][0]
 
     def unregister_inactive_pins(self, ram_to_unload, subsets=[ "weights-loaded", "patches-loaded", "weights", "patches" ]):
         freed = 0
@@ -2432,7 +2468,7 @@ class ModelPatcherDynamic(ModelPatcher):
                     return freed
         return freed
 
-    def partially_unload_ram(self, ram_to_unload, subsets=[ "weights-loaded", "patches-loaded", "weights", "patches" ]):
+    def partially_unload_ram(self, ram_to_unload, subsets=[ "weights-fast", "patches-fast", "weights-loaded", "patches-loaded", "weights", "patches" ]):
         freed = 0
         pin_state = self.model.dynamic_pins[self.load_device]
         for subset in subsets:
@@ -2460,7 +2496,7 @@ class ModelPatcherDynamic(ModelPatcher):
     def reset_dynamic_buffers(self):
         pin_state = self.model.dynamic_pins[self.load_device]
         if pin_state["active"]:
-            for subset in ("weights", "weights-loaded"):
+            for subset in ("weights", "weights-loaded", "weights-fast"):
                 *_, buckets = pin_state[subset]
                 for size, bucket in list(buckets.items()):
                     bucket[:] = [entry for entry in bucket if entry[-1] is not None]
@@ -2468,8 +2504,8 @@ class ModelPatcherDynamic(ModelPatcher):
                         del buckets[size]
 
         pin_state["active"] = False
-        self.partially_unload_ram(1e30, subsets=["patches", "patches-loaded"])
-        for subset in ("patches", "patches-loaded"):
+        self.partially_unload_ram(1e30, subsets=["patches", "patches-loaded", "patches-fast"])
+        for subset in ("patches", "patches-loaded", "patches-fast"):
             pin_state[subset] = (comfy_aimdo.host_buffer.HostBuffer(0, 8 * 1024 * 1024, model_management.pinned_hostbuf_size(self.model_size())), [], [-1], [0], [0], {})
 
     def patch_model(self, device_to=None, lowvram_model_memory=0, load_weights=True, force_patch_weights=False):

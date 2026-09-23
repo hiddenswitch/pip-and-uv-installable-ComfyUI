@@ -290,7 +290,9 @@ def apply_ui_seed_quantity(
     return workflow
 
 
-def _wrap_value(val):
+def _wrap_value(val, type_spec=None):
+    if type_spec == "CURVE" and val is not None:
+        return {"__type__": "CURVE", "__value__": val}
     return {"__value__": val} if isinstance(val, list) else val
 
 
@@ -389,13 +391,13 @@ def _map_widgets(input_types: dict, widgets_values: list, node: dict | None = No
             # to the default so the prompt passes validation.
             if val == "" and type_spec in ("INT", "FLOAT") and "default" in opts:
                 val = opts["default"]
-            result[name] = _wrap_value(val)
+            result[name] = _wrap_value(val, type_spec)
             idx += 1
         else:
             default_value = _frontend_widget_default(type_spec, opts)
             if default_value is None:
                 continue
-            result[name] = _wrap_value(default_value)
+            result[name] = _wrap_value(default_value, type_spec)
 
         for extra_name in _extra_widgets_after(opts, name=name, type_spec=type_spec):
             if idx < len(widgets_values):
@@ -445,13 +447,13 @@ def _consume_dynamic_combo_subwidgets(
             dotted = f"{parent_name}.{sub_name}"
             if idx < len(widgets_values):
                 sub_value = widgets_values[idx]
-                result[dotted] = _wrap_value(sub_value)
+                result[dotted] = _wrap_value(sub_value, sub_type)
                 idx += 1
             else:
                 sub_value = _frontend_widget_default(sub_type, sub_opts)
                 if sub_value is None:
                     continue
-                result[dotted] = _wrap_value(sub_value)
+                result[dotted] = _wrap_value(sub_value, sub_type)
 
             # The frontend does not add the auto seed control widget for
             # dynamic combo sub-inputs (only top-level seed/noise_seed widgets
@@ -487,11 +489,11 @@ def _map_widgets_dict(input_types: dict, widgets_values: dict) -> dict[str, obje
         type_spec, opts = _input_type_and_opts(entry)
         if _is_widget_type(type_spec, opts) and not opts.get("forceInput"):
             if name in widgets_values:
-                result[name] = _wrap_value(widgets_values[name])
+                result[name] = _wrap_value(widgets_values[name], type_spec)
             else:
                 default_value = _frontend_widget_default(type_spec, opts)
                 if default_value is not None:
-                    result[name] = _wrap_value(default_value)
+                    result[name] = _wrap_value(default_value, type_spec)
     return result
 
 
@@ -1039,7 +1041,7 @@ def _ensure_global_id_uniqueness(
     """
     outer_ids = {n['id'] for n in workflow.get('nodes', [])
                  if isinstance(n.get('id'), int)}
-    last_node_id = workflow.get('last_node_id', max(outer_ids) if outer_ids else 0)
+    last_node_id = int(workflow.get('last_node_id', max(outer_ids) if outer_ids else 0))
     subgraph_defs = workflow.get('definitions', {}).get('subgraphs', [])
 
     used_ids: set[int] = set(outer_ids)
@@ -1514,27 +1516,12 @@ def _resolve_dto_output(dto, slot, target_type, dto_map, visited, set_node_map=N
 
 
 def _resolve_sg_output(sg_dto, slot, target_type, dto_map, visited, set_node_map=None):
-    # The frontend resolves subgraph outputs using the output definition's
-    # linkIds ordering (via outputSlot.getLinks().at(0)). Use the same
-    # ordering when available, otherwise fall back to iterating all links.
-    sg_outputs = sg_dto.sg_def.get('outputs', []) if sg_dto.sg_def else []
-    link_ids_order: list[int] | None = None
-    if slot < len(sg_outputs):
-        link_ids = sg_outputs[slot].get('linkIds')
-        if isinstance(link_ids, list) and link_ids:
-            link_ids_order = link_ids
-
-    if link_ids_order is not None:
-        links_to_try = []
-        for lid in link_ids_order:
-            link = sg_dto.inner_links.get(lid)
-            if link and link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot:
-                links_to_try.append(link)
-    else:
-        links_to_try = [
-            link for link in sg_dto.inner_links.values()
-            if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot
-        ]
+    # Frontend 1.53 keeps the first serialized link to each input slot when
+    # loading topology, including subgraph outputs with stale linkIds lists.
+    links_to_try = [
+        link for link in sg_dto.inner_links.values()
+        if link.dst_node == _SUBGRAPH_OUTPUT_NODE_ID and link.dst_slot == slot
+    ][:1]
 
     for link in links_to_try:
         src_nid = link.src_node

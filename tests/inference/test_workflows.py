@@ -21,7 +21,6 @@ from comfy.client.embedded_comfy_client import Comfy
 from comfy.distributed.process_pool_executor import ProcessPoolExecutor
 from comfy.model_downloader import add_known_models
 from comfy.model_downloader_types import HuggingFile
-from comfy_extras.nodes.nodes_audio import TorchAudioNotFoundError
 from . import workflows
 from comfy.cli_args import default_configuration
 from comfy.cli_args_types import PerformanceFeature
@@ -165,8 +164,6 @@ async def test_workflow(workflow_name: str, workflow_file: Traversable, has_gpu:
     try:
         with monitor:
             outputs = await client.queue_prompt(prompt)
-    except TorchAudioNotFoundError:
-        pytest.skip("requires torchaudio")
     except torch.OutOfMemoryError:
         pytest.skip(f"insufficient VRAM for workflow {workflow_name}")
     finally:

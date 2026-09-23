@@ -9,7 +9,11 @@ def test_cli_runtime_dependencies_are_declared():
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert '    "click",' in pyproject
-    assert '    "transformers>=4.57.3,<5",' in pyproject
+    dependency = re.search(r'^\s*"(?P<requirement>transformers[^\"]*)",$', pyproject, re.MULTILINE)
+    assert dependency is not None
+    transformers = Requirement(dependency.group("requirement"))
+    assert Version("4.57.3") in transformers.specifier
+    assert Version("5.10.0") in transformers.specifier
 
 
 def test_vtracer_keeps_convert_pixels_to_svg_api():

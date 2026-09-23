@@ -1,6 +1,6 @@
 import torch
 from comfy.ldm.modules.diffusionmodules.mmdit import get_1d_sincos_pos_embed_from_grid_torch
-import comfy.model_management
+from comfy import model_management, utils
 from .nodes_save_3d import pack_variable_mesh_batch
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, IO, Types
@@ -12,6 +12,7 @@ class EmptyLatentHunyuan3Dv2(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="EmptyLatentHunyuan3Dv2",
+            display_name="Empty Hunyuan 3D v2 Latent",
             category="model/latent/hunyuan 3d",
             inputs=[
                 IO.Int.Input("resolution", default=3072, min=1, max=8192),
@@ -24,7 +25,7 @@ class EmptyLatentHunyuan3Dv2(IO.ComfyNode):
 
     @classmethod
     def execute(cls, resolution, batch_size) -> IO.NodeOutput:
-        latent = torch.zeros([batch_size, 64, resolution], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 64, resolution], device=model_management.intermediate_device())
         return IO.NodeOutput({"samples": latent, "type": "hunyuan3dv2"})
 
     generate = execute  # TODO: remove
@@ -97,6 +98,7 @@ class VAEDecodeHunyuan3D(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="VAEDecodeHunyuan3D",
+            display_name="Hunyuan 3D VAE Decode",
             category="model/latent/hunyuan 3d",
             inputs=[
                 IO.Latent.Input("samples"),
@@ -273,7 +275,7 @@ def voxel_to_mesh_surfnet(voxels, threshold=0.5, device=None):
     ], device=device)
 
     cell_vertices = {}
-    progress = comfy.utils.ProgressBar(100)
+    progress = utils.ProgressBar(100)
 
     for edge_idx, (e1, e2) in enumerate(edges):
         progress.update(1)

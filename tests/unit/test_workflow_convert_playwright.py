@@ -38,6 +38,11 @@ _DYNAMIC_COMBO_MIGRATION_SHIFT = (
 )
 
 _EXCLUDED_TEMPLATE_REASONS: dict[str, tuple[str, ...]] = {
+    "api_flux2": ("frontend 1.53.6 drops four connected dynamic Autogrow image inputs on load",),
+    "template_image_speech_to_video": ("frontend 1.53.6 loses the rerouted subgraph prompt link and emits an empty string",),
+    "basic_image_color_adjustment": ("frontend 1.53.6 throws DataCloneError while loading CURVE widgets",),
+    "api_google_gemini_omni_flash_i2v": ("frontend 1.53.6 drops image inputs and routes an IMAGE link to aspect_ratio",),
+    "video_minimax_h3_fun_controlnet_union": _STALE_SUBGRAPH_WIDGET_ORDER,
     # Frontend bug: compressWidgetInputSlots shrinks SubgraphNode input
     # array but resolveInput still indexes by original slot, going OOB.
     "gsc_starter_2": ("SimpleMath+ extra 'a', KSamplerAdvanced steps=8 vs 4",),
@@ -523,7 +528,8 @@ def _app_page(_static_server, _object_info_json, _real_nodes):
                         window.comfyAPI &&
                         window.comfyAPI.app &&
                         window.comfyAPI.app.app &&
-                        window.comfyAPI.app.app.graph
+                        window.comfyAPI.app.app.graph &&
+                        Object.keys(window.LiteGraph?.registered_node_types || {}).length > 100
                     );
                 } catch(e) { return false; }
             }""",

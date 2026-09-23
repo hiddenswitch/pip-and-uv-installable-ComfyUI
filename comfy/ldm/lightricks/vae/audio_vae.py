@@ -1,14 +1,14 @@
-import json
+from .... import audio as comfy_audio
 from dataclasses import dataclass
+import json
 import torch
 
-from .causal_audio_autoencoder import (
-    CausalityAxis,
-    CausalAudioAutoencoder,
-)
-from ..symmetric_patchifier import AudioPatchifier
-from ..vocoders.vocoder import Vocoder, VocoderWithBWE
 from ...mmaudio.vae.distributions import DiagonalGaussianDistribution
+from ..symmetric_patchifier import AudioPatchifier
+from ..vocoders.vocoder import Vocoder
+from ..vocoders.vocoder import VocoderWithBWE
+from .causal_audio_autoencoder import CausalAudioAutoencoder
+from .causal_audio_autoencoder import CausalityAxis
 
 LATENT_DOWNSAMPLE_FACTOR = 4
 
@@ -72,16 +72,14 @@ class AudioPreprocessor:
     def resample(self, waveform: torch.Tensor, source_rate: int) -> torch.Tensor:
         if source_rate == self.target_sample_rate:
             return waveform
-        import torchaudio
-        return torchaudio.functional.resample(waveform, source_rate, self.target_sample_rate)
+        return comfy_audio.resample(waveform, source_rate, self.target_sample_rate)
 
     def waveform_to_mel(
         self, waveform: torch.Tensor, waveform_sample_rate: int, device
     ) -> torch.Tensor:
         waveform = self.resample(waveform, waveform_sample_rate)
 
-        import torchaudio
-        mel_transform = torchaudio.transforms.MelSpectrogram(
+        mel_transform = comfy_audio.MelSpectrogram(
             sample_rate=self.target_sample_rate,
             n_fft=self.n_fft,
             win_length=self.n_fft,
@@ -89,12 +87,7 @@ class AudioPreprocessor:
             f_min=0.0,
             f_max=self.target_sample_rate / 2.0,
             n_mels=self.mel_bins,
-            window_fn=torch.hann_window,
-            center=True,
-            pad_mode="reflect",
             power=1.0,
-            mel_scale="slaney",
-            norm="slaney",
         ).to(device)
 
         mel = mel_transform(waveform)

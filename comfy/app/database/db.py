@@ -1,10 +1,11 @@
+from filelock import FileLock
+from filelock import Timeout
+from importlib import resources
 import glob
 import hashlib
 import logging
 import os
 import shutil
-from importlib import resources
-from filelock import FileLock, Timeout
 
 from ...execution_context import current_execution_context
 
@@ -14,12 +15,15 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from ..assets.database import models as _asset_models  # noqa: F401 -- register asset tables
 from .models import Base
-from ..assets.database import models as _asset_models  # noqa: F401
+
+import blake3  # noqa: F401
 
 _DB_AVAILABLE = True
 
@@ -229,28 +233,49 @@ def _init_file_db(db_url, use_chain_hash: bool = True):
     """
     original_path = db_url.split("///", 1)[1]
     prepare_file_db_path(original_path)
-
     config = get_alembic_config()
     script = ScriptDirectory.from_config(config)
     target_rev = script.get_current_head()
-
+    source_spec = None
     if use_chain_hash:
         chain_hash = _compute_chain_hash(script)
         db_dir = os.path.dirname(original_path)
         base, ext = os.path.splitext(os.path.basename(original_path))
         db_path = os.path.join(db_dir, f"{base}-{chain_hash}{ext}")
         db_url = f"sqlite:///{db_path}"
-
-        db_exists = os.path.exists(db_path)
-        if not db_exists:
-            source = _find_best_source_db(db_dir, base, ext, script, db_path)
-            if source:
-                logger.info(f"Snapshotting database from '{source}' to '{db_path}'")
-                shutil.copy(source, db_path)
-                db_exists = True
+        source_spec = (db_dir, base, ext)
     else:
         db_path = original_path
-        db_exists = os.path.exists(db_path)
+
+    if not _acquire_file_lock(db_path):
+        logger.warning("Database '%s' is locked; using an in-memory database for this instance.", db_path)
+        _init_memory_db("sqlite:///:memory:")
+        return
+    try:
+        _migrate_and_bind(db_url, db_path, config, script, target_rev, source_spec)
+    except Exception:
+        _db_lock.release()
+        raise
+
+
+_DESTRUCTIVE_REVISION = "0007_record_content_split"
+
+
+def _upgrade_discards_the_catalog(script, target_rev, current_rev):
+    return any(
+        revision.revision == _DESTRUCTIVE_REVISION
+        for revision in script.iterate_revisions(upper=target_rev, lower=current_rev)
+    )
+
+
+def _migrate_and_bind(db_url, db_path, config, script, target_rev, source_spec):
+    db_exists = os.path.exists(db_path)
+    if not db_exists and source_spec is not None:
+        source = _find_best_source_db(*source_spec, script, db_path)
+        if source:
+            logger.info("Snapshotting database from '%s' to '%s'", source, db_path)
+            shutil.copy(source, db_path)
+            db_exists = True
 
     config.set_main_option("sqlalchemy.url", db_url)
 
@@ -285,16 +310,15 @@ def _init_file_db(db_url, use_chain_hash: bool = True):
             logger.exception("Error upgrading database: ")
             raise e
 
-    conn.close()
+        if backup_path and _upgrade_discards_the_catalog(script, target_rev, current_rev):
+            logger.warning(
+                f"The asset catalog was rebuilt from scratch by migration "
+                f"{_DESTRUCTIVE_REVISION}: manual tags, user metadata, previews, renames, "
+                f"API-created records and job_id links from the previous database were "
+                f"discarded. The database from before the upgrade was kept at {backup_path}."
+            )
 
-    if not _acquire_file_lock(db_path):
-        engine.dispose()
-        logger.warning(
-            f"Database '{db_path}' is locked by another process. "
-            "Falling back to in-memory database for this instance."
-        )
-        _init_memory_db("sqlite:///:memory:")
-        return
+    conn.close()
 
     global Session
     Session = sessionmaker(bind=engine)

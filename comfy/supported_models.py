@@ -12,41 +12,43 @@ from . import supported_models_base
 from . import utils
 from .model_management import extended_fp16_support
 from .text_encoders import ace
+from .text_encoders import ace15
+from .text_encoders import anima
 from .text_encoders import aura_t5
+from .text_encoders import boogu
+from .text_encoders import cogvideo
 from .text_encoders import cosmos
+from .text_encoders import ernie
 from .text_encoders import flux
 from .text_encoders import genmo
-from .text_encoders import hunyuan_video
-from .text_encoders import hydit
-from .text_encoders import lt
-from .text_encoders import lumina2
-from .text_encoders import omnigen2
-from .text_encoders import pixart_t5
-from .text_encoders import pixeldit
-from .text_encoders import sa_t5
-from .text_encoders import sa3
-from .text_encoders import sd2_clip
-from .text_encoders import sd3_clip
-from .text_encoders import wan
-from .text_encoders import qwen_image
-from .text_encoders import hunyuan_image
-from .text_encoders import kandinsky5
-from .text_encoders import z_image
-from .text_encoders import anima
-from .text_encoders import ace15
-from .text_encoders import longcat_image
-from .text_encoders import ernie
-from .text_encoders import cogvideo
 from .text_encoders import gpt_oss
 from .text_encoders import hidream_o1
-from .text_encoders import sensenova
+from .text_encoders import hunyuan_image
+from .text_encoders import hunyuan_video
+from .text_encoders import hydit
 from .text_encoders import ideogram4
-from .text_encoders import boogu
+from .text_encoders import joyimage
+from .text_encoders import kandinsky5
 from .text_encoders import krea2
+from .text_encoders import longcat_image
+from .text_encoders import lt
+from .text_encoders import lumina2
 from .text_encoders import mage_flow
 from .text_encoders import minimax
 from .text_encoders import minimax_music
-from .text_encoders import joyimage
+from .text_encoders import omnigen2
+from .text_encoders import pixart_t5
+from .text_encoders import pixeldit
+from .text_encoders import qwen_image
+from .text_encoders import qwen_image21
+from .text_encoders import sa3
+from .text_encoders import sa_t5
+from .text_encoders import sd2_clip
+from .text_encoders import sd3_clip
+from .text_encoders import sensenova
+from .text_encoders import wan
+from .text_encoders import yue2
+from .text_encoders import z_image
 
 
 
@@ -2172,6 +2174,35 @@ class Ideogram4(supported_models_base.BASE):
         hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3vl_8b.transformer.".format(pref))
         return supported_models_base.ClipTarget(ideogram4.Ideogram4Tokenizer, ideogram4.te(**hunyuan_detect))
 
+class QwenImage21(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "qwen_image21",
+    }
+
+    # scheduler mu at 1024x1024 (base 0.5 @ 256 tokens, max 0.9 @ 8192)
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 0.69,
+    }
+
+    memory_usage_factor = 6.0
+
+    unet_extra_config = {}
+    latent_format = latent_formats.QwenImage21
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.QwenImage21(self, device=device)
+
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = hunyuan_video.llama_detect(state_dict, "{}qwen3vl_8b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(qwen_image21.QwenImage21Tokenizer, qwen_image21.te(**hunyuan_detect))
+
 class Krea2(supported_models_base.BASE):
     unet_config = {
         "image_model": "krea2",
@@ -2384,6 +2415,26 @@ class ACEStep15(supported_models_base.BASE):
             detect["lm_model"] = "qwen3_4b"
 
         return supported_models_base.ClipTarget(ace15.ACE15Tokenizer, ace15.te(**detect))
+
+class YuE2(supported_models_base.BASE):
+    unet_config = {"audio_model": "yue2"}
+    unet_extra_config = {}
+    latent_format = latent_formats.YuE2
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    sampling_settings = {"multiplier": 1.0}
+    memory_usage_factor = 4.0
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    def get_model(self, state_dict, prefix="", device=None):
+        return model_base.YuE2(self, device=device)
+
+    def model_type(self, state_dict, prefix=""):
+        return model_base.ModelType.FLOW
+
+    def clip_target(self, state_dict={}):
+        detect = hunyuan_video.llama_detect(state_dict, self.text_encoder_key_prefix[0])
+        return supported_models_base.ClipTarget(yue2.YuE2Tokenizer, yue2.te(**detect))
 
 
 class MiniMaxMusic3(supported_models_base.BASE):
@@ -2707,10 +2758,12 @@ models = [
     ACEStep,
     ACEStep15,
     MiniMaxMusic3,
+    YuE2,
     Omnigen2,
     Boogu,
     MageFlow,
     QwenImage,
+    QwenImage21,
     JoyImage,
     Ideogram4,
     Krea2,

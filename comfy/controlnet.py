@@ -17,12 +17,14 @@
 """
 from __future__ import annotations
 
+from . import storage
+from enum import Enum
+from typing import TYPE_CHECKING
+from typing import Union
 import copy
 import logging
 import math
 import os
-from enum import Enum
-from typing import TYPE_CHECKING, Union
 
 import torch
 
@@ -32,15 +34,17 @@ from . import model_management
 from . import model_patcher
 from . import ops
 from . import utils
-from .cldm import cldm, mmdit
+from .cldm import cldm
+from .cldm import mmdit
 from .cldm.dit_embedder import ControlNetEmbedder
 from .ldm.cascade import controlnet as cascade_controlnet
 from .ldm.flux import controlnet as controlnet_flux
 from .ldm.hydit.controlnet import HunYuanControlNet
-from .t2i_adapter import adapter
+from .ldm.qwen_image.controlnet import QwenImageControlNetModel
+from .ldm.qwen_image.controlnet import QwenImageFunControlNetModel
 from .model_base import convert_tensor
 from .model_management import cast_to_device
-from .ldm.qwen_image.controlnet import QwenImageControlNetModel, QwenImageFunControlNetModel
+from .t2i_adapter import adapter
 if TYPE_CHECKING:
     from .hooks import HookGroup
 logger = logging.getLogger(__name__)
@@ -236,12 +240,12 @@ class ControlBase:
 
 
 class ControlNet(ControlBase):
-    def __init__(self, control_model=None, global_average_pooling=False, compression_ratio=8, latent_format=None, load_device=None, manual_cast_dtype=None, extra_conds=["y"], strength_type=StrengthType.CONSTANT, concat_mask=False, preprocess_image=lambda a: a, ckpt_name: str = None):
+    def __init__(self, control_model=None, global_average_pooling=False, compression_ratio=8, latent_format=None, load_device=None, manual_cast_dtype=None, extra_conds=["y"], strength_type=StrengthType.CONSTANT, concat_mask=False, preprocess_image=lambda a: a, ckpt_name: str = None, fast_disk=False):
         super().__init__()
         self.control_model = control_model
         self.load_device = load_device
         if control_model is not None:
-            self.control_model_wrapped = model_patcher.get_model_patcher_class()(self.control_model, load_device=load_device, offload_device=model_management.unet_offload_device())
+            self.control_model_wrapped = model_patcher.get_model_patcher_class()(self.control_model, load_device=load_device, offload_device=model_management.unet_offload_device(), fast_disk=fast_disk)
             if ckpt_name is not None:
                 self.control_model_wrapped.ckpt_name = os.path.basename(ckpt_name)
         self.compression_ratio = compression_ratio
@@ -326,7 +330,7 @@ class ControlNet(ControlBase):
     def deepclone_multigpu(self, load_device, autoregister=False):
         c = self.copy()
         c.control_model = copy.deepcopy(c.control_model)
-        c.control_model_wrapped = model_patcher.ModelPatcher(c.control_model, load_device=load_device, offload_device=model_management.unet_offload_device())
+        c.control_model_wrapped = model_patcher.ModelPatcher(c.control_model, load_device=load_device, offload_device=model_management.unet_offload_device(), fast_disk=self.control_model_wrapped.fast_disk)
         if autoregister:
             self.multigpu_clones[load_device] = c
         return c
@@ -544,7 +548,7 @@ def load_controlnet_mmdit(sd, model_options=None):
 
     latent_format = latent_formats.SD3()
     latent_format.shift_factor = 0  # SD3 controlnet weirdness
-    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype)
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, fast_disk=storage.state_dict_fast_disk(new_sd))
     return control
 
 
@@ -620,7 +624,7 @@ def load_controlnet_sd35(sd, model_options={}):
     elif depth_cnet:
         preprocess_image = lambda a: 1.0 - a
 
-    control = ControlNetSD35(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, preprocess_image=preprocess_image)
+    control = ControlNetSD35(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, preprocess_image=preprocess_image, fast_disk=storage.state_dict_fast_disk(sd))
     return control
 
 
@@ -634,7 +638,7 @@ def load_controlnet_hunyuandit(controlnet_data, model_options=None):
 
     latent_format = latent_formats.SDXL()
     extra_conds = ['text_embedding_mask', 'encoder_hidden_states_t5', 'text_embedding_mask_t5', 'image_meta_size', 'style', 'cos_cis_img', 'sin_cis_img']
-    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, strength_type=StrengthType.CONSTANT)
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, strength_type=StrengthType.CONSTANT, fast_disk=storage.state_dict_fast_disk(controlnet_data))
     return control
 
 
@@ -701,7 +705,7 @@ def load_controlnet_flux_xlabs_mistoline(sd, mistoline=False, model_options=None
     sd = model_config.process_unet_state_dict(sd)
     control_model = controlnet_load_state_dict(control_model, sd)
     extra_conds = ['y', 'guidance']
-    control = ControlNet(control_model, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    control = ControlNet(control_model, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, fast_disk=storage.state_dict_fast_disk(sd))
     return control
 
 
@@ -728,7 +732,7 @@ def load_controlnet_flux_instantx(sd, model_options=None):
 
     latent_format = latent_formats.Flux()
     extra_conds = ['y', 'guidance']
-    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, fast_disk=storage.state_dict_fast_disk(new_sd))
     return control
 
 
@@ -745,7 +749,7 @@ def load_controlnet_qwen_instantx(sd, model_options={}):
     control_model = controlnet_load_state_dict(control_model, sd)
     latent_format = latent_formats.Wan21()
     extra_conds = []
-    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, concat_mask=concat_mask, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, fast_disk=storage.state_dict_fast_disk(sd))
     return control
 
 
@@ -792,6 +796,7 @@ def load_controlnet_qwen_fun(sd, model_options={}):
         load_device=load_device,
         manual_cast_dtype=manual_cast_dtype,
         extra_conds=[],
+        fast_disk=storage.state_dict_fast_disk(sd),
     )
     return control
 
@@ -955,7 +960,7 @@ def load_controlnet_state_dict(state_dict, model=None, model_options=None, ckpt_
 
     filename = os.path.splitext(ckpt_name)[0]
     global_average_pooling = model_options.get("global_average_pooling", False)
-    control = ControlNet(control_model, global_average_pooling=global_average_pooling, load_device=load_device, manual_cast_dtype=manual_cast_dtype, ckpt_name=filename)
+    control = ControlNet(control_model, global_average_pooling=global_average_pooling, load_device=load_device, manual_cast_dtype=manual_cast_dtype, ckpt_name=filename, fast_disk=storage.state_dict_fast_disk(controlnet_data))
     return control
 
 

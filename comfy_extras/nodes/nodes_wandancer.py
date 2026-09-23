@@ -1,8 +1,8 @@
 import math
 import torch
-import torchaudio
-import comfy.model_management
-import comfy.utils
+from comfy import audio as comfy_audio
+from comfy import model_management
+from comfy import utils
 import numpy as np
 import logging
 from comfy import node_helpers
@@ -742,7 +742,7 @@ class WanDancerEncodeAudio(io.ComfyNode):
 
         # resample to the sample rate used for feature extraction
         resample_sr = base_fps * hop_length
-        waveform = torchaudio.functional.resample(waveform, sample_rate, resample_sr)
+        waveform = comfy_audio.resample(waveform, sample_rate, resample_sr)
 
         waveform_np = waveform.cpu().numpy().squeeze()
         mel_spec = _compute_mel_spectrogram(waveform_np, model_sr, n_fft, hop_length, n_mels=128)
@@ -764,7 +764,7 @@ class WanDancerEncodeAudio(io.ComfyNode):
             [envelope[:, None], mfcc, chroma, peak_onehot[:, None], beat_onehot[:, None]],
             axis=-1,
         )
-        audio_feature = torch.from_numpy(audio_feature).unsqueeze(0).to(comfy.model_management.intermediate_device())
+        audio_feature = torch.from_numpy(audio_feature).unsqueeze(0).to(model_management.intermediate_device())
 
         fps = float(base_fps / int(audio_feature.shape[1] / video_frames + 0.5))
 
@@ -810,9 +810,9 @@ class WanDancerVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, start_image=None, mask=None, clip_vision_output=None, clip_vision_output_ref=None, audio_encoder_output=None) -> io.NodeOutput:
-        latent = torch.zeros([1, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([1, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=model_management.intermediate_device())
         if start_image is not None:
-            start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+            start_image = utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             image = torch.zeros((length, height, width, start_image.shape[-1]), device=start_image.device, dtype=start_image.dtype)
             image[:start_image.shape[0]] = start_image
 
@@ -822,7 +822,7 @@ class WanDancerVideo(io.ComfyNode):
                 concat_mask[:, :, :((start_image.shape[0] - 1) // 4) + 1] = 0.0
             else:
                 concat_mask = 1 - mask[:length].unsqueeze(0)
-                concat_mask = comfy.utils.common_upscale(concat_mask, concat_latent_image.shape[-2], concat_latent_image.shape[-1], "nearest-exact", "disabled")
+                concat_mask = utils.common_upscale(concat_mask, concat_latent_image.shape[-2], concat_latent_image.shape[-1], "nearest-exact", "disabled")
                 concat_mask = torch.cat([torch.repeat_interleave(concat_mask[:, 0:1], repeats=4, dim=1), concat_mask[:, 1:]], dim=1)
                 concat_mask = concat_mask.view(1, concat_mask.shape[1] // 4, 4, concat_latent_image.shape[-2], concat_latent_image.shape[-1]).transpose(1, 2)
 

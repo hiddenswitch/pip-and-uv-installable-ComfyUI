@@ -2,8 +2,9 @@ import torch
 from tqdm import tqdm
 from typing_extensions import override
 
-import comfy.model_patcher
-import comfy.utils
+from comfy import model_patcher
+from comfy import storage
+from comfy import utils
 from comfy.cmd import folder_paths
 from comfy import model_management
 from ..frame_interpolation_models.ifnet import IFNet, detect_rife_config
@@ -32,15 +33,16 @@ class FrameInterpolationModelLoader(io.ComfyNode):
     @classmethod
     def execute(cls, model_name) -> io.NodeOutput:
         model_path = folder_paths.get_full_path_or_raise("frame_interpolation", model_name)
-        sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+        sd = utils.load_torch_file(model_path, safe_load=True)
 
         model = cls._detect_and_load(sd)
         dtype = torch.float16 if model_management.should_use_fp16(model_management.get_torch_device()) else torch.float32
         model.eval().to(dtype)
-        patcher = comfy.model_patcher.CoreModelPatcher(
+        patcher = model_patcher.CoreModelPatcher(
             model,
             load_device=model_management.get_torch_device(),
             offload_device=model_management.unet_offload_device(),
+            fast_disk=storage.state_dict_fast_disk(sd),
         )
         return io.NodeOutput(patcher)
 
@@ -53,7 +55,7 @@ class FrameInterpolationModelLoader(io.ComfyNode):
             return model
 
         # Try RIFE (needs key remapping for raw checkpoints)
-        sd = comfy.utils.state_dict_prefix_replace(sd, {"module.": "", "flownet.": ""})
+        sd = utils.state_dict_prefix_replace(sd, {"module.": "", "flownet.": ""})
         key_map = {}
         for k in sd:
             for i in range(5):
@@ -118,7 +120,7 @@ class FrameInterpolate(io.ComfyNode):
         total_pairs = num_frames - 1
         num_interp = multiplier - 1
         total_steps = total_pairs * num_interp
-        pbar = comfy.utils.ProgressBar(total_steps)
+        pbar = utils.ProgressBar(total_steps)
         tqdm_bar = tqdm(total=total_steps, desc="Frame interpolation")
 
         batch = num_interp  # reduced on OOM and persists across pairs (same resolution = same limit)

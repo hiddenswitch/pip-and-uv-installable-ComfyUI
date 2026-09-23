@@ -3,10 +3,10 @@ from typing import Literal
 import torch
 import torch.nn as nn
 
+from .... import audio as comfy_audio
+from .bigvgan import BigVGANVocoder
 from .distributions import DiagonalGaussianDistribution
 from .vae import VAE_16k
-from .bigvgan import BigVGANVocoder
-
 
 def dynamic_range_compression_torch(x, C=1, clip_val=1e-5, *, norm_fn):
     return norm_fn(torch.clamp(x, min=clip_val) * C)
@@ -142,14 +142,12 @@ class AudioAutoencoder(nn.Module):
         mel_decoded = self.vae.decode(z)
         audio = self.vocoder(mel_decoded)
 
-        import torchaudio
-        audio = torchaudio.functional.resample(audio, 16000, 44100)
+        audio = comfy_audio.resample(audio, 16000, 44100)
         return audio
 
     @torch.no_grad()
     def encode(self, audio):
-        import torchaudio
         audio = audio.mean(dim=1)
-        audio = torchaudio.functional.resample(audio, 44100, 16000)
+        audio = comfy_audio.resample(audio, 44100, 16000)
         dist = self.encode_audio(audio)
         return dist.mean

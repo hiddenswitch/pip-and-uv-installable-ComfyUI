@@ -1,0 +1,201 @@
+{
+  "39:26": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_edit_2509_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "UNETLoader"
+    }
+  },
+  "39:27": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "marigold_v2_depth_log_stage2.safetensors",
+      "strength_model": 1,
+      "model": [
+        "39:26",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "39:28": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "shift": 1.73,
+      "sampling": "flow",
+      "model": [
+        "39:27",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "39:29": {
+    "class_type": "ConditioningLoader",
+    "inputs": {
+      "conditioning_name": "marigold_v2_depth_conditioning.safetensors"
+    },
+    "_meta": {
+      "title": "ConditioningLoader"
+    }
+  },
+  "39:30": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "marigold_v2_depth_log_stage2_vae.safetensors"
+    },
+    "_meta": {
+      "title": "VAELoader"
+    }
+  },
+  "39:31": {
+    "class_type": "DisableNoise",
+    "inputs": {},
+    "_meta": {
+      "title": "DisableNoise"
+    }
+  },
+  "39:32": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "39:33": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "39:28",
+        0
+      ],
+      "conditioning": [
+        "39:29",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "BasicGuider"
+    }
+  },
+  "39:34": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "0.5, 0"
+    },
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "39:35": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "39:31",
+        0
+      ],
+      "guider": [
+        "39:33",
+        0
+      ],
+      "sampler": [
+        "39:32",
+        0
+      ],
+      "sigmas": [
+        "39:34",
+        0
+      ],
+      "latent_image": [
+        "39:36",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "39:36": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "vae": [
+        "39:30",
+        0
+      ],
+      "pixels": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAEEncode"
+    }
+  },
+  "39:37": {
+    "class_type": "MarigoldV2PostProcess",
+    "inputs": {
+      "prediction": "depth",
+      "image": [
+        "39:38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "MarigoldV2PostProcess"
+    }
+  },
+  "39:38": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "39:35",
+        0
+      ],
+      "vae": [
+        "39:30",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAEDecode"
+    }
+  },
+  "1": {
+    "class_type": "LoadImageFromURL",
+    "inputs": {
+      "value": "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
+    }
+  },
+  "2": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "upscale_method": "bilinear",
+      "width": 256,
+      "height": 256,
+      "crop": "disabled"
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "39:37",
+        0
+      ],
+      "filename_prefix": "marigold-v2-depth"
+    }
+  }
+}

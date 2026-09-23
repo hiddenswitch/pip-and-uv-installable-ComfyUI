@@ -6,10 +6,12 @@ import weakref
 import comfy_kitchen as ck
 import torch
 
+from . import memory_management
+from . import model_management
+from . import ops
+from .cli_args import args
 import comfy_aimdo.malloc_graph
 import comfy_aimdo.model_vbar
-from .cli_args import args
-from . import memory_management, model_management, ops
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,22 @@ class _PauseMallocGraph:
 
 def pause_malloc_graph(sync=False):
     return _PauseMallocGraph(sync)
+
+class _MallocGraphScope:
+    def __init__(self, device):
+        self.device = device
+
+    def __enter__(self):
+        malloc_graph_begin(self.device)
+
+    def __exit__(self, exc_type, *args):
+        if exc_type is None:
+            malloc_graph_end()
+        else:
+            cleanup_malloc_graph()
+
+def malloc_graph_scope(device):
+    return _MallocGraphScope(device)
 
 def malloc_graph_begin(device):
     global MALLOC_GRAPH_USED
@@ -94,6 +112,24 @@ def _dynamic_vbar_modules(module):
         for child in root.modules()
         if getattr(child, "_v", None) is not None
     ]
+
+def pin_modules(comfy_modules, device, dtype=None):
+    registerable_size = 0
+    for s in comfy_modules:
+        registerable_size += memory_management.vram_aligned_size([s.weight, s.bias])
+        for param_key in ("weight", "bias"):
+            lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
+            if lowvram_fn is not None:
+                registerable_size += lowvram_fn.memory_required()
+
+    offload_stream, fully_faulted = ops.cast_modules_with_vbar(comfy_modules, None, device, None, True, return_faulted=True)
+    if not (comfy_modules and comfy_modules[0]._pin_state["fast_disk"]):
+        model_management.ensure_pin_registerable(registerable_size)
+    model_management.sync_stream(device, offload_stream)
+    if fully_faulted and dtype is not None:
+        for comfy_module in comfy_modules:
+            ops.resolve_cast_module_with_vbar(comfy_module, dtype, device, dtype, None, False, return_weights=False)
+    return offload_stream, fully_faulted
 
 def cleanup_prefetched_modules(module, comfy_modules):
     for s in comfy_modules:
@@ -210,23 +246,7 @@ def prefetch_queue_pop(queue, device, module, dtype=None, core=None, enable_grap
     if prefetch is not None:
         comfy_modules = _dynamic_vbar_modules(prefetch)
 
-        registerable_size = 0
-        for s in comfy_modules:
-            registerable_size += memory_management.vram_aligned_size([s.weight, s.bias])
-            for param_key in ("weight", "bias"):
-                lowvram_fn = getattr(s, param_key + "_lowvram_function", None)
-                if lowvram_fn is not None:
-                    registerable_size += lowvram_fn.memory_required()
-
-        offload_stream, fully_faulted = ops.cast_modules_with_vbar(
-            comfy_modules, None, device, None, True, return_faulted=True
-        )
-        if not model_management.args.fast_disk:
-            model_management.ensure_pin_registerable(registerable_size)
-        model_management.sync_stream(device, offload_stream)
-        if fully_faulted and dtype is not None:
-            for comfy_module in comfy_modules:
-                ops.resolve_cast_module_with_vbar(comfy_module, dtype, device, dtype, None, False, return_weights=False)
+        offload_stream, fully_faulted = pin_modules(comfy_modules, device, dtype)
         queue[0] = (offload_stream, (module, comfy_modules))
 
     if core is not None:

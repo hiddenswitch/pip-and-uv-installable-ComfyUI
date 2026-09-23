@@ -677,7 +677,7 @@ async def test_full_docker_stack_trace_propagation(
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             docker_host = "host.docker.internal"
 
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         rabbitmq_params = rabbitmq.get_connection_params()
         rabbitmq_uri_container = f"amqp://guest:guest@{docker_host}:{rabbitmq_params.port}"
         logger.info(f"RabbitMQ URI (from containers): {rabbitmq_uri_container}")
@@ -1088,7 +1088,7 @@ async def test_aiohttp_and_aio_pika_spans_with_docker_frontend(jaeger_container)
     otlp_endpoint = jaeger_container.get_otlp_endpoint()
     otlp_port = jaeger_container.get_exposed_port(4318)
 
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
 
         # Get Docker bridge gateway for container-to-host communication

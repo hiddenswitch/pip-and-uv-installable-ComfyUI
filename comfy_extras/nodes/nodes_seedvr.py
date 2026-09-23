@@ -4,7 +4,7 @@ from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 import torch
 
-import comfy.model_management
+from comfy import model_management
 from comfy.ldm.seedvr.color_fix import (
     adain_color_transfer,
     lab_color_transfer,
@@ -251,7 +251,7 @@ class SeedVR2PostProcessing(io.ComfyNode):
 
     @staticmethod
     def _color_transfer_on_vae_device(decoded_flat, reference_flat, output_device, transfer_fn):
-        color_device = comfy.model_management.vae_device()
+        color_device = model_management.vae_device()
         decoded_flat = decoded_flat.to(device=color_device)
         reference_flat = reference_flat.to(device=color_device)
         output = transfer_fn(decoded_flat, reference_flat)
@@ -259,7 +259,7 @@ class SeedVR2PostProcessing(io.ComfyNode):
 
     @staticmethod
     def _lab_color_transfer_on_vae_device(decoded_flat, reference_flat, output_device):
-        color_device = comfy.model_management.vae_device()
+        color_device = model_management.vae_device()
         result = None
         for start in range(decoded_flat.shape[0]):
             decoded_frame = decoded_flat[start:start + 1].to(device=color_device).clone()
@@ -285,7 +285,7 @@ class SeedVR2PostProcessing(io.ComfyNode):
                     decoded_flat, reference_flat, output_device, color_correction_method, chunk_size,
                 )
             except Exception as e:
-                comfy.model_management.raise_non_oom(e)
+                model_management.raise_non_oom(e)
                 if chunk_size <= 1:
                     raise RuntimeError(
                         "SeedVR2PostProcessing: color correction OOM at one frame; "
@@ -330,8 +330,8 @@ class SeedVR2PostProcessing(io.ComfyNode):
         bytes_per_frame = height * width * channels * dtype_bytes * multiplier
         if bytes_per_frame <= 0:
             return frames
-        color_device = comfy.model_management.vae_device()
-        free_memory = comfy.model_management.get_free_memory(color_device)
+        color_device = model_management.vae_device()
+        free_memory = model_management.get_free_memory(color_device)
         chunk_size = int((free_memory * SEEDVR2_COLOR_MEM_HEADROOM) // bytes_per_frame)
         return max(1, min(frames, chunk_size))
 
@@ -426,7 +426,7 @@ class SeedVR2TemporalChunk(io.ComfyNode):
         return io.Schema(
             node_id="SeedVR2TemporalChunk",
             display_name="Split SeedVR2 Latent",
-            category="model/latent/batch",
+            category="model/latent/seedvr",
             description="Split a SeedVR2 video latent into overlapping temporal chunks small enough to sample one at a time within VRAM, wiring latents outputs to both Apply SeedVR2 Conditioning and the sampler latent input before recombining with Merge SeedVR2 Latents.",
             search_aliases=["seedvr2", "split", "chunk", "temporal", "video upscale", "rebatch"],
             inputs=[
@@ -478,8 +478,8 @@ class SeedVR2TemporalChunk(io.ComfyNode):
         t_pixel = 4 * (t_latent - 1) + 1
 
         if mode == "auto":
-            free_gb = comfy.model_management.get_free_memory(
-                comfy.model_management.get_torch_device()) / (1024 ** 3)
+            free_gb = model_management.get_free_memory(
+                model_management.get_torch_device()) / (1024 ** 3)
             mpx_per_frame = (samples.shape[0] * samples.shape[3] * samples.shape[4]) * (BYTEDANCE_VAE_SPATIAL_DOWNSAMPLE ** 2) / 1e6
             budget_gb = free_gb - SEEDVR2_CHUNK_RESERVED_GIB - SEEDVR2_CHUNK_SIGMA_K * SEEDVR2_CHUNK_SIGMA_GIB
             chunk_latent_max = max(1, int(budget_gb / (SEEDVR2_CHUNK_GIB_PER_MPX_FRAME * mpx_per_frame)))
@@ -520,7 +520,7 @@ class SeedVR2TemporalMerge(io.ComfyNode):
         return io.Schema(
             node_id="SeedVR2TemporalMerge",
             display_name="Merge SeedVR2 Latents",
-            category="model/latent/batch",
+            category="model/latent/seedvr",
             is_input_list=True,
             description="Recombine sampled SeedVR2 latent temporal chunks into one latent, crossfading each overlap with a Hann window sized by the temporal_overlap wired from Split SeedVR2 Latent.",
             search_aliases=["seedvr2", "merge", "temporal", "hann", "crossfade"],

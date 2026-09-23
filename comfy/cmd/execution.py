@@ -1,6 +1,12 @@
 from __future__ import annotations
 from .main_pre import tracer
 
+from contextlib import nullcontext
+from enum import Enum
+from os import PathLike
+from typing import List
+from typing import Literal
+from typing import Optional
 import asyncio
 import copy
 import heapq
@@ -12,73 +18,106 @@ import threading
 import time
 import traceback
 import typing
-from contextlib import nullcontext
-from enum import Enum
-from os import PathLike
-from typing import List, Optional, Literal
 
+from opentelemetry.trace import Status
+from opentelemetry.trace import StatusCode
+from opentelemetry.trace import get_current_span
+from typing_extensions import NamedTuple
+from typing_extensions import NotRequired
+from typing_extensions import TypedDict
 import comfy_aimdo
 import comfy_aimdo.model_vbar
 import torch
-from opentelemetry.trace import get_current_span, StatusCode, Status
-from typing_extensions import NotRequired, TypedDict, NamedTuple
 
-from comfy_api.internal import _ComfyNodeInternal, _NodeOutputInternal, first_real_override, is_class, \
-    make_locked_method_func
-from comfy_api.latest import io, _io
-from comfy_compatibility.vanilla import vanilla_environment_node_execution_hooks
-from comfy_execution.cache_provider import _has_cache_providers, _get_cache_providers, _logger as _cache_logger
-from comfy_execution.caching import (
-    BasicCache,
-    CacheKeySetID,
-    CacheKeySetInputSignature,
-    NullCache,
-    HierarchicalCache,
-    LRUCache,
-    RAM_CACHE_LARGE_INTERMEDIATE,
-    RAMPressureCache,
-)
-from comfy_execution.graph import (
-    DynamicPrompt,
-    ExecutionBlocker,
-    ExecutionList,
-    get_input_info,
-)
-from comfy_execution.graph_types import FrozenTopologicalSort
-from comfy_execution.graph_utils import is_link, GraphBuilder
-from comfy_execution.progress import get_progress_state, reset_progress_state, add_progress_handler, \
-    WebUIProgressHandler, ProgressRegistry
-from comfy_execution.utils import CurrentNodeContext
-from comfy_execution.asset_enrichment import enrich_output_with_assets
-from comfy_execution.validation import validate_node_input
 from .. import interruption
 from .. import memory_management
 from .. import model_management
-from .. import system_memory
 from .. import model_patcher as model_patcher_module
 from .. import model_prefetch
+from .. import system_memory
 from ..cli_args_types import LatentPreviewMethod
-from ..internal_logging import detail
 from ..component_model.abstract_prompt_queue import AbstractPromptQueue
-from ..component_model.executor_types import ExecutorToClientProgress, ValidationTuple, ValidateInputsTuple, \
-    ValidationErrorDict, NodeErrorsDictValue, ValidationErrorExtraInfoDict, FormattedValue, RecursiveExecutionTuple, \
-    RecursiveExecutionErrorDetails, RecursiveExecutionErrorDetailsInterrupted, ExecutionResult, HistoryResultDict, \
-    ExecutionErrorMessage, ExecutionInterruptedMessage, ComboOptions
+from ..component_model.executor_types import ComboOptions
+from ..component_model.executor_types import ExecutionErrorMessage
+from ..component_model.executor_types import ExecutionInterruptedMessage
+from ..component_model.executor_types import ExecutionResult
+from ..component_model.executor_types import ExecutorToClientProgress
+from ..component_model.executor_types import FormattedValue
+from ..component_model.executor_types import HistoryResultDict
+from ..component_model.executor_types import NodeErrorsDictValue
+from ..component_model.executor_types import RecursiveExecutionErrorDetails
+from ..component_model.executor_types import RecursiveExecutionErrorDetailsInterrupted
+from ..component_model.executor_types import RecursiveExecutionTuple
+from ..component_model.executor_types import ValidateInputsTuple
+from ..component_model.executor_types import ValidationErrorDict
+from ..component_model.executor_types import ValidationErrorExtraInfoDict
+from ..component_model.executor_types import ValidationTuple
 from ..component_model.files import canonicalize_path
 from ..component_model.module_property import create_module_properties
-from ..component_model.node_traceback import format_node_exception, filter_traceback, suppress_error_stack_trace
-from ..component_model.queue_types import QueueTuple, HistoryEntry, QueueItem, MAXIMUM_HISTORY_SIZE, ExecutionStatus, \
-    ExecutionStatusAsDict, AbstractPromptQueueGetCurrentQueueItems
-from ..execution_context import context_execute_node, context_execute_prompt
-from ..execution_context import current_execution_context, context_set_execution_list_and_inputs
+from ..component_model.node_traceback import filter_traceback
+from ..component_model.node_traceback import format_node_exception
+from ..component_model.node_traceback import suppress_error_stack_trace
+from ..component_model.queue_types import AbstractPromptQueueGetCurrentQueueItems
+from ..component_model.queue_types import ExecutionStatus
+from ..component_model.queue_types import ExecutionStatusAsDict
+from ..component_model.queue_types import HistoryEntry
+from ..component_model.queue_types import MAXIMUM_HISTORY_SIZE
+from ..component_model.queue_types import QueueItem
+from ..component_model.queue_types import QueueTuple
+from ..execution_context import context_execute_node
+from ..execution_context import context_execute_prompt
+from ..execution_context import context_set_execution_list_and_inputs
+from ..execution_context import current_execution_context
 from ..execution_ext import should_panic_on_exception
+from ..internal_logging import detail
 from ..node_requests_caching import use_requests_caching
-from ..nodes.package_typing import InputTypeSpec, FloatSpecOptions, IntSpecOptions, CustomNode
+from ..nodes.package_typing import CustomNode
+from ..nodes.package_typing import FloatSpecOptions
+from ..nodes.package_typing import InputTypeSpec
+from ..nodes.package_typing import IntSpecOptions
 from ..nodes_context import get_nodes
+from ..app.assets.manager import AssetManager
+from ..app.assets.manager import default_asset_manager
+from comfy_api.internal import _ComfyNodeInternal
+from comfy_api.internal import _NodeOutputInternal
+from comfy_api.internal import first_real_override
+from comfy_api.internal import is_class
+from comfy_api.internal import make_locked_method_func
+from comfy_api.latest import _io
+from comfy_api.latest import io
+from comfy_compatibility.vanilla import vanilla_environment_node_execution_hooks
+from comfy_execution.asset_enrichment import emit_cached_output
+from comfy_execution.asset_enrichment import register_executed_outputs
+from comfy_execution.cache_provider import _get_cache_providers
+from comfy_execution.cache_provider import _has_cache_providers
+from comfy_execution.cache_provider import _logger as _cache_logger
+from comfy_execution.caching import BasicCache
+from comfy_execution.caching import CacheKeySetID
+from comfy_execution.caching import CacheKeySetInputSignature
+from comfy_execution.caching import HierarchicalCache
+from comfy_execution.caching import LRUCache
+from comfy_execution.caching import NullCache
+from comfy_execution.caching import RAMPressureCache
+from comfy_execution.caching import RAM_CACHE_LARGE_INTERMEDIATE
+from comfy_execution.graph import DynamicPrompt
+from comfy_execution.graph import ExecutionBlocker
+from comfy_execution.graph import ExecutionList
+from comfy_execution.graph import get_input_info
+from comfy_execution.graph_types import FrozenTopologicalSort
+from comfy_execution.graph_utils import GraphBuilder
+from comfy_execution.graph_utils import is_link
+from comfy_execution.progress import ProgressRegistry
+from comfy_execution.progress import WebUIProgressHandler
+from comfy_execution.progress import add_progress_handler
+from comfy_execution.progress import get_progress_state
+from comfy_execution.progress import reset_progress_state
+from comfy_execution.utils import CurrentNodeContext
+from comfy_execution.validation import LoopValidationError
+from comfy_execution.validation import validate_loops
+from comfy_execution.validation import validate_node_input
 
 _module_properties = create_module_properties()
 logger = logging.getLogger(__name__)
-
 
 @_module_properties.getter
 def _nodes():
@@ -242,6 +281,8 @@ def get_input_data(inputs, class_def, unique_id, execution_list=None, dynprompt=
                 hidden_inputs_v3[io.Hidden.api_key_comfy_org] = extra_data.get("api_key_comfy_org", None)
             if io.Hidden.comfy_usage_source.name in hidden:
                 hidden_inputs_v3[io.Hidden.comfy_usage_source] = extra_data.get("comfy_usage_source", None)
+            if io.Hidden.execution_list.name in hidden:
+                hidden_inputs_v3[io.Hidden.execution_list] = execution_list
     else:
         if "hidden" in valid_inputs:
             h = valid_inputs["hidden"]
@@ -250,6 +291,8 @@ def get_input_data(inputs, class_def, unique_id, execution_list=None, dynprompt=
                     input_data_all[x] = [dynprompt.get_original_prompt() if dynprompt is not None else {}]
                 if h[x] == "DYNPROMPT":
                     input_data_all[x] = [dynprompt]
+                if h[x] == "EXECUTION_LIST":
+                    input_data_all[x] = [execution_list]
                 if h[x] == "EXTRA_PNGINFO":
                     input_data_all[x] = [extra_data.get('extra_pnginfo', None)]
                 if h[x] == "UNIQUE_ID":
@@ -509,16 +552,7 @@ def _is_intermediate_output(dynprompt, node_id):
     return getattr(class_def, 'HAS_INTERMEDIATE_OUTPUT', False)
 
 
-def _send_cached_ui(server, node_id, display_node_id, cached, prompt_id, ui_outputs):
-    if cached.ui is not None:
-        ui_outputs[node_id] = cached.ui
-    if server.client_id is None:
-        return
-    cached_ui = cached.ui or {}
-    server.send_sync("executed", {"node": node_id, "display_node": display_node_id, "output": cached_ui.get("output", None), "prompt_id": prompt_id}, server.client_id)
-
-
-async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, caches, node_id: str, extra_data: dict, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs) -> RecursiveExecutionTuple:
+async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, caches, node_id: str, extra_data: dict, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager: AssetManager | None = None) -> RecursiveExecutionTuple:
     """
     Executes a prompt
     :param server:
@@ -532,16 +566,18 @@ async def execute(server: ExecutorToClientProgress, dynprompt: DynamicPrompt, ca
     :param pending_subgraph_results:
     :return:
     """
+    if asset_manager is None:
+        asset_manager = default_asset_manager()
     with (
         context_execute_node(node_id),
         suppress_error_stack_trace(),
         vanilla_environment_node_execution_hooks(),
         use_requests_caching(),
     ):
-        return await _execute(server, dynprompt, caches, node_id, extra_data, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs)
+        return await _execute(server, dynprompt, caches, node_id, extra_data, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager)
 
 
-async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_item: str, extra_data, executed, prompt_id, execution_list: ExecutionList, pending_subgraph_results, pending_async_nodes, ui_outputs) -> RecursiveExecutionTuple:
+async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_item: str, extra_data, executed, prompt_id, execution_list: ExecutionList, pending_subgraph_results, pending_async_nodes, ui_outputs, asset_manager: AssetManager) -> RecursiveExecutionTuple:
     unique_id = current_item
     real_node_id = dynprompt.get_real_node_id(unique_id)
     display_node_id = dynprompt.get_display_node_id(unique_id)
@@ -551,7 +587,7 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
     class_def = get_nodes().NODE_CLASS_MAPPINGS[class_type]
     cached = await caches.outputs.get(unique_id)
     if cached is not None:
-        _send_cached_ui(server, unique_id, display_node_id, cached, prompt_id, ui_outputs)
+        emit_cached_output(server, unique_id, display_node_id, cached, prompt_id, ui_outputs, asset_manager)
         get_progress_state().finish_progress(unique_id)
         execution_list.cache_update(unique_id, cached)
         return RecursiveExecutionTuple(ExecutionResult.SUCCESS, None, None)
@@ -626,6 +662,8 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                     for i in required_inputs:
                         execution_list.make_input_strong_link(unique_id, i)
                     return RecursiveExecutionTuple(ExecutionResult.PENDING, None, None)
+                if execution_list.is_staged_node_blocked():
+                    return (ExecutionResult.PENDING, None, None)
 
             def execution_block_cb(block):
                 if block.message is not None:
@@ -671,22 +709,19 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
 
                 asyncio.create_task(await_completion())
                 return RecursiveExecutionTuple(ExecutionResult.PENDING, None, None)
+        cache_ui_value = ui_outputs.get(unique_id)
         if len(output_ui) > 0:
-            # Enrich at output-processing time (not in the send path) so assets
-            # are registered even when no client is connected, and the asset id
-            # flows into ui_outputs and the cache alongside the raw entries.
-            output_ui = enrich_output_with_assets(output_ui)
-            ui_outputs[unique_id] = {
-                "meta": {
-                    "node_id": unique_id,
-                    "display_node": display_node_id,
-                    "parent_node": parent_node_id,
-                    "real_node_id": real_node_id,
-                },
-                "output": output_ui
+            meta = {
+                "node_id": unique_id,
+                "display_node": display_node_id,
+                "parent_node": parent_node_id,
+                "real_node_id": real_node_id,
             }
+            enriched_output_ui = register_executed_outputs(output_ui, prompt_id, asset_manager)
+            ui_outputs[unique_id] = {"meta": meta, "output": enriched_output_ui}
+            cache_ui_value = {"meta": meta, "output": output_ui}
             if server.client_id is not None:
-                server.send_sync("executed", {"node": unique_id, "display_node": display_node_id, "output": output_ui, "prompt_id": prompt_id},
+                server.send_sync("executed", {"node": unique_id, "display_node": display_node_id, "output": enriched_output_ui, "prompt_id": prompt_id},
                                  server.client_id)
         if has_subgraph:
             cached_outputs = []
@@ -724,7 +759,7 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
             pending_subgraph_results[unique_id] = cached_outputs
             return RecursiveExecutionTuple(ExecutionResult.PENDING, None, None)
 
-        cache_entry = CacheEntry(ui=ui_outputs.get(unique_id), outputs=output_data)
+        cache_entry = CacheEntry(ui=cache_ui_value, outputs=output_data)
         execution_list.cache_update(unique_id, cache_entry)
         await caches.outputs.set(unique_id, cache_entry)
 
@@ -786,13 +821,14 @@ class CacheArgs(TypedDict):
 
 
 class PromptExecutor:
-    def __init__(self, server: ExecutorToClientProgress, cache_type: CacheType | Literal[False] = False, cache_args: Optional[CacheArgs] = None):
+    def __init__(self, server: ExecutorToClientProgress, cache_type: CacheType | Literal[False] = False, cache_args: Optional[CacheArgs] = None, asset_manager: AssetManager | None = None):
         self.status_messages = []
         self.caches: Optional[CacheSet] = None
         self.success = None
         self.cache_args = cache_args or {}
         self.cache_type = cache_type
         self.server = server
+        self.asset_manager = asset_manager if asset_manager is not None else default_asset_manager()
         self.prompt_model_tracker = model_patcher_module.PromptModelTracker()
         self.raise_exceptions = False
         self.reset()
@@ -954,7 +990,7 @@ class PromptExecutor:
 
                     assert node_id is not None, "Node ID should not be None at this point"
 
-                    result, error, ex = await execute(self.server, dynamic_prompt, self.caches, node_id, extra_data, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_node_outputs)
+                    result, error, ex = await execute(self.server, dynamic_prompt, self.caches, node_id, extra_data, executed, prompt_id, execution_list, pending_subgraph_results, pending_async_nodes, ui_node_outputs, self.asset_manager)
                     self.success = result != ExecutionResult.FAILURE
                     if result == ExecutionResult.FAILURE:
                         self.handle_execution_error(prompt_id, dynamic_prompt.original_prompt, current_outputs, executed, error, ex)
@@ -988,7 +1024,7 @@ class PromptExecutor:
                         cached = await self.caches.outputs.get(node_id)
                         if cached is not None:
                             display_node_id = dynamic_prompt.get_display_node_id(node_id)
-                            _send_cached_ui(self.server, node_id, display_node_id, cached, prompt_id, ui_node_outputs)
+                            emit_cached_output(self.server, node_id, display_node_id, cached, prompt_id, ui_node_outputs, self.asset_manager)
                     self.add_message("execution_success", {"prompt_id": prompt_id}, broadcast=False)
 
                 ui_outputs = {}
@@ -1421,6 +1457,16 @@ async def _validate_prompt(prompt_id: typing.Any, prompt: typing.Mapping[str, ty
         }
         return ValidationTuple(False, error, [], {})
 
+    start_nodes = set()
+    end_nodes = set()
+    for node_id, node in prompt.items():
+        class_def = get_nodes().NODE_CLASS_MAPPINGS[node["class_type"]]
+        boundary = class_def.GET_SCHEMA().loop_boundary if issubclass(class_def, _ComfyNodeInternal) else None
+        if boundary == "start":
+            start_nodes.add(node_id)
+        elif boundary == "end":
+            end_nodes.add(node_id)
+
     good_outputs = set()
     errors = []
     node_errors: typing.Dict[str, NodeErrorsDictValue] = {}
@@ -1475,6 +1521,31 @@ async def _validate_prompt(prompt_id: typing.Any, prompt: typing.Mapping[str, ty
                             msgs.append(f"  - {reason['message']}: {reason['details']}")
                     node_errors[node_id]["dependent_outputs"].append(o)
             logger.info(' '.join(msgs))
+
+    has_dependency_cycle = any(
+        reason["type"] == "dependency_cycle"
+        for valid, reasons, _ in validated.values()
+        for reason in reasons
+    )
+    if not has_dependency_cycle:
+        try:
+            validate_loops(prompt, outputs, validated, start_nodes, end_nodes)
+        except LoopValidationError as ex:
+            dependent_outputs = ex.error["extra_info"]["output_ids"]
+            for node_id in ex.error["extra_info"]["node_ids"]:
+                if node_id not in node_errors:
+                    node_errors[node_id] = {
+                        "errors": [],
+                        "dependent_outputs": [],
+                        "class_type": prompt[node_id]["class_type"],
+                    }
+                node_errors[node_id]["errors"].append(ex.error)
+                node_errors[node_id]["dependent_outputs"] = sorted(
+                    set(node_errors[node_id]["dependent_outputs"]).union(dependent_outputs)
+                )
+            for output_id in dependent_outputs:
+                good_outputs.discard(output_id)
+            errors.append((dependent_outputs[0], [ex.error]))
 
     if len(good_outputs) == 0:
         errors_list = []

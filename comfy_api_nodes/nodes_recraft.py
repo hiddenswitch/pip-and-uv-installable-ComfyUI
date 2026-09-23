@@ -66,7 +66,6 @@ async def handle_recraft_file_request(
         files=files,
         content_type="multipart/form-data",
         multipart_parser=recraft_multipart_parser,
-        max_retries=1,
     )
     all_bytesio = []
     if response.image is not None:
@@ -451,7 +450,6 @@ class RecraftCreateStyleNode(IO.ComfyNode):
             files=files,
             data=RecraftCreateStyleRequest(style=style),
             content_type="multipart/form-data",
-            max_retries=1,
         )
 
         return IO.NodeOutput(response.id)
@@ -526,7 +524,6 @@ class RecraftV4CreateStyleNode(IO.ComfyNode):
                 model=model,
             ),
             content_type="multipart/form-data",
-            max_retries=1,
         )
         return IO.NodeOutput(response.id)
 
@@ -630,7 +627,6 @@ class RecraftTextToImageNode(IO.ComfyNode):
                 style_id=recraft_style.style_id,
                 controls=controls_api,
             ),
-            max_retries=1,
         )
         images = []
         for data in response.data:
@@ -954,7 +950,6 @@ class RecraftTextToVectorNode(IO.ComfyNode):
                 substyle=recraft_style.substyle,
                 controls=controls_api,
             ),
-            max_retries=1,
         )
         svg_data = []
         for data in response.data:
@@ -1441,7 +1436,6 @@ class RecraftV4TextToImageNode(IO.ComfyNode):
                 style_reference_urls=style_reference_urls,
                 controls=recraft_controls.create_api_model() if recraft_controls else None,
             ),
-            max_retries=1,
         )
         images = []
         for data in response.data:
@@ -1683,7 +1677,6 @@ class RecraftV4TextToVectorNode(IO.ComfyNode):
                 style_reference_urls=style_reference_urls,
                 controls=recraft_controls.create_api_model() if recraft_controls else None,
             ),
-            max_retries=1,
         )
         svg_data = []
         for data in response.data:

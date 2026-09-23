@@ -9,10 +9,11 @@ import torch
 from tqdm import tqdm
 from scipy.signal import savgol_coeffs
 
-import comfy.model_management
-import comfy.model_patcher
-import comfy.ops
-import comfy.utils
+from comfy import model_management
+from comfy import model_patcher
+from comfy import storage
+from comfy import ops
+from comfy import utils
 from comfy_api.latest import io, ComfyExtension, Types
 from typing_extensions import override
 from comfy.cmd import folder_paths
@@ -65,22 +66,22 @@ class SAM3DBody_Loader(io.ComfyNode):
     @classmethod
     def execute(cls, model_file) -> io.NodeOutput:
         path = folder_paths.get_full_path_or_raise("detection", model_file)
-        sd = comfy.utils.load_torch_file(path, safe_load=True)
+        sd = utils.load_torch_file(path, safe_load=True)
         sd = {k.replace(".layers.0.0.", ".layers.0."): v for k, v in sd.items()}
 
-        load_device = comfy.model_management.get_torch_device()
-        weight_dtype = comfy.utils.weight_dtype(sd)
-        torch_dtype = comfy.model_management.unet_dtype(
+        load_device = model_management.get_torch_device()
+        weight_dtype = utils.weight_dtype(sd)
+        torch_dtype = model_management.unet_dtype(
             device=load_device, model_params=-1, weight_dtype=weight_dtype,
         )
-        manual_cast_dtype = comfy.model_management.unet_manual_cast(torch_dtype, load_device)
+        manual_cast_dtype = model_management.unet_manual_cast(torch_dtype, load_device)
 
-        quant_config = comfy.utils.detect_layer_quantization(sd, "")
+        quant_config = utils.detect_layer_quantization(sd, "")
         if quant_config is not None:
-            operations = comfy.ops.mixed_precision_ops(quant_config, torch_dtype)
+            operations = ops.mixed_precision_ops(quant_config, torch_dtype)
             logging.info("SAM3D-Body: detected mixed precision quantization, using MixedPrecisionOps")
         else:
-            operations = comfy.ops.pick_operations(torch_dtype, manual_cast_dtype, load_device=load_device, disable_fast_fp8=True)
+            operations = ops.pick_operations(torch_dtype, manual_cast_dtype, load_device=load_device, disable_fast_fp8=True)
 
         model = SAM3DBody(dtype=torch_dtype, operations=operations)
         sd.pop("hand_cls_embed.weight", None)
@@ -91,11 +92,12 @@ class SAM3DBody_Loader(io.ComfyNode):
 
         model.backbone_dtype = torch_dtype
 
-        patcher = comfy.model_patcher.get_model_patcher_class()(
+        patcher = model_patcher.get_model_patcher_class()(
             model,
             load_device=load_device,
-            offload_device=comfy.model_management.unet_offload_device(),
-            size=comfy.model_management.module_size(model),
+            offload_device=model_management.unet_offload_device(),
+            size=model_management.module_size(model),
+            fast_disk=storage.state_dict_fast_disk(sd),
         )
         return io.NodeOutput(patcher)
 
@@ -198,7 +200,7 @@ class SAM3DBody_Predict(io.ComfyNode):
                 frames_rgb.append(image_to_uint8(image[f]))
 
         frames_out: List[List[Dict[str, Any]]] = [[] for _ in range(B)]
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         frames_by_count: Dict[int, List[int]] = {}
         for frame_idx, frame in enumerate(frames_rgb):
             count = int(per_frame_bboxes[frame_idx].shape[0])
@@ -215,7 +217,7 @@ class SAM3DBody_Predict(io.ComfyNode):
             default=1,
         )
         memory_required = inner.memory_used_forward(max_chunk_crops, run_hand_refinement)
-        comfy.model_management.load_models_gpu([sam3d_body_model], memory_required=memory_required)
+        model_management.load_models_gpu([sam3d_body_model], memory_required=memory_required)
 
         for indices in frames_by_count.values():
             grouped_frames = [frames_rgb[i] for i in indices]
@@ -306,7 +308,7 @@ class SAM3DBody_FaceExpression(io.ComfyNode):
                 strength=1.0, mouth_strength=1.0, eye_strength=2.0, brow_strength=2.0,
                 input_threshold=0.02, blendshape_smooth_window=7) -> io.NodeOutput:
 
-        comfy.model_management.load_model_gpu(sam3d_body_model)
+        model_management.load_model_gpu(sam3d_body_model)
         inner: SAM3DBody = sam3d_body_model.model
 
         frames = mhr_pose_data["frames"]
@@ -321,7 +323,7 @@ class SAM3DBody_FaceExpression(io.ComfyNode):
         per_person_coefs: List[List[Optional[Dict[str, float]]]] = [
             [None] * B for _ in range(max_persons)
         ]
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         n_total_frames_with_persons = 0
 
         crop_factor = 1.2
@@ -941,8 +943,8 @@ class SAM3DBody_Render(io.ComfyNode):
         if camera_info is not None:
             pose_data = apply_camera_override(pose_data, camera_info, H, W)
 
-        out_device = comfy.model_management.intermediate_device()
-        out_dtype = comfy.model_management.intermediate_dtype()
+        out_device = model_management.intermediate_device()
+        out_dtype = model_management.intermediate_dtype()
         B = len(pose_data["frames"])
         if B == 0:
             return io.NodeOutput(torch.zeros(1, H, W, 3, dtype=out_dtype, device=out_device))
@@ -950,7 +952,7 @@ class SAM3DBody_Render(io.ComfyNode):
         bg_t = None if background is None else background.to(device=out_device, dtype=torch.float32)
 
         if bg_t is not None and tuple(bg_t.shape[1:3]) != (H, W): # Match the background to the render resolution
-            bg_t = comfy.utils.common_upscale(bg_t.movedim(-1, 1), W, H, "bilinear", "disabled").movedim(1, -1)
+            bg_t = utils.common_upscale(bg_t.movedim(-1, 1), W, H, "bilinear", "disabled").movedim(1, -1)
 
         if mode_key == "silhouette":
             composite = "silhouette"
@@ -1007,7 +1009,7 @@ class SAM3DBody_Render(io.ComfyNode):
 
         frames_out = []
         render_cache = {}
-        pbar = comfy.utils.ProgressBar(B)
+        pbar = utils.ProgressBar(B)
         desc = (
             "SAM3D openpose-2D render" if mode_key == "openpose_2d"
             else "SAM3D openpose-3D render" if mode_key == "openpose_3d"
@@ -1351,7 +1353,7 @@ class BuildPoseFile(io.ComfyNode):
                     "`_skeleton_override` dict in pose_data (e.g. from KimodoSample)."
                 )
             if sam3d_body_model is not None and not has_external_rig:
-                comfy.model_management.load_model_gpu(sam3d_body_model)
+                model_management.load_model_gpu(sam3d_body_model)
             # BVH carries one skeleton; -1 (all tracks) collapses to the first.
             ti = int(track_index)
             if ti < 0:
@@ -1391,7 +1393,7 @@ class BuildPoseFile(io.ComfyNode):
                     "or feed pose_data from a node that supplies the override (e.g. KimodoSample)."
                 )
             if sam3d_body_model is not None and not has_external_rig:
-                comfy.model_management.load_model_gpu(sam3d_body_model)
+                model_management.load_model_gpu(sam3d_body_model)
             default_shape = "off" if mode_key == "body_mesh" else "octahedrons"
             bone_vis_dict = mesh_style.get("bone_vis", {"bone_vis": default_shape})
             bone_vis = str(bone_vis_dict.get("bone_vis", default_shape))

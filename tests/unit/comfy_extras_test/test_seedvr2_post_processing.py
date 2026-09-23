@@ -31,8 +31,8 @@ def test_seedvr2_post_processing_oom_error_uses_color_correction_method(monkeypa
     def _lab(content, style):
         raise torch.cuda.OutOfMemoryError("CUDA out of memory")
 
-    monkeypatch.setattr(nodes_seedvr.comfy.model_management, "vae_device", lambda: torch.device("cpu"))
-    monkeypatch.setattr(nodes_seedvr.comfy.model_management, "get_free_memory", lambda device: 1_000_000)
+    monkeypatch.setattr(nodes_seedvr.model_management, "vae_device", lambda: torch.device("cpu"))
+    monkeypatch.setattr(nodes_seedvr.model_management, "get_free_memory", lambda device: 1_000_000)
 
     with patch.object(nodes_seedvr, "lab_color_transfer", _lab):
         with pytest.raises(RuntimeError) as excinfo:

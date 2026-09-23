@@ -1,23 +1,25 @@
+from io import BytesIO
 import logging
 import math
 import re
-from io import BytesIO
 
+from comfy import audio as comfy_audio
+from comfy import model_management
+from comfy import model_sampling as comfy_model_sampling
+from comfy import node_helpers
+from comfy import samplers
+from comfy import utils
+from comfy.ldm.lightricks import duration_head as duration_head_module
+from comfy.ldm.lightricks.symmetric_patchifier import SymmetricPatchifier
+from comfy.ldm.lightricks.symmetric_patchifier import latent_to_pixel_coords
+from comfy.nodes import base_nodes as nodes
+from comfy_api.latest import ComfyExtension
+from comfy_api.latest import io
+from typing_extensions import override
 import av
 import numpy as np
 import torch
-import comfy.ldm.lightricks.duration_head
-import comfy.model_management
-import comfy.model_sampling
-import comfy.samplers
-import comfy.utils
-from comfy import node_helpers
-from comfy.ldm.lightricks.symmetric_patchifier import SymmetricPatchifier, latent_to_pixel_coords
-from comfy.nodes import base_nodes as nodes
-from comfy_api.latest import ComfyExtension, io
-from typing_extensions import override
 
-from .nodes_audio import TorchAudioNotFoundError
 
 
 ICLoRAParameters = io.Custom("IC_LORA_PARAMETERS")
@@ -68,6 +70,7 @@ class EmptyLTXVLatentVideo(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="EmptyLTXVLatentVideo",
+            display_name="Empty LTXV Latent Video",
             category="model/latent/ltxv",
             inputs=[
                 io.Int.Input("width", default=768, min=64, max=nodes.MAX_RESOLUTION, step=32),
@@ -82,7 +85,7 @@ class EmptyLTXVLatentVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, width, height, length, batch_size=1) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 128, ((length - 1) // 8) + 1, height // 32, width // 32], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 128, ((length - 1) // 8) + 1, height // 32, width // 32], device=model_management.intermediate_device())
         return io.NodeOutput({"samples": latent, "downscale_ratio_spacial": 32})
 
     generate = execute  # TODO: remove
@@ -114,11 +117,11 @@ class LTXVImgToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, image, vae, width, height, length, batch_size, strength=1.0) -> io.NodeOutput:
-        pixels = comfy.utils.common_upscale(image.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+        pixels = utils.common_upscale(image.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
         encode_pixels = pixels[:, :, :, :3]
         t = vae.encode(encode_pixels)
 
-        latent = torch.zeros([batch_size, 128, ((length - 1) // 8) + 1, height // 32, width // 32], device=comfy.model_management.intermediate_device())
+        latent = torch.zeros([batch_size, 128, ((length - 1) // 8) + 1, height // 32, width // 32], device=model_management.intermediate_device())
         latent[:, :, :t.shape[2]] = t
 
         conditioning_latent_frames_mask = torch.ones(
@@ -166,7 +169,7 @@ class LTXVImgToVideoInplace(io.ComfyNode):
         height = latent_height * height_scale_factor
 
         if image.shape[1] != height or image.shape[2] != width:
-            pixels = comfy.utils.common_upscale(image.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
+            pixels = utils.common_upscale(image.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
         else:
             pixels = image
         encode_pixels = pixels[:, :, :, :3]
@@ -309,7 +312,7 @@ class LTXVAddGuide(io.ComfyNode):
         images = images[:(images.shape[0] - 1) // time_scale_factor * time_scale_factor + 1]
         target_width = int(latent_width * width_scale_factor / latent_downscale_factor)
         target_height = int(latent_height * height_scale_factor / latent_downscale_factor)
-        pixels = comfy.utils.common_upscale(images.movedim(-1, 1), target_width, target_height, "bilinear", crop="center").movedim(1, -1)
+        pixels = utils.common_upscale(images.movedim(-1, 1), target_width, target_height, "bilinear", crop="center").movedim(1, -1)
         encode_pixels = pixels[:, :, :, :3]
         t = vae.encode(encode_pixels)
         return encode_pixels, t
@@ -750,8 +753,8 @@ class ModelSamplingLTXV(io.ComfyNode):
         b = base_shift - mm * x1
         shift = (tokens) * mm + b
 
-        sampling_base = comfy.model_sampling.ModelSamplingFlux
-        sampling_type = comfy.model_sampling.CONST
+        sampling_base = comfy_model_sampling.ModelSamplingFlux
+        sampling_type = comfy_model_sampling.CONST
 
         class ModelSamplingAdvanced(sampling_base, sampling_type):
             pass
@@ -897,7 +900,7 @@ class LTXVPreprocess(io.ComfyNode):
     preprocess = execute  # TODO: remove
 
 
-import comfy.nested_tensor
+from comfy import nested_tensor
 
 
 class LTXVConcatAVLatent(io.ComfyNode):
@@ -932,7 +935,7 @@ class LTXVConcatAVLatent(io.ComfyNode):
 
         dim, length = dims[0], reference.shape[dims[0]]
         if noise_mask is not None:  # masks carry their own shape until sampling resizes them
-            noise_mask = comfy.utils.reshape_mask(noise_mask, audio.shape)
+            noise_mask = utils.reshape_mask(noise_mask, audio.shape)
 
         if audio.shape[dim] > length:
             audio = audio.narrow(dim, 0, length)
@@ -968,9 +971,9 @@ class LTXVConcatAVLatent(io.ComfyNode):
                 video_noise_mask = torch.ones_like(video_samples)
             if audio_noise_mask is None:
                 audio_noise_mask = torch.ones_like(audio_samples)
-            output["noise_mask"] = comfy.nested_tensor.NestedTensor((video_noise_mask, audio_noise_mask))
+            output["noise_mask"] = nested_tensor.NestedTensor((video_noise_mask, audio_noise_mask))
 
-        output["samples"] = comfy.nested_tensor.NestedTensor((video_samples, audio_samples))
+        output["samples"] = nested_tensor.NestedTensor((video_samples, audio_samples))
 
         return io.NodeOutput(output)
 
@@ -1039,11 +1042,7 @@ class LTXVReferenceAudio(io.ComfyNode):
         sample_rate = reference_audio["sample_rate"]
         vae_sample_rate = getattr(audio_vae, "audio_sample_rate", 44100)
         if vae_sample_rate != sample_rate:
-            try:
-                import torchaudio
-            except (ImportError, ModuleNotFoundError) as exc_info:
-                raise TorchAudioNotFoundError from exc_info
-            waveform = torchaudio.functional.resample(reference_audio["waveform"], sample_rate, vae_sample_rate)
+            waveform = comfy_audio.resample(reference_audio["waveform"], sample_rate, vae_sample_rate)
         else:
             waveform = reference_audio["waveform"]
 
@@ -1086,7 +1085,7 @@ class LTXVReferenceAudio(io.ComfyNode):
                 new_entry["model_conds"] = mc
                 noref_cond.append(new_entry)
 
-            (pred_noref,) = comfy.samplers.calc_cond_batch(
+            (pred_noref,) = samplers.calc_cond_batch(
                 args["model"], [noref_cond], x, sigma, model_options
             )
 
@@ -1143,7 +1142,7 @@ class LTXVSpatioTemporalGuidance(io.ComfyNode):
             transformer_options["stg_self_attn_blocks"] = block_set
             model_options["transformer_options"] = transformer_options
 
-            (perturbed,) = comfy.samplers.calc_cond_batch(args["model"], [cond], x, args["sigma"], model_options)
+            (perturbed,) = samplers.calc_cond_batch(args["model"], [cond], x, args["sigma"], model_options)
 
             return cfg_result + (cond_pred - perturbed) * scale
 
@@ -1199,7 +1198,7 @@ class LTXVModalityGuidance(io.ComfyNode):
             transformer_options["v2a_cross_attn"] = False
             model_options["transformer_options"] = transformer_options
 
-            (mod_pred,) = comfy.samplers.calc_cond_batch(
+            (mod_pred,) = samplers.calc_cond_batch(
                 args["model"], [cond], x, args["sigma"], model_options
             )
 
@@ -1210,7 +1209,7 @@ class LTXVModalityGuidance(io.ComfyNode):
         return io.NodeOutput(m)
 
 
-class Guider_LTXAVDualCFG(comfy.samplers.CFGGuider):
+class Guider_LTXAVDualCFG(samplers.CFGGuider):
     """CFG guider that applies separate guidance scales to the video and audio
     modalities of a packed LTXV-AV latent.
     """
@@ -1309,7 +1308,7 @@ class LTXVDurationPredictor(io.ComfyNode):
     def execute(cls, model, positive, duration_head, frame_rate, min_seconds, max_seconds) -> io.NodeOutput:
         dm = model.model.diffusion_model
         head = duration_head.model
-        if not isinstance(head, comfy.ldm.lightricks.duration_head.DurationHead):
+        if not isinstance(head, duration_head_module.DurationHead):
             raise ValueError("The connected model_patch is not an LTX duration head.")
 
         context = positive[0][0]
@@ -1318,7 +1317,7 @@ class LTXVDurationPredictor(io.ComfyNode):
             context = context[:1]
 
         # Run the caption connectors exactly the way sampling does.
-        comfy.model_management.load_models_gpu([model, duration_head])
+        model_management.load_models_gpu([model, duration_head])
         device = model.load_device
         head = head.to(device)
         with torch.no_grad():
@@ -1328,7 +1327,7 @@ class LTXVDurationPredictor(io.ComfyNode):
             audio_tokens = processed[..., dm.cross_attention_dim:].float()
             seconds = float(head(video_tokens, audio_tokens)[0])
 
-        num_frames = comfy.ldm.lightricks.duration_head.seconds_to_num_frames(
+        num_frames = duration_head_module.seconds_to_num_frames(
             seconds, frame_rate, min_seconds, max_seconds)
         logging.info("LTXV duration head predicted %.2fs -> %d frames @ %.2f fps", seconds, num_frames, frame_rate)
         return io.NodeOutput(num_frames, seconds)

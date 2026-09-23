@@ -1,5 +1,5 @@
-import comfy.audio_encoders.audio_encoders
-import comfy.utils
+from comfy.audio_encoders import audio_encoders
+from comfy import utils
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 from comfy.model_downloader import get_filename_list_with_downloadable, get_full_path_or_raise
@@ -24,8 +24,8 @@ class AudioEncoderLoader(io.ComfyNode):
     @classmethod
     def execute(cls, audio_encoder_name) -> io.NodeOutput:
         audio_encoder_name = get_full_path_or_raise("audio_encoders", audio_encoder_name)
-        sd = comfy.utils.load_torch_file(audio_encoder_name, safe_load=True)
-        audio_encoder = comfy.audio_encoders.audio_encoders.load_audio_encoder_from_sd(sd)
+        sd = utils.load_torch_file(audio_encoder_name, safe_load=True)
+        audio_encoder = audio_encoders.load_audio_encoder_from_sd(sd)
         if audio_encoder is None:
             raise RuntimeError("ERROR: audio encoder file is invalid and does not contain a valid model.")
         return io.NodeOutput(audio_encoder)
@@ -50,12 +50,34 @@ class AudioEncoderEncode(io.ComfyNode):
         return io.NodeOutput(output)
 
 
+class SheetSage2AudioToABC(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SheetSage2AudioToABC",
+            display_name="SheetSage2 Audio to ABC",
+            category="model/conditioning/yue2",
+            description="Transcribes vocal and instrumental melodies from music into ABC notation. Connect abc output to YuE2 Generate Music node and use the matching mode.",
+            inputs=[
+                io.AudioEncoder.Input("audio_encoder"),
+                io.Audio.Input("audio"),
+                io.Combo.Input("mode", options=["melody", "full"], tooltip="full: generates melody and chords; melody: generates melody only, recommended for covers."),
+            ],
+            outputs=[io.String.Output(display_name="abc", is_output_list=True)],
+        )
+
+    @classmethod
+    def execute(cls, audio_encoder, audio, mode):
+        return io.NodeOutput(audio_encoder.generate_abc(audio["waveform"], audio["sample_rate"], melody_only=mode == "melody"))
+
+
 class AudioEncoder(ComfyExtension):
     @override
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             AudioEncoderLoader,
             AudioEncoderEncode,
+            SheetSage2AudioToABC,
         ]
 
 

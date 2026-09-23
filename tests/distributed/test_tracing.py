@@ -32,7 +32,7 @@ async def create_test_prompt() -> QueueItem:
 
 @pytest.mark.asyncio
 async def test_rabbitmq_message_properties_contain_trace_context():
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 
@@ -102,7 +102,7 @@ async def test_distributed_queue_uses_async_interface():
     Test that demonstrates the correct way to use DistributedPromptQueue in async context.
     The synchronous get() method cannot be used in async tests due to event loop assertions.
     """
-    with RabbitMqContainer("rabbitmq:latest") as rabbitmq:
+    with RabbitMqContainer("rabbitmq:4.0.5-management") as rabbitmq:
         params = rabbitmq.get_connection_params()
         connection_uri = f"amqp://guest:guest@127.0.0.1:{params.port}"
 

@@ -1,0 +1,53 @@
+{
+  "1": {
+    "class_type": "LoadImageFromURL",
+    "inputs": {
+      "value": "pkg://tests.custom_nodes.test_data/president_official_portrait_hires2-1-1024x1024.jpg"
+    }
+  },
+  "2": {
+    "class_type": "LoadMoGeModel",
+    "inputs": {
+      "model_name": "moge_3_vitg_fp16.safetensors"
+    }
+  },
+  "3": {
+    "class_type": "MoGeInference",
+    "inputs": {
+      "moge_model": [
+        "2",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "resolution_level": 0,
+      "fov_x_degrees": 0.0,
+      "batch_size": 1,
+      "force_projection": true,
+      "apply_mask": true,
+      "refine_steps": 1
+    }
+  },
+  "4": {
+    "class_type": "MoGeRender",
+    "inputs": {
+      "moge_geometry": [
+        "3",
+        0
+      ],
+      "output": "depth"
+    }
+  },
+  "5": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "4",
+        0
+      ],
+      "filename_prefix": "moge3-vitg"
+    }
+  }
+}
