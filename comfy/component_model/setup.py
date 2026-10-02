@@ -22,7 +22,7 @@ _dumping_traceback = False
 
 def setup_debug_hang(config: Configuration):
     """Enable upstream-style traceback dumps for hang debugging."""
-    faulthandler.enable(file=sys.stderr, all_threads=config.debug_hang)
+    faulthandler.enable(all_threads=config.debug_hang)
     if not config.debug_hang:
         return
 
@@ -32,7 +32,7 @@ def setup_debug_hang(config: Configuration):
         if _dumping_traceback:
             raise KeyboardInterrupt
         _dumping_traceback = True
-        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+        faulthandler.dump_traceback(all_threads=True)
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, dump_traceback_on_sigint)
