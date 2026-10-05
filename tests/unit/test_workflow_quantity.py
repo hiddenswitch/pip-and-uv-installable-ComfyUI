@@ -103,6 +103,30 @@ def test_ui_quantity_respects_fixed_control_after_generate():
     assert [wf["1"]["inputs"]["seed"] for wf in expanded] == [42, 42, 42]
 
 
+def test_ui_seed_override_wins_over_randomize_control():
+    with _with_ksampler_nodes():
+        expanded = expand_workflow_quantity(_ui_workflow(seed=42, control="randomize"), Configuration(quantity=3, seed=100))
+
+    assert [wf["1"]["inputs"]["seed"] for wf in expanded] == [100, 101, 102]
+
+
+def test_seed_override_reaches_seeds_promoted_out_of_subgraphs():
+    # Qwen Image 2.1 promotes its KSampler seed as a subgraph input; Ideogram 4 proxies RandomNoise
+    # (randomize) through proxyWidgets. --seed must set both, or two runs of one command differ.
+    import json
+    from pathlib import Path
+
+    from comfy.cmd.workflow_templates import resolve_template
+
+    for template in ("image_qwen_image_2_1_t2i", "image_ideogram4_t2i_int8"):
+        obj = json.loads(Path(resolve_template(template)).read_text(encoding="utf-8"))
+        expanded = expand_workflow_quantity(obj, Configuration(quantity=2, seed=42))
+        for index, prompt in enumerate(expanded):
+            seeds = [node["inputs"][field] for node in prompt.values() for field in node["inputs"]
+                     if field in ("seed", "noise_seed")]
+            assert seeds and all(seed == 42 + index for seed in seeds), (template, index, seeds)
+
+
 def test_ui_quantity_respects_randomize_control_after_generate():
     seeds = itertools.count(700)
     with _with_ksampler_nodes():
