@@ -188,6 +188,10 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
                             error_details=error_details,
                             process_item=remove_sensitive,
                             )
+                if q.get_tasks_remaining() == 0:
+                    # Nothing else is queued, so let the background scan run now rather than on the next GC tick.
+                    asset_manager.resume_background_scan()
+                    background_scan_paused = False
 
                 if server_instance.client_id is not None:
                     server_instance.send_sync("executing", {"node": None, "prompt_id": prompt_id}, server_instance.client_id)

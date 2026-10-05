@@ -12,7 +12,7 @@ def test_qwen_attention_disables_low_precision_attention(monkeypatch):
     def fake_attention(query, key, value, heads, mask, **kwargs):
         del key, value, heads, mask
         captured_options.update(kwargs)
-        batch, attention_heads, sequence, head_dim = query.shape
+        batch, attention_heads, sequence, head_dim = query.take().shape
         return torch.zeros(batch, sequence, attention_heads * head_dim)
 
     monkeypatch.setattr(qwen_image_model, "optimized_attention_masked", fake_attention)

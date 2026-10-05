@@ -232,7 +232,9 @@ class Configuration(dict):
         mmap_torch_files (bool): Use mmap when loading ckpt/pt files.
         disable_mmap (bool): Don't use mmap when loading safetensors.
         dont_print_server (bool): Don't print server output.
-        disable_api_nodes (bool): Disable loading all api nodes.
+        disable_partner_nodes (bool): Disable loading partner nodes (the paid API nodes). The frontend keeps its internet access.
+        offline (bool): Prevent the frontend from communicating with the internet by setting a restrictive Content-Security-Policy header. Also disables partner nodes.
+        disable_api_nodes (bool): Deprecated alias for offline.
         front_end_version (str): Specifies the version of the frontend to be used.
         front_end_root (Optional[str]): The local filesystem path to the directory where the frontend is located. Overrides --front-end-version.
         comfy_api_base (str): Set the base URL for the ComfyUI API. (default: https://api.comfy.org)
@@ -424,6 +426,8 @@ class Configuration(dict):
         self.default_hashing_function: str = 'sha256'
         self.mmap_torch_files: bool = False
         self.disable_mmap: bool = False
+        self.disable_partner_nodes: bool = False
+        self.offline: bool = False
         self.disable_api_nodes: bool = False
         self.front_end_version: str = "comfyanonymous/ComfyUI@latest"
         self.front_end_root: Optional[str] = None

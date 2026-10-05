@@ -8,6 +8,12 @@ from . import model_management
 from . import utils
 from .cli_args import args
 
+
+def _pinned_memory_disabled():
+    # args is read per call so a configuration set after import still applies;
+    # DISABLE_PINNED_MEMORY adds the integrated-GPU decision made at import.
+    return args.disable_pinned_memory or model_management.DISABLE_PINNED_MEMORY
+
 def _add_to_bucket(module, module_pin, buckets, size, priority):
     bucket = buckets.setdefault(size, [])
     entry = [-priority, 0, module]
@@ -50,7 +56,7 @@ def get_pin(module, subset="weights"):
     pins = module.__dict__.get("_pins")
     module_pin = None if pins is None else pins.get(subset)
     pin = None if module_pin is None else module_pin.get("pin")
-    if pin is None or module_pin["registered"] or args.disable_pinned_memory:
+    if pin is None or module_pin["registered"] or _pinned_memory_disabled():
         return pin
 
     _, _, stack_split, pinned_size, *_ = module._pin_state[subset]
@@ -72,7 +78,7 @@ def get_pin(module, subset="weights"):
 
 def pin_memory(module, subset="weights", size=None):
     pin_state = module._pin_state
-    if args.disable_pinned_memory:
+    if _pinned_memory_disabled():
         return
 
     pin = get_pin(module, subset)

@@ -184,13 +184,12 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     import comfy_api_nodes  # pylint: disable=absolute-import-used
     from .vanilla_node_importing import mitigated_import_of_vanilla_custom_nodes
 
+    # this is the list of default nodes to import; partner (API) nodes are skipped with --disable-partner-nodes / --offline
+    default_node_modules = [base_nodes, comfy_extras_nodes]
+    if not args.disable_partner_nodes:
+        default_node_modules.append(comfy_api_nodes)
     base_and_extra = reduce(lambda x, y: x.update(y),
-                            map(lambda module_inner: _import_and_enumerate_nodes_in_module(module_inner, raise_on_failure=raise_on_failure), [
-                                # this is the list of default nodes to import
-                                base_nodes,
-                                comfy_extras_nodes,
-                                comfy_api_nodes,
-                            ]),
+                            map(lambda module_inner: _import_and_enumerate_nodes_in_module(module_inner, raise_on_failure=raise_on_failure), default_node_modules),
                             ExportedNodes())
     custom_nodes_mappings = ExportedNodes()
     extra_vanilla_node_roots: list[str] = []

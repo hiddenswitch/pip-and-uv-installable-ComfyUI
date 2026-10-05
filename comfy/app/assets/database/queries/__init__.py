@@ -15,6 +15,7 @@ from .records import get_record_by_id
 from .records import is_live_path_conflict
 from .records import list_records_page
 from .records import mark_content_missing
+from .records import mark_contents_missing
 from .records import rename_record
 from .records import unset_content_missing
 from .records import update_record_access_time
@@ -29,6 +30,7 @@ __all__ = [
     "is_live_path_conflict",
     "list_records_page",
     "mark_content_missing",
+    "mark_contents_missing",
     "rename_record",
     "unset_content_missing",
     "update_record_access_time",

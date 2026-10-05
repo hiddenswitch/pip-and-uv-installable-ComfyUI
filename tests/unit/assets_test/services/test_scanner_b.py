@@ -5,7 +5,7 @@ from unittest.mock import patch
 import os
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from comfy.app.assets.database.models import Asset
 from comfy.app.assets.database.models import AssetContent
@@ -14,7 +14,6 @@ from comfy.app.assets.helpers import to_stored_hash
 from comfy.app.assets.scanner import apply_reference_observations
 from comfy.app.assets.scanner import build_asset_specs
 from comfy.app.assets.scanner import enrich_asset
-from comfy.app.assets.scanner import mark_contents_missing_outside_prefixes
 from comfy.app.assets.scanner import mark_missing_outside_prefixes_safely
 from comfy.app.assets.scanner import observe_references_on_filesystem
 from comfy.app.assets.scanner import seed_asset_specs
@@ -151,7 +150,7 @@ def test_seed_creates_content_and_record(session, temp_dir: Path):
     ]
 
 
-def test_prune_marks_missing_not_deletes(session, temp_dir: Path):
+def test_prune_marks_missing_not_deletes(session, db_engine, temp_dir: Path):
     input_root = temp_dir / "input"
     input_root.mkdir()
     file_path = input_root / "removed-from-registry.png"
@@ -161,8 +160,11 @@ def test_prune_marks_missing_not_deletes(session, temp_dir: Path):
         seed_asset_specs(session, _build_seed_specs(input_root))
     session.commit()
 
-    marked = mark_contents_missing_outside_prefixes(session, prefixes=[])
-    session.commit()
+    with patch("comfy.app.assets.scanner.create_session", sessionmaker(bind=db_engine)), \
+         patch("comfy.app.database.db.WriteSession", sessionmaker(bind=db_engine)), \
+         patch("comfy.app.assets.scanner.get_owned_prefixes", return_value=[]):
+        marked = mark_missing_outside_prefixes_safely([])
+    session.expire_all()
 
     content = session.scalar(select(AssetContent))
     record = session.scalar(select(Asset))

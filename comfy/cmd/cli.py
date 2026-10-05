@@ -279,7 +279,9 @@ _NODE_OPTS: list[tuple] = [
     ("disable_all_custom_nodes", bool, typer.Option(False, "--disable-all-custom-nodes", help="Disable loading all custom nodes.")),
     ("whitelist_custom_nodes", Optional[list[str]], typer.Option(None, "--whitelist-custom-nodes", help="Specify custom node folders to load even when --disable-all-custom-nodes is enabled.")),
     ("blacklist_custom_nodes", Optional[list[str]], typer.Option(None, "--blacklist-custom-nodes", help="Specify custom node folders to never load. Accepts shell-style globs.")),
-    ("disable_api_nodes", bool, typer.Option(False, "--disable-api-nodes", help="Disable loading all api nodes.")),
+    ("disable_partner_nodes", bool, typer.Option(False, "--disable-partner-nodes", help="Disable loading partner nodes (the paid API nodes). The frontend keeps its internet access.")),
+    ("offline", bool, typer.Option(False, "--offline/--no-offline", help="Prevent the frontend from communicating with the internet by setting a restrictive Content-Security-Policy header. Also disables partner nodes.")),
+    ("disable_api_nodes", bool, typer.Option(False, "--disable-api-nodes", help="Deprecated alias for --offline. Use --offline, or --disable-partner-nodes to only disable partner nodes.")),
     ("enable_eval", bool, typer.Option(False, "--enable-eval/--no-enable-eval", help="Enable nodes that can evaluate Python code in workflows.")),
     ("enable_video_to_image_fallback", bool, typer.Option(False, "--enable-video-to-image-fallback/--no-enable-video-to-image-fallback", help="Enable video-to-image fallback.")),
     ("disable_known_models", bool, typer.Option(False, "--disable-known-models", help="Disables automatic downloads of known models.")),
@@ -550,6 +552,11 @@ def _build_config(params: dict) -> Configuration:
         filtered["fp16_unet"] = True
     if filtered.get("disable_comfy_compiler"):
         filtered["disable_cuda_graphs"] = True
+    if filtered.get("disable_api_nodes"):
+        logger.warning("--disable-api-nodes is deprecated and will be removed in a future version. It currently behaves like --offline. Use --offline to keep the frontend offline, or --disable-partner-nodes to only disable partner nodes.")
+        filtered["offline"] = True
+    if filtered.get("offline"):
+        filtered["disable_partner_nodes"] = True
     if filtered.get("novram"):
         filtered["disable_dynamic_vram"] = True
         filtered["disable_smart_memory"] = True

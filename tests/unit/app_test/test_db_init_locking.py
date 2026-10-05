@@ -71,14 +71,14 @@ def test_failed_init_releases_the_lock(stale_db, monkeypatch):
         contender.acquire(timeout=0)
     except Timeout:
         pytest.fail(
-            "a failed init stranded the lock; setup_database logs and CONTINUES when assets are "
-            "disabled, so this process would block every other instance for its whole lifetime "
-            "over a database it never opened"
+            "a failed init stranded the lock, so this process would block every other "
+            "instance for its whole lifetime over a database it never opened"
         )
     contender.release()
 
 
-def test_held_lock_blocks_before_any_migration_work(stale_db):
+def test_held_lock_blocks_before_any_migration_work(stale_db, monkeypatch):
+    monkeypatch.setattr(db_module, "_LOCK_WAIT_SECONDS", 0.1)
     holder = FileLock(stale_db + ".lock")
     holder.acquire(timeout=0)
     try:

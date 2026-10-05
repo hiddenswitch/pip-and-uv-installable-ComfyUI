@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from ... import model_management, ops, quant_ops
-from ..modules.attention import optimized_attention_for_device
+from ..modules.attention import AttentionTensorContainer, ComfyAttention, optimized_attention_for_device
 
 
 MAX_CONDITION_FRAMES = 200
@@ -64,6 +64,7 @@ def _apply_rope(x, rotation_matrix):
 class Attention(nn.Module):
     def __init__(self, dim, dim_heads, dtype, device, operations):
         super().__init__()
+        self.comfy_attention = ComfyAttention()
         self.num_heads = dim // dim_heads
         self.dim_heads = dim_heads
         self.to_qkv = operations.Linear(dim, dim * 3, bias=False, dtype=dtype, device=device)
@@ -83,8 +84,10 @@ class Attention(nn.Module):
             rotated_q, rotated_k = quant_ops.ck.apply_rope_split_half(q[..., :rotary_dims], k[..., :rotary_dims], rotation_matrix)
             q = torch.cat((rotated_q, q[..., rotary_dims:]), dim=-1)
             k = torch.cat((rotated_k, k[..., rotary_dims:]), dim=-1)
+            del rotated_q, rotated_k
         attention = optimized_attention_for_device(q.device)
-        out = attention(q, k, v, self.num_heads, skip_reshape=True)
+        q, k, v = AttentionTensorContainer(q), AttentionTensorContainer(k), AttentionTensorContainer(v)
+        out = attention(q, k, v, self.num_heads, skip_reshape=True, preferred_attention=self.comfy_attention)
         return self.to_out(out)
 
 

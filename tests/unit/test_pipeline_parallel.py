@@ -844,6 +844,9 @@ def test_qwen_two_stage_forward_matches_unpartitioned(monkeypatch):
 
 def _test_attention(query, key, value, heads, mask=None, **kwargs):
     del heads, kwargs
+    from comfy.ldm.modules.attention import AttentionTensorContainer
+    if isinstance(query, AttentionTensorContainer):
+        query, key, value = query.take(), key.take(), value.take()
     scale = query.shape[-1] ** -0.5
     scores = torch.matmul(query, key.transpose(-2, -1)) * scale
     if mask is not None:
