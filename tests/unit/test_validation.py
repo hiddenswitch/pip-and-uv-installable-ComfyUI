@@ -234,6 +234,21 @@ async def test_validate_prompt_path_variations(mock_nodes, disable_known_models,
         known_models.reset(token)
 
 
+async def test_validate_prompt_accepts_existing_absolute_model_path(mock_nodes, tmp_path):
+    # --add-lora /path/to/lora.safetensors puts the absolute path in the combo; the loader resolves it
+    model_file = tmp_path / "outside_models_dir.safetensors"
+    model_file.write_bytes(b"")
+    prompt = valid_prompt.copy()
+    prompt["1"] = {"inputs": {"ckpt_name": str(model_file)}, "class_type": "CheckpointLoaderSimple"}
+
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
+    assert result.valid, result.node_errors
+
+    prompt["1"] = {"inputs": {"ckpt_name": str(tmp_path / "missing.safetensors")}, "class_type": "CheckpointLoaderSimple"}
+    result = await validate_prompt(str(uuid.uuid4()), prompt)
+    assert not result.valid
+
+
 async def test_validate_prompt_default_models(mock_nodes, disable_known_models):
     prompt = valid_prompt.copy()
     prompt["1"]["inputs"]["ckpt_name"] = "model1.safetensors"

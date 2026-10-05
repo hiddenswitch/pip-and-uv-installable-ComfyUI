@@ -13,6 +13,7 @@ import heapq
 import inspect
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -1322,6 +1323,10 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                         if len(invalid_vals) == 1 and isinstance(invalid_vals[0], str):
                             from ..component_model.uris import is_uri as _is_uri
                             if _is_uri(invalid_vals[0]) or invalid_vals[0].startswith(("https://civitai.com/", "http://civitai.com/")):
+                                continue
+                            # an existing file given by absolute path (--add-lora /path/x.safetensors)
+                            # resolves through get_full_path_or_raise at execute time
+                            if os.path.isabs(invalid_vals[0]) and os.path.isfile(invalid_vals[0]):
                                 continue
                         input_config = info
                         list_info = ""
