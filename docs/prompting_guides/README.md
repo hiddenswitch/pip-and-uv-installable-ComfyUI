@@ -27,6 +27,8 @@ environment-install commands into a ComfyUI environment: use the repository's
 - [How to JSON prompt for Ideogram 4.0, Ideogram blog](ideogram4_blog_json_prompting.md) ([source](https://ideogram.ai/blog/ideogram-4-json-prompting/))
 - [Ideogram 4 magic-prompt system prompt v1](ideogram4_magic_prompt_system_prompt_v1.md) ([source](https://github.com/ideogram-oss/ideogram4/blob/main/src/ideogram4/magic_prompt_system_prompts/v1.txt))
 - [Ideogram 4.5 API](ideogram4_5_api.md) ([source](https://developer.ideogram.ai/api-reference/images/generate/ideogram-4-5); API-only, no open weights yet)
+- [Ideogram 4.5 Precise Edit API](ideogram4_5_precise_edit_api.md) ([source](https://developer.ideogram.ai/api-reference/images/precise-edit/ideogram-4-5))
+- [Ideogram 4.5 prompting guide](ideogram4_5_prompting.md) ([source](https://docs.ideogram.ai/prompting/prompting); the docs' Prompting section, which covers 4.5, 4.0 and 3.0)
 
 ## Alibaba
 - [Wan text-to-video/image-to-video prompt guide](alibaba_wan_video_prompting.md) ([source](https://www.alibabacloud.com/help/en/model-studio/text-to-video-prompt))

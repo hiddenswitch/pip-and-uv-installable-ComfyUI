@@ -4,7 +4,7 @@ Vendored snapshots from: https://developer.ideogram.ai/ideogram-api/api-overview
 
 Fetched: 2026-10-02
 
-Ideogram 4.5 is API-only at this snapshot: Ideogram announced open weights as coming "soon" with no date, license or size, and nothing is published on Hugging Face (https://huggingface.co/ideogram-ai) or https://github.com/ideogram-oss. Its prompt is natural language or the Ideogram 4.0 structured JSON prompt, so the Ideogram 4 caption schema in `ideogram4_prompting.md` applies to it.
+Ideogram 4.5 is API-only at this snapshot (rechecked 2026-10-05, when both pages were unchanged): Ideogram announced open weights as coming "soon" with no date, license or size, and nothing is published on Hugging Face (https://huggingface.co/ideogram-ai) or https://github.com/ideogram-oss. Its prompt is natural language or the Ideogram 4.0 structured JSON prompt, so the Ideogram 4 caption schema in `ideogram4_prompting.md` applies to it. The Precise Edit endpoint is vendored in `ideogram4_5_precise_edit_api.md`, and Ideogram's prompting guide, which covers 4.5, in `ideogram4_5_prompting.md`.
 
 ---
 
