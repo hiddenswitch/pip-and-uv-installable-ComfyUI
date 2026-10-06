@@ -797,7 +797,10 @@ def models_for_pin_eviction(active, current_prompt=None):
         model = loaded_model.model
         if model is None or not model.is_dynamic():
             continue
-        pin_state = model.model.dynamic_pins[model.load_device]
+        # a model-parallel rank's stand-in manages its memory in the rank process and holds no pins here
+        pin_state = getattr(model.model, "dynamic_pins", {}).get(model.load_device)
+        if pin_state is None:
+            continue
         if ((active is None or pin_state["active"] == active) and
             (current_prompt is None or pin_state["current_prompt"] == current_prompt)):
             yield model
