@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock
 import logging
 import re
+import sqlite3
 import threading
 import time
 
@@ -910,6 +911,10 @@ def test_scan_failure_classifies_a_real_sqlite_expression_tree_error(
         # One bound path per term; SQLite rejects the expression past depth 1000.
         clause = " OR ".join(["? = 1"] * 1100)
         with engine.connect() as connection:
+            # 1000 is SQLite's default SQLITE_MAX_EXPR_DEPTH; some distributions build with a higher one
+            dbapi = connection.connection.driver_connection
+            if hasattr(dbapi, "setlimit"):
+                dbapi.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 1000)
             connection.exec_driver_sql(f"SELECT 1 WHERE {clause}", tuple([secret_path] * 1100))
 
     monkeypatch.setattr(scan_seeder, "_run_fast_phase", fail_scan)
