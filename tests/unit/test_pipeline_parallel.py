@@ -379,6 +379,25 @@ def test_safetensors_reader_does_not_load_unselected_tensor(tmp_path, monkeypatc
     assert reader.metadata == {"model": "test"}
 
 
+def test_checkpoint_reader_loads_through_a_hugging_face_cache_symlink(tmp_path):
+    # the HF hub cache names the file snapshots/<rev>/x.safetensors -> blobs/<sha256>, no extension
+    from safetensors.torch import save_file
+
+    blob = tmp_path / "blobs" / "0123abcd"
+    blob.parent.mkdir()
+    save_file({"layer.weight": torch.arange(4, dtype=torch.float32), "other.weight": torch.ones(2)}, str(blob))
+    link = tmp_path / "snapshots" / "rev" / "model.safetensors"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(blob)
+
+    loaded = SafetensorsCheckpointReader(link).load_keys({"layer.weight"})
+
+    # read as safetensors with include_keys, not torch.load (which raises IndexError on a large
+    # safetensors header and otherwise falls back to loading every tensor)
+    assert set(loaded) == {"layer.weight"}
+    torch.testing.assert_close(loaded["layer.weight"], torch.arange(4, dtype=torch.float32))
+
+
 class FakeDeviceRuntime(AbstractBaseDeviceRuntime):
     def __init__(self):
         self.allocations = 0

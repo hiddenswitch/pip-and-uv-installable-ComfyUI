@@ -40,7 +40,11 @@ class SafetensorsCheckpointReader(AbstractBaseCheckpointReader):
         path = Path(path)
         if path.suffix.lower() not in (".safetensors", ".sft"):
             raise ValueError("Pipeline parallel loading currently requires a safetensors checkpoint")
-        self.path = path.resolve(strict=True)
+        # absolute but not resolved: a Hugging Face cache symlink points at an extensionless blob,
+        # and load_torch_file picks the safetensors reader by the extension
+        self.path = path.absolute()
+        if not self.path.is_file():
+            raise FileNotFoundError(self.path)
         with self.path.open("rb") as checkpoint:
             header_size = struct.unpack("<Q", checkpoint.read(8))[0]
             header = json.loads(checkpoint.read(header_size))
