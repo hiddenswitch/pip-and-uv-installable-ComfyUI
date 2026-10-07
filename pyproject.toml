@@ -130,7 +130,8 @@ dependencies = [
     # everything that is a torch extension will need setuptools, so just include it
     "setuptools",
     "alembic",
-    "SQLAlchemy>=2.0,<3",
+    # SQLAlchemy 2.1's pure-Python wheel fails with the Cython shipped by NGC.
+    "SQLAlchemy>=2.0,<2.1",
     "filelock",
     "gguf",
     "trimesh",
