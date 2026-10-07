@@ -67,3 +67,20 @@ Do not add `--override-ini`, `--tb=short`, `--log-cli-level`, or other flags tha
 ```bash
 python -m pytest tests/unit/ -x -n auto  # requires pytest-xdist
 ```
+
+## IPython notebook tests
+
+Install the kernel test dependencies with `uv pip install -e '.[notebook-tests]'`.
+Mark a module-level test with `@pytest.mark.ipython` to run its body in a fresh
+Jupyter/IPython kernel using pytest's Python interpreter. The notebook runner
+loads only for marked tests. Kernel errors fail the pytest test, and the kernel
+is shut down afterward. No browser or notebook server is needed.
+
+Use `@pytest.mark.ipython(capture_fd_output=False)` to exercise notebook streams
+without a file descriptor, as in `tests/issues/test_67_ipython_faulthandler.py`.
+Marked functions must be self-contained: JSON-serializable parametrization is
+supported, but host pytest fixtures are not passed into the kernel.
+
+```bash
+python -m pytest tests/issues/test_67_ipython_faulthandler.py
+```

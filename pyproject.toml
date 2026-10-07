@@ -154,6 +154,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.optional-dependencies]
+notebook-tests = ["ipykernel", "jupyter-client"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -202,6 +203,7 @@ timeout_method = "thread"
 faulthandler_timeout = 600
 markers = [
     "server_process: tests which start a child process or a ComfyUI server",
+    "ipython(capture_fd_output=True): run a self-contained test function in a fresh IPython kernel",
 ]
 filterwarnings = [
     "ignore",
