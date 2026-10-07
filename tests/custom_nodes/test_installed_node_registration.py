@@ -74,11 +74,18 @@ def test_installed_custom_node_registration(caplog, tmp_path):
         assert {'NunchakuPulidApply', 'NunchakuPulidLoader', 'NunchakuPuLIDLoaderV2', 'NunchakuFluxPuLIDApplyV2'} <= packages['comfyui-nunchaku'].NODE_CLASS_MAPPINGS.keys()
 
     if 'PixelOE' in all_nodes.NODE_CLASS_MAPPINGS:
-        result = all_nodes.NODE_CLASS_MAPPINGS['PixelOE']().execute(
+        pixel_node = all_nodes.NODE_CLASS_MAPPINGS['PixelOE']
+        inputs = {
+            name: spec[0][0]
+            for name, spec in pixel_node.INPUT_TYPES()['required'].items()
+            if isinstance(spec[0], list)
+        }
+        inputs.update(
             pixel_size=4, thickness=2, img=torch.rand(1, 63, 63, 3), mode='contrast',
             color_quant=False, no_post_upscale=False, num_colors=16,
             quant_mode='kmeans', dither_mode='none', device='cpu',
         )
+        result = pixel_node().execute(**inputs)
         assert len(result) == 3 and result[0].shape == (1, 64, 64, 3)
         assert all(torch.isfinite(image).all() for image in result)
 
