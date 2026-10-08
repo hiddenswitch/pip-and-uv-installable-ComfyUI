@@ -130,7 +130,8 @@ dependencies = [
     # everything that is a torch extension will need setuptools, so just include it
     "setuptools",
     "alembic",
-    "SQLAlchemy>=2.0,<3",
+    # SQLAlchemy 2.1's pure-Python wheel fails with the Cython shipped by NGC.
+    "SQLAlchemy>=2.0,<2.1",
     "filelock",
     "gguf",
     "trimesh",
@@ -155,6 +156,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.optional-dependencies]
+notebook-tests = ["ipykernel", "jupyter-client"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -203,6 +205,7 @@ timeout_method = "thread"
 faulthandler_timeout = 600
 markers = [
     "server_process: tests which start a child process or a ComfyUI server",
+    "ipython(capture_fd_output=True): run a self-contained test function in a fresh IPython kernel",
 ]
 filterwarnings = [
     "ignore",
