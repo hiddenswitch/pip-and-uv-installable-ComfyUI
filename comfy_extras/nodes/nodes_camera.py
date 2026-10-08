@@ -4,7 +4,7 @@ from typing_extensions import override
 
 import comfy.model_management
 from comfy_api.latest import ComfyExtension, IO
-from comfy_extras.nodes_gaussian_splat import _lookat_camera_info, _quat_camera_info
+from .nodes_gaussian_splat import _lookat_camera_info, _quat_camera_info
 
 
 class CreateCameraInfo(IO.ComfyNode):

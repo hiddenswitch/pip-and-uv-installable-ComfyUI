@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-import protocol
-import server
+from comfy.cmd import protocol
+from comfy.cmd import server
 from comfy_api.feature_flags import SERVER_FEATURE_FLAGS  # noqa: F401
 
 

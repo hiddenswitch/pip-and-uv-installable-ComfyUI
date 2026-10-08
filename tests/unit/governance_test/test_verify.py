@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import pytest
 
-from app import governance
+from comfy.app import governance
 
 
 DOMAIN_SEPARATOR = b"comfyui-governance-v1\x00"

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from utils.mime_types import init_mime_types
+from comfy.mime_types import init_mime_types
 
 # Initialize the mimetypes registry before any test patches os.path.isfile —
 # its lazy init consults os.path.isfile to pick candidate files, and a
@@ -44,7 +44,7 @@ def _call(output_ui, *, extract=None, file_exists=True, directory=_DEFAULT_BASE)
     # os.path.isfile is patched — abspath/join must run natively so the
     # containment check sees real platform paths.
     with patch.object(media_enrichment, "folder_paths", _folder_paths_mock(directory)), \
-         patch.dict("sys.modules", {"app.assets.services.media_metadata": extractor_module}), \
+         patch.dict("sys.modules", {"comfy.app.assets.services.media_metadata": extractor_module}), \
          patch("os.path.isfile", return_value=file_exists):
         return media_enrichment.enrich_output_with_media_metadata(output_ui), extract_mock
 
@@ -124,7 +124,7 @@ class TestEnrichOutputWithMediaMetadata(unittest.TestCase):
         output = {"images": [{"filename": "a.mp4", "subfolder": "", "type": "output"}]}
         # A None sys.modules entry makes the lazy import raise ImportError.
         with patch.object(media_enrichment, "folder_paths", _folder_paths_mock()), \
-             patch.dict("sys.modules", {"app.assets.services.media_metadata": None}), \
+             patch.dict("sys.modules", {"comfy.app.assets.services.media_metadata": None}), \
              patch("os.path.isfile", return_value=True):
             result = media_enrichment.enrich_output_with_media_metadata(output)
         self.assertNotIn("metadata", result["images"][0])
@@ -136,7 +136,7 @@ class TestEnrichOutputWithMediaMetadata(unittest.TestCase):
 
         output = {"images": [{"filename": "a.mp4", "subfolder": "", "type": "output"}]}
         with patch.object(media_enrichment, "folder_paths", _folder_paths_mock()), \
-             patch.dict("sys.modules", {"app.assets.services.media_metadata": ExplodingModule()}), \
+             patch.dict("sys.modules", {"comfy.app.assets.services.media_metadata": ExplodingModule()}), \
              patch("os.path.isfile", return_value=True):
             result = media_enrichment.enrich_output_with_media_metadata(output)
         self.assertNotIn("metadata", result["images"][0])

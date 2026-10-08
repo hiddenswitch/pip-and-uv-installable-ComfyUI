@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from app.governance import load_disabled_nodes
+from comfy.app.governance import load_disabled_nodes
 
 
 VALID_CONFIGS = [

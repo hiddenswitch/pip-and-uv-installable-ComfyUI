@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from comfy_extras.nodes_camera_angle import (
+from comfy_extras.nodes.nodes_camera_angle import (
     CameraAngle,
     MAX_ZOOM_FACTOR,
     MIN_ZOOM_FACTOR,

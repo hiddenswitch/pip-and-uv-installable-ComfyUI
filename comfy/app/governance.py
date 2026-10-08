@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import sys
 from types import MappingProxyType
-from typing import Awaitable, Callable, Mapping
+from typing import Mapping
 import unicodedata
 
 import yaml
@@ -60,7 +60,6 @@ _COMFYUI_ROOT = Path(__file__).parent.parent
 _POLICY_PATH = _COMFYUI_ROOT / "governance" / "policy.signed.json"
 _policy: dict | None = None
 _disabled_nodes: frozenset[str] = frozenset()
-_original_load_custom_node: Callable[[str, set[str], str], Awaitable[bool]] | None = None
 _custom_node_mode: str | None = None
 _denied_packs: frozenset[str] = frozenset()
 _allowed_packs: Mapping[str, str] = MappingProxyType({})
@@ -223,30 +222,21 @@ def pack_digest(pack_path: str) -> str:
     return "blake3:" + hasher.hexdigest()
 
 
-def apply_disabled_nodes(disabled: set[str]) -> None:
-    global _disabled_nodes, _original_load_custom_node
+def apply_disabled_nodes(exported_nodes, disabled: set[str]) -> None:
+    """Remove the disabled node IDs, and those a signed policy disables, from a loaded set of nodes.
 
-    disabled = disabled.union(_disabled_nodes)
+    The fork imports every node module through import_all_nodes_in_workspace, which calls this on the
+    set it returns, so nodes a later load registers are pruned on that load too.
+    """
+    disabled = set(disabled).union(_disabled_nodes)
     if not disabled:
         return
 
-    import nodes
-
-    missing = disabled.difference(nodes.NODE_CLASS_MAPPINGS)
+    missing = disabled.difference(exported_nodes.NODE_CLASS_MAPPINGS)
     pruned = len(disabled) - len(missing)
     for node_id in disabled:
-        nodes.NODE_CLASS_MAPPINGS.pop(node_id, None)
-        nodes.NODE_DISPLAY_NAME_MAPPINGS.pop(node_id, None)
-
-    _disabled_nodes = _disabled_nodes.union(disabled)
-    if _original_load_custom_node is None:
-        _original_load_custom_node = nodes.load_custom_node
-        original_load_custom_node = _original_load_custom_node
-
-        async def load_custom_node(module_path: str, ignore: set[str] = set(), module_parent: str = "custom_nodes") -> bool:
-            return await original_load_custom_node(module_path, ignore | _disabled_nodes, module_parent)
-
-        nodes.load_custom_node = load_custom_node
+        exported_nodes.NODE_CLASS_MAPPINGS.pop(node_id, None)
+        exported_nodes.NODE_DISPLAY_NAME_MAPPINGS.pop(node_id, None)
 
     if missing:
         logging.warning("Disabled node IDs were not registered: %s", ", ".join(sorted(missing)))
@@ -424,14 +414,17 @@ def _apply_policy(policy: dict) -> None:
     _disabled_nodes = frozenset(policy.get("disabledNodes", ())).union(partner_node_ids)
 
 
-def initialize() -> None:
+def initialize(configuration=None) -> None:
     if not GOVERNANCE_REQUIRED:
         return
 
     try:
-        from comfy.cli_args import args
+        if configuration is None:
+            from ..execution_context import current_execution_context
 
-        if args.disabled_nodes_config:
+            configuration = current_execution_context().configuration
+
+        if configuration.disabled_nodes_config:
             raise RuntimeError("unsigned disabled-node config is not allowed in a governed build")
 
         policy = verify_and_load(_POLICY_PATH.read_bytes())
@@ -440,9 +433,9 @@ def initialize() -> None:
             raise RuntimeError("policy requires forms this build cannot enforce: " + ", ".join(unenforced))
         _apply_policy(policy)
         # Manager's prestartup runs scheduled install scripts and pip installs before any pack is checked, so it cannot run under a pack policy.
-        if _custom_node_mode is not None and args.enable_manager:
+        if _custom_node_mode is not None and configuration.enable_manager:
             logging.warning("ComfyUI-Manager is turned off: it cannot run under your organization's custom-node policy.")
-            args.enable_manager = False
+            configuration.enable_manager = False
     except Exception:
         logging.exception("ComfyUI could not apply your organization's policy. Contact your administrator.")
         sys.exit(1)

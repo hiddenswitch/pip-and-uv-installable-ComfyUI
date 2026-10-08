@@ -7,25 +7,33 @@ from types import MappingProxyType
 
 import pytest
 
-from app import governance
-from comfy.cli_args import args
+from comfy.app import governance
+from comfy.cli_args import default_configuration
+from comfy.cli_args_types import Configuration
+from comfy.execution_context import context_configuration
 
 
-COMFYUI_ROOT = Path(__file__).parents[2]
-MAIN_PATH = COMFYUI_ROOT / "main.py"
 POLICY_MESSAGE = "organization's policy"
 
 
 @pytest.fixture
-def governed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+def configuration() -> Configuration:
+    """The configuration governance.initialize reads, current for the test."""
+    configuration = default_configuration()
+    configuration.disabled_nodes_config = None
+    configuration.extra_model_paths_config = None
+    configuration.enable_manager = False
+    with context_configuration(configuration):
+        yield configuration
+
+
+@pytest.fixture
+def governed(configuration: Configuration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     policy_path = tmp_path / "policy.signed.json"
     monkeypatch.setattr(governance, "GOVERNANCE_REQUIRED", True, raising=False)
     monkeypatch.setattr(governance, "_POLICY_PATH", policy_path, raising=False)
     monkeypatch.setattr(governance, "_policy", None, raising=False)
     monkeypatch.setattr(governance, "_disabled_nodes", frozenset(), raising=False)
-    monkeypatch.setattr(args, "disabled_nodes_config", None)
-    monkeypatch.setattr(args, "extra_model_paths_config", None)
-    monkeypatch.setattr(args, "enable_manager", False)
     # A custom-node policy switches off bytecode writes for the process; undo that and the pack policy after each test.
     monkeypatch.setattr(sys, "dont_write_bytecode", sys.dont_write_bytecode)
     monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", os.environ.get("PYTHONDONTWRITEBYTECODE", ""))
@@ -41,53 +49,35 @@ def _assert_policy_exit(exc_info: pytest.ExceptionInfo[SystemExit], log_text: st
 
 
 def _run_governed(
-    main_path: Path,
+    working_directory: Path,
+    timeout: float,
     *arguments: str,
-    policy_path: Path | None = None,
     import_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    """Run the fork's comfyui entry point in a governed build whose signed policy is missing."""
     setup = [
         "from pathlib import Path",
-        "import logging",
-        "import runpy",
         "import sys",
-        "import types",
-        "from app import governance",
+        "from comfy.app import governance",
         "governance.GOVERNANCE_REQUIRED = True",
-        "def stub(name, **values):\n    module = types.ModuleType(name)\n    module.__dict__.update(values)\n    sys.modules[name] = module\n    return module",
-        "noop = lambda *args, **kwargs: None",
-        "folder_paths = stub('folder_paths', __file__='folder_paths.py', base_path='', models_dir='', get_output_directory=lambda: '', add_model_folder_path=noop, set_output_directory=noop, set_input_directory=noop, set_user_directory=noop, get_folder_paths=lambda name: [])",
-        "stub('app.logger', setup_logger=noop)",
-        "stub('app.assets.lifecycle', cleanup_temp_filesystem=noop)",
-        "stub('app.assets.manager', AssetManager=object, default_asset_manager=noop)",
-        "import utils",
-        "utils.extra_config = stub('utils.extra_config', load_extra_path_config=lambda path: logging.warning('Adding extra search path checkpoints %s', path))",
-        "stub('utils.mime_types', init_mime_types=noop)",
-        "stub('comfy_execution.progress', get_progress_state=noop)",
-        "stub('comfy_execution.utils', get_executing_context=noop)",
-        "stub('comfy_api', feature_flags=types.SimpleNamespace())",
-        "stub('app.database.db', init_db=noop, dependencies_available=lambda: False, lock_holder_db_path=lambda: None)",
-        "control = stub('comfy_aimdo.control', init=noop)",
-        "stub('comfy_aimdo', control=control)",
-        "stub('cuda_malloc', get_torch_version_noimport=lambda: '')",
+        f"governance._POLICY_PATH = Path({str(working_directory / 'missing-policy.signed.json')!r})",
     ]
-    if policy_path is not None:
-        setup.extend(
-            (
-                f"governance._POLICY_PATH = Path({str(policy_path)!r})",
-                "governance.verify_and_load = lambda envelope_bytes: {}",
-            )
-        )
     if import_path is not None:
         setup.append(f"sys.path.insert(0, {str(import_path)!r})")
-    setup.append(f"runpy.run_path({str(main_path)!r}, run_name='__main__')")
+    setup.extend(
+        (
+            f"sys.argv = ['comfyui', *{list(arguments)!r}]",
+            "from comfy.cmd.main import entrypoint",
+            "entrypoint()",
+        )
+    )
 
     return subprocess.run(
-        [sys.executable, "-c", "\n".join(setup), *arguments],
-        cwd=COMFYUI_ROOT,
+        [sys.executable, "-c", "\n".join(setup)],
+        cwd=working_directory,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=timeout,
         check=False,
     )
 
@@ -100,7 +90,7 @@ def test_build_constants_have_upstream_safe_defaults() -> None:
     assert governance.GOVERNANCE_CAPABILITY_VERSION == 1
 
 
-def test_governance_import_does_not_require_policy_dependencies() -> None:
+def test_governance_import_does_not_require_policy_dependencies(process_startup_timeout_seconds: float) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -116,14 +106,13 @@ def import_without_policy_dependencies(name, *args, **kwargs):
     return original_import(name, *args, **kwargs)
 
 builtins.__import__ = import_without_policy_dependencies
-from app import governance
+from comfy.app import governance
 assert governance.GOVERNANCE_REQUIRED is False
 """,
         ],
-        cwd=COMFYUI_ROOT,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=process_startup_timeout_seconds,
         check=False,
     )
 
@@ -169,13 +158,14 @@ def test_initialize_exits_on_internal_exception(
 
 
 def test_initialize_rejects_disabled_nodes_config(
+    configuration: Configuration,
     governed: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Given a valid policy, so the unsigned config is the only reason to stop
     _use_policy(governed, monkeypatch, {})
-    monkeypatch.setattr(args, "disabled_nodes_config", str(governed.parent / "disabled.yaml"))
+    configuration.disabled_nodes_config = str(governed.parent / "disabled.yaml")
 
     with pytest.raises(SystemExit) as exc_info:
         governance.initialize()
@@ -255,6 +245,7 @@ def _custom_node_policy(mode: str) -> dict:
 
 @pytest.mark.parametrize("mode", ["allowlist", "blocklist"])
 def test_initialize_turns_manager_off_under_custom_node_policy(
+    configuration: Configuration,
     governed: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -262,13 +253,13 @@ def test_initialize_turns_manager_off_under_custom_node_policy(
 ) -> None:
     # Given Manager is enabled, whose prestartup runs scheduled install scripts before any pack is checked
     _use_policy(governed, monkeypatch, _custom_node_policy(mode))
-    monkeypatch.setattr(args, "enable_manager", True)
+    configuration.enable_manager = True
 
     # When the policy is applied
     governance.initialize()
 
     # Then startup continues with Manager off, and the log says why
-    assert args.enable_manager is False
+    assert configuration.enable_manager is False
     assert "ComfyUI-Manager is turned off" in caplog.text
 
 
@@ -284,30 +275,31 @@ def test_initialize_applies_custom_node_policy_without_manager(governed: Path, m
     assert governance._custom_node_mode == mode
 
 
-def test_initialize_allows_manager_without_custom_node_policy(governed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_initialize_allows_manager_without_custom_node_policy(configuration: Configuration, governed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Given Manager is enabled and the policy governs node ids only
     _use_policy(governed, monkeypatch, {"activeForms": ["nodeId"], "disabledNodes": ["SomeNode"]})
-    monkeypatch.setattr(args, "enable_manager", True)
+    configuration.enable_manager = True
 
     # When the policy is applied, then startup continues
     governance.initialize()
 
     assert governance._custom_node_mode is None
+    assert configuration.enable_manager is True
 
 
-def test_initialize_accepts_extra_model_paths_that_add_custom_nodes(governed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_initialize_accepts_extra_model_paths_that_add_custom_nodes(configuration: Configuration, governed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Given a policy and an extra paths file that adds a custom_nodes folder; packs found there pass the same pack gate at load
     governed.write_bytes(b"signed policy")
     monkeypatch.setattr(governance, "verify_and_load", lambda envelope_bytes: {}, raising=False)
     extra_paths = governed.parent / "extra-paths.yaml"
     extra_paths.write_text("test:\n  base_path: .\n  checkpoints: models\n  custom_nodes: nodes\n", encoding="utf-8")
-    monkeypatch.setattr(args, "extra_model_paths_config", [[str(extra_paths)]])
+    configuration.extra_model_paths_config = [str(extra_paths)]
 
     # When the policy is applied, then startup continues
     governance.initialize()
 
 
-def test_manager_import_waits_until_after_governance(tmp_path: Path) -> None:
+def test_manager_import_waits_until_after_governance(tmp_path: Path, process_startup_timeout_seconds: float) -> None:
     sentinel_path = tmp_path / "manager-imported"
     manager_package = tmp_path / "comfyui_manager"
     manager_package.mkdir()
@@ -317,8 +309,10 @@ def test_manager_import_waits_until_after_governance(tmp_path: Path) -> None:
     )
 
     result = _run_governed(
-        MAIN_PATH,
+        tmp_path,
+        process_startup_timeout_seconds,
         "--enable-manager",
+        "--cpu",
         "--quick-test-for-ci",
         import_path=tmp_path,
     )
@@ -328,7 +322,7 @@ def test_manager_import_waits_until_after_governance(tmp_path: Path) -> None:
     assert not sentinel_path.exists()
 
 
-def test_governance_failure_precedes_prestartup_scripts(tmp_path: Path) -> None:
+def test_governance_failure_precedes_prestartup_scripts(tmp_path: Path, process_startup_timeout_seconds: float) -> None:
     sentinel_path = tmp_path / "prestartup-ran"
     pack_path = tmp_path / "custom_nodes" / "sentinel_pack"
     pack_path.mkdir(parents=True)
@@ -338,9 +332,11 @@ def test_governance_failure_precedes_prestartup_scripts(tmp_path: Path) -> None:
     )
 
     result = _run_governed(
-        MAIN_PATH,
+        tmp_path,
+        process_startup_timeout_seconds,
         "--base-directory",
         str(tmp_path),
+        "--cpu",
         "--quick-test-for-ci",
     )
 

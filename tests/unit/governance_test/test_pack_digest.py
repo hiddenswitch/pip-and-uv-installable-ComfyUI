@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from app import governance
+from comfy.app import governance
 
 
 GOLDEN_DIGEST = "blake3:ee9d4961b928fa3c0983f95fe2123d44d7cbd44158859d77ff31f7269b68cdba"

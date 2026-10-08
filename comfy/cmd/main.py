@@ -309,6 +309,11 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         logger.info(f"Setting user directory to: {user_dir}")
         folder_paths.set_user_directory(user_dir)
 
+    # A governed build applies its signed policy before Manager is imported: Manager's prestartup runs scheduled installs
+    # before any pack is checked, so the policy may turn it off, and a policy that cannot be applied stops startup first.
+    from ..app import governance
+    governance.initialize(args)
+
     # Initialize comfyui_manager if available and enabled
     from ..manager_integration import init_manager, prestartup as manager_prestartup, start as manager_start
     init_manager(args)

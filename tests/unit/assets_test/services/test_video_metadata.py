@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.assets.services.media_metadata import extract_media_metadata
-from app.assets.services.video_metadata import extract_video_metadata
+from comfy.app.assets.services.media_metadata import extract_media_metadata
+from comfy.app.assets.services.video_metadata import extract_video_metadata
 
 
 def _make_video(
@@ -143,7 +143,7 @@ class TestIngestStoresVideoMetadata:
     def test_register_file_in_place_stores_video_metadata(
         self, mock_create_session, temp_dir: Path
     ):
-        from app.assets.services.ingest import register_file_in_place
+        from comfy.app.assets.services.ingest import register_file_in_place
 
         f = _make_mp4(temp_dir / "clip.mp4", width=64, height=48)
 
@@ -156,11 +156,11 @@ class TestIngestStoresVideoMetadata:
     def test_create_from_hash_stores_video_metadata(
         self, mock_create_session, monkeypatch, temp_dir: Path
     ):
-        from app.assets.database.queries.records import create_content
-        from app.assets.helpers import to_stored_hash
-        from app.assets.services.ingest import create_from_hash
+        from comfy.app.assets.database.queries.records import create_content
+        from comfy.app.assets.helpers import to_stored_hash
+        from comfy.app.assets.services.ingest import create_from_hash
 
-        monkeypatch.setattr("app.assets.mode.hashing_enabled", lambda: True)
+        monkeypatch.setattr("comfy.app.assets.mode.hashing_enabled", lambda: True)
         digest = "c" * 64
         f = _make_mp4(temp_dir / "clip.mp4", width=64, height=48)
         with mock_create_session() as session:

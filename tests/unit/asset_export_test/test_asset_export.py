@@ -11,9 +11,9 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from aiohttp import web
 
-import folder_paths
-from app import asset_export
-from app.asset_export import (
+from comfy.cmd import folder_paths
+from comfy.app import asset_export
+from comfy.app.asset_export import (
     AssetExportManager,
     ExportEntry,
     ExportRequestError,
@@ -23,9 +23,9 @@ from app.asset_export import (
     parse_export_request,
     write_archive,
 )
-from app.assets.api import routes
-from app.assets.services import path_utils
-from app.assets.services.schemas import ExportableAssetFile
+from comfy.app.assets.api import routes
+from comfy.app.assets.services import path_utils
+from comfy.app.assets.services.schemas import ExportableAssetFile
 
 JOB_A = "11111111-1111-4111-8111-111111111111"
 JOB_B = "22222222-2222-4222-8222-222222222222"
@@ -657,7 +657,8 @@ async def test_exports_are_private_to_their_owner(aiohttp_client, make_harness, 
         ("get", "/api/assets/exports/nothing.tar", {}, 400, "INVALID_EXPORT_NAME"),
         ("get", "/api/assets/exports/unknown.zip", {}, 404, "EXPORT_NOT_FOUND"),
         ("get", "/api/tasks/not-a-uuid", {}, 404, "TASK_NOT_FOUND"),
-        ("get", f"/api/tasks/{uuid.uuid4()}", {}, 404, "TASK_NOT_FOUND"),
+        # a fixed id: a random one changes the test ids between pytest-xdist workers' collections
+        ("get", "/api/tasks/3c7f7ce1-085f-44f9-aca4-176a8cc928dd", {}, 404, "TASK_NOT_FOUND"),
     ],
 )
 async def test_invalid_requests_return_contract_errors(aiohttp_client, make_harness, dirs, method, path, kwargs, status, code):

@@ -1,11 +1,11 @@
 import pytest
 
-from app.assets.database.queries.records import (
+from comfy.app.assets.database.queries.records import (
     create_content,
     create_record,
     mark_content_missing,
 )
-from app.assets.services.asset_management import get_export_file, list_job_export_files
+from comfy.app.assets.services.asset_management import get_export_file, list_job_export_files
 
 JOB_A = "11111111-1111-4111-8111-111111111111"
 JOB_B = "22222222-2222-4222-8222-222222222222"

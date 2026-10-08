@@ -2,8 +2,6 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import socket
-import subprocess
-import sys
 import time
 from typing import Iterator
 import urllib.error
@@ -11,9 +9,11 @@ import urllib.request
 
 import pytest
 
+from comfy.cli_args import default_configuration
+from ..conftest import comfy_background_server_from_config
 
-COMFYUI_ROOT = Path(__file__).parents[2]
-
+# Each test starts a ComfyUI server process, so it runs in the isolated server-process group like the fixtures that do.
+pytestmark = [pytest.mark.server_process, pytest.mark.xdist_group(name="server-process")]
 
 def _unused_port() -> int:
     with socket.socket() as sock:
@@ -39,19 +39,6 @@ def _post_prompt(base_url: str, prompt: dict) -> tuple[int, dict]:
         return error.code, json.load(error)
 
 
-def _wait_for_server(process: subprocess.Popen, base_url: str, log_path: Path) -> None:
-    deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            pytest.fail(f"server exited during startup:\n{log_path.read_text(encoding='utf-8')}")
-        try:
-            _get_json(f"{base_url}/system_stats")
-            return
-        except urllib.error.URLError:
-            time.sleep(0.25)
-    pytest.fail(f"server readiness timed out:\n{log_path.read_text(encoding='utf-8')}")
-
-
 def _wait_for_history(base_url: str, prompt_id: str) -> dict:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -62,46 +49,48 @@ def _wait_for_history(base_url: str, prompt_id: str) -> dict:
     raise AssertionError(f"prompt {prompt_id} did not finish")
 
 
+# The execution testing pack's nodes, loaded by the server as a custom node folder.
+_TESTING_PACK_SHIM = """from tests.inference.testing_pack.specific_tests import TestDisabledNode, TestExpandsToDisabledNode
+
+NODE_CLASS_MAPPINGS = {
+    "TestDisabledNode": TestDisabledNode,
+    "TestExpandsToDisabledNode": TestExpandsToDisabledNode,
+}
+"""
+
+
 @contextmanager
 def _running_server(tmp_path: Path, disabled_node: str, testing_nodes: bool = False) -> Iterator[str]:
     config_path = tmp_path / "disabled_nodes.yaml"
     config_path.write_text(f"disabled_nodes:\n  - {disabled_node}\n", encoding="utf-8")
-    log_path = tmp_path / "server.log"
-    port = _unused_port()
-    base_url = f"http://127.0.0.1:{port}"
-    command = [
-        sys.executable,
-        "main.py",
-        "--listen",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--cpu",
-        "--cache-none",
-        "--disable-api-nodes",
-        "--output-directory",
-        str(tmp_path / "output"),
-        "--temp-directory",
-        str(tmp_path),
-        "--disabled-nodes-config",
-        str(config_path),
-    ]
+    configuration = default_configuration()
+    configuration.listen = "127.0.0.1"
+    configuration.port = _unused_port()
+    configuration.cpu = True
+    configuration.cache_none = True
+    configuration.disable_partner_nodes = True
+    configuration.output_directory = str(tmp_path / "output")
+    configuration.temp_directory = str(tmp_path)
+    configuration.disabled_nodes_config = str(config_path)
     if testing_nodes:
-        command += ["--extra-model-paths-config", str(Path(__file__).parent / "extra_model_paths.yaml")]
+        pack_path = tmp_path / "testing_nodes" / "custom_nodes" / "testing_pack_shim"
+        pack_path.mkdir(parents=True)
+        (pack_path / "__init__.py").write_text(_TESTING_PACK_SHIM, encoding="utf-8")
+        extra_model_paths = tmp_path / "extra_model_paths.yaml"
+        extra_model_paths.write_text(
+            f"testing_nodes:\n  base_path: {json.dumps(str(tmp_path / 'testing_nodes'))}\n  custom_nodes: custom_nodes\n",
+            encoding="utf-8",
+        )
+        configuration.extra_model_paths_config = [str(extra_model_paths)]
     else:
-        command.append("--disable-all-custom-nodes")
-    with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(command, cwd=COMFYUI_ROOT, stdout=log, stderr=subprocess.STDOUT, text=True)
-        try:
-            _wait_for_server(process, base_url, log_path)
-            yield base_url
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+        configuration.disable_all_custom_nodes = True
+
+    server = comfy_background_server_from_config(configuration)
+    next(server)
+    try:
+        yield f"http://{configuration.listen}:{configuration.port}"
+    finally:
+        server.close()
 
 
 @pytest.mark.execution

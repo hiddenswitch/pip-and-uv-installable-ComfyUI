@@ -1663,14 +1663,14 @@ def linear_input_act_(x, weight, bias, input_act=None, act_weight=None, act_eps=
         return _linear_residual(torch.nn.functional.linear(x, weight, bias), residual, residual_scale)
 
     qdata, scale = TensorWiseINT8Layout.get_plain_tensors(weight)
-    with _input_act_weight(x, input_act, act_weight, act_eps) as (act_weight, act_eps):
+    with _input_act_weight(x, input_act, act_weight, act_eps) as (cast_act_weight, cast_act_eps):
         return quant_ops.ck.int8_linear(
             x, qdata, scale, bias, x.dtype,
             convrot=getattr(weight._params, "convrot", False),
             convrot_groupsize=getattr(weight._params, "convrot_groupsize", 256),
             input_act=input_act,
-            input_act_weight=act_weight,
-            input_act_eps=act_eps,
+            input_act_weight=cast_act_weight,
+            input_act_eps=cast_act_eps,
             residual=residual,
             residual_scale=residual_scale,
         )

@@ -9,9 +9,8 @@ from comfy.cli_args import args
 if not torch.cuda.is_available():
     args.cpu = True
 
-import execution
-import nodes
-from comfy_api.latest import io
+from comfy.cmd import execution  # noqa: E402
+from comfy_api.latest import io  # noqa: E402
 
 
 pytestmark = pytest.mark.asyncio
@@ -58,7 +57,7 @@ async def test_custom_validation_receives_only_requested_roots(monkeypatch, inpu
         def execute(cls, **kwargs):
             return io.NodeOutput()
 
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Validator", Validator)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Validator", Validator)
     prompt = {"probe": {"class_type": "Validator", "inputs": {"ignored": 4.0, **values}}}
     valid, _, _, errors = await execution.validate_prompt("validation", prompt, None)
 
@@ -93,7 +92,7 @@ async def test_validation_omits_unrequested_dynamic_roots(monkeypatch):
         def execute(cls, **kwargs):
             return io.NodeOutput()
 
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Validator", Validator)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Validator", Validator)
     prompt = {"probe": {"class_type": "Validator", "inputs": {"fixed": 0.5, "rows.item0": 9.0}}}
     valid, _, _, errors = await execution.validate_prompt("static", prompt, None)
 
@@ -121,7 +120,7 @@ async def test_kwargs_validator_retains_dynamic_and_static_inputs(monkeypatch):
         def execute(cls, **kwargs):
             return io.NodeOutput()
 
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Validator", Validator)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Validator", Validator)
     prompt = {"probe": {"class_type": "Validator", "inputs": {"rows.item0": 0.5, "fixed": 2.0}}}
     valid, _, _, errors = await execution.validate_prompt("kwargs", prompt, None)
 
@@ -143,7 +142,7 @@ async def test_legacy_validation_rejection_is_recorded_even_without_inputs(monke
         RETURN_TYPES = ()
         OUTPUT_NODE = True
 
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Validator", Validator)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Validator", Validator)
     prompt = {"probe": {"class_type": "Validator", "inputs": values}}
     valid, _, _, errors = await execution.validate_prompt("legacy", prompt, None)
 
@@ -194,8 +193,8 @@ async def test_dynamic_lazy_inputs_execute_only_when_requested(monkeypatch, kind
         def execute(cls, rows):
             return io.NodeOutput(ui={"rows": [rows]})
 
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Source", Source)
-    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "Consumer", Consumer)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Source", Source)
+    monkeypatch.setitem(execution.get_nodes().NODE_CLASS_MAPPINGS, "Consumer", Consumer)
     prompt = {
         "first": {"class_type": "Source", "inputs": {"value": 2.0}},
         "second": {"class_type": "Source", "inputs": {"value": 3.0}},

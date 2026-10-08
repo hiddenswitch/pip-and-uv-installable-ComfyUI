@@ -1,33 +1,29 @@
 from __future__ import annotations
 
-import ast
-from collections.abc import Callable
 import importlib
 import importlib.util
 import logging
-import os
 from pathlib import Path
 import py_compile
 import subprocess
 import sys
-import time
 
 import pytest
 import torch
 
-from app import governance
-from comfy.cli_args import args
+from comfy.app import governance
+from comfy.cli_args import args, default_configuration
+from comfy.execution_context import context_configuration
 
 
 if not torch.cuda.is_available():
     args.cpu = True
 
-import folder_paths
-import nodes
+from comfy.cmd import folder_paths  # noqa: E402
+from comfy.nodes.package import import_all_nodes_in_workspace  # noqa: E402
+from comfy.nodes.vanilla_node_importing import mitigated_import_of_vanilla_custom_nodes  # noqa: E402
 
 
-COMFYUI_ROOT = Path(__file__).parents[2]
-MAIN_PATH = COMFYUI_ROOT / "main.py"
 GENERIC_REFUSAL = "Custom node pack '{name}' is not permitted by your organization's policy."
 MANAGER_REFUSAL = (
     "Custom node pack '{name}' is not loaded: ComfyUI-Manager cannot run under a custom-node policy, "
@@ -37,23 +33,6 @@ BYTECODE_REFUSAL = (
     "Custom node pack '{name}' is not loaded: it carries compiled Python files the policy cannot check ({paths}). "
     "Delete them and restart ComfyUI."
 )
-
-
-def _load_execute_prestartup_script() -> Callable[[], None]:
-    module = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
-    function = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "execute_prestartup_script")
-    compiled = compile(ast.Module(body=[function], type_ignores=[]), filename=str(MAIN_PATH), mode="exec")
-    namespace = {
-        "args": args,
-        "folder_paths": folder_paths,
-        "governance": governance,
-        "importlib": importlib,
-        "logging": logging,
-        "os": os,
-        "time": time,
-    }
-    exec(compiled, namespace)  # noqa: S102 - trusted AST extracted from main.py itself
-    return namespace["execute_prestartup_script"]
 
 
 def _make_directory_pack(root: Path, name: str = "TestPack") -> tuple[Path, Path, Path]:
@@ -78,22 +57,31 @@ async def _run_both_gates(
     prestartup_sentinel: Path,
     import_sentinel: Path,
 ) -> tuple[bool, bool]:
-    monkeypatch.setattr(folder_paths, "get_folder_paths", lambda name: [str(custom_nodes_path)] if name == "custom_nodes" else [])
+    _use_custom_nodes_path(monkeypatch, custom_nodes_path)
 
-    _load_execute_prestartup_script()()
-    await nodes.init_external_custom_nodes()
+    # The fork's two code-execution gates: mitigated_import_of_vanilla_custom_nodes runs every pack's prestartup script,
+    # then imports every pack, the same pair upstream's execute_prestartup_script and init_external_custom_nodes form.
+    mitigated_import_of_vanilla_custom_nodes()
 
     return prestartup_sentinel.exists(), import_sentinel.exists()
 
 
+def _use_custom_nodes_path(monkeypatch: pytest.MonkeyPatch, custom_nodes_path: Path) -> None:
+    monkeypatch.setattr(folder_paths, "get_folder_paths", lambda name: [str(custom_nodes_path)] if name == "custom_nodes" else [])
+
+
 @pytest.fixture(autouse=True)
-def isolated_pack_policy(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(args, "enable_manager", False)
-    monkeypatch.setattr(args, "disable_all_custom_nodes", False)
-    monkeypatch.setattr(args, "whitelist_custom_nodes", [])
+def isolated_pack_policy():
+    configuration = default_configuration()
+    configuration.enable_manager = False
+    configuration.disable_all_custom_nodes = False
+    configuration.whitelist_custom_nodes = []
     governance.set_custom_node_policy(None, frozenset(), {})
-    yield
-    governance.set_custom_node_policy(None, frozenset(), {})
+    try:
+        with context_configuration(configuration):
+            yield configuration
+    finally:
+        governance.set_custom_node_policy(None, frozenset(), {})
 
 
 @pytest.mark.asyncio
@@ -111,6 +99,7 @@ def isolated_pack_policy(monkeypatch: pytest.MonkeyPatch):
     ],
 )
 async def test_posture_matrix_applies_at_both_gates_with_manager_disabled(
+    isolated_pack_policy,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     mode: str,
@@ -140,7 +129,7 @@ async def test_posture_matrix_applies_at_both_gates_with_manager_disabled(
     )
 
     # Then Manager absence never bypasses either gate
-    assert args.enable_manager is False
+    assert isolated_pack_policy.enable_manager is False
     assert (prestartup_ran, import_ran) == (expected_to_run, expected_to_run)
 
 
@@ -185,10 +174,10 @@ async def test_allowed_single_file_pack_never_runs_bytecode_beside_it(monkeypatc
     )
     governance.set_custom_node_policy("allowlist", frozenset(), {module_path.name: governance.pack_digest(str(module_path))})
     _plant_bytecode(module_path, sentinel)
-    monkeypatch.setattr(folder_paths, "get_folder_paths", lambda name: [str(custom_nodes_path)] if name == "custom_nodes" else [])
+    _use_custom_nodes_path(monkeypatch, custom_nodes_path)
 
     # When the import loop loads it
-    await nodes.init_external_custom_nodes()
+    mitigated_import_of_vanilla_custom_nodes()
 
     # Then the measured source runs, not the bytecode
     assert sentinel.read_text(encoding="utf-8") == "source"
@@ -340,17 +329,23 @@ async def test_absent_policy_preserves_stock_loading(monkeypatch: pytest.MonkeyP
     assert result == (True, True)
 
 
-@pytest.mark.asyncio
-async def test_existing_disable_all_flag_still_narrows_allowed_pack(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_existing_disable_all_flag_still_narrows_allowed_pack(
+    isolated_pack_policy,
+    node_registry,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     # Given a governance-allowed pack disabled by the existing CLI flag
     custom_nodes_path = tmp_path / "custom_nodes"
     pack_path, prestartup_sentinel, import_sentinel = _make_directory_pack(custom_nodes_path)
     governance.set_custom_node_policy("allowlist", frozenset(), {"manifest-name": governance.pack_digest(str(pack_path))})
-    monkeypatch.setattr(args, "disable_all_custom_nodes", True)
-    monkeypatch.setattr(args, "whitelist_custom_nodes", [])
+    isolated_pack_policy.disable_all_custom_nodes = True
+    isolated_pack_policy.whitelist_custom_nodes = []
+    _use_custom_nodes_path(monkeypatch, custom_nodes_path)
 
-    # When both loading paths run
-    result = await _run_both_gates(monkeypatch, custom_nodes_path, prestartup_sentinel, import_sentinel)
+    # When the fork's node loader runs; it honours the flag before reaching either gate
+    import_all_nodes_in_workspace()
+    result = (prestartup_sentinel.exists(), import_sentinel.exists())
 
     # Then governance cannot broaden the existing restriction
     assert result == (False, False)
@@ -368,34 +363,35 @@ async def test_denied_single_file_module_is_never_imported(monkeypatch: pytest.M
         encoding="utf-8",
     )
     governance.set_custom_node_policy("allowlist", frozenset(), {})
-    monkeypatch.setattr(folder_paths, "get_folder_paths", lambda name: [str(custom_nodes_path)] if name == "custom_nodes" else [])
+    _use_custom_nodes_path(monkeypatch, custom_nodes_path)
 
     # When the import loop enumerates it
-    await nodes.init_external_custom_nodes()
+    mitigated_import_of_vanilla_custom_nodes()
 
     # Then the module body never executes
     assert not sentinel.exists()
 
 
-def test_real_main_rejects_unknown_pack_without_manager(tmp_path: Path) -> None:
+def test_real_main_rejects_unknown_pack_without_manager(tmp_path: Path, process_startup_timeout_seconds: float) -> None:
     # Given a real startup with Manager absent and an unknown allowlist pack
     custom_nodes_path = tmp_path / "custom_nodes"
     _, prestartup_sentinel, import_sentinel = _make_directory_pack(custom_nodes_path, "unknown-pack")
     setup = (
-        "import runpy, sys\n"
-        "from app import governance\n"
-        "governance.initialize = lambda: governance.set_custom_node_policy('allowlist', frozenset(), {})\n"
-        f"sys.argv = [{str(MAIN_PATH)!r}, '--base-directory', {str(tmp_path)!r}, '--cpu', '--disable-api-nodes', '--quick-test-for-ci']\n"
-        f"runpy.run_path({str(MAIN_PATH)!r}, run_name='__main__')\n"
+        "import sys\n"
+        "from comfy.app import governance\n"
+        "governance.initialize = lambda configuration=None: governance.set_custom_node_policy('allowlist', frozenset(), {})\n"
+        f"sys.argv = ['comfyui', '--base-directory', {str(tmp_path)!r}, '--cpu', '--disable-api-nodes', '--quick-test-for-ci']\n"
+        "from comfy.cmd.main import entrypoint\n"
+        "entrypoint()\n"
     )
 
-    # When main.py runs through custom-node initialization
+    # When the fork's comfyui entry point runs through custom-node initialization
     result = subprocess.run(
         [sys.executable, "-c", setup],
-        cwd=COMFYUI_ROOT,
+        cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=process_startup_timeout_seconds,
         check=False,
     )
 
@@ -466,11 +462,19 @@ async def test_other_refused_pack_logs_the_generic_policy_message(
 async def test_legacy_manager_pack_loads_without_a_custom_node_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Given a legacy Manager pack and no custom-node policy
     custom_nodes_path = tmp_path / "custom_nodes"
-    _, prestartup_sentinel, import_sentinel = _make_directory_pack(custom_nodes_path, "ComfyUI-Manager")
+    pack_path, prestartup_sentinel, import_sentinel = _make_directory_pack(custom_nodes_path, "ComfyUI-Manager")
+    # The fork runs a legacy Manager pack's prestartup script with the security_check module from its glob folder
+    # patched to fail gracefully, so the pack carries one as the real legacy Manager does.
+    (pack_path / "glob").mkdir()
+    (pack_path / "glob" / "security_check.py").write_text("def security_check():\n    pass\n", encoding="utf-8")
+    monkeypatch.delitem(sys.modules, "security_check", raising=False)
     governance.set_custom_node_policy(None, frozenset(), {})
 
     # When both stock loading paths run
-    result = await _run_both_gates(monkeypatch, custom_nodes_path, prestartup_sentinel, import_sentinel)
+    try:
+        result = await _run_both_gates(monkeypatch, custom_nodes_path, prestartup_sentinel, import_sentinel)
+    finally:
+        sys.modules.pop("security_check", None)
 
     # Then governance leaves it alone
     assert result == (True, True)
