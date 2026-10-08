@@ -291,8 +291,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/6d/9e/ce54e33f383d7e1
 
 [[packages]]
 name = "comfy-aimdo"
-version = "0.5.5"
-wheels = [{ url = "https://files.pythonhosted.org/packages/be/52/3ae1892775f0138af1c0cc27341cf073e0890731f0c68848e8831738f9c2/comfy_aimdo-0.5.5-py3-none-any.whl", upload-time = 2026-09-15T08:52:13Z, size = 25072, hashes = { sha256 = "208b4379a080d6a78db49e6236751642b8e9e098ee270b035a1740ec21839fbd" } }]
+version = "0.5.6"
+wheels = [{ url = "https://files.pythonhosted.org/packages/9a/56/4b81638c327e437ba12be826e5a9012960ec51f74a405003142c29960c6c/comfy_aimdo-0.5.6-py3-none-any.whl", upload-time = 2026-10-07T21:58:07Z, size = 25074, hashes = { sha256 = "9b327269e7b20712a496da7ab72923f4b784a7824c4dc2509760f3227c214e47" } }]
 
 [[packages]]
 name = "comfy-angle"

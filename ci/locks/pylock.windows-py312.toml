@@ -292,10 +292,10 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/6d/9e/ce54e33f383d7e1
 
 [[packages]]
 name = "comfy-aimdo"
-version = "0.5.5"
+version = "0.5.6"
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/c4/83483278fefcb56d76b21c3ceab92e63426ba4a9c49227685d8049524819/comfy_aimdo-0.5.5-cp39-abi3-win_amd64.whl", upload-time = 2026-09-15T08:52:10Z, size = 280848, hashes = { sha256 = "a86906b230d067f7b7390afd7783742777d56df4ad52790c137d8a0236ab8524" } },
-    { url = "https://files.pythonhosted.org/packages/be/52/3ae1892775f0138af1c0cc27341cf073e0890731f0c68848e8831738f9c2/comfy_aimdo-0.5.5-py3-none-any.whl", upload-time = 2026-09-15T08:52:13Z, size = 25072, hashes = { sha256 = "208b4379a080d6a78db49e6236751642b8e9e098ee270b035a1740ec21839fbd" } },
+    { url = "https://files.pythonhosted.org/packages/c8/d3/dcdcbc268559613975409d280234e35f3b49e26e1161e66d095201ec4bc7/comfy_aimdo-0.5.6-cp39-abi3-win_amd64.whl", upload-time = 2026-10-07T21:58:05Z, size = 280910, hashes = { sha256 = "a323be8befb312398565627a7dc59ec9c8ac7ed1f2e106c9317dfa0f6e718a03" } },
+    { url = "https://files.pythonhosted.org/packages/9a/56/4b81638c327e437ba12be826e5a9012960ec51f74a405003142c29960c6c/comfy_aimdo-0.5.6-py3-none-any.whl", upload-time = 2026-10-07T21:58:07Z, size = 25074, hashes = { sha256 = "9b327269e7b20712a496da7ab72923f4b784a7824c4dc2509760f3227c214e47" } },
 ]
 
 [[packages]]
