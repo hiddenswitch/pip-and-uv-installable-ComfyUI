@@ -24,7 +24,7 @@ dependencies = [
     "comfyui-workflow-templates==0.11.78",
     "comfyui-embedded-docs==0.5.13",
     "comfy-kitchen==0.2.37",
-    "comfy-aimdo==0.5.5",
+    "comfy-aimdo==0.5.6",
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.2.2,<5",
     "click",
