@@ -1520,7 +1520,7 @@ class PromptServer(ExecutorToClientProgress):
         # support it
         from ..nodes.vanilla_node_importing import prompt_server_instance_routes
         for route in prompt_server_instance_routes.routes:
-            self.routes.route(route.method, route.path)(route.handler)
+            self.routes.route(route.method, route.path)(route.func)
         prompt_server_instance_routes.clear()
 
         self.user_manager.add_routes(self.routes)

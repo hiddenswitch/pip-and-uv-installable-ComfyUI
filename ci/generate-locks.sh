@@ -75,6 +75,7 @@ uv pip compile \
   pyproject.toml \
   ci/headless-requirements.txt \
   ci/smoke-requirements.txt \
+  --extra notebook-tests \
   --constraints tests/opencv_constraints.txt \
   --constraints ci/torch-constraints.txt \
   --prerelease if-necessary-or-explicit \

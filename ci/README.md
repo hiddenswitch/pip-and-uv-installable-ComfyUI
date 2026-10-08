@@ -45,6 +45,8 @@ OpenCV pin with the last NumPy-1-compatible wheel for that resolution.
 `pylock.linux-py314-core.toml` intentionally omits the development extra and
 custom nodes. Master uses it for a short wheel/install/import smoke; the larger
 Python 3.14 CPU lock remains the single broad develop validation environment.
+The core lock includes the `notebook-tests` extra for the notebook regression
+in the master smoke job; other test environments do not require a kernel.
 
 ## Accelerator image promotion
 
