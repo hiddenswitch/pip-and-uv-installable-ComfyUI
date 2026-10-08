@@ -47,7 +47,9 @@ future updates and makes later merges reviewable.
    configuration, progress, cancellation, and OpenTelemetry context.
 6. Run frontend parity, unit, quantization, distributed, model-registration,
    and custom-node conversion tests. Use package resources rather than
-   absolute workstation paths or `PYTHONPATH`.
+   absolute workstation paths or `PYTHONPATH`. Move incoming upstream
+   `tests-unit/` tests into `tests/unit/` in a move-only commit before adapting
+   and running them: pytest discovers `tests/`, and unit CI runs `tests/unit/`.
 7. Inspect the final diff for accidental dependency upgrades, especially Torch,
    CUDA/ROCm stacks, and custom-node requirements.
 
