@@ -56,7 +56,8 @@ def _list_models_folders() -> list[tuple[str, list[str], set[str]]]:
     for name, values in folder_paths.folder_names_and_paths.items():
         if name in _NON_MODEL_FOLDER_NAMES:
             continue
-        paths, exts = values[0], values[1]
+        # values[0] is a live view that re-resolves every directory on each iteration; materialize it
+        paths, exts = [str(path) for path in values[0]], values[1]
         if paths:
             targets.append((name, paths, set(exts)))
     return targets
