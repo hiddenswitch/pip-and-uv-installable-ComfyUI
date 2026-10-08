@@ -1645,7 +1645,7 @@ class GeminiNanoBanana2(IO.ComfyNode):
         )
 
 
-def _nano_banana_2_v2_model_inputs(resolutions: list[str]):
+def _nano_banana_2_v2_model_inputs(resolutions: list[str], thinking_levels: list[str], thinking_default: str):
     return [
         IO.Combo.Input(
             "aspect_ratio",
@@ -1677,7 +1677,8 @@ def _nano_banana_2_v2_model_inputs(resolutions: list[str]):
         ),
         IO.Combo.Input(
             "thinking_level",
-            options=["MINIMAL", "HIGH"],
+            options=thinking_levels,
+            default=thinking_default,
         ),
         IO.Autogrow.Input(
             "images",
@@ -1703,7 +1704,7 @@ class GeminiNanoBanana2V2(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="GeminiNanoBanana2V2",
-            display_name="Nano Banana 2",
+            display_name="Nano Banana 2.1",
             category="partner/image/Gemini",
             description="Generate or edit images synchronously via Google Vertex API.",
             inputs=[
@@ -1718,12 +1719,28 @@ class GeminiNanoBanana2V2(IO.ComfyNode):
                     "model",
                     options=[
                         IO.DynamicCombo.Option(
+                            "Gemini Nano Banana 2.1",
+                            _nano_banana_2_v2_model_inputs(
+                                resolutions=["1K", "2K", "4K"],
+                                thinking_levels=["MINIMAL", "MEDIUM", "HIGH"],
+                                thinking_default="MEDIUM",
+                            ),
+                        ),
+                        IO.DynamicCombo.Option(
                             "Nano Banana 2 (Gemini 3.1 Flash Image)",
-                            _nano_banana_2_v2_model_inputs(resolutions=["1K", "2K", "4K"]),
+                            _nano_banana_2_v2_model_inputs(
+                                resolutions=["1K", "2K", "4K"],
+                                thinking_levels=["MINIMAL", "HIGH"],
+                                thinking_default="MINIMAL",
+                            ),
                         ),
                         IO.DynamicCombo.Option(
                             "Nano Banana 2 Lite",
-                            _nano_banana_2_v2_model_inputs(resolutions=["1K"]),
+                            _nano_banana_2_v2_model_inputs(
+                                resolutions=["1K"],
+                                thinking_levels=["MINIMAL", "HIGH"],
+                                thinking_default="MINIMAL",
+                            ),
                         ),
                     ],
                 ),
@@ -1779,7 +1796,7 @@ class GeminiNanoBanana2V2(IO.ComfyNode):
                 IO.Image.Output(
                     display_name="thought_image",
                     tooltip="First image from the model's thinking process. "
-                    "Only available with thinking_level HIGH and IMAGE+TEXT modality.",
+                    "Only available with IMAGE+TEXT modality.",
                 ),
             ],
             hidden=[
@@ -1789,16 +1806,28 @@ class GeminiNanoBanana2V2(IO.ComfyNode):
             ],
             is_api_node=True,
             price_badge=IO.PriceBadge(
-                depends_on=IO.PriceBadgeDepends(widgets=["model", "model.resolution"]),
+                depends_on=IO.PriceBadgeDepends(widgets=["model", "model.resolution", "model.thinking_level"]),
                 expr="""
                 (
                   $contains(widgets.model, "lite")
                     ? {"type":"usd","usd": 0.0408, "format":{"suffix":"/Image","approximate":true}}
-                    : (
-                        $r := $lookup(widgets, "model.resolution");
-                        $prices := {"1k": 0.0835, "2k": 0.1217, "4k": 0.1848};
-                        {"type":"usd","usd": $lookup($prices, $r), "format":{"suffix":"/Image","approximate":true}}
-                      )
+                    : $contains(widgets.model, "banana 2.1")
+                      ? (
+                          $r := $lookup(widgets, "model.resolution");
+                          $t := $lookup(widgets, "model.thinking_level");
+                          $image := {"1k": 0.048048, "2k": 0.072072, "4k": 0.162162};
+                          $thinking := {"minimal": 0, "medium": 0.010725, "high": 0.01769625};
+                          {
+                            "type":"usd",
+                            "usd": $lookup($image, $r) + $lookup($thinking, $t),
+                            "format":{"suffix":"/Image","approximate":true}
+                          }
+                        )
+                      : (
+                          $r := $lookup(widgets, "model.resolution");
+                          $prices := {"1k": 0.0835, "2k": 0.1217, "4k": 0.1848};
+                          {"type":"usd","usd": $lookup($prices, $r), "format":{"suffix":"/Image","approximate":true}}
+                        )
                 )
                 """,
             ),
@@ -1817,7 +1846,10 @@ class GeminiNanoBanana2V2(IO.ComfyNode):
     ) -> IO.NodeOutput:
         validate_string(prompt, strip_whitespace=True, min_length=1)
         model_choice = model["model"]
-        if model_choice == "Nano Banana 2 (Gemini 3.1 Flash Image)":
+        if model_choice == "Gemini Nano Banana 2.1":
+            model_id = "gemini-nano-banana-2.1"
+            temperature = top_p = None
+        elif model_choice == "Nano Banana 2 (Gemini 3.1 Flash Image)":
             model_id = "gemini-3.1-flash-image"
         elif model_choice == "Nano Banana 2 Lite":
             model_id = "gemini-3.1-flash-lite-image"

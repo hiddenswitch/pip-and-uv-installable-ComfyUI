@@ -280,6 +280,37 @@ class TestDynamicDependencyCycle:
             "expand": g.finalize(),
         }
 
+class TestDisabledNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+    RETURN_TYPES = ()
+    FUNCTION = "execute"
+    CATEGORY = "Testing/Nodes"
+    OUTPUT_NODE = True
+
+    def execute(self):
+        return ()
+
+class TestExpandsToDisabledNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+    RETURN_TYPES = ()
+    FUNCTION = "expand"
+    CATEGORY = "Testing/Nodes"
+    OUTPUT_NODE = True
+
+    def expand(self):
+        g = GraphBuilder()
+        g.node("TestDisabledNode")
+        return {
+            "result": (),
+            "expand": g.finalize(),
+        }
+
 class TestMixedExpansionReturns:
     @classmethod
     def INPUT_TYPES(cls):
@@ -528,6 +559,8 @@ TEST_NODE_CLASS_MAPPINGS = {
     "TestCustomValidation3": TestCustomValidation3,
     "TestCustomValidation4": TestCustomValidation4,
     "TestDynamicDependencyCycle": TestDynamicDependencyCycle,
+    "TestDisabledNode": TestDisabledNode,
+    "TestExpandsToDisabledNode": TestExpandsToDisabledNode,
     "TestMixedExpansionReturns": TestMixedExpansionReturns,
     "TestSamplingInExpansion": TestSamplingInExpansion,
     "TestSleep": TestSleep,
@@ -548,6 +581,8 @@ TEST_NODE_DISPLAY_NAME_MAPPINGS = {
     "TestCustomValidation3": "Custom Validation 3",
     "TestCustomValidation4": "Custom Validation 4",
     "TestDynamicDependencyCycle": "Dynamic Dependency Cycle",
+    "TestDisabledNode": "Disabled Node",
+    "TestExpandsToDisabledNode": "Expands To Disabled Node",
     "TestMixedExpansionReturns": "Mixed Expansion Returns",
     "TestSamplingInExpansion": "Sampling In Expansion",
     "TestSleep": "Test Sleep",

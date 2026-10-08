@@ -63,7 +63,7 @@ from .services.file_utils import is_visible
 from .services.file_utils import list_files_recursively
 from .services.file_utils import walk_listings
 from .services.gil import yield_gil
-from .services.image_dimensions import extract_image_dimensions
+from .services.media_metadata import extract_media_metadata
 from .services.metadata_extract import ExtractedMetadata
 from .services.metadata_extract import extract_file_metadata
 from .services.path_utils import compute_loader_path
@@ -1036,10 +1036,9 @@ def enrich_asset(
 
     if extract_metadata and metadata:
         system_metadata = metadata.to_user_metadata()
-        if mime_type and mime_type.startswith("image/"):
-            dims = extract_image_dimensions(file_path, mime_type=mime_type)
-            if dims:
-                system_metadata.update(dims)
+        dims = extract_media_metadata(file_path, mime_type=mime_type)
+        if dims:
+            system_metadata.update(dims)
         record.system_metadata = {**(record.system_metadata or {}), **system_metadata}
 
     if stored_hash:

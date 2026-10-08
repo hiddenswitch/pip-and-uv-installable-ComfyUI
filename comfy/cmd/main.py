@@ -156,6 +156,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
                 execution_start_time = time.perf_counter()
                 prompt_id = item[1]
                 server_instance.last_prompt_id = prompt_id
+                server_instance.workflow_metadata = item[3].get("workflow_metadata", {})
 
                 sensitive = item[5]
                 extra_data = item[3].copy()
@@ -195,6 +196,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
 
                 if server_instance.client_id is not None:
                     server_instance.send_sync("executing", {"node": None, "prompt_id": prompt_id}, server_instance.client_id)
+                server_instance.workflow_metadata = {}
 
                 current_time = time.perf_counter()
                 execution_time = current_time - execution_start_time
