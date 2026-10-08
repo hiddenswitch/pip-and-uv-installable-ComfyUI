@@ -341,6 +341,9 @@ def test_build_asset_specs_lists_the_model_folders_once_per_pass(tmp_path, monke
 
     assert len(specs) == 20
     assert len(listings) == 1
+    # a listing holds resolved strings, not the live views that re-resolve on every iteration
+    assert all(type(bases) is list and all(isinstance(base, str) for base in bases)
+               for _name, bases, _exts in path_utils.get_comfy_models_folders())
 
 
 def test_locked_files_during_enrichment_emit_stat_failed_exactly_once(
