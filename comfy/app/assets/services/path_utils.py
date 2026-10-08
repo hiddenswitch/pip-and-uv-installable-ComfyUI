@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
+import contextlib
 import os
 
 from ....cmd import folder_paths
@@ -10,6 +12,25 @@ from ..helpers import cached_prefix_matcher
 
 _NON_MODEL_FOLDER_NAMES = frozenset({"configs", "custom_nodes"})
 _KNOWN_SUBFOLDER_TAGS = frozenset({"3d", "pasted", "painter", "threed", "webcam"})
+
+
+_models_folders_snapshot: ContextVar[list | None] = ContextVar("assets_models_folders_snapshot", default=None)
+
+
+@contextlib.contextmanager
+def models_folders_snapshot():
+    """Resolve the model folders once for a pass over many paths.
+
+    This fork's folder_names_and_paths resolves every registered directory on each
+    listing (hundreds of realpath lstat calls, slow on Windows), so classifying each
+    file of a scan against a fresh listing made a 600-file scan take tens of seconds.
+    The listing is taken on first use, so a pass that classifies nothing lists nothing.
+    """
+    token = _models_folders_snapshot.set([])
+    try:
+        yield
+    finally:
+        _models_folders_snapshot.reset(token)
 
 
 def get_comfy_models_folders() -> list[tuple[str, list[str], set[str]]]:
@@ -22,6 +43,15 @@ def get_comfy_models_folders() -> list[tuple[str, list[str], set[str]]]:
     An empty extensions set means the category accepts any extension,
     matching folder_paths.filter_files_extensions semantics.
     """
+    snapshot = _models_folders_snapshot.get()
+    if snapshot is None:
+        return _list_models_folders()
+    if not snapshot:
+        snapshot.append(_list_models_folders())
+    return snapshot[0]
+
+
+def _list_models_folders() -> list[tuple[str, list[str], set[str]]]:
     targets: list[tuple[str, list[str], set[str]]] = []
     for name, values in folder_paths.folder_names_and_paths.items():
         if name in _NON_MODEL_FOLDER_NAMES:
