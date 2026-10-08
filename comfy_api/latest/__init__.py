@@ -29,10 +29,12 @@ class ComfyAPI_latest(ComfyAPIBase):
         async def register(self, node_replace: io.NodeReplace) -> None:
             """Register a node replacement mapping."""
             from comfy.cmd.server import PromptServer
-            # Nodes also load without a server (embedded client, workers); replacements apply only to a server's /prompt.
-            if PromptServer.instance is None:
+            # Nodes also load without a server (embedded client, workers) or against the custom-node loader's
+            # stub server; replacements apply only to a real server's /prompt.
+            manager = getattr(PromptServer.instance, "node_replace_manager", None)
+            if manager is None:
                 return
-            PromptServer.instance.node_replace_manager.register(node_replace)
+            manager.register(node_replace)
 
     class Execution(ProxiedSingleton):
         async def set_progress(
