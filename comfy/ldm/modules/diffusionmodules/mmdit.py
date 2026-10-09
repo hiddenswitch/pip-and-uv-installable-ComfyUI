@@ -7,7 +7,7 @@ import torch.nn as nn
 from einops import rearrange, repeat
 
 from .util import timestep_embedding
-from ..attention import optimized_attention
+from ..attention import AttentionTensorContainer, ComfyAttention, optimized_attention
 from ... import common_dit
 from .... import ops
 
@@ -278,6 +278,7 @@ class SelfAttention(nn.Module):
         operations=None,
     ):
         super().__init__()
+        self.comfy_attention = ComfyAttention()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
 
@@ -317,8 +318,9 @@ class SelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         q, k, v = self.pre_attention(x)
+        q, k, v = AttentionTensorContainer(q), AttentionTensorContainer(k), AttentionTensorContainer(v)
         x = optimized_attention(
-            q, k, v, heads=self.num_heads
+            q, k, v, heads=self.num_heads, preferred_attention=self.comfy_attention
         )
         x = self.post_attention(x)
         return x
@@ -579,20 +581,23 @@ class DismantledBlock(nn.Module):
         assert not self.pre_only
         if self.x_block_self_attn:
             qkv, qkv2, intermediates = self.pre_attention_x(x, c)
-            attn, _ = optimized_attention(
+            qkv = tuple(AttentionTensorContainer(t) for t in qkv)
+            qkv2 = tuple(AttentionTensorContainer(t) for t in qkv2)
+            attn = optimized_attention(
                 qkv[0], qkv[1], qkv[2],
-                num_heads=self.attn.num_heads,
+                heads=self.attn.num_heads, preferred_attention=self.attn.comfy_attention,
             )
-            attn2, _ = optimized_attention(
+            attn2 = optimized_attention(
                 qkv2[0], qkv2[1], qkv2[2],
-                num_heads=self.attn2.num_heads,
+                heads=self.attn2.num_heads, preferred_attention=self.attn2.comfy_attention,
             )
             return self.post_attention_x(attn, attn2, *intermediates)
         else:
             qkv, intermediates = self.pre_attention(x, c)
+            qkv = tuple(AttentionTensorContainer(t) for t in qkv)
             attn = optimized_attention(
                 qkv[0], qkv[1], qkv[2],
-                heads=self.attn.num_heads,
+                heads=self.attn.num_heads, preferred_attention=self.attn.comfy_attention,
             )
             return self.post_attention(attn, *intermediates)
 
@@ -619,19 +624,19 @@ def _block_mixing(context, x, context_block, x_block, c, transformer_options={})
     else:
         x_qkv, x_intermediates = x_block.pre_attention(x, c)
 
-    o = []
-    for t in range(3):
-        o.append(torch.cat((context_qkv[t], x_qkv[t]), dim=1))
-    qkv = tuple(o)
+    context_len = context_qkv[0].shape[1]
+    qkv = tuple(AttentionTensorContainer(torch.cat((context_qkv[t], x_qkv[t]), dim=1)) for t in range(3))
+    del context_qkv, x_qkv
 
     attn = optimized_attention(
         qkv[0], qkv[1], qkv[2],
         heads=x_block.attn.num_heads,
+        preferred_attention=x_block.attn.comfy_attention,
         transformer_options=transformer_options,
     )
     context_attn, x_attn = (
-        attn[:, : context_qkv[0].shape[1]],
-        attn[:, context_qkv[0].shape[1] :],
+        attn[:, :context_len],
+        attn[:, context_len:],
     )
 
     if not context_block.pre_only:
@@ -640,9 +645,11 @@ def _block_mixing(context, x, context_block, x_block, c, transformer_options={})
     else:
         context = None
     if x_block.x_block_self_attn:
+        x_qkv2 = tuple(AttentionTensorContainer(t) for t in x_qkv2)
         attn2 = optimized_attention(
                 x_qkv2[0], x_qkv2[1], x_qkv2[2],
                 heads=x_block.attn2.num_heads,
+                preferred_attention=x_block.attn2.comfy_attention,
                 transformer_options=transformer_options,
             )
         x = x_block.post_attention_x(x_attn, attn2, *x_intermediates)
@@ -711,6 +718,7 @@ class FinalLayer(nn.Module):
 class SelfAttentionContext(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, dtype=None, device=None, operations=None):
         super().__init__()
+        self.comfy_attention = ComfyAttention()
         dim_head = dim // heads
         inner_dim = dim
 
@@ -724,7 +732,10 @@ class SelfAttentionContext(nn.Module):
     def forward(self, x):
         qkv = self.qkv(x)
         q, k, v = split_qkv(qkv, self.dim_head)
-        x = optimized_attention(q.reshape(q.shape[0], q.shape[1], -1), k, v, heads=self.heads)
+        q = AttentionTensorContainer(q.reshape(q.shape[0], q.shape[1], -1))
+        k, v = AttentionTensorContainer(k), AttentionTensorContainer(v)
+        del qkv
+        x = optimized_attention(q, k, v, heads=self.heads, preferred_attention=self.comfy_attention)
         return self.proj(x)
 
 class ContextProcessorBlock(nn.Module):

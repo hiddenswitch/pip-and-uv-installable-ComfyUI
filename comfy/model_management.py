@@ -797,7 +797,10 @@ def models_for_pin_eviction(active, current_prompt=None):
         model = loaded_model.model
         if model is None or not model.is_dynamic():
             continue
-        pin_state = model.model.dynamic_pins[model.load_device]
+        # a model-parallel rank's stand-in manages its memory in the rank process and holds no pins here
+        pin_state = getattr(model.model, "dynamic_pins", {}).get(model.load_device)
+        if pin_state is None:
+            continue
         if ((active is None or pin_state["active"] == active) and
             (current_prompt is None or pin_state["current_prompt"] == current_prompt)):
             yield model
@@ -2117,7 +2120,16 @@ def compute_max_pinned_memory() -> int:
     return max(0, ceiling)
 
 
-if not args.disable_pinned_memory:
+def is_integrated_gpu():
+    device = get_torch_device()
+    return device.type == "cuda" and bool(torch.cuda.get_device_properties(device).is_integrated)
+
+DISABLE_PINNED_MEMORY = args.disable_pinned_memory
+if not DISABLE_PINNED_MEMORY and is_integrated_gpu():
+    # Integrated GPU VRAM is carved out of system RAM, so pinning host memory only takes RAM from the GPU.
+    DISABLE_PINNED_MEMORY = True
+
+if not DISABLE_PINNED_MEMORY:
     if is_nvidia() or is_amd():
         MAX_PINNED_MEMORY = compute_max_pinned_memory()
         logger.info(

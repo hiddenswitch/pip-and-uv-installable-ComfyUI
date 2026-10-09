@@ -13,6 +13,7 @@ import heapq
 import inspect
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -88,6 +89,7 @@ from comfy_api.latest import io
 from comfy_compatibility.vanilla import vanilla_environment_node_execution_hooks
 from comfy_execution.asset_enrichment import emit_cached_output
 from comfy_execution.asset_enrichment import register_executed_outputs
+from comfy_execution.media_enrichment import enrich_output_with_media_metadata
 from comfy_execution.cache_provider import _get_cache_providers
 from comfy_execution.cache_provider import _has_cache_providers
 from comfy_execution.cache_provider import _logger as _cache_logger
@@ -402,7 +404,7 @@ async def __async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, 
                 f = make_locked_method_func(type_obj, func, class_clone)
                 # in case of dynamic inputs, restructure inputs to expected nested dict
                 if v3_data is not None:
-                    inputs = _io.build_nested_inputs(inputs, v3_data)
+                    inputs = _io.build_nested_inputs(inputs, v3_data, input_is_list=input_is_list)
             # V1
             else:
                 f = getattr(obj, func)
@@ -711,6 +713,7 @@ async def _execute(server, dynprompt: DynamicPrompt, caches: CacheSet, current_i
                 return RecursiveExecutionTuple(ExecutionResult.PENDING, None, None)
         cache_ui_value = ui_outputs.get(unique_id)
         if len(output_ui) > 0:
+            output_ui = enrich_output_with_media_metadata(output_ui)
             meta = {
                 "node_id": unique_id,
                 "display_node": display_node_id,
@@ -1095,7 +1098,17 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
     if issubclass(obj_class, _ComfyNodeInternal):
         obj_class: _io._ComfyNodeBaseInternal
         class_inputs = obj_class.INPUT_TYPES()
-        class_inputs, _, v3_data = _io.get_finalized_class_inputs(class_inputs, inputs)
+        try:
+            class_inputs, _, v3_data = _io.get_finalized_class_inputs(class_inputs, inputs)
+        except _io.DynamicInputError as ex:
+            errors.append({
+                "type": "invalid_dynamic_input",
+                "message": "Invalid dynamic input",
+                "details": str(ex),
+                "extra_info": {"input_name": ex.input_name},
+            })
+            validated[unique_id] = (False, errors, unique_id)
+            return validated[unique_id]
         validate_function_name = "validate_inputs"
         validate_function = first_real_override(obj_class, validate_function_name)
     else:
@@ -1313,6 +1326,10 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
                             from ..component_model.uris import is_uri as _is_uri
                             if _is_uri(invalid_vals[0]) or invalid_vals[0].startswith(("https://civitai.com/", "http://civitai.com/")):
                                 continue
+                            # an existing file given by absolute path (--add-lora /path/x.safetensors)
+                            # resolves through get_full_path_or_raise at execute time
+                            if os.path.isabs(invalid_vals[0]) and os.path.isfile(invalid_vals[0]):
+                                continue
                         input_config = info
                         list_info = ""
 
@@ -1339,29 +1356,35 @@ async def validate_inputs(prompt_id: typing.Any, prompt, item, validated: typing
 
     if len(validate_function_inputs) > 0 or validate_has_kwargs:
         input_data_all, _, v3_data = get_input_data(inputs, obj_class, unique_id)
+        dynamic_paths = v3_data.get("dynamic_paths", {})
+        if not validate_has_kwargs:
+            dynamic_paths = {key: path for key, path in dynamic_paths.items() if path.split(".")[0] in validate_function_inputs}
+            v3_data = v3_data | {
+                "dynamic_paths": dynamic_paths,
+                "list_paths": {path for path in v3_data.get("list_paths", set()) if path.split(".")[0] in validate_function_inputs},
+            }
         input_filtered = {}
         for x in input_data_all:
-            if x in validate_function_inputs or validate_has_kwargs:
+            input_name = dynamic_paths[x].split(".")[0] if x in dynamic_paths else x
+            if input_name in validate_function_inputs or validate_has_kwargs:
                 input_filtered[x] = input_data_all[x]
         if 'input_types' in validate_function_inputs:
             input_filtered['input_types'] = [received_types]
 
         ret = await _async_map_node_over_list(prompt_id, unique_id, obj_class, input_filtered, validate_function_name, v3_data=v3_data)
         ret = await resolve_map_node_over_list_results(ret)
-        for x in input_filtered:
+        for x in input_filtered or (None,):
             for i, r in enumerate(ret):
                 if r is not True and not isinstance(r, ExecutionBlocker):
-                    details = f"{x}"
+                    details = x if x is not None else ""
                     if r is not False:
-                        details += f" - {str(r)}"
+                        details = f"{x} - {r}" if x is not None else str(r)
 
                     error = {
                         "type": "custom_validation_failed",
                         "message": "Custom validation failed for node",
                         "details": details,
-                        "extra_info": {
-                            "input_name": x,
-                        }
+                        "extra_info": {"input_name": x} if x is not None else {},
                     }
                     errors.append(error)
                     continue

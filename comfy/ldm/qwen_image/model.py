@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 from ..common_dit import pad_to_patch_size
 from ..flux.layers import EmbedND
 from ..lightricks.model import TimestepEmbedding, Timesteps
-from ..modules.attention import optimized_attention_masked
+from ..modules.attention import AttentionTensorContainer, ComfyAttention, optimized_attention_masked
 from ...patcher_extension import WrapperExecutor, get_all_wrappers, WrappersMP
 from ...pipeline_parallel import PipelineIntermediateTensors, PipelineMissingLayer, PipelineStageConfig
 from ...pipeline_parallel.types import pack_pipeline_value, prepare_model_parallel_value, unpack_pipeline_value
@@ -20,7 +20,6 @@ from ...xdit import (
     split_sequence,
 )
 from ..flux.math import apply_rope1
-
 
 class GELU(nn.Module):
     def __init__(self, dim_in: int, dim_out: int, approximate: str = "none", bias: bool = True, dtype=None, device=None, operations=None):
@@ -118,6 +117,7 @@ class Attention(nn.Module):
             operations=None
     ):
         super().__init__()
+        self.comfy_attention = ComfyAttention()
         self.inner_dim = out_dim if out_dim is not None else dim_head * heads
         self.inner_kv_dim = self.inner_dim
         self.heads = heads
@@ -184,6 +184,7 @@ class Attention(nn.Module):
         joint_query = torch.cat([txt_query, img_query], dim=2)
         joint_key = torch.cat([txt_key, img_key], dim=2)
         joint_value = torch.cat([txt_value, img_value], dim=2)
+        del img_query, img_key, img_value, txt_query, txt_key, txt_value
 
         if encoder_hidden_states_mask is not None:
             attn_mask = torch.zeros((batch_size, 1, seq_txt + seq_img), dtype=hidden_states.dtype, device=hidden_states.device)
@@ -191,7 +192,7 @@ class Attention(nn.Module):
         else:
             attn_mask = None
 
-        extra_options["img_slice"] = [txt_query.shape[2], joint_query.shape[2]]
+        extra_options["img_slice"] = [seq_txt, joint_query.shape[2]]
         if "attn1_patch" in transformer_patches:
             patch = transformer_patches["attn1_patch"]
             for p in patch:
@@ -200,10 +201,14 @@ class Attention(nn.Module):
 
         joint_query = apply_rope1(joint_query, image_rotary_emb)
         joint_key = apply_rope1(joint_key, image_rotary_emb)
+        joint_query = AttentionTensorContainer(joint_query)
+        joint_key = AttentionTensorContainer(joint_key)
+        joint_value = AttentionTensorContainer(joint_value)
 
         joint_hidden_states = optimized_attention_masked(joint_query, joint_key, joint_value, self.heads,
                                                          attn_mask, transformer_options=transformer_options,
-                                                         skip_reshape=True, low_precision_attention=False)
+                                                         skip_reshape=True, low_precision_attention=False,
+                                                         preferred_attention=self.comfy_attention)
 
         txt_attn_output = joint_hidden_states[:, :seq_txt, :]
         img_attn_output = joint_hidden_states[:, seq_txt:, :]

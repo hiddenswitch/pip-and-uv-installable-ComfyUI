@@ -1,20 +1,24 @@
 """Turns incoming bytes into catalogued assets: multipart uploads moved into a
 hash-addressed destination, files registered where they already sit, and
-records created from a hash the catalog already holds. Every path persists the
-stat that hashing verified, so a row's recorded size and mtime describe the
-same observation as its hash. A live row already at the destination is
-reconciled before the write, so an upload never adopts a fresh hash onto
-records created for bytes it just replaced.
+records created from a hash the catalog already holds. Registration persists
+the stat that hashing verified, so a row's recorded size and mtime describe the
+same observation as its hash; an upload records the stat of the file once it is
+in place, since a copy across volumes has its own mtime. A live row already at
+the destination is reconciled before the write, so an upload never adopts a
+fresh hash onto records created for bytes it just replaced.
 """
 
 from typing import Any
 from typing import NamedTuple
 from typing import Sequence
 import contextlib
+import errno
 import logging
 import mimetypes
 import os
+import shutil
 
+from sqlalchemy import false
 from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,7 +36,7 @@ from ..helpers import normalize_tags
 from ..helpers import to_stored_hash
 from .file_utils import get_mtime_ns
 from .file_utils import get_size_and_mtime_ns
-from .image_dimensions import extract_image_dimensions
+from .media_metadata import extract_media_metadata
 from .lookup import claim_qualified_content
 from .lookup import lookup_for_from_hash
 from .lookup import lookup_for_view
@@ -67,8 +71,8 @@ def _extract_system_metadata_sync(
 ) -> dict[str, Any]:
     """Extract ``system_metadata`` at registration time (S29/D8).
 
-    Mirrors the ``scanner.enrich`` pass: tier-1/tier-2 file metadata plus image
-    dimensions for image MIME types, so records carry metadata at creation
+    Mirrors the ``scanner.enrich`` pass: tier-1/tier-2 file metadata plus media
+    metadata for image and video MIME types, so records carry metadata at creation
     instead of waiting for the background enrich pass to fill it.
     """
     metadata = extract_file_metadata(
@@ -77,10 +81,9 @@ def _extract_system_metadata_sync(
         relative_filename=compute_loader_path(locator),
     )
     system_metadata = metadata.to_user_metadata()
-    if mime_type and mime_type.startswith("image/"):
-        dims = extract_image_dimensions(locator, mime_type=mime_type)
-        if dims:
-            system_metadata.update(dims)
+    dims = extract_media_metadata(locator, mime_type=mime_type)
+    if dims:
+        system_metadata.update(dims)
     return system_metadata
 
 
@@ -189,7 +192,12 @@ def _guess_upload_mime_type(
 def _move_temp_to_dest(temp_path: str, dest_abs: str) -> None:
     os.makedirs(os.path.dirname(dest_abs), exist_ok=True)
     try:
-        os.replace(temp_path, dest_abs)
+        try:
+            os.replace(temp_path, dest_abs)
+        except OSError as e:  # EXDEV: destination is on another volume
+            if e.errno != errno.EXDEV:
+                raise
+            shutil.copyfile(temp_path, dest_abs)
     except Exception as e:
         raise RuntimeError(f"failed to move uploaded file into place: {e}") from e
 
@@ -312,7 +320,7 @@ def _reconcile_live_content_at_path(
     existing = session.scalars(
         select(AssetContent).where(
             AssetContent.path == locator,
-            AssetContent.is_missing.is_(False),
+            AssetContent.is_missing == false(),
         )
     ).first()
     if existing is None:
@@ -367,7 +375,7 @@ def _settle_destination_before_write(session: Session, dest_abs: str) -> None:
     existing = session.scalars(
         select(AssetContent).where(
             AssetContent.path == dest_abs,
-            AssetContent.is_missing.is_(False),
+            AssetContent.is_missing == false(),
         )
     ).first()
     if existing is None:
@@ -450,7 +458,7 @@ def upload_from_temp_path(
     user_metadata = user_metadata or {}
 
     try:
-        digest, verified_stat = _snapshot_hash_with_retry(temp_path)
+        digest, _ = _snapshot_hash_with_retry(temp_path)
     except UploadUnstableError:
         _remove_temp_path(temp_path)
         raise
@@ -491,7 +499,9 @@ def upload_from_temp_path(
         _move_temp_to_dest(temp_path, dest_abs)
     finally:
         _remove_temp_path(temp_path)
-    size_bytes, mtime_ns = verified_stat.st_size, verified_stat.st_mtime_ns
+    # A cross-volume copy gets a new mtime, so record the file on disk (a rename keeps it).
+    placed_stat = os.stat(dest_abs)
+    size_bytes, mtime_ns = placed_stat.st_size, placed_stat.st_mtime_ns
     system_metadata = _extract_system_metadata_sync(dest_abs, content_type)
     with create_session() as session:
         _reconcile_live_content_at_path(
@@ -663,7 +673,7 @@ def register_cached_output(
         with create_session() as session:
             existing = session.scalars(
                 select(AssetContent).where(
-                    AssetContent.path == locator, AssetContent.is_missing.is_(False)
+                    AssetContent.path == locator, AssetContent.is_missing == false()
                 )
             ).first()
             if existing is None:
@@ -742,7 +752,7 @@ def register_executed_output(
                 existing = session.scalars(
                     select(AssetContent).where(
                         AssetContent.path == locator,
-                        AssetContent.is_missing.is_(False),
+                        AssetContent.is_missing == false(),
                     )
                 ).first()
                 if existing is not None:

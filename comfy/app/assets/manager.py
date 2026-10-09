@@ -4,6 +4,8 @@
 and chooses ``NoAssets`` when the requested mode cannot run.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Callable, Protocol
 
@@ -20,7 +22,7 @@ from .services.ingest import (
 )
 from .services.path_utils import get_known_subfolder_tags
 from .services.schemas import RegisteredAsset, UploadAssetView
-from ..database.db import dependencies_available
+from ..database.db import dependencies_available, missing_dependencies
 from ..user_manager import UserManager
 from ...cli_args import args
 
@@ -72,7 +74,8 @@ class _ArgsLike(Protocol):
 
 
 def _shutdown_assets() -> None:
-    asset_seeder.shutdown()
+    if dependencies_available():
+        asset_seeder.shutdown()
     run_shutdown()
 
 
@@ -86,7 +89,6 @@ class NoAssets:
 
     def startup(self) -> None:
         mode.init(self._args)
-        record_hash_mode_transition_intent()
         run_startup(enable_assets=False)
 
     def shutdown(self) -> None:
@@ -95,6 +97,8 @@ class NoAssets:
     def register_routes(
         self, app: web.Application, user_manager: UserManager | None
     ) -> None:
+        if not dependencies_available():
+            return
         register_assets_routes(app)
         asset_seeder.disable()
 
@@ -225,9 +229,10 @@ class AssetsEnabled:
 
 def default_asset_manager() -> AssetManager:
     if args.enable_assets and not dependencies_available():
-        logging.warning(
-            "Assets requested but database dependencies unavailable; asset endpoints "
-            "will answer 503. Please install the updated requirements.txt file."
+        missing = ", ".join(missing_dependencies()) or "see the import error above"
+        logging.error(
+            f"--enable-assets requires packages that could not be imported: {missing}. "
+            "Assets are disabled. Reinstall comfyui with its dependencies, e.g. `uv pip install comfyui`."
         )
         return NoAssets(args)
     return AssetsEnabled(args) if args.enable_assets else NoAssets(args)

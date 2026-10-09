@@ -463,6 +463,19 @@ def test_remote_rank_receives_rank_local_activation_reserve(monkeypatch):
     assert executor.command["minimum_memory_required"] == 200
 
 
+def test_pin_eviction_skips_remote_rank_stand_ins(monkeypatch):
+    # A remote rank's stand-in is dynamic but holds no pins in this process. Pin pressure in the
+    # driver must not raise on it: an exception there kills one rank mid-forward and the other
+    # rank's all-reduce waits out the NCCL timeout.
+    remote = RemoteModelParallelRankModel(
+        object(), rank=1, device=torch.device("cuda:1"), size=100, dtype=torch.bfloat16, dynamic=True,
+    )
+    monkeypatch.setattr(model_management, "current_loaded_models", [SimpleNamespace(model=remote)])
+
+    assert list(model_management.models_for_pin_eviction(None)) == []
+    assert model_management.free_pins(1 << 20, evict_active=True, loaded=True) == 0
+
+
 def test_dynamic_rank_load_flushes_stale_allocator_reservations(monkeypatch):
     emptied = []
     monkeypatch.setattr(model_management, "free_memory", lambda *_args, **_kwargs: [])

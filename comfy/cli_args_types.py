@@ -232,7 +232,9 @@ class Configuration(dict):
         mmap_torch_files (bool): Use mmap when loading ckpt/pt files.
         disable_mmap (bool): Don't use mmap when loading safetensors.
         dont_print_server (bool): Don't print server output.
-        disable_api_nodes (bool): Disable loading all api nodes.
+        disable_partner_nodes (bool): Disable loading partner nodes (the paid API nodes). The frontend keeps its internet access.
+        offline (bool): Prevent the frontend from communicating with the internet by setting a restrictive Content-Security-Policy header. Also disables partner nodes.
+        disable_api_nodes (bool): Deprecated alias for offline.
         front_end_version (str): Specifies the version of the frontend to be used.
         front_end_root (Optional[str]): The local filesystem path to the directory where the frontend is located. Overrides --front-end-version.
         comfy_api_base (str): Set the base URL for the ComfyUI API. (default: https://api.comfy.org)
@@ -244,6 +246,7 @@ class Configuration(dict):
         list_feature_flags (bool): Print known CLI-settable feature flags as JSON and exit.
         blacklist_custom_nodes (list[str]): Specify custom node folders to never load. Accepts shell-style globs.
         whitelist_custom_nodes (list[str]): Specify custom node folders to load even when --disable-all-custom-nodes is enabled.
+        disabled_nodes_config (Optional[str]): Path to a YAML file listing node IDs to disable.
         default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
         block_runtime_package_installation (Optional[bool]): When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental).
         enable_eval (Optional[bool]): Enable nodes that can evaluate Python code in workflows.
@@ -357,6 +360,7 @@ class Configuration(dict):
         self.disable_all_custom_nodes: bool = False
         self.blacklist_custom_nodes: list[str] = []
         self.whitelist_custom_nodes: list[str] = []
+        self.disabled_nodes_config: Optional[str] = None
         self.multi_user: bool = False
         self.plausible_analytics_base_url: Optional[str] = None
         self.plausible_analytics_domain: Optional[str] = None
@@ -424,6 +428,8 @@ class Configuration(dict):
         self.default_hashing_function: str = 'sha256'
         self.mmap_torch_files: bool = False
         self.disable_mmap: bool = False
+        self.disable_partner_nodes: bool = False
+        self.offline: bool = False
         self.disable_api_nodes: bool = False
         self.front_end_version: str = "comfyanonymous/ComfyUI@latest"
         self.front_end_root: Optional[str] = None

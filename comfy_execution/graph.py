@@ -21,6 +21,8 @@ from comfy.nodes.package_typing import InputTypes
 from comfy.nodes_context import get_nodes
 from comfy_execution.graph_utils import ExecutionBlocker
 from comfy_execution.graph_utils import is_link
+from comfy_api.internal import _ComfyNodeInternal
+from comfy_api.latest import _io
 
 # NOTE: ExecutionBlocker code got moved to graph_utils.py to prevent torch being imported too soon during unit tests
 ExecutionBlocker = ExecutionBlocker
@@ -142,9 +144,12 @@ class TopologicalSort:
         self.unblockedEvent = asyncio.Event()
 
     def get_input_info(self, unique_id, input_name):
-        class_type = self.dynprompt.get_node(unique_id)["class_type"]
-        class_def = get_nodes().NODE_CLASS_MAPPINGS[class_type]
-        return get_input_info(class_def, input_name)
+        node = self.dynprompt.get_node(unique_id)
+        class_def = get_nodes().NODE_CLASS_MAPPINGS[node["class_type"]]
+        valid_inputs = class_def.INPUT_TYPES()
+        if issubclass(class_def, _ComfyNodeInternal):
+            valid_inputs, _, _ = _io.get_finalized_class_inputs(valid_inputs, node["inputs"])
+        return get_input_info(class_def, input_name, valid_inputs)
 
     def make_input_strong_link(self, to_node_id, to_input):
         inputs = self.dynprompt.get_node(to_node_id)["inputs"]

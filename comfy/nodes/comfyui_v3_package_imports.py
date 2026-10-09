@@ -27,6 +27,8 @@ def _comfy_entrypoint_upstream_v3_imports(module, ignore: set | None = None) -> 
             if not isinstance(extension, ComfyExtension):
                 logger.debug(f"comfy_entrypoint in {module} did not return a ComfyExtension, skipping.")
             else:
+                # Upstream's loader awaits on_load before get_node_list; built-in extensions register node replacements there.
+                AsyncToSyncConverter.run_async_in_thread(extension.on_load)
                 node_list: list = list(AsyncToSyncConverter.run_async_in_thread(extension.get_node_list))
                 if not isinstance(node_list, list):
                     logger.debug(f"comfy_entrypoint in {module} did not return a list of nodes, skipping.")

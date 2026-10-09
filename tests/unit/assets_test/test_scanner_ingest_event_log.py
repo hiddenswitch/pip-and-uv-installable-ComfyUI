@@ -1,3 +1,4 @@
+import errno
 import logging
 import re
 from contextlib import nullcontext
@@ -86,9 +87,16 @@ def run_hash_failure(session: Mock, path: Path, progress: _ScanState) -> bool:
         pytest.param(
             lambda: scanner.sync_root_safely("models"),
             "scanner.fast_scan_failed",
-            {"error_type": "FileNotFoundError", "root": "models"},
+            {"error_kind": "other", "error_type": "FileNotFoundError", "root": "models"},
             set(),
             id="fast-scan",
+        ),
+        pytest.param(
+            lambda: scanner.sync_temp_references_safely(),
+            "scanner.temp_sync_failed",
+            {"error_kind": "other", "error_type": "FileNotFoundError", "root": "temp"},
+            None,
+            id="temp-sync",
         ),
     ],
 )
@@ -258,7 +266,7 @@ def test_locked_files_during_discovery_emit_stat_failed_exactly_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     def deny_stat(*_args, **_kwargs):
-        raise PermissionError("/private/assets/secret.bin")
+        raise PermissionError(errno.EACCES, "Permission denied", "/private/assets/secret.bin")
 
     monkeypatch.setattr(scanner, "os", SimpleNamespace(stat=deny_stat, path=scanner.os.path))
     progress = _ScanState()
@@ -269,7 +277,7 @@ def test_locked_files_during_discovery_emit_stat_failed_exactly_once(
 
     assert specs == []
     assert events_named(caplog, "scanner.stat_failed") == [
-        {"error_type": "PermissionError", "site": "discovery"}
+        {"error_kind": "permission_denied", "error_type": "PermissionError", "site": "discovery"}
     ]
     assert progress.permission_denied == 3
 
@@ -308,6 +316,36 @@ def test_discovery_stat_failure_emits_nothing_when_progress_is_none(
     assert events_named(caplog, "scanner.stat_failed") == []
 
 
+def test_build_asset_specs_lists_the_model_folders_once_per_pass(tmp_path, monkeypatch) -> None:
+    # Listing this fork's model folders resolves every registered directory; once per file it
+    # made the Windows CI scan of 600 files take longer than test_insert_batches' 30 s budget.
+    from comfy.app.assets.services import path_utils
+    from comfy.cmd import folder_paths
+
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(tmp_path))
+    paths = []
+    for i in range(20):
+        path = tmp_path / f"f{i}.png"
+        path.write_bytes(b"x")
+        paths.append(str(path))
+    listings = []
+    real = path_utils._list_models_folders
+
+    def counting():
+        listings.append(1)
+        return real()
+
+    monkeypatch.setattr(path_utils, "_list_models_folders", counting)
+
+    specs, _tag_pool, _skipped = scanner.build_asset_specs(paths, set(), enable_metadata_extraction=False)
+
+    assert len(specs) == 20
+    assert len(listings) == 1
+    # a listing holds resolved strings, not the live views that re-resolve on every iteration
+    assert all(type(bases) is list and all(isinstance(base, str) for base in bases)
+               for _name, bases, _exts in path_utils.get_comfy_models_folders())
+
+
 def test_locked_files_during_enrichment_emit_stat_failed_exactly_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -341,7 +379,7 @@ def test_locked_files_during_enrichment_emit_stat_failed_exactly_once(
     assert first is False
     assert second is False
     assert events_named(caplog, "scanner.stat_failed") == [
-        {"error_type": "PermissionError", "site": "enrich"}
+        {"error_kind": "other", "error_type": "PermissionError", "site": "enrich"}
     ]
     assert progress.permission_denied == 2
 

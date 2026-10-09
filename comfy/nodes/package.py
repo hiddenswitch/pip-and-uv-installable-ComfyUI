@@ -167,6 +167,10 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
         _nodes_available_at_startup = _nodes_local.nodes = ExportedNodes()
     args = current_execution_context().configuration
     import sys as _sys
+    from ..app import governance
+
+    governance.initialize(args)
+    disabled_nodes = governance.load_disabled_nodes(args.disabled_nodes_config) if args.disabled_nodes_config else set()
 
     # todo: this is some truly braindead stuff
     register_versions([
@@ -184,13 +188,12 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     import comfy_api_nodes  # pylint: disable=absolute-import-used
     from .vanilla_node_importing import mitigated_import_of_vanilla_custom_nodes
 
+    # this is the list of default nodes to import; partner (API) nodes are skipped with --disable-partner-nodes / --offline
+    default_node_modules = [base_nodes, comfy_extras_nodes]
+    if not args.disable_partner_nodes:
+        default_node_modules.append(comfy_api_nodes)
     base_and_extra = reduce(lambda x, y: x.update(y),
-                            map(lambda module_inner: _import_and_enumerate_nodes_in_module(module_inner, raise_on_failure=raise_on_failure), [
-                                # this is the list of default nodes to import
-                                base_nodes,
-                                comfy_extras_nodes,
-                                comfy_api_nodes,
-                            ]),
+                            map(lambda module_inner: _import_and_enumerate_nodes_in_module(module_inner, raise_on_failure=raise_on_failure), default_node_modules),
                             ExportedNodes())
     custom_nodes_mappings = ExportedNodes()
     extra_vanilla_node_roots: list[str] = []
@@ -198,6 +201,7 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     if args.disable_all_custom_nodes:
         logger.info("Loading custom nodes was disabled, only base and extra nodes were loaded")
         _nodes_available_at_startup.update(base_and_extra)
+        governance.apply_disabled_nodes(_nodes_available_at_startup, disabled_nodes)
         return _nodes_available_at_startup
 
     # load from entrypoints
@@ -233,4 +237,5 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
         if upstream_web_dirs:
             _nodes_available_at_startup.EXTENSION_WEB_DIRS.update(upstream_web_dirs)
 
+    governance.apply_disabled_nodes(_nodes_available_at_startup, disabled_nodes)
     return _nodes_available_at_startup

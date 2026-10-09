@@ -190,6 +190,28 @@ def _apply_api_quantity(api: dict, index: int, bases: dict[tuple[str, str], int]
     return api
 
 
+def _apply_explicit_seed(api: dict, seed_pairs: list[tuple[str, str]], seed: int, index: int) -> dict:
+    """Make an explicit --seed reach every seed input of a converted UI workflow.
+
+    The UI pass applies the seed to seed widgets it can see, honouring fixed / increment /
+    decrement. Seeds it cannot reach (promoted out of a subgraph as a subgraph input or a
+    proxy widget) and randomize controls leave other values; those take seed + index, as an
+    API workflow's seeds do.
+    """
+    produced = {seed % (_MAX_SEED + 1), (seed + index) % (_MAX_SEED + 1), (seed - index) % (_MAX_SEED + 1)}
+    for node_id, field in seed_pairs:
+        value = api[node_id]["inputs"][field]
+        if isinstance(value, list):  # linked to another node's output
+            continue
+        try:
+            if int(value) in produced:
+                continue
+        except (TypeError, ValueError):
+            pass
+        api[node_id]["inputs"][field] = (seed + index) % (_MAX_SEED + 1)
+    return api
+
+
 def expand_workflow_quantity(obj: dict, configuration: Configuration) -> list[dict]:
     """Convert/apply overrides and expand a workflow object for ``--quantity``."""
     from ..component_model.prompt_utils import find_seed_nodes
@@ -207,8 +229,10 @@ def expand_workflow_quantity(obj: dict, configuration: Configuration) -> list[di
                 seed=configuration.seed,
                 random_seed=_random_seed,
             )
-            api = _ensure_api_format(ui)
-            expanded.append(_apply_overrides(api, no_seed_config))
+            api = _apply_overrides(_ensure_api_format(ui), no_seed_config)
+            if configuration.seed is not None:
+                api = _apply_explicit_seed(api, find_seed_nodes(api), int(configuration.seed), index)
+            expanded.append(api)
         return expanded
 
     api = _apply_overrides(obj, configuration)
