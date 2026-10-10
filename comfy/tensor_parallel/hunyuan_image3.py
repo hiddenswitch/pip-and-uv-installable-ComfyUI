@@ -10,7 +10,7 @@ from types import MethodType
 import torch
 from tokenizers import Tokenizer
 
-from .. import model_management, ops, utils
+from .. import model_management, model_prefetch, ops, utils
 from ..execution_context import current_execution_context
 from ..model_patcher import get_model_patcher_class
 from ..pipeline_parallel.checkpoint import SafetensorsCheckpointReader
@@ -22,6 +22,35 @@ from .types import TensorParallelConfig
 
 def _modules(extension):
     return tuple(importlib.import_module(extension + ".hunyuan_image_3." + name) for name in ("loader", "model", "model_base"))
+
+
+class _LayerPrefetch:
+    """Adapt the upstream block loop to Comfy's allocation-aware prefetch queue."""
+    def __init__(self, layers, device, enabled):
+        self.layers = layers
+        self.device = device
+        self.queue = model_prefetch.make_prefetch_queue(list(layers), device, {
+            "prefetch_dynamic_vbars": enabled and not os.environ.get("HUNYUAN_IMAGE_3_NO_LOOKAHEAD"),
+        })
+
+    def before(self, index):
+        model_prefetch.prefetch_queue_pop(self.queue, self.device, self.layers[index])
+
+    def after(self, index):
+        if index == len(self.layers) - 1:
+            model_prefetch.prefetch_queue_pop(self.queue, self.device, None)
+
+    def abort(self):
+        if self.queue is None:
+            return
+        for pending in self.queue:
+            if isinstance(pending, tuple):
+                stream, (module, modules) = pending
+                if stream is not None:
+                    stream.wait_stream(model_management.current_stream(self.device))
+                if modules is not None:
+                    model_prefetch.cleanup_prefetched_modules(module, modules)
+        self.queue.clear()
 
 
 def _shard_model(model, base_operations, parallel):
@@ -157,11 +186,12 @@ def load_model(checkpoint_path, extension_path, disable_dynamic=False):
 
 
 def install(extension):
-    upstream_loader, _, _ = _modules(extension.__name__)
+    upstream_loader, upstream_model, _ = _modules(extension.__name__)
     if getattr(upstream_loader.load_hunyuan_image_3, "_comfy_tensor_parallel", False):
         return
     original = upstream_loader.load_hunyuan_image_3
     extension_path = os.path.dirname(extension.__file__)
+    upstream_model.LayerLookahead = _LayerPrefetch
 
     @wraps(original)
     def load(checkpoint_path, disable_dynamic=False):

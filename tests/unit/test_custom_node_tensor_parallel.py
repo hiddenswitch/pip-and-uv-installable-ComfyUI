@@ -9,10 +9,10 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from comfy import ops, model_management
+from comfy import ops, model_management, model_prefetch
 from comfy.pipeline_parallel.checkpoint import SafetensorsCheckpointReader
 from comfy.tensor_parallel import TensorParallelConfig
-from comfy.tensor_parallel.hunyuan_image3 import _load_state, _TextTransformer
+from comfy.tensor_parallel.hunyuan_image3 import _load_state, _TextTransformer, _LayerPrefetch
 from comfy.tensor_parallel.operations import gathered_output_operations, tensor_parallel_operations
 from comfy.tensor_parallel.kandinsky6 import _DistributedDiT, clear_magcache_after_sample
 from comfy.tensor_parallel.kandinsky6 import load_state as load_kandinsky_state, shard_model
@@ -115,6 +115,30 @@ def test_worker_releases_inputs_before_waiting_for_next_command(monkeypatch):
     monkeypatch.setattr(distributed, "distributed_command_span", lambda *args: nullcontext())
     distributed._run_worker(SimpleNamespace(rank=1, world_size=2), Coordinator(),
                             SimpleNamespace(model=SimpleNamespace(diffusion_model=SimpleNamespace(forward=forward))), "test")
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_hunyuan_prefetch_ignores_unallocated_buffers_and_releases_on_exit(monkeypatch, cancelled):
+    layer = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 4))
+    layer[0]._v = None
+    layer[1]._v = (object(), 0, 64)
+    pinned, released = [], []
+    monkeypatch.delenv("HUNYUAN_IMAGE_3_NO_LOOKAHEAD", raising=False)
+    monkeypatch.setattr(model_management, "NUM_STREAMS", 1)
+    monkeypatch.setattr(model_management, "device_supports_non_blocking", lambda device: True)
+    monkeypatch.setattr(model_prefetch, "PREFETCH_QUEUES", [])
+    monkeypatch.setattr(model_prefetch, "pin_modules", lambda modules, *args: (pinned.extend(modules), True))
+    monkeypatch.setattr(model_prefetch, "cleanup_prefetched_modules", lambda module, modules: released.extend(modules))
+    stream_lookup = model_management.get_offload_stream
+    prefetch = _LayerPrefetch([layer], torch.device("cuda"), True)
+    prefetch.before(0)
+    assert pinned == [layer[1]]
+    if not cancelled:
+        prefetch.after(0)
+    prefetch.abort()
+    assert released == [layer[1]]
+    assert model_management.get_offload_stream is stream_lookup
+    assert prefetch.queue == []
 
 
 @pytest.mark.parametrize("size", [2, 4])
