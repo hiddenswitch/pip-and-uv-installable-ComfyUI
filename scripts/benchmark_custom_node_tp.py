@@ -43,6 +43,26 @@ def measure_memory(process, devices):
     return host, [pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(device)).used for device in devices]
 
 
+def wait_for_idle_devices(devices, timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        busy = []
+        for device in devices:
+            for process in pynvml.nvmlDeviceGetComputeRunningProcesses(pynvml.nvmlDeviceGetHandleByIndex(device)):
+                try:
+                    name = psutil.Process(process.pid).name()
+                except psutil.NoSuchProcess:
+                    continue
+                if name != "gnome-remote-desktop-daemon":
+                    busy.append((device, process.pid, name))
+        if not busy:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Other compute jobs still occupy benchmark GPUs: {busy}")
+        print(f"Waiting for other GPU jobs: {busy}", flush=True)  # noqa: T201
+        time.sleep(30)
+
+
 def seeded_workflow(workflow, seed):
     result = copy.deepcopy(workflow)
     changed = 0
@@ -79,6 +99,7 @@ def run(args):
     results = []
     base = f"http://127.0.0.1:{args.port}"
     for size, devices in ((1, [args.baseline_gpu]), (2, args.tp_gpus)):
+        wait_for_idle_devices(devices, args.timeout)
         destination = output / f"tp{size}"
         destination.mkdir(exist_ok=True)
         trace = destination / "trace.jsonl"
