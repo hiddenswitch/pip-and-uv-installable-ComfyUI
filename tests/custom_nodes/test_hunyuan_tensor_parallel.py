@@ -130,9 +130,16 @@ def test_installed_hunyuan_transformer_matches_replicated_model(size, tokens, tm
     reader = SafetensorsCheckpointReader(checkpoint)
     collective = Collectives(size)
     ranks = []
+    reductions = [0] * size
+
+    class MeasuredRank(Rank):
+        def sum(self, value):
+            reductions[self.rank] += 1
+            return super().sum(value)
+
     for rank in range(size):
         model = Transformer()
-        parallel = TensorParallelConfig(Rank(collective, rank))
+        parallel = TensorParallelConfig(MeasuredRank(collective, rank))
         shards = _shard_model(model, base, parallel)
         model.load_state_dict(_load_state(reader, shards, parallel, ()))
         ranks.append(model)
@@ -142,6 +149,7 @@ def test_installed_hunyuan_transformer_matches_replicated_model(size, tokens, tm
         outputs = list(pool.map(lambda model: model(inputs), ranks))
     for output in outputs:
         torch.testing.assert_close(output, expected, rtol=1e-5, atol=1e-6)
+    assert reductions == [params.num_hidden_layers] * size
 
 
 @pytest.mark.parametrize("size", [2, 4])

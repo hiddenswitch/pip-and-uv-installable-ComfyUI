@@ -103,13 +103,17 @@ def gathered_output_operations(base_operations, parallel: TensorParallelConfig):
     """Shard output rows while keeping the full activation quantization domain."""
     class GatheredOutputOperations(base_operations):
         class Linear(base_operations.Linear):
+            tensor_parallel = parallel
             def __init__(self, in_features, out_features, bias=True, *, device=None, dtype=None):
                 if out_features % parallel.size:
                     raise ValueError(f"Output size {out_features} must divide {parallel.size} ranks")
                 super().__init__(in_features, out_features // parallel.size, bias=bias, device=device, dtype=dtype)
 
             def forward(self, *args, **kwargs):
-                return parallel.operations.gather(super().forward(*args, **kwargs))
+                return self.merge_output(super().forward(*args, **kwargs))
+
+            def merge_output(self, output):
+                return parallel.operations.gather(output)
 
         class MoEExperts(base_operations.MoEExperts):
             tensor_parallel_output = True
@@ -120,6 +124,9 @@ def gathered_output_operations(base_operations, parallel: TensorParallelConfig):
                 super().__init__(num_experts, in_features, out_features // parallel.size, bias=bias, device=device, dtype=dtype)
 
             def expert_linear(self, input, i):
-                return parallel.operations.gather(super().expert_linear(input, i))
+                return self.merge_output(super().expert_linear(input, i))
+
+            def merge_output(self, output):
+                return parallel.operations.gather(output)
 
     return GatheredOutputOperations

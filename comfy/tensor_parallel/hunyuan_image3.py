@@ -53,11 +53,27 @@ class _LayerPrefetch:
         self.queue.clear()
 
 
+def _local_output(self, output):
+    parallel = self.tensor_parallel
+    width = output.shape[-1]
+    return torch.nn.functional.pad(output, (width * parallel.rank, width * (parallel.size - parallel.rank - 1)))
+
+
+def _moe_forward(self, hidden_states):
+    # The down projections own disjoint output channels. Merge once after
+    # routing and the shared expert, instead of communicating for every expert.
+    return self.tensor_parallel.operations.sum(type(self).forward(self, hidden_states))
+
+
 def _shard_model(model, base_operations, parallel):
     operations = gathered_output_operations(base_operations, parallel)
     shards = {}
     for name, module in list(model.named_modules()):
         if not name.startswith("model.layers.") or name.endswith(".gate.wg"):
+            continue
+        if name.endswith(".mlp"):
+            module.tensor_parallel = parallel
+            module.forward = MethodType(_moe_forward, module)
             continue
         if isinstance(module, base_operations.MoEExperts):
             replacement = operations.MoEExperts(module.num_experts, module.in_features, module.out_features, bias=module.bias is not None, device="cpu")
@@ -67,6 +83,8 @@ def _shard_model(model, base_operations, parallel):
             axis = 0
         else:
             continue
+        if name.endswith((".experts_down_proj", ".shared_mlp.down_proj")):
+            replacement.merge_output = MethodType(_local_output, replacement)
         model.set_submodule(name, replacement)
         shards[name] = axis
     return shards
@@ -213,7 +231,7 @@ def install(extension):
     def expert_matmul(module, *args, **kwargs):
         output = matmul(module, *args, **kwargs)
         if getattr(module, "tensor_parallel_output", False):
-            return module.tensor_parallel.operations.gather(output)
+            return module.merge_output(output)
         return output
 
     upstream_ops._matmul = expert_matmul
