@@ -157,7 +157,7 @@ def load_model(checkpoint_path, extension_path, disable_dynamic=False):
 
 
 def install(extension):
-    upstream_loader, upstream_model, _ = _modules(extension.__name__)
+    upstream_loader, _, _ = _modules(extension.__name__)
     if getattr(upstream_loader.load_hunyuan_image_3, "_comfy_tensor_parallel", False):
         return
     original = upstream_loader.load_hunyuan_image_3
@@ -174,17 +174,19 @@ def install(extension):
     upstream_loader.load_hunyuan_image_3 = load
     importlib.import_module(extension.__name__ + ".nodes").load_hunyuan_image_3 = load
 
-    # The upstream decode fast path bypasses MoEExperts.expert_linear. Keep the
-    # existing path for TP1; distributed banks must finish their gather.
-    sliced = upstream_model.expert_linear_sliced
+    # The decode fast path fetches just the selected expert. Gather after its
+    # matmul without forcing an entire offloaded bank onto each GPU per token.
+    upstream_ops = importlib.import_module(extension.__name__ + ".hunyuan_image_3.ops")
+    matmul = upstream_ops._matmul
 
-    @wraps(sliced)
-    def expert_linear(module, input, index):
+    @wraps(matmul)
+    def expert_matmul(module, *args, **kwargs):
+        output = matmul(module, *args, **kwargs)
         if getattr(module, "tensor_parallel_output", False):
-            return module.expert_linear(input, index)
-        return sliced(module, input, index)
+            return module.tensor_parallel.operations.gather(output)
+        return output
 
-    upstream_model.expert_linear_sliced = expert_linear
+    upstream_ops._matmul = expert_matmul
     rewrite = importlib.import_module(extension.__name__ + ".hunyuan_image_3.rewrite")
     generate = rewrite.generate_text
 

@@ -113,6 +113,7 @@ def gathered_output_operations(base_operations, parallel: TensorParallelConfig):
 
         class MoEExperts(base_operations.MoEExperts):
             tensor_parallel_output = True
+            tensor_parallel = parallel
             def __init__(self, num_experts, in_features, out_features, bias=True, *, device=None, dtype=None):
                 if out_features % parallel.size:
                     raise ValueError(f"Expert output size {out_features} must divide {parallel.size} ranks")

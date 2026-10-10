@@ -1,7 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from types import ModuleType, SimpleNamespace
 import threading
 import sys
+import weakref
 
 import pytest
 import torch
@@ -14,6 +16,7 @@ from comfy.tensor_parallel.hunyuan_image3 import _load_state, _TextTransformer
 from comfy.tensor_parallel.operations import gathered_output_operations, tensor_parallel_operations
 from comfy.tensor_parallel.kandinsky6 import _DistributedDiT, clear_magcache_after_sample
 from comfy.tensor_parallel.kandinsky6 import load_state as load_kandinsky_state, shard_model
+from comfy.tensor_parallel import distributed
 from comfy.ldm.kandinsky5.model import CrossAttention, FeedForward
 
 
@@ -76,6 +79,29 @@ def test_magcache_releases_residuals_on_cancel():
         clear_magcache_after_sample(CancelledSample())
     assert not state._lanes
     assert state._finished
+
+
+def test_worker_releases_inputs_before_waiting_for_next_command(monkeypatch):
+    references = []
+
+    def forward(value):
+        references.append(weakref.ref(value))
+
+    class Coordinator:
+        def broadcast_command(self):
+            if references:
+                assert references[0]() is None
+                return {"kind": "close"}
+            return {"kind": "execute", "method": "forward", "descriptors": {},
+                    "structure": ("tuple", (("tuple", (("tensor", "x"),)), ("dict", ())))}
+
+        def send_object(self, value, destination):
+            assert value["kind"] == "done"
+
+    monkeypatch.setattr(distributed, "_broadcast_tensors", lambda *args, **kwargs: {"x": torch.ones(4)})
+    monkeypatch.setattr(distributed, "distributed_command_span", lambda *args: nullcontext())
+    distributed._run_worker(SimpleNamespace(rank=1, world_size=2), Coordinator(),
+                            SimpleNamespace(model=SimpleNamespace(diffusion_model=SimpleNamespace(forward=forward))), "test")
 
 
 @pytest.mark.parametrize("size", [2, 4])

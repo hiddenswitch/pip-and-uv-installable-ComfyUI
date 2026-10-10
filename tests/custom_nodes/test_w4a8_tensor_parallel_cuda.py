@@ -1,5 +1,8 @@
 """Run output-row W4A8 sharding through the real CUDA kernels and NCCL."""
 import json
+import importlib
+from importlib.metadata import distribution
+from pathlib import Path
 
 import pytest
 import torch
@@ -10,6 +13,8 @@ from comfy import ops
 from comfy.tensor_parallel.operations import gathered_output_operations
 from comfy.tensor_parallel.runtime import TorchDistributedTensorParallelOperations
 from comfy.tensor_parallel.types import TensorParallelConfig
+from comfy.nodes.vanilla_node_importing import _vanilla_load_custom_nodes_1
+from comfy_compatibility.vanilla import prepare_vanilla_environment
 
 
 def _w4a8_rank(rank, rendezvous):
@@ -17,6 +22,11 @@ def _w4a8_rank(rank, rendezvous):
     dist.init_process_group("nccl", init_method=rendezvous, rank=rank, world_size=2)
     try:
         torch.manual_seed(31)
+        entry = next(ep for ep in distribution("comfyui-hunyuanimage3").entry_points if ep.group == "comfyui.custom_nodes").load()
+        root = Path(entry.COMFYUI_VANILLA_NODE_PATH) / "ComfyUI-HunyuanImage3"
+        prepare_vanilla_environment()
+        assert _vanilla_load_custom_nodes_1(str(root)).NODE_CLASS_MAPPINGS
+        sliced = importlib.import_module(root.name + ".hunyuan_image_3.ops").expert_linear_sliced
         device = torch.device("cuda", rank)
         base = ops.mixed_precision_ops({}, torch.bfloat16)
         parallel = TensorParallelConfig(TorchDistributedTensorParallelOperations(rank, 2, device, dist.group.WORLD))
@@ -45,6 +55,13 @@ def _w4a8_rank(rank, rendezvous):
                 assert expected.shape == (tokens, 256), (bank, tokens, expected.shape, reference.weight.shape)
                 assert actual.shape == expected.shape, (bank, tokens, actual.shape, expected.shape)
                 torch.testing.assert_close(actual, expected, rtol=0.01, atol=0.002)
+                if bank:
+                    torch.testing.assert_close(sliced(target, value, 1), sliced(reference, value, 1), rtol=0.01, atol=0.002)
+            if bank:
+                # Weight patches take the dense fallback, whose flattened bank
+                # must still be indexed by expert rather than by output row.
+                reference.weight_function = target.weight_function = [lambda weight: weight * 1.1]
+                torch.testing.assert_close(target.expert_linear(value, 1), reference.expert_linear(value, 1), rtol=0.01, atol=0.002)
     finally:
         dist.destroy_process_group()
 
