@@ -105,8 +105,8 @@ Evidence: `release-artifacts/facade-image-health.json`,
   ROCm found a missing Triton host compiler and an overbroad host-storage test.
   The image now includes build-essential; the test requires its own file to be
   on an exposed btrfs/NVMe mount. All nine storage tests pass locally.
-  At `509d06692`, Python/Arch, CUDA, XPU and macOS passed; ROCm and Windows
-  are running. Ruff and diff checks passed.
+  At `509d06692`, Python/Arch, CUDA, ROCm, XPU and macOS passed. ROCm:
+  7,850 passed and 2,132 skipped. Windows is running. Ruff and diff checks passed.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
@@ -138,8 +138,12 @@ reproduces the four identical Hunyuan pairs and detects a different-seed control
 The first full Pro TP2 video completed at 864x480, 121 frames, 24 fps with audio;
 its denoising node took 478.38 seconds. The warm repeat exhausted peer VRAM during
 a fp32 residual allocation, so this run is excluded from the final aggregate.
-Both phases will use the same extra 2 GiB DynamicVRAM headroom for the rerun.
-See `release-artifacts/kandinsky-pro-initial-validation.json`.
+The rerun uses the same extra 2 GiB DynamicVRAM headroom for both phases.
+TP2 passed all four jobs: 573.38 seconds cold, then 480.67, 479.25 and 480.25
+seconds warm (median 480.25; generator-node median 453.78). All outputs contain
+121 frames and audio. Matching TP1 is running, so no final speedup is claimed yet.
+See `release-artifacts/kandinsky-pro-initial-validation.json` and
+`release-artifacts/kandinsky-pro-tp2-validation.json`.
 
 Initial Hunyuan output-row sharding was slower: warm medians 45.42 seconds TP1
 and 55.70 seconds TP2. All four output images were pixel-identical. Merging down
