@@ -24,7 +24,7 @@ are merged before the top-k sum, preserving upstream's accumulation order.
 The adapter uses upstream expert operations and ComfyUI prefetch/offload helpers.
 Prompt rewriting, Spectrum, and MagCache use explicit call-local state transport;
 real-model Hunyuan Spectrum, cancellation, retry and unload/reload checks passed.
-Complete Hunyuan rewriting also passed; Kandinsky MagCache checks are running.
+Complete Hunyuan rewriting and Kandinsky MagCache lifecycle checks also passed.
 Direct PiFlow/rewrite calls load peer models through the existing memory manager and finish their execution state.
 Kandinsky sharding supports DynamicVRAM lazy linear parameters. TP cancellation
 is delivered after the in-flight model call and peer collectives finish, allowing
@@ -85,6 +85,10 @@ Evidence: `release-artifacts/facade-image-health.json`,
   reached its closing tag after 307 tokens (689 seconds), returning a complete
   nonempty prompt. Evidence: `release-artifacts/hunyuan-lifecycle-validation.json`
   and `release-artifacts/hunyuan-rewrite-validation.json`.
+- Kandinsky Pro standard TP2 with MagCache: initial generation, cancellation,
+  recovery and unload/reload passed. All three videos have 17 frames and audio;
+  cache summaries show 8 computed and 16 skipped logical forwards. Evidence:
+  `release-artifacts/kandinsky-magcache-validation.json`.
 - Candidate wheel built; eight packaged integration files and snapshot match the
   checkout. Evidence: `release-artifacts/candidate-wheel-validation.json`.
 - Installed SR discovery regression: two tests passed without resolving remote
