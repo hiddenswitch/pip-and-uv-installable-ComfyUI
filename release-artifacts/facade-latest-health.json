@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-10T21:50:19.296730+00:00",
+  "checked_at": "2026-10-10T23:48:58.074104+00:00",
   "responses": {
     "/readyz": {
       "status": 200,
@@ -8,8 +8,8 @@
         "ok": true,
         "live": true,
         "ready": true,
-        "snapshot_created_at": "2026-10-10T21:45:29.362530+00:00",
-        "snapshot_age_seconds": 289.953418,
+        "snapshot_created_at": "2026-10-10T23:45:27.477069+00:00",
+        "snapshot_age_seconds": 210.555887,
         "snapshot_error": null
       }
     },

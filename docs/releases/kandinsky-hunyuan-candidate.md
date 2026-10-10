@@ -106,7 +106,12 @@ Evidence: `release-artifacts/facade-image-health.json`,
   The image now includes build-essential; the test requires its own file to be
   on an exposed btrfs/NVMe mount. All nine storage tests pass locally.
   At `509d06692`, Python/Arch, CUDA, ROCm, XPU and macOS passed. ROCm:
-  7,850 passed and 2,132 skipped. Windows is running. Ruff and diff checks passed.
+  7,850 passed and 2,132 skipped. Windows reported 7,757 passed, 2,741 skipped
+  and one failure: the snapshot recovery test retained its metadata-edit SQLite
+  connection, preventing replacement on Windows. Both test connections now close
+  explicitly; all 17 snapshot tests pass locally. Backend CI is rerunning at
+  `4d639fec2`, including the exact-SHA Windows checkout fix. Evidence:
+  `release-artifacts/ci-validation.json`. Ruff and diff checks passed.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
@@ -145,11 +150,8 @@ seconds warm (median 480.25; generator-node median 453.78). All outputs contain
 See `release-artifacts/kandinsky-pro-initial-validation.json` and
 `release-artifacts/kandinsky-pro-tp2-validation.json`.
 
-Initial Hunyuan output-row sharding was slower: warm medians 45.42 seconds TP1
-and 55.70 seconds TP2. All four output images were pixel-identical. Merging down
-projections once per layer reduced TP2's median to 51.92 seconds, versus a fresh
-43.92-second TP1 baseline. Whole-expert partitioning completed at
-46.92 seconds TP2 versus the matched 43.92-second TP1 baseline: TP2 remains
+Hunyuan whole-expert partitioning completed at
+46.92 seconds TP2 versus the matched 43.92-second TP1 baseline: TP2 is
 6.8% slower on this distilled 8-step sample. All four images are pixel-identical.
 TP2 cold time was 85.81 seconds versus 82.26 seconds TP1; peak aggregate host PSS
 was 84.5 GiB versus 54.7 GiB. Device memory filled the available cache on both
