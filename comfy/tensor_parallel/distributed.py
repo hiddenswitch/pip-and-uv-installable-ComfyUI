@@ -21,6 +21,7 @@ from ..distributed.process_group import (
 )
 from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
+from ..interruption import defer_interruption
 from ..pipeline_parallel.types import (
     TensorDescriptor,
     pack_pipeline_value,
@@ -120,6 +121,7 @@ class TorchDistributedModelParallelExecutor:
     def execute(self, *args, **kwargs):
         return self.execute_method("forward", *args, **kwargs)
 
+    @defer_interruption()
     def execute_method(self, method, *args, **kwargs):
         tensors = {}
         structure = pack_pipeline_value(
