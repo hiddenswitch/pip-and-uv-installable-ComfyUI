@@ -249,8 +249,12 @@ def install(extension):
     @wraps(generate)
     def generate_text(model, *args, **kwargs):
         executor = getattr(model, "_comfy_tensor_parallel_executor", None)
-        if executor is not None:
-            model = _TextModel(model, executor)
-        return generate(model, *args, **kwargs)
+        if executor is None:
+            return generate(model, *args, **kwargs)
+        model_management.load_models_gpu(executor.root_patcher.get_nested_additional_models())
+        try:
+            return generate(_TextModel(model, executor), *args, **kwargs)
+        finally:
+            executor.finish_execution()
 
     rewrite.generate_text = generate_text

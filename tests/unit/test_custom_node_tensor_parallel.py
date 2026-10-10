@@ -10,11 +10,12 @@ import torch
 from safetensors.torch import save_file
 
 from comfy import ops, model_management, model_prefetch
+from comfy.interruption import InterruptProcessingException
 from comfy.pipeline_parallel.checkpoint import SafetensorsCheckpointReader
 from comfy.tensor_parallel import TensorParallelConfig
 from comfy.tensor_parallel.hunyuan_image3 import _load_state, _TextTransformer, _LayerPrefetch
 from comfy.tensor_parallel.operations import gathered_output_operations, tensor_parallel_operations
-from comfy.tensor_parallel.kandinsky6 import _DistributedDiT, clear_magcache_after_sample
+from comfy.tensor_parallel.kandinsky6 import _DistributedDiT, clear_magcache_after_sample, connect_piflow
 from comfy.tensor_parallel.kandinsky6 import load_state as load_kandinsky_state, shard_model
 from comfy.tensor_parallel import distributed
 from comfy.ldm.kandinsky5.model import CrossAttention, FeedForward
@@ -34,6 +35,38 @@ class Collectives:
             assert self.condition.wait_for(lambda: len(values) == self.size, timeout=10)
             ordered = [values[i] for i in range(self.size)]
             return torch.cat(ordered, dim=-1) if gather else sum(ordered)
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_piflow_loads_peer_models_and_finishes_execution(monkeypatch, cancel):
+    calls = []
+    peer = object()
+    patcher = SimpleNamespace(
+        model=SimpleNamespace(memory_required=lambda shape: shape[2] * 1024),
+        get_nested_additional_models=lambda: [peer],
+    )
+    executor = SimpleNamespace(root_patcher=patcher, finish_execution=lambda: calls.append("finish"))
+    model = SimpleNamespace(n_grid=4)
+    video = torch.zeros(1, 16, 5, 2, 2)
+
+    def sample(dit, value):
+        assert calls == [([patcher, peer], 5120)]
+        assert isinstance(dit, _DistributedDiT)
+        if cancel:
+            raise InterruptProcessingException()
+        return value
+
+    sampling = ModuleType("test_k6.sampling")
+    sampling.rollout = sample
+    monkeypatch.setitem(sys.modules, "test_k6.kandinsky6.sampling", sampling)
+    monkeypatch.setattr(model_management, "load_models_gpu", lambda models, memory_required: calls.append((models, memory_required)))
+    connect_piflow(model, executor, "test_k6")
+    if cancel:
+        with pytest.raises(InterruptProcessingException):
+            sampling.rollout(model, video)
+    else:
+        assert sampling.rollout(model, video) is video
+    assert calls[-1] == "finish"
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps", "xpu"])

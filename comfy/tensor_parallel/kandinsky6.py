@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from functools import wraps
 
+from .. import model_management
 from ..ldm.kandinsky5.model import FeedForward, SelfAttention
 from .custom_node_state import install_state_transport
 
@@ -39,11 +40,19 @@ def connect_piflow(model, executor, extension_module):
     original = sampling.rollout
 
     @wraps(original)
-    def rollout(dit, *args, **kwargs):
+    def rollout(dit, video, *args, **kwargs):
         distributed = getattr(dit, "_comfy_tensor_parallel_executor", None)
-        if distributed is not None:
-            dit = _DistributedDiT(dit, distributed)
-        return original(dit, *args, **kwargs)
+        if distributed is None:
+            return original(dit, video, *args, **kwargs)
+        patcher = distributed.root_patcher
+        model_management.load_models_gpu(
+            [patcher, *patcher.get_nested_additional_models()],
+            memory_required=patcher.model.memory_required(video.shape),
+        )
+        try:
+            return original(_DistributedDiT(dit, distributed), video, *args, **kwargs)
+        finally:
+            distributed.finish_execution()
 
     rollout._comfy_tensor_parallel = True
     sampling.rollout = rollout
