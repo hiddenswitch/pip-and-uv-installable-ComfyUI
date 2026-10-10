@@ -24,7 +24,7 @@ are merged before the top-k sum, preserving upstream's accumulation order.
 The adapter uses upstream expert operations and ComfyUI prefetch/offload helpers.
 Prompt rewriting, Spectrum, and MagCache use explicit call-local state transport;
 real-model Hunyuan Spectrum, cancellation, retry and unload/reload checks passed.
-Complete rewriting and Kandinsky MagCache checks are still running.
+Complete Hunyuan rewriting also passed; Kandinsky MagCache checks are running.
 Direct PiFlow/rewrite calls load peer models through the existing memory manager and finish their execution state.
 Kandinsky sharding supports DynamicVRAM lazy linear parameters. TP cancellation
 is delivered after the in-flight model call and peer collectives finish, allowing
@@ -81,9 +81,10 @@ Evidence: `release-artifacts/facade-image-health.json`,
 - Kandinsky 1.0.2 attention/MagCache checks: three tests passed.
 - Fresh server: all 39 node types used by the ten sample workflows were present.
 - Hunyuan TP2 real-model lifecycle: initial generation, interruption, retry and
-  unload/reload passed with Spectrum cache skips. The 256-token rewrite was
-  truncated; a separate full rewrite check remains required. Evidence:
-  `release-artifacts/hunyuan-lifecycle-validation.json`.
+  unload/reload passed with Spectrum cache skips. A separate text-only rewrite
+  reached its closing tag after 307 tokens (689 seconds), returning a complete
+  nonempty prompt. Evidence: `release-artifacts/hunyuan-lifecycle-validation.json`
+  and `release-artifacts/hunyuan-rewrite-validation.json`.
 - Candidate wheel built; eight packaged integration files and snapshot match the
   checkout. Evidence: `release-artifacts/candidate-wheel-validation.json`.
 - Installed SR discovery regression: two tests passed without resolving remote
@@ -91,10 +92,12 @@ Evidence: `release-artifacts/facade-image-health.json`,
   TP2/TP4 parity: four tests passed.
 - TP, interruption and direct-call lifecycle regressions: 44 tests passed. The
   cancellation regression first reproduced the aborted-process-group failure.
-- Full Python/Arch and macOS CI passed at `6b6ef874e`, including TP cancellation.
-  CUDA, ROCm, Windows and XPU gates remain queued/running on that commit.
-  Python/Arch was resubmitted at `395dd8633` after the optional SR-folder fix.
-  Ruff and diff checks passed.
+- Full Python/Arch CI at `395dd8633`: 7,817 passed, 2,151 skipped.
+  CUDA CI at `6b6ef874e`: 7,855 passed, 2,127 skipped; XPU and macOS passed.
+  ROCm found a missing Triton host compiler and an overbroad host-storage test.
+  The image now includes build-essential; the test requires its own file to be
+  on an exposed btrfs/NVMe mount. All nine storage tests pass locally.
+  Final normal CI gates are running at `509d06692`. Ruff and diff checks passed.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
@@ -120,6 +123,9 @@ for TP comparisons. SR is validated separately and uses single-device fallback.
 SR component discovery now scans installed bundles without resolving unrelated
 downloadable catalog models; its regression test passed.
 Primary workflows disable approximation caches and prompt rewriting.
+`scripts/compare_tp_benchmark_outputs.py` checks saved output shapes/timing,
+image pixel errors, decoded-video SSIM and decoded-audio sample errors. It
+reproduces the four identical Hunyuan pairs and detects a different-seed control.
 The first full Pro TP2 video completed at 864x480, 121 frames, 24 fps with audio;
 its denoising node took 478.38 seconds. The warm repeat exhausted peer VRAM during
 a fp32 residual allocation, so this run is excluded from the final aggregate.
