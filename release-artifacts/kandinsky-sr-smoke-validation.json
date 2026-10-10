@@ -2,8 +2,8 @@
   "workflow": "release-artifacts/workflows/api/smoke/kandinsky-sr.json",
   "input_frames": 5,
   "output_frames": 1,
-  "status": "single-frame path passed; temporal check pending",
-  "reason": "Upstream SR floors input length to 1 + 8k frames. Nine-frame smoke is queued separately.",
+  "status": "Single-frame path passed; aligned nine-frame temporal check also passed",
+  "reason": "Upstream SR floors input length to 1 + 8k frames. See kandinsky-sr-temporal-validation.json for the nine-frame check.",
   "tp": "single-device fallback",
   "results": [
     {

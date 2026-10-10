@@ -1,5 +1,5 @@
 {
-  "status": "TP2 complete; matched TP1 comparison pending",
+  "status": "TP2 complete; final matched TP1 comparison recorded in kandinsky-pro-distil-benchmark.json",
   "workflow": "release-artifacts/workflows/api/generation/kandinsky6_pro_distilled_t2av.json",
   "source": {
     "commit": "9e3a0e3ae76132b549e6af6dd31e77beee656fdb",

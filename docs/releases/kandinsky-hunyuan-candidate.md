@@ -134,6 +134,9 @@ full sample completed Pro denoising but ran out of VRAM in SR causal VAE decode
 comparisons; evidence is `release-artifacts/kandinsky-sr-full-sample.json`.
 The `api/generation/` variants retain full Pro settings and save pre-SR video/audio
 for TP comparisons. SR is validated separately and uses single-device fallback.
+The aligned temporal smoke passed in 57.16 seconds: nine 512x512 input frames
+became nine 1024x1024 frames at 24 fps. Decode allocation warnings occurred,
+but the job completed. Evidence: `release-artifacts/kandinsky-sr-temporal-validation.json`.
 SR component discovery now scans installed bundles without resolving unrelated
 downloadable catalog models; its regression test passed.
 Primary workflows disable approximation caches and prompt rewriting.
@@ -146,9 +149,15 @@ a fp32 residual allocation, so this run is excluded from the final aggregate.
 The rerun uses the same extra 2 GiB DynamicVRAM headroom for both phases.
 TP2 passed all four jobs: 573.38 seconds cold, then 480.67, 479.25 and 480.25
 seconds warm (median 480.25; generator-node median 453.78). All outputs contain
-121 frames and audio. Matching TP1 is running, so no final speedup is claimed yet.
-See `release-artifacts/kandinsky-pro-initial-validation.json` and
-`release-artifacts/kandinsky-pro-tp2-validation.json`.
+121 frames and audio. Matching TP1 completed in 822.04 seconds cold and
+731.82, 731.05 and 731.89 seconds warm (median 731.82). TP2 is **1.524x faster**
+by the warm median, reducing latency **34.4%**; cold speedup is 1.434x.
+Peak aggregate host PSS increased from 51.7 to 94.3 GiB. The four matched videos
+have identical dimensions/timing but decoded SSIM ranges from 0.8911 to 0.9693;
+decoded audio RMSE ranges from 0.00716 to 0.01145. Seed 42 frames 0, 60 and 120
+show coherent macaws in both configurations, with different poses and motion.
+See `release-artifacts/kandinsky-pro-distil-benchmark.json` for all measurements
+and the limits of this comparison on two NVLinked 24 GiB RTX A5000s.
 
 Hunyuan whole-expert partitioning completed at
 46.92 seconds TP2 versus the matched 43.92-second TP1 baseline: TP2 is
