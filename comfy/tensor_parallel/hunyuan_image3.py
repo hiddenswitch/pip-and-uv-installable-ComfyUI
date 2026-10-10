@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import contextlib
 import json
 import logging
 import os
+import sys
 from functools import partial, wraps
 from types import MethodType
 
@@ -53,16 +55,34 @@ class _LayerPrefetch:
         self.queue.clear()
 
 
-def _local_output(self, output):
-    parallel = self.tensor_parallel
-    width = output.shape[-1]
-    return torch.nn.functional.pad(output, (width * parallel.rank, width * (parallel.size - parallel.rank - 1)))
-
-
 def _moe_forward(self, hidden_states):
-    # The down projections own disjoint output channels. Merge once after
-    # routing and the shared expert, instead of communicating for every expert.
-    return self.tensor_parallel.operations.sum(type(self).forward(self, hidden_states))
+    source = sys.modules[type(self).__module__]
+    bsz, seq_len, hidden_size = hidden_states.shape
+    flat = hidden_states.reshape(-1, hidden_size)
+    weights, indices = self.gate(flat)
+    weights = weights.to(hidden_states.dtype)
+    expert_mask = torch.nn.functional.one_hot(indices, num_classes=self.num_experts).permute(2, 1, 0)
+    count = self.experts_gate_up_proj.num_experts
+    start = self.tensor_parallel.rank * count
+    local_mask = expert_mask[start:start + count]
+    expert_hit = (local_mask.sum(dim=(-1, -2)) > 0).nonzero()
+    combined = torch.zeros((flat.shape[0] * self.top_k, hidden_size), dtype=hidden_states.dtype, device=hidden_states.device)
+    full_bank = len(expert_hit) * 2 >= count or hasattr(self.experts_gate_up_proj, "_prefetch")
+    gate_bank = self.experts_gate_up_proj.bank_resident(flat) if full_bank else contextlib.nullcontext(self.experts_gate_up_proj)
+    down_bank = self.experts_down_proj.bank_resident(flat) if full_bank else contextlib.nullcontext(self.experts_down_proj)
+    linear = source._bank_linear if full_bank else source.expert_linear_sliced
+    with gate_bank as gate_experts, down_bank as down_experts:
+        for expert in expert_hit:
+            index = int(expert.item())
+            position, token = torch.where(local_mask[index])
+            gate_up = linear(gate_experts, flat[token], index)
+            output = linear(down_experts, source._swiglu(gate_up), index)
+            combined[token * self.top_k + position] = (output * weights[token, position, None]).to(combined.dtype)
+    # Each routing slot belongs to one rank. Merge slots before the top-k sum
+    # to preserve upstream's reduction order and avoid an extra bf16 rounding.
+    combined = self.tensor_parallel.operations.sum(combined)
+    routed = combined.view(bsz, seq_len, self.top_k, hidden_size).sum(dim=2)
+    return self.shared_mlp(hidden_states) + routed
 
 
 def _shard_model(model, base_operations, parallel):
@@ -76,15 +96,15 @@ def _shard_model(model, base_operations, parallel):
             module.forward = MethodType(_moe_forward, module)
             continue
         if isinstance(module, base_operations.MoEExperts):
-            replacement = operations.MoEExperts(module.num_experts, module.in_features, module.out_features, bias=module.bias is not None, device="cpu")
-            axis = 1
+            if module.num_experts % parallel.size:
+                raise ValueError(f"{name}: {module.num_experts} experts must divide {parallel.size} ranks")
+            replacement = base_operations.MoEExperts(module.num_experts // parallel.size, module.in_features, module.out_features, bias=module.bias is not None, device="cpu")
+            axis = 0
         elif isinstance(module, base_operations.Linear):
             replacement = operations.Linear(module.in_features, module.out_features, bias=module.bias is not None, device="cpu")
             axis = 0
         else:
             continue
-        if name.endswith((".experts_down_proj", ".shared_mlp.down_proj")):
-            replacement.merge_output = MethodType(_local_output, replacement)
         model.set_submodule(name, replacement)
         shards[name] = axis
     return shards
@@ -99,7 +119,8 @@ def _load_state(reader, shards, parallel, head_prefixes):
         module, _, parameter = key.rpartition(".")
         axis = shards.get(module)
         selection = None
-        if axis is not None and parameter in row_parameters and len(descriptor.shape) > axis:
+        expert_codebook = parameter == "weight_codebook" and axis == 0 and len(descriptor.shape) == 2
+        if axis is not None and (parameter in row_parameters or expert_codebook) and len(descriptor.shape) > axis:
             width, remainder = divmod(descriptor.shape[axis], parallel.size)
             if remainder:
                 raise ValueError(f"{key} cannot be split across {parallel.size} ranks")
@@ -222,19 +243,6 @@ def install(extension):
     upstream_loader.load_hunyuan_image_3 = load
     importlib.import_module(extension.__name__ + ".nodes").load_hunyuan_image_3 = load
 
-    # The decode fast path fetches just the selected expert. Gather after its
-    # matmul without forcing an entire offloaded bank onto each GPU per token.
-    upstream_ops = importlib.import_module(extension.__name__ + ".hunyuan_image_3.ops")
-    matmul = upstream_ops._matmul
-
-    @wraps(matmul)
-    def expert_matmul(module, *args, **kwargs):
-        output = matmul(module, *args, **kwargs)
-        if getattr(module, "tensor_parallel_output", False):
-            return module.merge_output(output)
-        return output
-
-    upstream_ops._matmul = expert_matmul
     rewrite = importlib.import_module(extension.__name__ + ".hunyuan_image_3.rewrite")
     generate = rewrite.generate_text
 

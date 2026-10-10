@@ -181,25 +181,27 @@ def test_gathered_expert_rows_preserve_full_input_and_output(size):
         torch.testing.assert_close(output, inputs @ weights[1].t())
 
 
-def test_w4a8_checkpoint_slices_keep_full_k_and_shared_codebook(tmp_path):
+@pytest.mark.parametrize("expert_codebook", [False, True])
+def test_w4a8_expert_slices_keep_full_k_and_matching_codebook(tmp_path, expert_codebook):
     prefix = "model.layers.0.mlp.experts_gate_up_proj"
     state = {
         prefix + ".weight": torch.arange(2 * 16 * 32, dtype=torch.int64).reshape(2, 16, 32).to(torch.uint8),
         prefix + ".weight_s_rel": torch.randn(2, 16, 4),
         prefix + ".weight_s_channel": torch.randn(2, 16, 1),
-        prefix + ".weight_codebook": torch.randn(16),
+        prefix + ".weight_codebook": torch.randn(2, 16) if expert_codebook else torch.randn(16),
         prefix + ".comfy_quant": torch.tensor([1, 2, 3], dtype=torch.uint8),
     }
     path = tmp_path / "model.safetensors"
     save_file(state, path)
     reader = SafetensorsCheckpointReader(path)
     parallel = TensorParallelConfig(Rank(Collectives(2), 1))
-    actual = _load_state(reader, {prefix: 1}, parallel, ("lm_head.",))
+    actual = _load_state(reader, {prefix: 0}, parallel, ("lm_head.",))
     for suffix in ("weight", "weight_s_rel", "weight_s_channel"):
-        torch.testing.assert_close(actual[prefix + "." + suffix], state[prefix + "." + suffix][:, 8:])
+        torch.testing.assert_close(actual[prefix + "." + suffix], state[prefix + "." + suffix][1:])
         assert actual[prefix + "." + suffix]._base is None
-    for suffix in ("weight_codebook", "comfy_quant"):
-        torch.testing.assert_close(actual[prefix + "." + suffix], state[prefix + "." + suffix])
+    expected_codebook = state[prefix + ".weight_codebook"][1:] if expert_codebook else state[prefix + ".weight_codebook"]
+    torch.testing.assert_close(actual[prefix + ".weight_codebook"], expected_codebook)
+    torch.testing.assert_close(actual[prefix + ".comfy_quant"], state[prefix + ".comfy_quant"])
 
 
 def test_direct_custom_node_calls_route_through_executor():
