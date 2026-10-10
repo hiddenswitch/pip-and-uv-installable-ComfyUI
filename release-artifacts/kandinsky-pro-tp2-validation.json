@@ -170,5 +170,5 @@
       ]
     }
   ],
-  "note": "Low-level CUDA allocator retries appeared during decode, but every job completed with its expected video/audio output. No sampler peer OOM recurred."
+  "note": "Low-level CUDA allocation warnings appeared during decode, but every job completed with its expected video/audio output. No sampler peer OOM recurred."
 }
