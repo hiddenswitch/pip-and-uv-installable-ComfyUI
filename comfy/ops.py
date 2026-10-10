@@ -2338,7 +2338,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
             def _cast_bank(self, input):
                 # A quantized bank stays quantized: the layouts dequantize one [out, in] matrix at a time, per expert.
                 if isinstance(self.weight, QuantizedTensor):
-                    return CastBiasWeightContext(self, input=None, dtype=self.weight.dtype, device=input.device, bias_dtype=input.dtype, offloadable=True)
+                    return CastBiasWeightContext(self, input=None, dtype=self.weight.dtype, device=input.device, bias_dtype=input.dtype, offloadable=True, want_requant=True)
                 return CastBiasWeightContext(self, input, offloadable=True)
 
             def _dequantize_bank(self, weight, dtype):
@@ -2385,7 +2385,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 if isinstance(weight, QuantizedTensor):
                     qw = self._expert_qt_from(weight, i)
                 else:
-                    qw = cast_to_input(weight[i], input, copy=False)
+                    qw = cast_to_input(weight.reshape(self.num_experts, self.out_features, self.in_features)[i], input, copy=False)
                 b = cast_to_input(bias[i], input, copy=False) if bias is not None else None
 
                 if isinstance(qw, QuantizedTensor):

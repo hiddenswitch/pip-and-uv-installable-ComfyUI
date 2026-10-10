@@ -1,0 +1,40 @@
+{
+  "source_commit": "395dd8633b497d13dd3a452cf35a924ce0475901",
+  "wheel": "comfyui-0.39.0.1-py3-none-any.whl",
+  "wheel_sha256": "2d91dbd3dc4688c3ec2a1e77494b026204d7a4f9f02f7c009281006982f55c5d",
+  "note": "Unversioned release candidate; not published. Packaged runtime files match checkout.",
+  "verified_files": [
+    {
+      "path": "comfy/tensor_parallel/hunyuan_image3.py",
+      "sha256": "149ea2607d835664e6f6814211fca209b2a532dcdae49050405c4379abf2dce9"
+    },
+    {
+      "path": "comfy/tensor_parallel/kandinsky6.py",
+      "sha256": "eeac6bbb35665c77fd903077bb7ff499bb74391f3ca517f2c9dcb38d6bfe31db"
+    },
+    {
+      "path": "comfy/tensor_parallel/custom_node_state.py",
+      "sha256": "ea94c45e28227402f96f60c83ae32a51a92e94938700ba02155d93af5fe9d281"
+    },
+    {
+      "path": "comfy/interruption.py",
+      "sha256": "0619ba570a11b5b2674d5f663d83c31b43ec07a276251ba4b1f4fa99b1d3a065"
+    },
+    {
+      "path": "comfy/nodes/vanilla_node_importing.py",
+      "sha256": "1959ab0c507154f9cc1185c3b30c5a020e531db31c9f9b76f97ab9798564302b"
+    },
+    {
+      "path": "comfy/custom_node_facade/server.py",
+      "sha256": "dea198403b64a9674f9a2b82d429a7d22034e4a0522f105ffd697bcf6636a8da"
+    },
+    {
+      "path": "comfy/custom_node_facade/registry.py",
+      "sha256": "f8a663a00b13cb65a4dcc0e8e41d5a4e2b75b9a604ed0657a3608c4acadfc40e"
+    },
+    {
+      "path": "comfy/custom_nodes/pip_facade_registry_snapshot.sqlite.xz",
+      "sha256": "10c23fdf89fe64a839d453e5d0be2498a533ae4cbb585d3c17dc2dc8fa815b6b"
+    }
+  ]
+}

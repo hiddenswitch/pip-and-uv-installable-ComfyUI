@@ -21,6 +21,7 @@ from ..distributed.process_group import (
 )
 from ..distributed.tracing import distributed_command_span, inject_trace_context
 from ..model_management_types import ModelManageableStub
+from ..interruption import defer_interruption
 from ..pipeline_parallel.types import (
     TensorDescriptor,
     pack_pipeline_value,
@@ -120,6 +121,7 @@ class TorchDistributedModelParallelExecutor:
     def execute(self, *args, **kwargs):
         return self.execute_method("forward", *args, **kwargs)
 
+    @defer_interruption()
     def execute_method(self, method, *args, **kwargs):
         tensors = {}
         structure = pack_pipeline_value(
@@ -466,6 +468,10 @@ def _run_worker(operations, coordinator, patcher, span_name):
                     coordinator.send_object({"kind": "done"}, 0)
                 except Exception:
                     _send_worker_error(coordinator, operations.rank)
+                finally:
+                    # Do not keep the last invocation's inputs or custom-node
+                    # cache tensors alive while waiting for another command.
+                    tensors = args = kwargs = None
 
 
 def worker_main(host, port, authkey, parallel_kind="tensor"):

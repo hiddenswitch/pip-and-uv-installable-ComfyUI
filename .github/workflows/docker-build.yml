@@ -1,6 +1,7 @@
 name: Build, Validate, and Publish CUDA Images
 
 on:
+  workflow_dispatch:
   push:
     branches: [develop, master]
     tags: ["v*"]
@@ -128,7 +129,7 @@ jobs:
 
   promote:
     needs: [build-candidates, validate-candidates]
-    if: startsWith(github.ref, 'refs/heads/')
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     environment: Testing
     permissions:
@@ -151,6 +152,7 @@ jobs:
           tags=(--tag "${image}:${short_sha}" --tag "${image}:${short_sha}-cuda")
           if [ "$GITHUB_REF" = refs/heads/master ]; then
             tags+=(--tag "${image}:latest" --tag "${image}:latest-cuda")
+            tags+=(--tag "${image}:master-${short_sha}-$(date +%s)")
           else
             tags+=(--tag "${image}:develop" --tag "${image}:develop-cuda")
           fi

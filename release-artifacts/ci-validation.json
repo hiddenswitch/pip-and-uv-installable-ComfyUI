@@ -1,0 +1,151 @@
+{
+  "checked_at": "2026-10-10T23:47:45.272172+00:00",
+  "runtime_tree": "ee04054cc64e6e5b4403c3961eeb452e4d04c789",
+  "runs": [
+    {
+      "id": 38091116046,
+      "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38091116046",
+      "triggered_sha": "509d066923a5a8aa55b68b08787701124973cc93",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "Full suite \u2014 Arch Python / PyTorch 2.14 CPU",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114327577035,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38091116046/job/114327577035",
+          "startedAt": "2026-10-10T22:21:31Z",
+          "completedAt": "2026-10-10T22:35:38Z"
+        }
+      ]
+    },
+    {
+      "id": 38090869420,
+      "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090869420",
+      "triggered_sha": "509d066923a5a8aa55b68b08787701124973cc93",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "Build CUDA 13.3 / PyTorch 2.13 candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114326848001,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090869420/job/114326848001",
+          "startedAt": "2026-10-10T22:17:37Z",
+          "completedAt": "2026-10-10T22:31:52Z"
+        },
+        {
+          "name": "Validate CUDA 13.3 / PyTorch 2.13 candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114329469910,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090869420/job/114329469910",
+          "startedAt": "2026-10-10T22:31:54Z",
+          "completedAt": "2026-10-10T22:53:53Z"
+        }
+      ]
+    },
+    {
+      "id": 38091025688,
+      "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38091025688",
+      "triggered_sha": "509d066923a5a8aa55b68b08787701124973cc93",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "build",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114327320853,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38091025688/job/114327320853",
+          "startedAt": "2026-10-10T22:20:12Z",
+          "completedAt": "2026-10-10T22:36:25Z"
+        },
+        {
+          "name": "validate-rx7600",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114330319602,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38091025688/job/114330319602",
+          "startedAt": "2026-10-10T22:36:27Z",
+          "completedAt": "2026-10-10T22:59:57Z"
+        }
+      ]
+    },
+    {
+      "id": 38090870542,
+      "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090870542",
+      "triggered_sha": "509d066923a5a8aa55b68b08787701124973cc93",
+      "status": "completed",
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "name": "macOS 14 Python 3.12 PyTorch 2.13",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114326853558,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090870542/job/114326853558",
+          "startedAt": "2026-10-10T22:17:44Z",
+          "completedAt": "2026-10-10T22:20:10Z"
+        },
+        {
+          "name": "Windows RTX 3090 CUDA 12.8 PyTorch 2.10",
+          "status": "completed",
+          "conclusion": "failure",
+          "databaseId": 114326853772,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090870542/job/114326853772",
+          "startedAt": "2026-10-10T22:56:34Z",
+          "completedAt": "2026-10-10T23:42:22Z"
+        },
+        {
+          "name": "Python 3.11 PyTorch 2.11 XPU",
+          "status": "completed",
+          "conclusion": "success",
+          "databaseId": 114326853818,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38090870542/job/114326853818",
+          "startedAt": "2026-10-10T22:17:39Z",
+          "completedAt": "2026-10-10T22:32:50Z"
+        }
+      ]
+    },
+    {
+      "id": 38096220897,
+      "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38096220897",
+      "triggered_sha": "4d639fec235363fed29b6662bb47aac4ec3da02b",
+      "status": "in_progress",
+      "conclusion": "",
+      "jobs": [
+        {
+          "name": "Windows RTX 3090 CUDA 12.8 PyTorch 2.10",
+          "status": "in_progress",
+          "conclusion": "",
+          "databaseId": 114342553884,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38096220897/job/114342553884",
+          "startedAt": "2026-10-10T23:47:17Z",
+          "completedAt": "0001-01-01T00:00:00Z"
+        },
+        {
+          "name": "Python 3.11 PyTorch 2.11 XPU",
+          "status": "in_progress",
+          "conclusion": "",
+          "databaseId": 114342554027,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38096220897/job/114342554027",
+          "startedAt": "2026-10-10T23:47:17Z",
+          "completedAt": "0001-01-01T00:00:00Z"
+        },
+        {
+          "name": "macOS 14 Python 3.12 PyTorch 2.13",
+          "status": "in_progress",
+          "conclusion": "",
+          "databaseId": 114342554284,
+          "url": "https://github.com/hiddenswitch/pip-and-uv-installable-ComfyUI/actions/runs/38096220897/job/114342554284",
+          "startedAt": "2026-10-10T23:47:23Z",
+          "completedAt": "0001-01-01T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "remaining": "Backend CI rerunning at 4d639fec2 after closing test-owned SQLite connections before atomic replacement. Previous Windows result: 7757 passed, 2741 skipped, one test failure; production reader already closes connections. Exact-SHA checkout is included in the rerun. Runtime tree unchanged."
+}

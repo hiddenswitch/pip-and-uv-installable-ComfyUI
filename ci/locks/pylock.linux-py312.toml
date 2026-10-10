@@ -367,6 +367,11 @@ version = "1.1.10"
 wheels = [{ url = "https://nodes.appmana.com/packages/comfyui-gguf/1.1.10/comfyui_gguf-1.1.10-py3-none-any.whl", hashes = {} }]
 
 [[packages]]
+name = "comfyui-hunyuanimage3"
+version = "0.1.0"
+wheels = [{ url = "https://nodes.appmana.com/packages/comfyui-hunyuanimage3/0.1.0/comfyui_hunyuanimage3-0.1.0-py3-none-any.whl", hashes = {} }]
+
+[[packages]]
 name = "comfyui-impact-pack"
 version = "8.28.3"
 wheels = [{ url = "https://nodes.appmana.com/packages/comfyui-impact-pack/8.28.3/comfyui_impact_pack-8.28.3-py3-none-any.whl", hashes = {} }]
@@ -538,6 +543,12 @@ name = "ddt"
 version = "1.7.2"
 sdist = { url = "https://files.pythonhosted.org/packages/51/d4/bdea45c5c1f1f0ae55844d841101b00905c9863ee1004da37d911253abb2/ddt-1.7.2.tar.gz", upload-time = 2024-02-26T01:36:33Z, size = 13673, hashes = { sha256 = "d215d6b083963013c4a19b1e4dcd6a96e80e43ab77519597a6acfcf2e9a3e04b" } }
 wheels = [{ url = "https://files.pythonhosted.org/packages/61/7c/38d1aec205833096eddefcbb3492fbb2c886e74174c72bc160da9522b2f0/ddt-1.7.2-py2.py3-none-any.whl", upload-time = 2024-02-26T01:36:32Z, size = 7065, hashes = { sha256 = "6adcfaf9785f0a36f9e73a89b91e412de9ef8649e289b750e3683bc79d5e2354" } }]
+
+[[packages]]
+name = "decorator"
+version = "5.3.1"
+sdist = { url = "https://files.pythonhosted.org/packages/60/8b/32f9823da46cde7df2087faa08cd98d01b908f8dcab982cdba9c84e85355/decorator-5.3.1.tar.gz", upload-time = 2026-05-18T06:03:28Z, size = 58084, hashes = { sha256 = "4cbcdd55a6efadb9dbea26b858f4fb3264567b52d69ca0d25b721b553f60ea82" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/05/7f/798705f5296a58ca505d600456748d1be48078eac8a7050d8a98bc9edb89/decorator-5.3.1-py3-none-any.whl", upload-time = 2026-05-18T06:03:26Z, size = 10365, hashes = { sha256 = "f47fe6fdbd2edd623ecfe36875d37aba411624e2670dd395dddae1358689bb3c" } }]
 
 [[packages]]
 name = "deepdiff"
@@ -981,6 +992,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa
 wheels = [{ url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", upload-time = 2025-09-08T01:34:57Z, size = 18437, hashes = { sha256 = "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe" } }]
 
 [[packages]]
+name = "kandinsky6"
+version = "1.0.2"
+wheels = [{ url = "https://nodes.appmana.com/packages/kandinsky6/1.0.2/kandinsky6-1.0.2-py3-none-any.whl", hashes = {} }]
+
+[[packages]]
+name = "kandinsky6-sr"
+version = "0.1.2"
+wheels = [{ url = "https://nodes.appmana.com/packages/kandinsky6-sr/0.1.2/kandinsky6_sr-0.1.2-py3-none-any.whl", hashes = {} }]
+
+[[packages]]
 name = "kiwisolver"
 version = "1.5.1"
 sdist = { url = "https://files.pythonhosted.org/packages/ba/07/bd78e6a8fae171ea041ef5bba3ed21a003522fa088834b069b1909981f30/kiwisolver-1.5.1.tar.gz", upload-time = 2026-08-28T10:28:27Z, size = 104395, hashes = { sha256 = "f1303ef2eec81262a4b708c3e858afe58d7c75ad91c1c05266eda7673369859a" } }
@@ -1011,6 +1032,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/08/a2/69df9c6ba6d316cfd
 wheels = [{ url = "https://files.pythonhosted.org/packages/55/64/314889b618075c2bfc19293ffa9153ce880ac6153aacfd0a52fcabf21a66/lazy_object_proxy-1.12.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", upload-time = 2025-08-22T13:42:38Z, size = 71457, hashes = { sha256 = "4ab2c584e3cc8be0dfca422e05ad30a9abe3555ce63e9ab7a559f62f8dbc6ff9" } }]
 
 [[packages]]
+name = "librosa"
+version = "1.0.0"
+sdist = { url = "https://files.pythonhosted.org/packages/8e/c1/ce66b20953b7370421dd13d22b4e04e401346c824ceacb9f4e722eec84dc/librosa-1.0.0.tar.gz", upload-time = 2026-08-11T15:37:37Z, size = 377965, hashes = { sha256 = "73ed480d4022e436e85dfa6f6b06ff38a259b9210039ac99939cd64854b61a57" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/96/14/0b2e4cc8017796dc8f69de740708601832c1e8d5377166eedb4db0a92264/librosa-1.0.0-py3-none-any.whl", upload-time = 2026-08-11T15:37:35Z, size = 294628, hashes = { sha256 = "5910a6c0e1b2e494b92758c1615a7acbd0515a2315e138927ba2982f2af88857" } }]
+
+[[packages]]
 name = "librt"
 version = "0.15.0"
 marker = "platform_python_implementation != 'PyPy'"
@@ -1029,6 +1056,12 @@ version = "5.1.0"
 marker = "python_full_version >= '3.11'"
 sdist = { url = "https://files.pythonhosted.org/packages/50/8a/3d108abf3ad67166fa22742b414ec386de042e5762de3e7b0c644cd6f359/logfire_api-5.1.0.tar.gz", upload-time = 2026-09-11T10:25:13Z, size = 96091, hashes = { sha256 = "16abf9d7d35e08cda2dab66fd0883cabaa4d4206f3dcea0f5967dbc823f01d6d" } }
 wheels = [{ url = "https://files.pythonhosted.org/packages/2d/51/123dab197fb08c0892e3bea1c2266bff159aa2ee82ad43bef93505859705/logfire_api-5.1.0-py3-none-any.whl", upload-time = 2026-09-11T10:25:10Z, size = 146617, hashes = { sha256 = "f3ad92eed63f7fce45580bf92ff85367c695c4a5bfee52241d71a8bacd3e3697" } }]
+
+[[packages]]
+name = "loguru"
+version = "0.7.3"
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", upload-time = 2024-12-06T11:20:56Z, size = 63559, hashes = { sha256 = "19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", upload-time = 2024-12-06T11:20:54Z, size = 61595, hashes = { sha256 = "31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c" } }]
 
 [[packages]]
 name = "lxml"
@@ -1115,6 +1148,12 @@ name = "mpmath"
 version = "1.3.0"
 sdist = { url = "https://files.pythonhosted.org/packages/e0/47/dd32fa426cc72114383ac549964eecb20ecfd886d1e5ccf5340b55b02f57/mpmath-1.3.0.tar.gz", upload-time = 2023-03-07T16:47:11Z, size = 508106, hashes = { sha256 = "7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f" } }
 wheels = [{ url = "https://files.pythonhosted.org/packages/43/e3/7d92a15f894aa0c9c4b49b8ee9ac9850d6e63b03c9c32c0367a13ae62209/mpmath-1.3.0-py3-none-any.whl", upload-time = 2023-03-07T16:47:09Z, size = 536198, hashes = { sha256 = "a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c" } }]
+
+[[packages]]
+name = "msgpack"
+version = "1.2.3"
+sdist = { url = "https://files.pythonhosted.org/packages/0a/e7/bb605a7bab2d8425a64b3fa762b39dc1bf1c7e3f11ba6fb5413d6db0ff8c/msgpack-1.2.3.tar.gz", upload-time = 2026-09-29T02:33:52Z, size = 196517, hashes = { sha256 = "32edb81a2b5eb7cd7c9d941b2bfbbb082fd2cd09e0e725930316af6b708db186" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/3a/cf/9c2e4d6c179529d5bf4a64cff76fa581486569e9fbdd35bd98f51cb624bf/msgpack-1.2.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2026-09-29T02:32:06Z, size = 472998, hashes = { sha256 = "ede33b2892ceb976283e009ad12fa1834cfdf1f9c43ee9c97849fc588d00a618" } }]
 
 [[packages]]
 name = "multidict"
@@ -1975,12 +2014,17 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/72/1f/62eef605172bddc
 [[packages]]
 name = "soundfile"
 version = "0.14.0"
-marker = "sys_platform != 'darwin'"
 sdist = { url = "https://files.pythonhosted.org/packages/d2/db/949331952a6fb1c5b12e9de80fd08747966c2039d1a61db4764fbd3981c2/soundfile-0.14.0.tar.gz", upload-time = 2026-06-06T08:58:47Z, size = 47842, hashes = { sha256 = "ba1c1a2d618bca5c406647c83b89f07cc8810fa506a50622a6993ba130c1de11" } }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/d1/5e338af9ca6ed0786cd5bb03f6d60de1c325728c1189014f3b59aae7403c/soundfile-0.14.0-py2.py3-none-any.whl", upload-time = 2026-06-06T08:58:33Z, size = 26799, hashes = { sha256 = "8ba81ae3a89fd5ab3bef8a8eb481fbbe794e806309675a89b4df48b8d31908a8" } },
     { url = "https://files.pythonhosted.org/packages/7b/a2/70fd4432b924684c372df8b0a45708c36c057ef3596c9eb53e0a806b980b/soundfile-0.14.0-py2.py3-none-manylinux_2_28_x86_64.whl", upload-time = 2026-06-06T08:58:41Z, size = 1315963, hashes = { sha256 = "1e38bac1853412871318e82a1ba69a8be677619b56025bbfcccdb41b6cafe82d" } },
 ]
+
+[[packages]]
+name = "soxr"
+version = "1.1.0"
+sdist = { url = "https://files.pythonhosted.org/packages/ed/11/27cebce4a108f77afea7c80545115536b45e3f11ebfb914f638fdd9ba847/soxr-1.1.0.tar.gz", upload-time = 2026-05-03T00:15:18Z, size = 173067, hashes = { sha256 = "9f228ae21c78fa9359ca98d8a5e8e91f30639e438e574133dace62c5b5309e44" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/5c/f1/0e55195893228609c9a08c3b13b7a83a46c3a992cd00d3304f0f320cfb07/soxr-1.1.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2026-05-03T00:14:59Z, size = 240413, hashes = { sha256 = "3b033078e86f3c4a658e5697fac8995764fad9e799563616b630136b613167f1" } }]
 
 [[packages]]
 name = "spandrel"
