@@ -68,9 +68,11 @@ def shard_model(model, operations, extension_module):
             linear = getattr(module, attribute)
             axis = 0 if attribute in columns else 1
             factory = operations.ColumnParallelLinear if axis == 0 else operations.RowParallelLinear
+            lazy = linear.weight is None
             replacement = factory(
-                linear.in_features, linear.out_features, bias=linear.bias is not None,
-                device=linear.weight.device, dtype=linear.weight.dtype,
+                linear.in_features, linear.out_features,
+                bias=linear.comfy_need_lazy_init_bias if lazy else linear.bias is not None,
+                device="cpu", dtype=linear.weight_comfy_model_dtype if lazy else linear.weight.dtype,
             )
             setattr(module, attribute, replacement)
             shards[f"{name}.{attribute}"] = axis

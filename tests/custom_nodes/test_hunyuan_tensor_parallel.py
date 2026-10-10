@@ -11,7 +11,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from comfy import ops
+from comfy import memory_management, ops
 from comfy.nodes.vanilla_node_importing import _vanilla_load_custom_nodes_1
 from comfy.pipeline_parallel.checkpoint import SafetensorsCheckpointReader
 from comfy.tensor_parallel.hunyuan_image3 import _load_state, _shard_model
@@ -153,7 +153,8 @@ def test_installed_hunyuan_transformer_matches_replicated_model(size, tokens, tm
 
 
 @pytest.mark.parametrize("size", [2, 4])
-def test_installed_kandinsky_asymmetric_attention_matches_full_model(size, tmp_path):
+@pytest.mark.parametrize("lazy", [False, True])
+def test_installed_kandinsky_asymmetric_attention_matches_full_model(size, lazy, tmp_path, monkeypatch):
     entry = next(ep for ep in distribution("kandinsky6").entry_points if ep.group == "comfyui.custom_nodes").load()
     root = Path(entry.COMFYUI_VANILLA_NODE_PATH) / "kandinsky-6"
     prepare_vanilla_environment()
@@ -180,10 +181,12 @@ def test_installed_kandinsky_asymmetric_attention_matches_full_model(size, tmp_p
     collective = Collectives(size)
     ranks = []
     for rank in range(size):
-        model = Attention()
-        parallel = TensorParallelConfig(Rank(collective, rank))
-        shards = shard_kandinsky_model(model, tensor_parallel_operations(ops.manual_cast, parallel), root.name)
-        model.load_state_dict(load_kandinsky_state(reader, "", shards, parallel, root.name))
+        with monkeypatch.context() as scoped:
+            scoped.setattr(memory_management, "aimdo_enabled", lazy)
+            model = Attention()
+            parallel = TensorParallelConfig(Rank(collective, rank))
+            shards = shard_kandinsky_model(model, tensor_parallel_operations(ops.manual_cast, parallel), root.name)
+            model.load_state_dict(load_kandinsky_state(reader, "", shards, parallel, root.name), assign=lazy)
         ranks.append(model)
     inputs = torch.randn(1, 3, 32)
     expected = reference(inputs)
