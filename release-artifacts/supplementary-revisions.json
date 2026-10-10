@@ -52,14 +52,42 @@
     "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
     "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
     "path": "vae/diffusion_pytorch_model.safetensors",
-    "destination": "vae/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/vae/diffusion_pytorch_model.safetensors",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/vae/diffusion_pytorch_model.safetensors",
     "size": 6955556660
   },
   {
     "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
     "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
     "path": "latent_upscaler/diffusion_pytorch_model.safetensors",
-    "destination": "vae/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/latent_upscaler/diffusion_pytorch_model.safetensors",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/latent_upscaler/diffusion_pytorch_model.safetensors",
     "size": 7308101968
+  },
+  {
+    "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+    "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
+    "path": "vae/config.json",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/vae/config.json",
+    "size": 569
+  },
+  {
+    "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+    "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
+    "path": "latent_upscaler/config.json",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/latent_upscaler/config.json",
+    "size": 2258
+  },
+  {
+    "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+    "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
+    "path": "transformer/config.json",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/transformer/config.json",
+    "size": 1214
+  },
+  {
+    "repo_id": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+    "revision": "a14152d22f296dee41eb1822511b3aacc2696327",
+    "path": "model_index.json",
+    "destination": "diffusion_models/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers/model_index.json",
+    "size": 359
   }
 ]

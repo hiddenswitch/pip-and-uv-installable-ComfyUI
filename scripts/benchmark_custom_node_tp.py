@@ -76,6 +76,21 @@ def seeded_workflow(workflow, seed):
     return result
 
 
+def add_trace_timings(results, output):
+    for size in {row["tp"] for row in results}:
+        trace = output / f"tp{size}" / "trace.jsonl"
+        spans = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+        for result in results:
+            if result["tp"] != size:
+                continue
+            related = [span for span in spans if result["start_time_unix_nano"] <= span["start_time_unix_nano"] <= result["end_time_unix_nano"]]
+            samplers = [span for span in related if span["name"] == "Sampler Invoke"]
+            result["sampler_seconds"] = sum(span["duration_ms"] for span in samplers) / 1000 if samplers else None
+            for key, classes in (("generator_node_seconds", {"KSampler", "Kandinsky6Sampler"}), ("sr_node_seconds", {"Kandinsky6VSRUpscale"})):
+                nodes = [span for span in related if span["name"] == "Execute Node" and span.get("attributes", {}).get("class_type") in classes]
+                result[key] = sum(span["duration_ms"] for span in nodes) / 1000 if nodes else None
+
+
 def run(args):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -180,13 +195,7 @@ def run(args):
                         process.wait()
         if size > 1 and "with tensor-parallel ranks" not in (destination / "server.log").read_text():
             raise RuntimeError("TP2 did not report loading distributed ranks; refusing a fallback benchmark")
-        spans = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-        for result in results:
-            if result["tp"] != size:
-                continue
-            samplers = [span for span in spans if span["name"] == "Sampler Invoke"
-                        and result["start_time_unix_nano"] <= span["start_time_unix_nano"] <= result["end_time_unix_nano"]]
-            result["sampler_seconds"] = sum(span["duration_ms"] for span in samplers) / 1000 if samplers else None
+    add_trace_timings(results, output)
     (output / "results.json").write_text(json.dumps(results, indent=2))
     with (output / "results.csv").open("w") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=results[0].keys())

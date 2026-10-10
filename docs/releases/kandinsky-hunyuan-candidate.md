@@ -76,7 +76,8 @@ Evidence: `release-artifacts/facade-image-health.json`,
 - Kandinsky 1.0.2 attention/MagCache checks: three tests passed.
 - Fresh server: all 39 node types used by the ten sample workflows were present.
 - Ruff, targeted Pylint and diff checks passed. Candidate CI was dispatched at
-  `0fce37dca`; macOS passed. Final model changes require another complete CI gate.
+  `0fce37dca`; Python/Arch, XPU and macOS passed. CUDA and ROCm are running,
+  and Windows is queued. Final model changes require another complete CI gate.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
@@ -100,9 +101,14 @@ Primary workflows disable approximation caches and prompt rewriting.
 Initial Hunyuan output-row sharding was slower: warm medians 45.42 seconds TP1
 and 55.70 seconds TP2. All four output images were pixel-identical. Merging down
 projections once per layer reduced TP2's median to 51.92 seconds, versus a fresh
-43.92-second TP1 baseline. Whole-expert partitioning is being benchmarked next;
-its first output is also pixel-identical. Do not describe these early timings as
-a TP speedup. Raw runs are retained under `release-artifacts/benchmark-results/`.
+43.92-second TP1 baseline. Whole-expert partitioning completed at
+46.92 seconds TP2 versus the matched 43.92-second TP1 baseline: TP2 remains
+6.8% slower on this distilled 8-step sample. All four images are pixel-identical.
+TP2 cold time was 85.81 seconds versus 82.26 seconds TP1; peak aggregate host PSS
+was 84.5 GiB versus 54.7 GiB. Device memory filled the available cache on both
+configurations, so these measurements do not establish a VRAM reduction.
+The report is `release-artifacts/hunyuan-distil-benchmark.json`; raw runs are
+retained under `release-artifacts/benchmark-results/`.
 
 Before tagging:
 
