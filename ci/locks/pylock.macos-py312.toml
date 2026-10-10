@@ -981,8 +981,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f0215
 
 [[packages]]
 name = "kandinsky6"
-version = "1.0.1"
-wheels = [{ url = "https://nodes.appmana.com/packages/kandinsky6/1.0.1/kandinsky6-1.0.1-py3-none-any.whl", hashes = {} }]
+version = "1.0.2"
+wheels = [{ url = "https://nodes.appmana.com/packages/kandinsky6/1.0.2/kandinsky6-1.0.2-py3-none-any.whl", hashes = {} }]
 
 [[packages]]
 name = "kandinsky6-sr"
