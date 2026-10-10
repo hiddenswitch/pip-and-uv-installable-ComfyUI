@@ -23,7 +23,11 @@ Every projection retains its full input quantization domain. Expert routing slot
 are merged before the top-k sum, preserving upstream's accumulation order.
 The adapter uses upstream expert operations and ComfyUI prefetch/offload helpers.
 Prompt rewriting, Spectrum, and MagCache use explicit call-local state transport;
-their real-model smoke checks remain pending.
+their real-model smoke checks are running. Direct PiFlow/rewrite calls load peer
+models through the existing memory manager and finish their execution state.
+Kandinsky sharding supports DynamicVRAM lazy linear parameters. TP cancellation
+is delivered after the in-flight model call and peer collectives finish, allowing
+the same executor to serve the next workflow.
 
 All seven CI locks resolved. Existing Torch/backend versions were preserved.
 The final public facade installs all three packages into a clean environment;
@@ -75,9 +79,13 @@ Evidence: `release-artifacts/facade-image-health.json`,
 - Published Hunyuan expert-bank parity and checkpoint fingerprint: two tests passed.
 - Kandinsky 1.0.2 attention/MagCache checks: three tests passed.
 - Fresh server: all 39 node types used by the ten sample workflows were present.
-- Ruff, targeted Pylint and diff checks passed. Candidate CI was dispatched at
-  `0fce37dca`; Python/Arch, XPU and macOS passed. CUDA and ROCm are running,
-  and Windows is queued. Final model changes require another complete CI gate.
+- Installed SR discovery regression: one test passed without resolving remote
+  catalog models. Kandinsky lazy/eager TP2/TP4 parity: four tests passed.
+- TP, interruption and direct-call lifecycle regressions: 44 tests passed. The
+  cancellation regression first reproduced the aborted-process-group failure.
+- Full Python/Arch CI passed at `978e60392`; earlier XPU and macOS checks passed.
+  All normal CI gates have been resubmitted at `6b6ef874e`, including the latest
+  runtime fixes. Ruff and diff checks passed.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
@@ -103,6 +111,11 @@ for TP comparisons. SR is validated separately and uses single-device fallback.
 SR component discovery now scans installed bundles without resolving unrelated
 downloadable catalog models; its regression test passed.
 Primary workflows disable approximation caches and prompt rewriting.
+The first full Pro TP2 video completed at 864x480, 121 frames, 24 fps with audio;
+its denoising node took 478.38 seconds. The warm repeat exhausted peer VRAM during
+a fp32 residual allocation, so this run is excluded from the final aggregate.
+Both phases will use the same extra 2 GiB DynamicVRAM headroom for the rerun.
+See `release-artifacts/kandinsky-pro-initial-validation.json`.
 
 Initial Hunyuan output-row sharding was slower: warm medians 45.42 seconds TP1
 and 55.70 seconds TP2. All four output images were pixel-identical. Merging down
