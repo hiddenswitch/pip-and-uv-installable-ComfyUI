@@ -65,7 +65,8 @@ full release produces a validated promotion tag. Do not replace this service
 image with an older image lacking the readiness flags.
 
 Evidence: `release-artifacts/facade-image-health.json`,
-`facade-public-validation.json`, and `live-snapshot-refresh.json`.
+`facade-public-validation.json`, `live-snapshot-refresh.json`, and
+`facade-renewal-validation.json` (a later scheduled generation remains ready).
 
 ## Validation
 
@@ -80,6 +81,9 @@ Evidence: `release-artifacts/facade-image-health.json`,
 - Published Hunyuan expert-bank parity and checkpoint fingerprint: two tests passed.
 - Kandinsky 1.0.2 attention/MagCache checks: three tests passed.
 - Fresh server: all 39 node types used by the ten sample workflows were present.
+  All nine generation graphs have valid static references/output indices, required
+  inputs (including Autogrow), and referenced checkpoint files. This preflight
+  does not substitute for execution; see `release-artifacts/workflow-preflight.json`.
 - Hunyuan TP2 real-model lifecycle: initial generation, interruption, retry and
   unload/reload passed with Spectrum cache skips. A separate text-only rewrite
   reached its closing tag after 307 tokens (689 seconds), returning a complete
@@ -101,7 +105,8 @@ Evidence: `release-artifacts/facade-image-health.json`,
   ROCm found a missing Triton host compiler and an overbroad host-storage test.
   The image now includes build-essential; the test requires its own file to be
   on an exposed btrfs/NVMe mount. All nine storage tests pass locally.
-  Final normal CI gates are running at `509d06692`. Ruff and diff checks passed.
+  At `509d06692`, Python/Arch, CUDA, XPU and macOS passed; ROCm and Windows
+  are running. Ruff and diff checks passed.
 - Upstream Hunyuan suite: 108 passed, 17 skipped, one legacy generator test failed.
   It expects `generator.model.device` to be assigned by ModelPatcher; this fork
   owns placement on the patcher. The actual node loader/offload path generates
