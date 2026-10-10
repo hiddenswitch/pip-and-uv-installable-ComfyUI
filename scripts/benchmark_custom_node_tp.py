@@ -109,6 +109,9 @@ def run(args):
         "driver": pynvml.nvmlSystemGetDriverVersion(),
         "model_revisions": json.loads(args.revisions.read_text()),
         "sampling_interval_seconds": 0.2,
+        "server_args": args.server_arg,
+        "baseline_gpu": args.baseline_gpu,
+        "tp_gpus": args.tp_gpus,
     }
     results_path = output / "results.json"
     results = [row for row in json.loads(results_path.read_text()) if row["tp"] not in args.tp_sizes] if results_path.exists() else []

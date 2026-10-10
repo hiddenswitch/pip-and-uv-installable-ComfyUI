@@ -148,7 +148,7 @@
       "enabled": true,
       "mode": "rewrite only",
       "cot_head": "auto",
-      "max_new_tokens": 16,
+      "max_new_tokens": 256,
       "seed": 0,
       "do_sample": false,
       "temperature": 0.6,
