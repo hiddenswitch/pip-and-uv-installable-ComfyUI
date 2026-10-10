@@ -15,5 +15,18 @@
     ],
     "preparation": "ffmpeg looped portrait, scale to fill 512x512, center crop, libx264 yuv420p",
     "purpose": "SR functional check within A5000 VRAM; not a full-sample benchmark"
+  },
+  "sr_temporal_smoke_video": {
+    "file": "kandinsky6_sr_temporal_smoke.mp4",
+    "sha256": "a1dd3a96b69c3757172ae510a2b5351e6e12e03c81910311b572206eccce42c3",
+    "source": "kandinsky6_i2va_portrait.png",
+    "frames": 9,
+    "fps": 24,
+    "size": [
+      512,
+      512
+    ],
+    "preparation": "ffmpeg looped portrait, scale to fill 512x512, center crop, libx264 yuv420p",
+    "purpose": "SR functional check within A5000 VRAM; not a full-sample benchmark"
   }
 }
