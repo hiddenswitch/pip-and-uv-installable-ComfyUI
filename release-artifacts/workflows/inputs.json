@@ -1,0 +1,6 @@
+{
+  "image": "kandinsky6_i2va_portrait.png",
+  "source": "kandinsky6==1.0.1/example_inputs/kandinsky6_i2va_portrait.png",
+  "sha256": "ae9f3b9d68527594efd30088bf42747b4c27a9501631422f6b678ba26ea96a09",
+  "hunyuan_editing_input": "Uses the same portrait because the upstream Hunyuan workflows do not bundle hunyuan_image_3_conditioning.png."
+}
