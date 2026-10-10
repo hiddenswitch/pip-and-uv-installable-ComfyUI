@@ -5,6 +5,7 @@ name: Backend Tests
 # device-specific install, imports, kernels, compatibility shims, and model
 # backends that a hosted CPU runner cannot cover.
 on:
+  workflow_dispatch:
   push:
     branches: [develop]
 
