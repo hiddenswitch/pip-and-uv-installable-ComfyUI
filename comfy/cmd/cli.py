@@ -299,6 +299,7 @@ _TELEMETRY_OPTS: list[tuple] = [
 
 _LOGGING_OPTS: list[tuple] = [
     ("logging_level", str, typer.Option("INFO", "--logging-level", click_type=click.Choice(["DEBUG", "DETAIL", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Specifies the logging level.")),
+    ("aimdo_logging_level", str, typer.Option("ERROR", "--aimdo-logging-level", click_type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), help="Log level of comfy-aimdo's native library (DynamicVRAM), apart from --logging-level. Its VRAM usage dump logs every pinned page at WARNING.")),
     ("debug_hang", bool, typer.Option(False, "--debug-hang/--no-debug-hang", help="Enable stack trace dumps on Ctrl-C for debugging hangs.")),
 ]
 
