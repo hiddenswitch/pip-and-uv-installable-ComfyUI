@@ -5,6 +5,7 @@ import lzma
 import os
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -77,7 +78,7 @@ async def test_snapshot_unavailable_and_expired_generations_recover(tmp_path: Pa
     with pytest.raises(SnapshotUnavailableError):
         await registry.list_projects()
     write()
-    with sqlite3.connect(output) as connection:
+    with closing(sqlite3.connect(output)) as connection, connection:
         connection.execute("UPDATE metadata SET value = ? WHERE key = 'created_at'", (
             (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
         ))
@@ -96,7 +97,7 @@ async def test_snapshot_age_limit_is_optional(tmp_path: Path):
         output, projects=[project], versions_by_node_id={project.node_id: [_sample_version()]},
         base_url="https://registry.example.invalid", only_known_nodes=True,
     )
-    with sqlite3.connect(output) as connection:
+    with closing(sqlite3.connect(output)) as connection, connection:
         connection.execute("UPDATE metadata SET value = '2000-01-01T00:00:00+00:00' WHERE key = 'created_at'")
     registry = SnapshotFacadeRegistry(snapshot_uri=str(output))
     assert await registry.get_project(project.node_id) == project
