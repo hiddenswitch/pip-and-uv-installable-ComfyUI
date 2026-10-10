@@ -286,8 +286,13 @@ def _apply_post_import_patches(module_name: str) -> None:
         def local_model_files():
             # SR discovers component types from adjacent config files. Remote
             # catalog entries must not trigger downloads during this scan.
-            return sorted({name for folder in (nodes.SR_MODEL_FOLDER, "diffusion_models")
-                           for name in get_filename_list_with_downloadable(folder, known_files=[])})
+            names = set()
+            for folder in (nodes.SR_MODEL_FOLDER, "diffusion_models"):
+                try:
+                    names.update(get_filename_list_with_downloadable(folder, known_files=[]))
+                except (KeyError, OSError):
+                    continue
+            return sorted(names)
 
         nodes._model_files = local_model_files
 
