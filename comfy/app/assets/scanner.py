@@ -63,12 +63,13 @@ from .services.file_utils import is_visible
 from .services.file_utils import list_files_recursively
 from .services.file_utils import walk_listings
 from .services.gil import yield_gil
-from .services.image_dimensions import extract_image_dimensions
+from .services.media_metadata import extract_media_metadata
 from .services.metadata_extract import ExtractedMetadata
 from .services.metadata_extract import extract_file_metadata
 from .services.path_utils import compute_loader_path
 from .services.path_utils import get_comfy_models_folders
 from .services.path_utils import get_name_and_tags_from_asset_path
+from .services.path_utils import models_folders_snapshot
 from .services.snapshot_hash import snapshot_hash
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -641,38 +642,40 @@ def build_asset_specs(
 
     admitted_paths, _ = _two_stat_admit(candidates, progress, should_stop)
     candidate_stats = dict(candidates)
-    for abs_p in admitted_paths:
-        if should_stop():
-            return [], set(), skipped
-        yield_gil()
-        stat_p = candidate_stats[abs_p]
-        name, tags = get_name_and_tags_from_asset_path(abs_p)
-        rel_fname = compute_loader_path(abs_p)
+    # every admitted file is classified against the same model folders
+    with models_folders_snapshot():
+        for abs_p in admitted_paths:
+            if should_stop():
+                return [], set(), skipped
+            yield_gil()
+            stat_p = candidate_stats[abs_p]
+            name, tags = get_name_and_tags_from_asset_path(abs_p)
+            rel_fname = compute_loader_path(abs_p)
 
-        # Extract metadata (tier 1: filesystem, tier 2: safetensors header)
-        metadata = None
-        if enable_metadata_extraction:
-            metadata = extract_file_metadata(
-                abs_p,
-                stat_result=stat_p,
-                relative_filename=rel_fname,
+            # Extract metadata (tier 1: filesystem, tier 2: safetensors header)
+            metadata = None
+            if enable_metadata_extraction:
+                metadata = extract_file_metadata(
+                    abs_p,
+                    stat_result=stat_p,
+                    relative_filename=rel_fname,
+                )
+
+            mime_type = metadata.content_type if metadata else None
+            specs.append(
+                {
+                    "abs_path": abs_p,
+                    "size_bytes": stat_p.st_size,
+                    "mtime_ns": get_mtime_ns(stat_p),
+                    "info_name": name,
+                    "tags": tags,
+                    "fname": rel_fname,
+                    "metadata": metadata,
+                    "mime_type": mime_type,
+                    "job_id": None,
+                }
             )
-
-        mime_type = metadata.content_type if metadata else None
-        specs.append(
-            {
-                "abs_path": abs_p,
-                "size_bytes": stat_p.st_size,
-                "mtime_ns": get_mtime_ns(stat_p),
-                "info_name": name,
-                "tags": tags,
-                "fname": rel_fname,
-                "metadata": metadata,
-                "mime_type": mime_type,
-                "job_id": None,
-            }
-        )
-        tag_pool.update(tags)
+            tag_pool.update(tags)
 
     return specs, tag_pool, skipped
 
@@ -1036,10 +1039,9 @@ def enrich_asset(
 
     if extract_metadata and metadata:
         system_metadata = metadata.to_user_metadata()
-        if mime_type and mime_type.startswith("image/"):
-            dims = extract_image_dimensions(file_path, mime_type=mime_type)
-            if dims:
-                system_metadata.update(dims)
+        dims = extract_media_metadata(file_path, mime_type=mime_type)
+        if dims:
+            system_metadata.update(dims)
         record.system_metadata = {**(record.system_metadata or {}), **system_metadata}
 
     if stored_hash:

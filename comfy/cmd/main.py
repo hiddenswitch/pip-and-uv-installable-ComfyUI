@@ -156,6 +156,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
                 execution_start_time = time.perf_counter()
                 prompt_id = item[1]
                 server_instance.last_prompt_id = prompt_id
+                server_instance.workflow_metadata = item[3].get("workflow_metadata", {})
 
                 sensitive = item[5]
                 extra_data = item[3].copy()
@@ -195,6 +196,7 @@ async def _prompt_worker(q: AbstractPromptQueue, server_instance: server_module.
 
                 if server_instance.client_id is not None:
                     server_instance.send_sync("executing", {"node": None, "prompt_id": prompt_id}, server_instance.client_id)
+                server_instance.workflow_metadata = {}
 
                 current_time = time.perf_counter()
                 execution_time = current_time - execution_start_time
@@ -306,6 +308,11 @@ async def __start_comfyui(from_script_dir: Optional[Path] = None):
         user_dir = os.path.abspath(args.user_directory)
         logger.info(f"Setting user directory to: {user_dir}")
         folder_paths.set_user_directory(user_dir)
+
+    # A governed build applies its signed policy before Manager is imported: Manager's prestartup runs scheduled installs
+    # before any pack is checked, so the policy may turn it off, and a policy that cannot be applied stops startup first.
+    from ..app import governance
+    governance.initialize(args)
 
     # Initialize comfyui_manager if available and enabled
     from ..manager_integration import init_manager, prestartup as manager_prestartup, start as manager_start

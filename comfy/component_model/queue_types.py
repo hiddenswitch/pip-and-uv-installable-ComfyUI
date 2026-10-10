@@ -95,6 +95,7 @@ class ExtraData(TypedDict):
     client_id: NotRequired[str]
     extra_pnginfo: NotRequired[str]
     token: NotRequired[str]
+    workflow_metadata: NotRequired[dict[str, str]]
 
 
 class QueueDict(dict):

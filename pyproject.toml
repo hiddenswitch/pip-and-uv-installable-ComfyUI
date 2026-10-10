@@ -1,6 +1,6 @@
 [project]
 name = "comfyui"
-version = "0.38.0.1"
+version = "0.39.0.1"
 description = "An installable version of ComfyUI"
 readme = "README.md"
 authors = [
@@ -20,11 +20,11 @@ classifiers = [
 
 dependencies = [
     # todo: it looks like there are breaking frontend package changes, so this really does need to be pinned?
-    "comfyui-frontend-package==1.54.7",
-    "comfyui-workflow-templates==0.11.76",
+    "comfyui-frontend-package==1.55.14",
+    "comfyui-workflow-templates==0.11.78",
     "comfyui-embedded-docs==0.5.13",
     "comfy-kitchen==0.2.37",
-    "comfy-aimdo==0.5.5",
+    "comfy-aimdo==0.5.6",
     # todo: what should this really be? what's the idea?
     "comfyui_manager>=4.2.2,<5",
     "click",
@@ -130,7 +130,8 @@ dependencies = [
     # everything that is a torch extension will need setuptools, so just include it
     "setuptools",
     "alembic",
-    "SQLAlchemy>=2.0,<3",
+    # SQLAlchemy 2.1's pure-Python wheel fails with the Cython shipped by NGC.
+    "SQLAlchemy>=2.0,<2.1",
     "filelock",
     "gguf",
     "trimesh",
@@ -143,6 +144,7 @@ dependencies = [
     # we want this upgraded
     "propcache>=0.4.1",
     "blake3",
+    "cryptography",
     "requests<2.34",
     "matrix-nio",
     "rich",
@@ -154,6 +156,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.optional-dependencies]
+notebook-tests = ["ipykernel", "jupyter-client"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -202,6 +205,7 @@ timeout_method = "thread"
 faulthandler_timeout = 600
 markers = [
     "server_process: tests which start a child process or a ComfyUI server",
+    "ipython(capture_fd_output=True): run a self-contained test function in a fresh IPython kernel",
 ]
 filterwarnings = [
     "ignore",

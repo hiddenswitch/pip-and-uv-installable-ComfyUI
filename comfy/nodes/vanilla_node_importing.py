@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from comfy_compatibility.vanilla import prepare_vanilla_environment, patch_pip_install_subprocess_run, patch_pip_install_popen
 from . import base_nodes
+from ..app import governance
 from .comfyui_v3_package_imports import _comfy_entrypoint_upstream_v3_imports
 from .download_interception import (
     patch_hf_hub_download,
@@ -155,7 +156,7 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
         module_name = splitext(script_path)[0]
         try:
             with _stdout_intercept(module_name):
-                spec = importlib.util.spec_from_file_location(module_name, script_path)
+                spec = governance.pack_module_spec(module_name, script_path)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
             return True
@@ -174,6 +175,11 @@ def _vanilla_load_importing_execute_prestartup_script(node_paths: Iterable[str])
         for possible_module in possible_modules:
             module_path = join(custom_node_path, possible_module)
             if isfile(module_path) or module_path.endswith(".disabled") or module_path == "__pycache__":
+                continue
+
+            refusal = governance.pack_refusal(module_path)
+            if refusal is not None:
+                logger.warning(refusal)
                 continue
 
             # Check if manager policy blocks this node
@@ -618,10 +624,10 @@ def _vanilla_load_custom_nodes_1(module_path, ignore: set = None) -> ExportedNod
         module_name = sp[0]
     try:
         if isfile(module_path):
-            module_spec = importlib.util.spec_from_file_location(module_name, module_path)
+            module_spec = governance.pack_module_spec(module_name, module_path)
             module_dir = split(module_path)[0]
         else:
-            module_spec = importlib.util.spec_from_file_location(module_name, join(module_path, "__init__.py"))
+            module_spec = governance.pack_module_spec(module_name, join(module_path, "__init__.py"))
             module_dir = module_path
 
         module = importlib.util.module_from_spec(module_spec)
@@ -698,6 +704,10 @@ def _vanilla_load_custom_nodes_2(node_paths: Iterable[str]) -> ExportedNodes:
             from ..manager_integration import should_be_disabled
             if should_be_disabled(module_path):
                 logger.info(f"Blocked by manager policy: {module_path}")
+                continue
+            refusal = governance.pack_refusal(module_path)
+            if refusal is not None:
+                logger.warning(refusal)
                 continue
             time_before = time.perf_counter()
             possible_exported_nodes = _vanilla_load_custom_nodes_1(module_path, ignore=base_node_names)

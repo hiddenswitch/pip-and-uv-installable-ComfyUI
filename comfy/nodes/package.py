@@ -167,6 +167,10 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
         _nodes_available_at_startup = _nodes_local.nodes = ExportedNodes()
     args = current_execution_context().configuration
     import sys as _sys
+    from ..app import governance
+
+    governance.initialize(args)
+    disabled_nodes = governance.load_disabled_nodes(args.disabled_nodes_config) if args.disabled_nodes_config else set()
 
     # todo: this is some truly braindead stuff
     register_versions([
@@ -197,6 +201,7 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
     if args.disable_all_custom_nodes:
         logger.info("Loading custom nodes was disabled, only base and extra nodes were loaded")
         _nodes_available_at_startup.update(base_and_extra)
+        governance.apply_disabled_nodes(_nodes_available_at_startup, disabled_nodes)
         return _nodes_available_at_startup
 
     # load from entrypoints
@@ -232,4 +237,5 @@ def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=Fa
         if upstream_web_dirs:
             _nodes_available_at_startup.EXTENSION_WEB_DIRS.update(upstream_web_dirs)
 
+    governance.apply_disabled_nodes(_nodes_available_at_startup, disabled_nodes)
     return _nodes_available_at_startup

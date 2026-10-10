@@ -11,6 +11,7 @@ import torch
 
 from .. import common_dit
 from ... import model_management
+from ... import model_prefetch
 from ... import quant_ops
 from ... import utils
 from ..flux.math import apply_rope1
@@ -206,16 +207,17 @@ class PoseBranchCache:
         stream = None
         r = None
         if t.device != device:
-            stream = model_management.get_offload_stream(device)
-            cs = model_management.current_stream(device)
-            if stream is not None and cs is not None:
-                # the handed-out stream last waited on the main stream a full rotation ago, which does not cover the previous consumer's reads of this slot; wait now so the copy cannot overwrite a slot still being read
-                stream.wait_stream(cs)
             # two persistent staging buffers per tensor shape instead of a fresh allocation per block (~29 GB of churn per pass at 720p); windows of different lengths get their own pair
             buf_key = (tuple(t.shape), cast_dtype if cast_dtype is not None else t.dtype)
             if buf_key not in self._staging:
-                self._staging[buf_key] = [torch.empty(t.shape, dtype=buf_key[1], device=device) for _ in range(2)]
+                with model_prefetch.pause_malloc_graph():
+                    self._staging[buf_key] = [torch.empty(t.shape, dtype=buf_key[1], device=device) for _ in range(2)]
             r = self._staging[buf_key][i % 2]
+            stream = model_management.get_offload_stream(device)
+            cs = model_management.current_stream(device)
+            if stream is not None and cs is not None:
+                # Wait for staging allocation and the previous consumer's reads before overwriting the buffer.
+                stream.wait_stream(cs)
         self._pending[i] = (model_management.cast_to(t, cast_dtype, device, non_blocking=True, stream=stream, r=r), stream)
 
     def take(self, i, device, dtype, batch_size):

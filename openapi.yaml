@@ -9353,6 +9353,15 @@ components:
           - cloud
           description: '[cloud-only] Cloud workflow version ID for pinning execution to a specific version. Ignored by local
             ComfyUI.'
+        workflow_metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Key/values echoed on the json websocket messages of this prompt that carry a `prompt_id`, so a client
+            can tell which of its open workflows a message belongs to. Messages without a `prompt_id`, such as `status`, do
+            not carry it. The server does not interpret the contents. Limited to 256 bytes serialised; a larger or non-object
+            value is ignored. When omitted, the server falls back to `{workflow_id: extra_data.extra_pnginfo.workflow.id}`
+            if the submitted workflow carries an id.'
     PromptResponse:
       type: object
       description: Server acknowledgement of a workflow submission. Includes the assigned `prompt_id` and current queue position.

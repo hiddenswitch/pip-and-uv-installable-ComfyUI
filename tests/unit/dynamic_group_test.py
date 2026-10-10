@@ -8,6 +8,7 @@ if not torch.cuda.is_available():
 
 from comfy.cmd import execution  # noqa: E402
 from comfy_api.latest import io  # noqa: E402
+from comfy_api.latest._io import _DynamicGroup  # noqa: E402
 
 
 pytestmark = pytest.mark.asyncio
@@ -23,7 +24,7 @@ async def test_group_missing_fields_follow_execution_list_mode(is_input_list, la
         @classmethod
         def define_schema(cls):
             return io.Schema(node_id=cls.__name__, is_input_list=is_input_list, inputs=[
-                io.DynamicGroup.Input("rows", template=[
+                _DynamicGroup.Input("rows", template=[
                     io.Float.Input("x"), io.Float.Input("optional", optional=True, default=1.0),
                 ], max=3),
             ], outputs=[])
@@ -65,7 +66,7 @@ async def test_group_validation_errors_identify_original_input(monkeypatch, valu
         @classmethod
         def define_schema(cls):
             return io.Schema(node_id=cls.__name__, inputs=[
-                io.DynamicGroup.Input("rows", template=[io.Float.Input("x")], min=1, max=3),
+                _DynamicGroup.Input("rows", template=[io.Float.Input("x")], min=1, max=3),
             ], outputs=[io.Float.Output()], is_output_node=not downstream)
 
         @classmethod

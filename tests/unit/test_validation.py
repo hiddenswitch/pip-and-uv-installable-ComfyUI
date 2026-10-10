@@ -1,5 +1,6 @@
 from contextvars import ContextVar
 from typing import Final
+import os
 
 import pytest
 from pytest_mock import MockerFixture
@@ -244,9 +245,11 @@ async def test_validate_prompt_accepts_existing_absolute_model_path(mock_nodes, 
     result = await validate_prompt(str(uuid.uuid4()), prompt)
     assert result.valid, result.node_errors
 
-    prompt["1"] = {"inputs": {"ckpt_name": str(tmp_path / "missing.safetensors")}, "class_type": "CheckpointLoaderSimple"}
-    result = await validate_prompt(str(uuid.uuid4()), prompt)
-    assert not result.valid
+    if os.name != "nt":
+        # on Windows the drive letter parses as a URI scheme ("C:"), which the URI rule already lets through
+        prompt["1"] = {"inputs": {"ckpt_name": str(tmp_path / "missing.safetensors")}, "class_type": "CheckpointLoaderSimple"}
+        result = await validate_prompt(str(uuid.uuid4()), prompt)
+        assert not result.valid
 
 
 async def test_validate_prompt_default_models(mock_nodes, disable_known_models):

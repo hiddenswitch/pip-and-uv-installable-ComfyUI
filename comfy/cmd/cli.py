@@ -279,6 +279,7 @@ _NODE_OPTS: list[tuple] = [
     ("disable_all_custom_nodes", bool, typer.Option(False, "--disable-all-custom-nodes", help="Disable loading all custom nodes.")),
     ("whitelist_custom_nodes", Optional[list[str]], typer.Option(None, "--whitelist-custom-nodes", help="Specify custom node folders to load even when --disable-all-custom-nodes is enabled.")),
     ("blacklist_custom_nodes", Optional[list[str]], typer.Option(None, "--blacklist-custom-nodes", help="Specify custom node folders to never load. Accepts shell-style globs.")),
+    ("disabled_nodes_config", Optional[str], typer.Option(None, "--disabled-nodes-config", metavar="PATH", help="Path to a YAML file listing node IDs to disable.")),
     ("disable_partner_nodes", bool, typer.Option(False, "--disable-partner-nodes", help="Disable loading partner nodes (the paid API nodes). The frontend keeps its internet access.")),
     ("offline", bool, typer.Option(False, "--offline/--no-offline", help="Prevent the frontend from communicating with the internet by setting a restrictive Content-Security-Policy header. Also disables partner nodes.")),
     ("disable_api_nodes", bool, typer.Option(False, "--disable-api-nodes", help="Deprecated alias for --offline. Use --offline, or --disable-partner-nodes to only disable partner nodes.")),

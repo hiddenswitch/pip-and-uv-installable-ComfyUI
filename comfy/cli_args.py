@@ -201,6 +201,7 @@ parser.add_argument("--disable-metadata", action="store_true", help="Disable sav
 parser.add_argument("--disable-all-custom-nodes", action="store_true", help="Disable all custom nodes.")
 parser.add_argument("--whitelist-custom-nodes", type=str, nargs='+', default=[], help="Custom nodes to load.")
 parser.add_argument("--blacklist-custom-nodes", type=str, nargs='+', default=[], help="Custom nodes to never load.")
+parser.add_argument("--disabled-nodes-config", type=str, default=None, metavar="PATH", help="Path to a YAML file listing node IDs to disable.")
 parser.add_argument("--disable-partner-nodes", action="store_true", help="Disable loading partner nodes (the paid API nodes). The frontend keeps its internet access.")
 parser.add_argument("--offline", action="store_true", help="Prevent the frontend from communicating with the internet by setting a restrictive Content-Security-Policy header. Also disables partner nodes.")
 parser.add_argument("--disable-api-nodes", action="store_true", help="Deprecated alias for --offline. Use --offline, or --disable-partner-nodes to only disable partner nodes.")

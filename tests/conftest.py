@@ -56,6 +56,19 @@ def requires_serial_process_group(fixture_names) -> bool:
     return not _SERIAL_PROCESS_FIXTURES.isdisjoint(fixture_names)
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem):
+    marker = pyfuncitem.get_closest_marker("ipython")
+    if marker is None:
+        return None
+
+    # Notebook dependencies are only needed when executing a marked test.
+    from tests.ipython_runner import run_in_ipython
+
+    run_in_ipython(pyfuncitem, marker)
+    return True
+
+
 @pytest.fixture
 def mock_user_directory():
     from comfy.component_model.folder_path_types import FolderNames

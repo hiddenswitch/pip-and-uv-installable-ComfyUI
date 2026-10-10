@@ -246,6 +246,7 @@ class Configuration(dict):
         list_feature_flags (bool): Print known CLI-settable feature flags as JSON and exit.
         blacklist_custom_nodes (list[str]): Specify custom node folders to never load. Accepts shell-style globs.
         whitelist_custom_nodes (list[str]): Specify custom node folders to load even when --disable-all-custom-nodes is enabled.
+        disabled_nodes_config (Optional[str]): Path to a YAML file listing node IDs to disable.
         default_device (Optional[int]): Set the id of the default device, all other devices will stay visible.
         block_runtime_package_installation (Optional[bool]): When set, custom nodes like ComfyUI Manager, Easy Use, Nunchaku and others will not be able to use pip or uv to install packages at runtime (experimental).
         enable_eval (Optional[bool]): Enable nodes that can evaluate Python code in workflows.
@@ -360,6 +361,7 @@ class Configuration(dict):
         self.disable_all_custom_nodes: bool = False
         self.blacklist_custom_nodes: list[str] = []
         self.whitelist_custom_nodes: list[str] = []
+        self.disabled_nodes_config: Optional[str] = None
         self.multi_user: bool = False
         self.plausible_analytics_base_url: Optional[str] = None
         self.plausible_analytics_domain: Optional[str] = None
