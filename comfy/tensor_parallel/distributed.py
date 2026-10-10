@@ -466,6 +466,10 @@ def _run_worker(operations, coordinator, patcher, span_name):
                     coordinator.send_object({"kind": "done"}, 0)
                 except Exception:
                     _send_worker_error(coordinator, operations.rank)
+                finally:
+                    # Do not keep the last invocation's inputs or custom-node
+                    # cache tensors alive while waiting for another command.
+                    tensors = args = kwargs = None
 
 
 def worker_main(host, port, authkey, parallel_kind="tensor"):

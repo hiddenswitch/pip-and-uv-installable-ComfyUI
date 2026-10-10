@@ -2618,6 +2618,8 @@ def supports_fp8_compute(device=None):
 
 
 def supports_nvfp4_compute(device=None):
+    if isinstance(device, torch.device) and device.type != "cuda":
+        return False
     if not is_nvidia():
         return False
 
@@ -2629,6 +2631,8 @@ def supports_nvfp4_compute(device=None):
 
 
 def supports_mxfp8_compute(device=None):
+    if isinstance(device, torch.device) and device.type != "cuda":
+        return False
     if not is_nvidia():
         return False
 

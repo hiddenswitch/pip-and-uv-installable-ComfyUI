@@ -268,6 +268,10 @@ def _apply_post_import_patches(module_name: str) -> None:
     _patch_essentials_pixeloe(module_name)
     _patch_segformer_model_resolution(module_name)
     _install_deferred_controlnet_patches(module_name)
+    if module_name.lower() == "comfyui-hunyuanimage3":
+        from ..tensor_parallel.hunyuan_image3 import install
+
+        install(sys.modules[module_name])
 
 
 def _patch_essentials_pixeloe(module_name: str) -> None:

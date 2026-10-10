@@ -1,0 +1,200 @@
+from concurrent.futures import ThreadPoolExecutor
+from types import ModuleType, SimpleNamespace
+import threading
+import sys
+
+import pytest
+import torch
+from safetensors.torch import save_file
+
+from comfy import ops, model_management
+from comfy.pipeline_parallel.checkpoint import SafetensorsCheckpointReader
+from comfy.tensor_parallel import TensorParallelConfig
+from comfy.tensor_parallel.hunyuan_image3 import _load_state, _TextTransformer
+from comfy.tensor_parallel.operations import gathered_output_operations, tensor_parallel_operations
+from comfy.tensor_parallel.kandinsky6 import _DistributedDiT, clear_magcache_after_sample
+from comfy.tensor_parallel.kandinsky6 import load_state as load_kandinsky_state, shard_model
+from comfy.ldm.kandinsky5.model import CrossAttention, FeedForward
+
+
+class Collectives:
+    def __init__(self, size):
+        self.size = size
+        self.condition = threading.Condition()
+        self.values = {}
+
+    def operation(self, index, rank, value, gather):
+        with self.condition:
+            values = self.values.setdefault(index, {})
+            values[rank] = value
+            self.condition.notify_all()
+            assert self.condition.wait_for(lambda: len(values) == self.size, timeout=10)
+            ordered = [values[i] for i in range(self.size)]
+            return torch.cat(ordered, dim=-1) if gather else sum(ordered)
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps", "xpu"])
+def test_non_cuda_quantized_load_does_not_query_cuda_properties(monkeypatch, device):
+    monkeypatch.setattr(model_management, "is_nvidia", lambda: True)
+
+    def unexpected(_):
+        raise AssertionError("CPU/offload capability probe queried CUDA")
+
+    monkeypatch.setattr(torch.cuda, "get_device_properties", unexpected)
+    assert not model_management.supports_nvfp4_compute(torch.device(device))
+    assert not model_management.supports_mxfp8_compute(torch.device(device))
+
+
+class Rank:
+    def __init__(self, collective, rank):
+        self.collective, self.rank = collective, rank
+        self.world_size = collective.size
+        self.index = 0
+
+    def _call(self, value, gather):
+        index = self.index
+        self.index += 1
+        return self.collective.operation(index, self.rank, value, gather)
+
+    def sum(self, value):
+        return self._call(value, False)
+
+    def gather(self, value):
+        return self._call(value, True)
+
+
+def test_magcache_releases_residuals_on_cancel():
+    state = SimpleNamespace(_lanes={0: torch.ones(4)}, _finished=False)
+
+    class CancelledSample:
+        class_obj = SimpleNamespace(model_options={"transformer_options": {"k6_magcache": state}})
+
+        def __call__(self):
+            raise InterruptedError("cancelled")
+
+    with pytest.raises(InterruptedError):
+        clear_magcache_after_sample(CancelledSample())
+    assert not state._lanes
+    assert state._finished
+
+
+@pytest.mark.parametrize("size", [2, 4])
+def test_row_parallel_bias_is_added_once(size):
+    torch.manual_seed(9)
+    reference = torch.nn.Linear(16, 8)
+    inputs = torch.randn(3, 16)
+    collective = Collectives(size)
+    modules = []
+    for rank in range(size):
+        operations = tensor_parallel_operations(ops.manual_cast, TensorParallelConfig(Rank(collective, rank)))
+        module = operations.RowParallelLinear(16, 8)
+        state = {"weight": reference.weight[:, rank * (16 // size):(rank + 1) * (16 // size)].clone()}
+        if rank == 0:
+            state["bias"] = reference.bias.detach().clone()
+        module.load_state_dict(state)
+        modules.append(module)
+    with ThreadPoolExecutor(size) as pool:
+        outputs = list(pool.map(lambda rank: modules[rank](inputs.chunk(size, dim=-1)[rank]), range(size)))
+    for output in outputs:
+        torch.testing.assert_close(output, reference(inputs))
+
+
+@pytest.mark.parametrize("size", [2, 4])
+def test_gathered_expert_rows_preserve_full_input_and_output(size):
+    torch.manual_seed(7)
+    base = ops.mixed_precision_ops(compute_dtype=torch.float32)
+    collective = Collectives(size)
+    weights = torch.randn(3, 16, 32)
+    inputs = torch.randn(5, 32)
+    modules = []
+    for rank in range(size):
+        operations = gathered_output_operations(base, TensorParallelConfig(Rank(collective, rank)))
+        module = operations.MoEExperts(3, 32, 16, bias=False)
+        module.load_state_dict({"weight": weights[:, rank * (16 // size):(rank + 1) * (16 // size)].clone()})
+        modules.append(module)
+    with ThreadPoolExecutor(size) as pool:
+        outputs = list(pool.map(lambda rank: modules[rank].expert_linear(inputs, 1), range(size)))
+    for output in outputs:
+        torch.testing.assert_close(output, inputs @ weights[1].t())
+
+
+def test_w4a8_checkpoint_slices_keep_full_k_and_shared_codebook(tmp_path):
+    prefix = "model.layers.0.mlp.experts_gate_up_proj"
+    state = {
+        prefix + ".weight": torch.arange(2 * 16 * 32, dtype=torch.int64).reshape(2, 16, 32).to(torch.uint8),
+        prefix + ".weight_s_rel": torch.randn(2, 16, 4),
+        prefix + ".weight_s_channel": torch.randn(2, 16, 1),
+        prefix + ".weight_codebook": torch.randn(16),
+        prefix + ".comfy_quant": torch.tensor([1, 2, 3], dtype=torch.uint8),
+    }
+    path = tmp_path / "model.safetensors"
+    save_file(state, path)
+    reader = SafetensorsCheckpointReader(path)
+    parallel = TensorParallelConfig(Rank(Collectives(2), 1))
+    actual = _load_state(reader, {prefix: 1}, parallel, ("lm_head.",))
+    for suffix in ("weight", "weight_s_rel", "weight_s_channel"):
+        torch.testing.assert_close(actual[prefix + "." + suffix], state[prefix + "." + suffix][:, 8:])
+        assert actual[prefix + "." + suffix]._base is None
+    for suffix in ("weight_codebook", "comfy_quant"):
+        torch.testing.assert_close(actual[prefix + "." + suffix], state[prefix + "." + suffix])
+
+
+def test_direct_custom_node_calls_route_through_executor():
+    calls = []
+
+    def execute(method, *args, **kwargs):
+        calls.append(method)
+        return (args[0] + 1, [[torch.ones(1), torch.zeros(1)]]) if method == "tensor_parallel_text_forward" else args[0] + 2
+
+    executor = SimpleNamespace(execute_method=execute)
+    dit = _DistributedDiT(SimpleNamespace(n_grid=4), executor)
+    assert dit.n_grid == 4
+    assert dit(torch.zeros(1)).item() == 2
+    transformer = _TextTransformer(SimpleNamespace(wte=None), executor)
+    cache = [[None, None]]
+    assert transformer(torch.zeros(1), None, None, cache).item() == 1
+    assert cache[0][0].item() == 1
+    assert calls == ["forward", "tensor_parallel_text_forward"]
+
+
+@pytest.mark.parametrize("size", [2, 4])
+def test_kandinsky_attention_and_ffn_shards_match_full_forward(size, tmp_path, monkeypatch):
+    # K6 reuses these K5 modules; its asymmetric attention has the same projection contract.
+    extension = ModuleType("test_k6.kandinsky6.ldm.model")
+    extension.AsymCrossAttention = CrossAttention
+    registration = ModuleType("test_k6.kandinsky6.register")
+    registration._native_key = lambda key: key
+    monkeypatch.setitem(sys.modules, extension.__name__, extension)
+    monkeypatch.setitem(sys.modules, registration.__name__, registration)
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            settings = {"operations": ops.manual_cast, "device": "cpu", "dtype": torch.float32}
+            self.attention = CrossAttention(32, 8, settings)
+            self.feed_forward = FeedForward(32, 64, settings)
+
+        def forward(self, x):
+            return self.feed_forward(self.attention(x, x))
+
+    torch.manual_seed(31)
+    reference = Block()
+    for parameter in reference.parameters():
+        parameter.data.copy_(torch.randn_like(parameter) * 0.1)
+    path = tmp_path / "k6.safetensors"
+    save_file(reference.state_dict(), path)
+    reader = SafetensorsCheckpointReader(path)
+    collective = Collectives(size)
+    modules = []
+    for rank in range(size):
+        parallel = TensorParallelConfig(Rank(collective, rank))
+        module = Block()
+        shards = shard_model(module, tensor_parallel_operations(ops.manual_cast, parallel), "test_k6")
+        module.load_state_dict(load_kandinsky_state(reader, "", shards, parallel, "test_k6"))
+        modules.append(module)
+    inputs = torch.randn(1, 3, 32)
+    expected = reference(inputs)
+    with ThreadPoolExecutor(size) as pool:
+        outputs = list(pool.map(lambda module: module(inputs), modules))
+    for output in outputs:
+        torch.testing.assert_close(output, expected, atol=1e-6, rtol=1e-5)
