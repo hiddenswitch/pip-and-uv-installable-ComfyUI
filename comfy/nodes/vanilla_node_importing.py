@@ -278,6 +278,18 @@ def _apply_post_import_patches(module_name: str) -> None:
         from ..tensor_parallel.hunyuan_image3 import install
 
         install(sys.modules[module_name])
+    if module_name.lower() == "kandinsky-6-sr":
+        from ..model_downloader import get_filename_list_with_downloadable
+
+        nodes = sys.modules[module_name + ".kandinsky6_vsr.nodes"]
+
+        def local_model_files():
+            # SR discovers component types from adjacent config files. Remote
+            # catalog entries must not trigger downloads during this scan.
+            return sorted({name for folder in (nodes.SR_MODEL_FOLDER, "diffusion_models")
+                           for name in get_filename_list_with_downloadable(folder, known_files=[])})
+
+        nodes._model_files = local_model_files
 
 
 def _patch_essentials_pixeloe(module_name: str) -> None:

@@ -40,7 +40,8 @@
     "node_package": "kandinsky6==1.0.2",
     "source_workflow": "Kandinsky 6.0 Image to Video+Audio.json",
     "purpose": "tp-comparison",
-    "model_revision": "1018d5828716e8bea3de99609f45c924de9c5564"
+    "model_revision": "1018d5828716e8bea3de99609f45c924de9c5564",
+    "benchmark_workflow": "api/generation/kandinsky6_pro_distilled_i2av.json"
   },
   {
     "name": "kandinsky6_pro_standard_i2av",
@@ -48,7 +49,8 @@
     "node_package": "kandinsky6==1.0.2",
     "source_workflow": "Kandinsky 6.0 Image to Video+Audio.json",
     "purpose": "tp-comparison",
-    "model_revision": "295ca976810e318fb45c870ba4fc72c9a37fd548"
+    "model_revision": "295ca976810e318fb45c870ba4fc72c9a37fd548",
+    "benchmark_workflow": "api/generation/kandinsky6_pro_standard_i2av.json"
   },
   {
     "name": "kandinsky6_pro_distilled_t2av",
@@ -56,7 +58,8 @@
     "node_package": "kandinsky6==1.0.2",
     "source_workflow": "Kandinsky 6.0 Text to Video+Audio.json",
     "purpose": "tp-comparison",
-    "model_revision": "1018d5828716e8bea3de99609f45c924de9c5564"
+    "model_revision": "1018d5828716e8bea3de99609f45c924de9c5564",
+    "benchmark_workflow": "api/generation/kandinsky6_pro_distilled_t2av.json"
   },
   {
     "name": "kandinsky6_pro_standard_t2av",
@@ -64,7 +67,8 @@
     "node_package": "kandinsky6==1.0.2",
     "source_workflow": "Kandinsky 6.0 Text to Video+Audio.json",
     "purpose": "tp-comparison",
-    "model_revision": "295ca976810e318fb45c870ba4fc72c9a37fd548"
+    "model_revision": "295ca976810e318fb45c870ba4fc72c9a37fd548",
+    "benchmark_workflow": "api/generation/kandinsky6_pro_standard_t2av.json"
   },
   {
     "name": "kandinsky6_sr",

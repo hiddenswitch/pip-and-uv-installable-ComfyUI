@@ -94,8 +94,14 @@ phase while preserving a complete baseline with identical environment and inputs
 The nine generation cases and standalone SR smoke are listed in
 `release-artifacts/workflows/matrix.json`; API workflows, input provenance and
 immutable model revisions are alongside it. All requested weights are downloaded.
-Kandinsky samples include SR postprocessing; report generator and end-to-end
-performance separately where trace spans permit. SR uses single-device fallback.
+Original Kandinsky samples include SR postprocessing. On the A5000, the first
+full sample completed Pro denoising but ran out of VRAM in SR causal VAE decode
+(6.38 GiB allocation with 3.43 GiB free). This failed run is excluded from timing
+comparisons; evidence is `release-artifacts/kandinsky-sr-full-sample.json`.
+The `api/generation/` variants retain full Pro settings and save pre-SR video/audio
+for TP comparisons. SR is validated separately and uses single-device fallback.
+SR component discovery now scans installed bundles without resolving unrelated
+downloadable catalog models; its regression test passed.
 Primary workflows disable approximation caches and prompt rewriting.
 
 Initial Hunyuan output-row sharding was slower: warm medians 45.42 seconds TP1
