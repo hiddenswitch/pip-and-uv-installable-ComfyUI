@@ -48,6 +48,19 @@ def test_non_cuda_quantized_load_does_not_query_cuda_properties(monkeypatch, dev
     assert not model_management.supports_mxfp8_compute(torch.device(device))
 
 
+@pytest.mark.parametrize("device", [None, torch.device("cuda")])
+def test_quantized_capability_probe_without_visible_cuda(monkeypatch, device):
+    monkeypatch.setattr(model_management, "is_nvidia", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    def unexpected(_):
+        raise AssertionError("Capability probe initialized an unavailable CUDA device")
+
+    monkeypatch.setattr(torch.cuda, "get_device_properties", unexpected)
+    assert not model_management.supports_nvfp4_compute(device)
+    assert not model_management.supports_mxfp8_compute(device)
+
+
 class Rank:
     def __init__(self, collective, rank):
         self.collective, self.rank = collective, rank
