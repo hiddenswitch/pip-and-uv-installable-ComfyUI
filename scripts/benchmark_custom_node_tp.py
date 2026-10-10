@@ -95,10 +95,22 @@ def run(args):
         "model_revisions": json.loads(args.revisions.read_text()),
         "sampling_interval_seconds": 0.2,
     }
+    results_path = output / "results.json"
+    results = [row for row in json.loads(results_path.read_text()) if row["tp"] not in args.tp_sizes] if results_path.exists() else []
+    if results and json.loads((output / "environment.json").read_text()) != environment:
+        raise ValueError("Existing benchmark environment differs; use a new output directory")
+    for size in {row["tp"] for row in results}:
+        if sorted(row["seed"] for row in results if row["tp"] == size) != [42, 43, 44, 45]:
+            raise ValueError(f"Existing TP{size} results are incomplete; rerun that phase")
+        for seed in (42, 43, 44, 45):
+            previous = json.loads((output / f"tp{size}" / f"seed{seed}.prompt.json").read_text())
+            if previous != seeded_workflow(workflow, seed):
+                raise ValueError("Existing benchmark workflow differs; use a new output directory")
     (output / "environment.json").write_text(json.dumps(environment, indent=2))
-    results = []
     base = f"http://127.0.0.1:{args.port}"
     for size, devices in ((1, [args.baseline_gpu]), (2, args.tp_gpus)):
+        if size not in args.tp_sizes:
+            continue
         wait_for_idle_devices(devices, args.timeout)
         destination = output / f"tp{size}"
         destination.mkdir(exist_ok=True)
@@ -180,8 +192,9 @@ def run(args):
         writer = csv.DictWriter(csv_file, fieldnames=results[0].keys())
         writer.writeheader()
         writer.writerows(results)
-    medians = {size: statistics.median(r["job_wall_seconds"] for r in results if r["tp"] == size and not r["cold"]) for size in (1, 2)}
-    (output / "summary.json").write_text(json.dumps({"warm_median_seconds": medians, "tp2_speedup": medians[1] / medians[2]}, indent=2))
+    medians = {size: statistics.median(r["job_wall_seconds"] for r in results if r["tp"] == size and not r["cold"]) for size in {r["tp"] for r in results}}
+    speedup = medians[1] / medians[2] if 1 in medians and 2 in medians else None
+    (output / "summary.json").write_text(json.dumps({"warm_median_seconds": medians, "tp2_speedup": speedup}, indent=2))
 
 
 if __name__ == "__main__":
@@ -193,6 +206,7 @@ if __name__ == "__main__":
     parser.add_argument("--server-arg", action="append", default=[], help="Repeat using --server-arg=VALUE for model paths and common server flags")
     parser.add_argument("--baseline-gpu", type=int, default=1)
     parser.add_argument("--tp-gpus", type=int, nargs=2, default=[0, 1])
+    parser.add_argument("--tp-sizes", type=int, nargs="+", choices=(1, 2), default=[1, 2], help="Run selected phases, preserving complete results for the other phase")
     parser.add_argument("--port", type=int, default=8197)
     parser.add_argument("--timeout", type=int, default=7200)
     run(parser.parse_args())
